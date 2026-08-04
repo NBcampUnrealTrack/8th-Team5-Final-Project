@@ -18,8 +18,12 @@ public class HeavenBreach : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
-		});
+			"Slate",
+            "GameplayAbilities",
+            "GameplayTags",
+            "GameplayTasks",
+            "NavigationSystem"
+        });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
