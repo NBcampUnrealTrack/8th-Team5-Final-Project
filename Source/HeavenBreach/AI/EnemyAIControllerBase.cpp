@@ -11,6 +11,8 @@
 #include "AI/Enum/BBKey.h"
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BlackboardComponent.h"
+#include "AI/EnemyCharacterBase.h"
+#include "AI/DataRow/EnemyArchetypeData.h"
 
 DEFINE_LOG_CATEGORY(LogEnemyAI);
 
@@ -37,9 +39,13 @@ void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 
+	// 캐릭터가 들고있는 데이터를 가져온다.
+	AEnemyCharacterBase* Enemy = Cast<AEnemyCharacterBase>(InPawn);
+	const UEnemyArchetypeData* Data = Enemy ? Enemy->GetArchetypeData() : nullptr;
+
 	// 폰이 붙은 뒤여야 감각의 기준이 정해진다.
 	// 데이터 에셋 기반으로 가게되는데 여기서 시야 거리까지 넣게된다면 여기서 해야한다.
-	ApplySenses();
+	ApplyArchetype(Enemy);
 
 	if (PerceptionComp)
 	{
@@ -54,6 +60,8 @@ void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
 		{
 			// 배회의 중심. 스폰 위치에 앵커를 박는다.
 			BB->SetValueAsVector(FBBKey::HomeLocation, InPawn->GetActorLocation());
+			// 배회의 중심으로 부터 최대 이동거리
+			BB->SetValueAsFloat(FBBKey::MaxMoveDistance,Data ? Data->GetStats().MaxMoveDistance : 1000.f);
 		}
 
 		if (AlertComponent)
@@ -112,6 +120,39 @@ void AEnemyAIControllerBase::Tick(float DeltaSeconds)
 #endif
 }
 
+void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
+{
+	const UEnemyArchetypeData* Data = Char ? Char->GetArchetypeData() : nullptr;
+
+	if (!Data)
+	{
+		// 애셋 미지정. 각 클래스의 UPROPERTY 기본값으로 동작한다.
+		// Warning 으로 남기는 이유: 조용히 넘기면 "왜 값을 바꿨는데 안 먹지"를
+		// 나중에 추적하게 된다.
+		UE_LOG(LogEnemyAI, Warning, TEXT("[AI] %s ArchetypeData 미지정 — 폴백 값 사용"),*GetNameSafe(GetPawn()));
+		ApplySenses(nullptr);
+		return;
+	}
+
+	const FEnemyStatRow& S = Data->GetStats();
+
+	// 어떤 값이 어디로 가는지의 목록
+	ApplySenses(&S);
+
+	if (AlertComponent)
+	{
+		AlertComponent->SetLostMemoryDuration(S.LostMemoryDuration);
+	}
+
+	if (Char)
+	{
+		Char->SetWalkSpeed(S.WalkSpeed);
+		Char->SetRunSpeed(S.RunSpeed);
+		Char->SetAccRadius(S.AcceptanceRadius);
+		//Enemy->SetMovementStats(S.WalkSpeed, S.RunSpeed, S.AcceptanceRadius);
+	}
+}
+
 bool AEnemyAIControllerBase::IsValidTarget(const AActor* Actor) const
 {
 	// 유효성 검사
@@ -126,7 +167,7 @@ bool AEnemyAIControllerBase::IsValidTarget(const AActor* Actor) const
 	return AsPawn && AsPawn->IsPlayerControlled();
 }
 
-void AEnemyAIControllerBase::ApplySenses()
+void AEnemyAIControllerBase::ApplySenses(const FEnemyStatRow* Stats)
 {
 	//감각이 존재해야 진행가능
 	if (!PerceptionComp || !SightConfig)
@@ -134,17 +175,23 @@ void AEnemyAIControllerBase::ApplySenses()
 		return;
 	}
 
+	// Stats 가 있으면 그 값, 없으면 이 클래스의 기본값 사용.
+	const float UseSightRadius = Stats ? Stats->SightRadius : SightRadius;
+	const float UseLoseRadius = Stats ? Stats->LoseSightRadius : LoseSightRadius;
+	const float UseVisionAngle = Stats ? Stats->PeripheralVisionAngle : PeripheralVisionAngle;
+	const float UseMaxAge = Stats ? Stats->SightMaxAge : SightMaxAge;
+
 	// 시야 범위
-	SightConfig->SightRadius = SightRadius;
+	SightConfig->SightRadius = UseSightRadius;
 
 	// 대상을 시야에서 잃기 까지 범위
 	// 적어도 LoseSightRadius가 SightRadius보다는 커야하니 Max로 작성
-	SightConfig->LoseSightRadius = FMath::Max(LoseSightRadius, SightRadius + 100.f);
+	SightConfig->LoseSightRadius = FMath::Max(UseLoseRadius, UseSightRadius + 100.f);
 
 	// 시야 각도. 반지름이니 실제범위는 2배다.
-	SightConfig->PeripheralVisionAngleDegrees = PeripheralVisionAngle;
+	SightConfig->PeripheralVisionAngleDegrees = UseVisionAngle;
 	// 시야에 들어온대상이 벗어날 시 정보를 잃어버리기까지 수명 시간
-	SightConfig->SetMaxAge(SightMaxAge);
+	SightConfig->SetMaxAge(UseMaxAge);
 
 	// 뒤에서 가까이 붙으면 자동 감지되는 기능을 끈다.
 	// 켜두면 시야각 테스트가 무의미해져서 1번 검증이 흐려진다.
@@ -155,6 +202,10 @@ void AEnemyAIControllerBase::ApplySenses()
 	SightConfig->DetectionByAffiliation.bDetectNeutrals = true;
 	SightConfig->DetectionByAffiliation.bDetectFriendlies = false;
 
+	// 이미등록해있어도 옵션값이 수정 이후 다시 등록안해주면 기본값으로 되버림...
+	PerceptionComp->ConfigureSense(*SightConfig);
+
+	// 감각정보 수정을 알림
 	PerceptionComp->RequestStimuliListenerUpdate();
 }
 

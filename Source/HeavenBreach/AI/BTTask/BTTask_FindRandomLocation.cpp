@@ -15,6 +15,7 @@ UBTTask_FindRandomLocation::UBTTask_FindRandomLocation()
 	// 안 하면 에디터에서 Object 키를 고를 수 있고, 런타임에 조용히 실패한다.
 	BlackboardKey.AddVectorFilter(this, GET_MEMBER_NAME_CHECKED(UBTTask_FindRandomLocation, BlackboardKey));
 	OriginKey.AddVectorFilter(this, GET_MEMBER_NAME_CHECKED(UBTTask_FindRandomLocation, OriginKey));
+	RadiusKey.AddFloatFilter(this, GET_MEMBER_NAME_CHECKED(UBTTask_FindRandomLocation, RadiusKey));
 }
 
 EBTNodeResult::Type UBTTask_FindRandomLocation::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
@@ -33,6 +34,12 @@ EBTNodeResult::Type UBTTask_FindRandomLocation::ExecuteTask(UBehaviorTreeCompone
 	}
 
 	const FVector Origin = BB->GetValueAsVector(OriginKey.SelectedKeyName);
+	const float Radius = BB->GetValueAsFloat(RadiusKey.SelectedKeyName);
+
+	if (Radius <= 0.f)
+	{
+		return EBTNodeResult::Failed;
+	}
 
 	// GetRandomReachablePointInRadius: 네비메시 위 + 실제로 도달 가능한 지점만 반환.
 	// GetRandomPointInNavigableRadius 는 네비메시 위만 보장하므로
@@ -50,8 +57,8 @@ EBTNodeResult::Type UBTTask_FindRandomLocation::ExecuteTask(UBehaviorTreeCompone
 FString UBTTask_FindRandomLocation::GetStaticDescription() const
 {
 	// 에디터 노드에 요약을 표시한다. 트리가 커지면 이게 없으면 노드를 클릭해야 설정이 보인다.
-	return FString::Printf(TEXT("%s 주변 %.0f 반경 → %s"),
+	return FString::Printf(TEXT("%s 주변 %s 반경 -> %s"),
 		*OriginKey.SelectedKeyName.ToString(),
-		Radius,
+		*RadiusKey.SelectedKeyName.ToString(),
 		*BlackboardKey.SelectedKeyName.ToString());
 }
