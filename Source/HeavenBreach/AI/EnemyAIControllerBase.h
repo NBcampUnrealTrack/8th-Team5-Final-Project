@@ -11,6 +11,9 @@ class UAIPerceptionComponent;
 class UAISenseConfig_Sight;
 class UAlertComponent;
 struct FAIStimulus;
+class UEnemyArchetypeData;
+struct FEnemyStatRow;
+class AEnemyCharacterBase;
 
 /**
  * 
@@ -32,12 +35,16 @@ public:
 
 protected:
 
+	// 컴포넌트, 캐릭터등등...흩어져 사용되는 변수들을 각각에게 뿌리는 함수 
+	// 이 함수 하나를 읽으면 어떤 값이 어디로 가는지 보인다.
+	void ApplyArchetype(AEnemyCharacterBase* Char);
+
 	// 올바른 타겟인지 검증
 	virtual bool IsValidTarget(const AActor* Actor) const;
 
 	// 감각 컴포넌트에 감각들을 연결한다.
 	// 혹시 나중에 시야나 청각이 필요하거나 없늕적이 나올지도모르니까
-	void ApplySenses();
+	void ApplySenses(const FEnemyStatRow* Stats);
 
 	// 감각컴포넌트에서 누군가 발견시 델리게이트 구독시키는 함수
 	UFUNCTION()

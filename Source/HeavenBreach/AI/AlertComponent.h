@@ -34,6 +34,9 @@ public:
 	// 되도록 유효성을 위해 Actor는 IsVaild로 유효성 검사를 해둘것
 	void SightLost(AActor* Actor, const FVector& LastSeenLocation);
 
+	// lost상태 기간 설정
+	void SetLostMemoryDuration(float Duration) { LostMemoryDuration = FMath::Max(0.f, Duration); }
+
 	// 구독자는 이걸 받아 게터로 현재 값을 읽는다.
 	FOnAlertUpdated OnAlertUpdated;
 
@@ -45,7 +48,7 @@ public:
 protected:
 	// Lost상태 유지 시간
 	UPROPERTY(EditDefaultsOnly, Category = "Alert")
-	float LostMemoryDuration = 8.f;
+	float LostMemoryDuration = 5.f;
 
 	// 상태 변경
 	void SetState(EAlertState NewState);

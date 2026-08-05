@@ -28,6 +28,6 @@ protected:
 	FBlackboardKeySelector OriginKey;
 
 	// 이동되는 배회 거리
-	UPROPERTY(EditAnywhere, Category = "Search", meta = (ClampMin = "0.0"))
-	float Radius = 1000.f;
+	UPROPERTY(EditAnywhere, Category = "Search")
+	FBlackboardKeySelector RadiusKey;
 };

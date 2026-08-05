@@ -14,4 +14,5 @@ struct FBBKey
 	inline static const FName LastKnownLocation = FName(TEXT("LastKnownLocation"));
 	inline static const FName HomeLocation = FName(TEXT("HomeLocation"));
 	inline static const FName MoveGoal = FName(TEXT("MoveGoal"));
+	inline static const FName MaxMoveDistance = FName(TEXT("MaxMoveDistance"));
 };
