@@ -1,4 +1,4 @@
-#include "HeavenBreach_GameplayTag.h"
+#include "HB_GameplayTag.h"
 
 namespace TeamTag
 {
