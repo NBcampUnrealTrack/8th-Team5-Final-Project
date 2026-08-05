@@ -19,6 +19,7 @@ public class HeavenBreach : ModuleRules
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate",
+			"SlateCore",
             "GameplayAbilities",
             "GameplayTags",
             "GameplayTasks",

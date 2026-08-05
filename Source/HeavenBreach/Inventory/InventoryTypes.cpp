@@ -24,6 +24,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 	OutViewData.Category = Row->Category;
 	OutViewData.MaxStack = FMath::Max(1, Row->MaxStack);
 	OutViewData.DisplayName = Row->DisplayName;
+	OutViewData.Icon = Row->Icon;
 
 	return true;
 }

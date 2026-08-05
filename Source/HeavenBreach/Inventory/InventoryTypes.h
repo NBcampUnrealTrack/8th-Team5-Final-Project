@@ -4,6 +4,9 @@
 #include "Engine/DataTable.h"
 #include "InventoryTypes.generated.h"
 
+class UItemDefinition;
+class UTexture2D;
+
 UENUM(BlueprintType)
 enum class EEquipSlotType : uint8
 {
@@ -47,6 +50,9 @@ struct FItemViewData
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, Category = "Item")
+	TObjectPtr<UTexture2D> Icon = nullptr;
 
 	bool IsStackable() const { return MaxStack > 1; }
 	bool IsEquippable() const { return EquipSlotType != EEquipSlotType::None; }
@@ -111,6 +117,9 @@ struct FMockItemDataRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, Category = "Item", meta = (ClampMin = 1))
 	int32 MaxStack = 1;
+
+	UPROPERTY(EditAnywhere, Category = "Item")
+	TObjectPtr<UTexture2D> Icon = nullptr;
 };
 
 HEAVENBREACH_API bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutViewData);
