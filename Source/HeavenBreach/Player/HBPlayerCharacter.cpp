@@ -13,6 +13,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	bUseControllerRotationRoll = false;
 
 	GetCharacterMovement()->bOrientRotationToMovement = false;
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
 
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
@@ -34,4 +35,16 @@ void AHBPlayerCharacter::MoveRight(const float Value)
 	{
 		AddMovementInput(GetActorRightVector(), Value);
 	}
+}
+
+void AHBPlayerCharacter::Attack()
+{
+}
+
+void AHBPlayerCharacter::StartBlocking()
+{
+}
+
+void AHBPlayerCharacter::StopBlocking()
+{
 }
