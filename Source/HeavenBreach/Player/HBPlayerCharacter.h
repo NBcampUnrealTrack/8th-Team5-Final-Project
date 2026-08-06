@@ -17,6 +17,15 @@ public:
 	void MoveForward(float Value);
 	void MoveRight(float Value);
 
+	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
+	virtual void Attack();
+
+	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
+	virtual void StartBlocking();
+
+	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
+	virtual void StopBlocking();
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
