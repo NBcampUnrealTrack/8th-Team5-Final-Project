@@ -1,4 +1,10 @@
 #include "InventoryTypes.h"
+#include "Item.h"
+
+namespace
+{
+	const FString ResolveContext(TEXT("ResolveItemViewData"));
+}
 
 bool FItemInstance::IsValid() const
 {
@@ -12,21 +18,37 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		return false;
 	}
 
-	static const FString ContextString(TEXT("ResolveItemViewData"));
-	const FMockItemDataRow* Row = InRow.GetRow<FMockItemDataRow>(ContextString);
-	if (Row == nullptr)
+	if (const FItemData* ItemRow = InRow.GetRow<FItemData>(ResolveContext))
 	{
-		return false;
+		OutViewData.GridSize = FIntPoint(ItemRow->GridWidth, ItemRow->GridHeight);
+		OutViewData.EquipSlotType = ItemRow->EquipSlotType;
+		OutViewData.MaxStack = FMath::Max(1, ItemRow->MaxStack);
+		OutViewData.DisplayName = ItemRow->ItemName;
+		OutViewData.IconPath = ItemRow->IconPath;
+		return true;
 	}
 
-	OutViewData.GridSize = Row->GridSize;
-	OutViewData.EquipSlotType = Row->EquipSlotType;
-	OutViewData.Category = Row->Category;
-	OutViewData.MaxStack = FMath::Max(1, Row->MaxStack);
-	OutViewData.DisplayName = Row->DisplayName;
-	OutViewData.Icon = Row->Icon;
+	if (const FWeaponData* WeaponRow = InRow.GetRow<FWeaponData>(ResolveContext))
+	{
+		OutViewData.GridSize = FIntPoint(WeaponRow->GridWidth, WeaponRow->GridHeight);
+		OutViewData.EquipSlotType = WeaponRow->EquipSlotType;
+		OutViewData.MaxStack = 1;
+		OutViewData.DisplayName = WeaponRow->WeaponName;
+		OutViewData.IconPath = WeaponRow->IconPath;
+		return true;
+	}
 
-	return true;
+	if (const FShieldData* ShieldRow = InRow.GetRow<FShieldData>(ResolveContext))
+	{
+		OutViewData.GridSize = FIntPoint(ShieldRow->GridWidth, ShieldRow->GridHeight);
+		OutViewData.EquipSlotType = ShieldRow->EquipSlotType;
+		OutViewData.MaxStack = 1;
+		OutViewData.DisplayName = ShieldRow->ShieldName;
+		OutViewData.IconPath = ShieldRow->IconPath;
+		return true;
+	}
+
+	return false;
 }
 
 FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InViewData)
