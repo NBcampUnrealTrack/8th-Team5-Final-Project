@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
+#include "Inventory/InventoryTypes.h"
 #include "Item.generated.h"
 
 UENUM(BlueprintType)
@@ -11,17 +12,6 @@ enum class EItemGrade : uint8
 	Rare,
 	Epic,
 	Legend
-};
-
-// 장착 슬롯 타입 - 이 아이템이 어느 장비 슬롯에 들어가는지.
-// 소비 아이템/재화/잡템/재료처럼 장착하지 않는 아이템은 None.
-UENUM(BlueprintType)
-enum class EEquipSlotType : uint8
-{
-	None,
-	Weapon,
-	Shield,
-	Accessory
 };
 
 USTRUCT(BlueprintType)
@@ -41,7 +31,7 @@ struct FWeaponData : public FTableRowBase
 
 	// 이 아이템이 장착되는 슬롯 (무기는 기본 Weapon)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
-	EEquipSlotType EquipSlotType = EEquipSlotType::Weapon;
+	EEquipSlotType EquipSlotType = EEquipSlotType::PrimaryWeapon;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float AttackPower = 0.f;
@@ -85,7 +75,7 @@ struct FShieldData : public FTableRowBase
 
 	// 이 아이템이 장착되는 슬롯 (방패는 기본 Shield)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
-	EEquipSlotType EquipSlotType = EEquipSlotType::Shield;
+	EEquipSlotType EquipSlotType = EEquipSlotType::SecondaryEquip;
 
 	// 0.0 ~ 1.0
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
