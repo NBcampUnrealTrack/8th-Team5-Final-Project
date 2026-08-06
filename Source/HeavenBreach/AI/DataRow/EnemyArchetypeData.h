@@ -26,12 +26,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Stats")
 	FEnemyStatRow FallbackStats;
 
-	// 애셋 참조. 테이블에 담지 못한 데이터들
-	UPROPERTY(EditDefaultsOnly, Category = "Behavior")
-	TObjectPtr<UBehaviorTree> IdleTree;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Behavior")
-	TObjectPtr<UBehaviorTree> EngagedTree;
+	//// 애셋 참조. 테이블에 담지 못한 데이터들
+	//UPROPERTY(EditDefaultsOnly, Category = "Behavior")
+	//TObjectPtr<UBehaviorTree> IdleTree;
+	//
+	//UPROPERTY(EditDefaultsOnly, Category = "Behavior")
+	//TObjectPtr<UBehaviorTree> EngagedTree;
 
 	// TODO: TSubclassOf<UGameplayEffect> InitStatsEffect;
 	// TODO: TArray<TSubclassOf<UGameplayAbility>> Abilities;

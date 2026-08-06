@@ -13,6 +13,7 @@
 #include "BehaviorTree/BlackboardComponent.h"
 #include "AI/EnemyCharacterBase.h"
 #include "AI/DataRow/EnemyArchetypeData.h"
+#include "Components/StateTreeAIComponent.h"
 
 DEFINE_LOG_CATEGORY(LogEnemyAI);
 
@@ -33,6 +34,9 @@ AEnemyAIControllerBase::AEnemyAIControllerBase()
 	PerceptionComp->SetDominantSense(SightConfig->GetSenseImplementation());
 
 	AlertComponent = CreateDefaultSubobject<UAlertComponent>(TEXT("AlertComponent"));
+
+	// 스테이트 트리
+	StateTreeComponent = CreateDefaultSubobject<UStateTreeAIComponent>(TEXT("StateTreeComponent"));
 }
 
 void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
@@ -41,7 +45,9 @@ void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
 
 	// 캐릭터가 들고있는 데이터를 가져온다.
 	AEnemyCharacterBase* Enemy = Cast<AEnemyCharacterBase>(InPawn);
-	const UEnemyArchetypeData* Data = Enemy ? Enemy->GetArchetypeData() : nullptr;
+	CachedArchetype = Enemy ? Enemy->GetArchetypeData() : nullptr;
+
+	HomeLocation = InPawn->GetActorLocation();
 
 	// 폰이 붙은 뒤여야 감각의 기준이 정해진다.
 	// 데이터 에셋 기반으로 가게되는데 여기서 시야 거리까지 넣게된다면 여기서 해야한다.
@@ -54,31 +60,31 @@ void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
 
 	// RunBehaviorTree() 가 트리 애셋에 지정된 블랙보드로 블랙보드를 초기화한다.
 	// 엔진 에디터에서 BehaviorTree에 블랙보드가 지정되어야한다.
-	if (BehaviorTreeAsset && RunBehaviorTree(BehaviorTreeAsset))
-	{
-		if (UBlackboardComponent* BB = GetBlackboardComponent())
-		{
-			// 배회의 중심. 스폰 위치에 앵커를 박는다.
-			BB->SetValueAsVector(FBBKey::HomeLocation, InPawn->GetActorLocation());
-			// 배회의 중심으로 부터 최대 이동거리
-			BB->SetValueAsFloat(FBBKey::MaxMoveDistance,Data ? Data->GetStats().MaxMoveDistance : 1000.f);
-		}
-
-		if (AlertComponent)
-		{
-			// AddUObject 는 중복을 검사하지 않는다. 컨트롤러가 재사용되어 다시 OnPossess 될 때 이중 바인딩되지 않게 먼저 정리한다.
-			AlertComponent->OnAlertUpdated.RemoveAll(this);
-			AlertComponent->OnAlertUpdated.AddUObject(this, &AEnemyAIControllerBase::HandleAlertUpdated);
-
-			// 트리 시작 전에 발생한 상태 변화를 한 번 밀어준다.
-			HandleAlertUpdated();
-		}
-	}
-	else
-	{
-		UE_LOG(LogEnemyAI, Error, TEXT("[AI] %s 트리 실행 실패 — BehaviorTreeAsset 확인"),
-			*GetNameSafe(InPawn));
-	}
+	//if (BehaviorTreeAsset && RunBehaviorTree(BehaviorTreeAsset))
+	//{
+	//	if (UBlackboardComponent* BB = GetBlackboardComponent())
+	//	{
+	//		// 배회의 중심. 스폰 위치에 앵커를 박는다.
+	//		BB->SetValueAsVector(FBBKey::HomeLocation, InPawn->GetActorLocation());
+	//		// 배회의 중심으로 부터 최대 이동거리
+	//		BB->SetValueAsFloat(FBBKey::MaxMoveDistance,Data ? Data->GetStats().MaxMoveDistance : 1000.f);
+	//	}
+	//
+	//	if (AlertComponent)
+	//	{
+	//		// AddUObject 는 중복을 검사하지 않는다. 컨트롤러가 재사용되어 다시 OnPossess 될 때 이중 바인딩되지 않게 먼저 정리한다.
+	//		AlertComponent->OnAlertUpdated.RemoveAll(this);
+	//		AlertComponent->OnAlertUpdated.AddUObject(this, &AEnemyAIControllerBase::HandleAlertUpdated);
+	//
+	//		// 트리 시작 전에 발생한 상태 변화를 한 번 밀어준다.
+	//		HandleAlertUpdated();
+	//	}
+	//}
+	//else
+	//{
+	//	UE_LOG(LogEnemyAI, Error, TEXT("[AI] %s 트리 실행 실패 — BehaviorTreeAsset 확인"),
+	//		*GetNameSafe(InPawn));
+	//}
 
 	UE_LOG(LogEnemyAI, Log, TEXT("[AI] %s 준비 완료"), *GetNameSafe(InPawn));
 }
@@ -118,6 +124,17 @@ void AEnemyAIControllerBase::Tick(float DeltaSeconds)
 	DrawDebugString(GetWorld(), FVector(0.f, 0.f, 100.f), LexToString(CurrentState),
 		MyPawn, Color, /*Duration*/ 0.f, /*bDrawShadow*/ true);
 #endif
+}
+
+float AEnemyAIControllerBase::GetMaxMoveDistance() const
+{
+	// 저장하지 않고 애셋에서 읽는다.
+	return CachedArchetype ? CachedArchetype->GetStats().MaxMoveDistance : 1000.f;
+}
+
+float AEnemyAIControllerBase::GetAcceptanceRadius() const
+{
+	return CachedArchetype ? CachedArchetype->GetStats().AcceptanceRadius : 100.f;
 }
 
 void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)

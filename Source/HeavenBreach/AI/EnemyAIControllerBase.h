@@ -14,6 +14,7 @@ struct FAIStimulus;
 class UEnemyArchetypeData;
 struct FEnemyStatRow;
 class AEnemyCharacterBase;
+class UStateTreeAIComponent;
 
 /**
  * 
@@ -29,11 +30,23 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 
 
-	// -------------
-	// 블랙보드 키
-	// -------------
+	// getter
+	UFUNCTION(BlueprintPure, Category = "AI")
+	UAlertComponent* GetAlertComponent() const { return AlertComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "AI")
+	FVector GetHomeLocation() const { return HomeLocation; }
+
+	UFUNCTION(BlueprintPure, Category = "AI")
+	float GetMaxMoveDistance() const;
+
+	UFUNCTION(BlueprintPure, Category = "AI")
+	float GetAcceptanceRadius() const;
 
 protected:
+	// 데이터 에셋. 값을 복사하는 게 아니라 애셋 포인터만 들고 있는다.
+	UPROPERTY()
+	TObjectPtr<const UEnemyArchetypeData> CachedArchetype;
 
 	// 컴포넌트, 캐릭터등등...흩어져 사용되는 변수들을 각각에게 뿌리는 함수 
 	// 이 함수 하나를 읽으면 어떤 값이 어디로 가는지 보인다.
@@ -70,6 +83,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AI")
 	TObjectPtr<UBehaviorTree> BehaviorTreeAsset;
 
+	// 스테이트 트리
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI")
+	TObjectPtr<UStateTreeAIComponent> StateTreeComponent;
+
 	// -------------
 	// 감각 스펙
 	// -------------
@@ -98,6 +115,9 @@ protected:
 	//// 청각 수명
 	//UPROPERTY(EditDefaultsOnly, Category = "AI|Sense")
 	//float HearingMaxAge = 3.f;
+
+	// 배회의 중심점. 애셋에 없는 런타임 값이라 여기 둔다
+	FVector HomeLocation = FVector::ZeroVector;
 
 	/** 머리 위 상태 표시. 패키징 빌드에서는 컴파일 자체가 제거됩니다. */
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Debug")

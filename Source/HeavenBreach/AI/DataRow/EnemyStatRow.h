@@ -51,4 +51,14 @@ public:
 	// 스폰지점으로 부터 배회 반경
 	UPROPERTY(EditAnywhere, Category = "Behavior", meta = (ClampMin = "0.0"))
 	float MaxMoveDistance = 1000.f;
+
+	// ----- 전투 -----
+	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "1.0"))
+	float MaxHealth = 100.f;
+
+	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "0.0"))
+	float AttackPower = 10.f;
+
+	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "0.0"))
+	float Defense = 0.f;
 };

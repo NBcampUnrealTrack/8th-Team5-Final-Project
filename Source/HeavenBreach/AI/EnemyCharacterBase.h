@@ -18,6 +18,7 @@ public:
 	AEnemyCharacterBase();
 
 	// true = 달리기, false = 걷기
+	UFUNCTION(BlueprintCallable, Category = "AI")
 	void SetMoveSpeed(bool bRun);
 
 	// setter

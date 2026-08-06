@@ -41,8 +41,13 @@ public:
 	FOnAlertUpdated OnAlertUpdated;
 
 	// getter
+	UFUNCTION(BlueprintPure, Category = "Alert")
 	EAlertState GetState() const { return State; }
+
+	UFUNCTION(BlueprintPure, Category = "Alert")
 	AActor* GetCurrentTarget() const { return CurrentTarget.Get(); }
+
+	UFUNCTION(BlueprintPure, Category = "Alert")
 	FVector GetLastKnownLocation() const { return LastKnownLocation; }
 
 protected:
