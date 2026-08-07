@@ -2,7 +2,5 @@
 
 namespace AbilityTag
 {
-	// 아래와 같은 형식으로 정의
-	// UE_DEFINE_GAMEPLAY_TAG(TAG_Team_Player,"Team.Player")
-	// UE_DEFINE_GAMEPLAY_TAG(TAG_Team_Enemy,"Team.Enemy")
+	UE_DEFINE_GAMEPLAY_TAG(TAG_State_Dead,"State.Dead")
 }
