@@ -34,6 +34,10 @@ public:
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
+	TObjectPtr<UInventoryComponent> Inventory;
+	
 #pragma region ASC
 public:
 	AHB_PlayerState* GetPlayerCurrentState() const
@@ -51,6 +55,4 @@ private:
 	UPROPERTY()
 	TObjectPtr<AHB_PlayerState> HB_PlayerState;
 #pragma endregion 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
-	TObjectPtr<UInventoryComponent> Inventory;
 };
