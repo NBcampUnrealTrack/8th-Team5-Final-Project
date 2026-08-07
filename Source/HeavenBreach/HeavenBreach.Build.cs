@@ -30,6 +30,8 @@ public class HeavenBreach : ModuleRules
 
 		PublicIncludePaths.AddRange(new string[] {
 			"HeavenBreach",
+			"HeavenBreach/Interaction",
+			"HeavenBreach/Loot",
 			"HeavenBreach/Variant_Horror",
 			"HeavenBreach/Variant_Horror/UI",
 			"HeavenBreach/Variant_Shooter",

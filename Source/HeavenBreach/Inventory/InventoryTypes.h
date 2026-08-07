@@ -4,9 +4,6 @@
 #include "Engine/DataTable.h"
 #include "InventoryTypes.generated.h"
 
-class UItemDefinition;
-class UTexture2D;
-
 UENUM(BlueprintType)
 enum class EEquipSlotType : uint8
 {
@@ -18,17 +15,6 @@ enum class EEquipSlotType : uint8
 	Legs			UMETA(DisplayName = "Legs"),
 	Accessory		UMETA(DisplayName = "Accessory"),
 	MAX				UMETA(Hidden)
-};
-
-UENUM(BlueprintType)
-enum class EItemCategory : uint8
-{
-	Equipment			UMETA(DisplayName = "Equipment"),
-	Consumable			UMETA(DisplayName = "Consumable"),
-	CraftingMaterial	UMETA(DisplayName = "Crafting Material"),
-	CoreMaterial		UMETA(DisplayName = "Core Material"),
-	Currency			UMETA(DisplayName = "Currency"),
-	Valuable			UMETA(DisplayName = "Valuable")
 };
 
 USTRUCT(BlueprintType)
@@ -43,16 +29,13 @@ struct FItemViewData
 	EEquipSlotType EquipSlotType = EEquipSlotType::None;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
-	EItemCategory Category = EItemCategory::Valuable;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	int32 MaxStack = 1;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
-	FText DisplayName;
+	FString DisplayName;
 
-	UPROPERTY(EditAnywhere, Category = "Item")
-	TObjectPtr<UTexture2D> Icon = nullptr;
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FString IconPath;
 
 	bool IsStackable() const { return MaxStack > 1; }
 	bool IsEquippable() const { return EquipSlotType != EEquipSlotType::None; }
@@ -96,30 +79,6 @@ struct FInventoryEntry
 
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
 	FIntPoint Position = FIntPoint::ZeroValue;
-};
-
-USTRUCT(BlueprintType)
-struct FMockItemDataRow : public FTableRowBase
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, Category = "Item")
-	FText DisplayName;
-
-	UPROPERTY(EditAnywhere, Category = "Item", meta = (ClampMin = 1))
-	FIntPoint GridSize = FIntPoint(1, 1);
-
-	UPROPERTY(EditAnywhere, Category = "Item")
-	EEquipSlotType EquipSlotType = EEquipSlotType::None;
-
-	UPROPERTY(EditAnywhere, Category = "Item")
-	EItemCategory Category = EItemCategory::Valuable;
-
-	UPROPERTY(EditAnywhere, Category = "Item", meta = (ClampMin = 1))
-	int32 MaxStack = 1;
-
-	UPROPERTY(EditAnywhere, Category = "Item")
-	TObjectPtr<UTexture2D> Icon = nullptr;
 };
 
 HEAVENBREACH_API bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutViewData);
