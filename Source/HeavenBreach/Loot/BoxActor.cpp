@@ -5,6 +5,10 @@
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Inventory/InventoryComponent.h"
+#include "Inventory/InventoryTypes.h"
+#include "Item.h"
+#include "GameFramework/Pawn.h"
 
 ABoxActor::ABoxActor()
 {
@@ -26,6 +30,9 @@ ABoxActor::ABoxActor()
 	InteractionVolume->SetCollisionObjectType(ECC_WorldStatic);
 	InteractionVolume->SetCollisionResponseToAllChannels(ECR_Ignore);
 	InteractionVolume->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
+	// 상자 내용물 인벤토리 (그리드 크기는 컴포넌트 Details에서 조정)
+	BoxInventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("BoxInventory"));
 }
 
 void ABoxActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -91,15 +98,86 @@ void ABoxActor::OnRep_BoxState()
 
 void ABoxActor::GenerateLoot()
 {
-	// TODO(loot): FLootTableRow + DataTable 기반 가중치 랜덤 추첨(최소 1개 보장) 후
-	//             상자 UInventoryComponent에 아이템을 추가한다. 서버 전용.
-	UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot() 미구현 - Loot/Inventory 연동 필요: %s"), *GetName());
+	if (BoxInventory == nullptr || BoxLootTable == nullptr || ItemDataTable == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: BoxInventory/BoxLootTable/ItemDataTable 미설정: %s"), *GetName());
+		return;
+	}
+
+	// DT_BoxLoot에서 이 상자(BoxID)에 해당하는 드랍 행만 추린다.
+	TArray<FBoxLootData*> AllRows;
+	BoxLootTable->GetAllRows<FBoxLootData>(TEXT("BoxActor::GenerateLoot"), AllRows);
+
+	TArray<FBoxLootData*> Eligible;
+	for (FBoxLootData* Row : AllRows)
+	{
+		if (Row && Row->BoxID == BoxID)
+		{
+			Eligible.Add(Row);
+		}
+	}
+
+	if (Eligible.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: BoxID '%s' 드랍 행 없음: %s"), *BoxID, *GetName());
+		return;
+	}
+
+	// 아이템 1개를 상자 인벤토리에 넣는다. (스택형은 TryAddItem이 기존 스택에 병합)
+	auto AddOne = [this](const FBoxLootData& Row) -> bool
+	{
+		FItemInstance Item;
+		Item.ItemRow.DataTable = ItemDataTable;
+		Item.ItemRow.RowName = FName(*Row.ItemID);
+		Item.InstanceId = FGuid::NewGuid();
+		Item.StackCount = 1;
+
+		int32 Remainder = 0;
+		BoxInventory->TryAddItem(Item, Remainder);
+		return Remainder == 0;
+	};
+
+	int32 AddedCount = 0;
+
+	// 행마다 DropChance로 판정, 성공 시 1~MaxItemCount개 추가
+	for (const FBoxLootData* Row : Eligible)
+	{
+		if (FMath::FRand() <= Row->DropChance)
+		{
+			const int32 Count = FMath::RandRange(1, FMath::Max(1, Row->MaxItemCount));
+			for (int32 i = 0; i < Count; ++i)
+			{
+				if (AddOne(*Row))
+				{
+					++AddedCount;
+				}
+			}
+		}
+	}
+
+	// 최소 1개 보장: 하나도 안 나왔으면 DropChance가 가장 높은 행에서 1개 강제 추가
+	if (AddedCount == 0)
+	{
+		const FBoxLootData* Best = Eligible[0];
+		for (const FBoxLootData* Row : Eligible)
+		{
+			if (Row->DropChance > Best->DropChance)
+			{
+				Best = Row;
+			}
+		}
+		if (AddOne(*Best))
+		{
+			++AddedCount;
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[BoxActor] GenerateLoot: '%s' 상자에 아이템 %d개 생성"), *BoxID, AddedCount);
 }
 
 void ABoxActor::OpenContainerUI(AActor* Interactor)
 {
-	// TODO(inventory/ui): 상자 인벤토리 참조를 담아 Interactor에게 Client RPC로 이중 UI를 열고,
-	//                     GAS 잠금 태그(State.Interacting.Container)를 부여해 이동/공격을 차단한다.
-	UE_LOG(LogTemp, Warning, TEXT("[BoxActor] OpenContainerUI() 미구현 - Inventory/UI 연동 필요: %s -> %s"),
-		*GetName(), *GetNameSafe(Interactor));
+	// 실제 위젯 생성/입력 잠금은 BP_OpenContainer에서 처리한다. (호스트/스탠드얼론 기준)
+	// NOTE: 인벤토리 미복제 상태라, 원격 클라 동기화는 Inventory 복제 구현 후 완성된다.
+	BP_OpenContainer(Cast<APawn>(Interactor));
 }

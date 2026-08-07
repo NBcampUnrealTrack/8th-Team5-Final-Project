@@ -9,6 +9,9 @@
 
 class UBoxComponent;
 class UStaticMeshComponent;
+class UInventoryComponent;
+class UDataTable;
+class APawn;
 
 /** 상자의 개방 상태. 모든 클라이언트에 동일하게 리플리케이트된다. */
 UENUM(BlueprintType)
@@ -20,9 +23,9 @@ enum class EBoxState : uint8
 };
 
 /**
- *  파밍 상자 액터 (골격).
- *  - 서버 권한으로 최초 1회만 개방되며, 개방 시 무작위 아이템을 상자 인벤토리에 채운다. (Loot 연동은 TODO)
- *  - 개방 시 [내 인벤토리 | 상자 인벤토리] 이중 UI를 연다. (Inventory/UI 연동은 TODO)
+ *  파밍 상자 액터.
+ *  - 서버 권한으로 최초 1회만 개방되며, 개방 시 DT_BoxLoot에서 무작위 아이템을 추첨해 상자 인벤토리에 채운다.
+ *  - 개방 시 BP_OpenContainer로 [내 인벤토리 | 상자 인벤토리] 이중 UI를 연다.
  *  - 열림 외형은 OnRep_BoxState를 통해 모든 클라이언트에 동일하게 표시된다.
  *
  *  실제 배치는 이 클래스를 상속한 Blueprint(BP_Box_*)로 메시/드랍테이블을 지정해 사용한다.
@@ -58,6 +61,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UBoxComponent> InteractionVolume;
 
+	/** 상자 내용물(추첨된 아이템)을 담는 인벤토리. 그리드 크기는 컴포넌트 Details에서 설정. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInventoryComponent> BoxInventory;
+
 	/** 현재 개방 상태. 변경 시 OnRep_BoxState에서 외형을 갱신한다. */
 	UPROPERTY(ReplicatedUsing = OnRep_BoxState, VisibleAnywhere, BlueprintReadOnly, Category = "Box")
 	EBoxState BoxState = EBoxState::Closed;
@@ -69,6 +76,18 @@ protected:
 	/** 상호작용 프롬프트 문구 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box")
 	FText InteractPrompt = FText::FromString(TEXT("상자 열기 [E]"));
+
+	/** 이 상자의 식별자. DT_BoxLoot의 BoxID와 일치하는 행만 추첨 대상이 된다. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
+	FString BoxID;
+
+	/** 상자별 드랍 목록 데이터테이블 (FBoxLootData 행). 예: DT_BoxLoot */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
+	TObjectPtr<UDataTable> BoxLootTable;
+
+	/** 아이템 정의 데이터테이블 (FItemData 행). 추첨된 ItemID로 아이템 인스턴스를 만든다. 예: DT_Item */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
+	TObjectPtr<UDataTable> ItemDataTable;
 
 	/** BoxState 리플리케이션 콜백. 모든 클라이언트에서 열림/닫힘 외형을 갱신한다. */
 	UFUNCTION()
@@ -82,16 +101,24 @@ protected:
 	void BP_OnBoxStateChanged(EBoxState NewState);
 
 	/**
-	 *  [서버] 최초 개방 시 무작위 아이템을 상자 인벤토리에 채운다.
-	 *  TODO(loot): FLootTableRow + DataTable 가중치 랜덤, 최소 1개 보장, 상자 UInventoryComponent에 추가.
+	 *  [서버] 최초 개방 시 DT_BoxLoot에서 무작위 아이템을 추첨해 상자 인벤토리에 채운다.
+	 *  BoxID가 일치하는 행마다 DropChance로 판정, 성공 시 1~MaxItemCount개 추가. 최소 1개 보장.
 	 */
 	void GenerateLoot();
 
 	/**
-	 *  [서버] Interactor에게 이중 인벤토리 UI를 열도록 지시하고 이동/공격을 잠근다.
-	 *  TODO(inventory/ui): 상자 인벤토리 참조 전달 + Client RPC로 UI 오픈 + GAS 잠금 태그 부여.
+	 *  [서버] Interactor에게 이중 인벤토리 UI를 열도록 지시한다.
+	 *  실제 위젯 생성/입력 잠금은 BP_OpenContainer에서 처리(호스트/스탠드얼론 기준).
+	 *  NOTE: 인벤토리 미복제 상태라 원격 클라 동기화는 Inventory 복제 구현 후 완성된다.
 	 */
 	void OpenContainerUI(AActor* Interactor);
+
+	/**
+	 *  이중 인벤토리 UI를 여는 지점. BP에서 위젯 생성 + BindToInventory + 입력 모드/마우스 커서 설정.
+	 *  BoxInventory는 GetBoxInventory()로, 내 인벤토리는 Interactor에서 가져온다.
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Box", meta = (DisplayName = "On Open Container"))
+	void BP_OpenContainer(APawn* Interactor);
 
 public:
 
@@ -102,4 +129,8 @@ public:
 	/** 이미 개방(추첨 완료)된 상자인지 반환 */
 	UFUNCTION(BlueprintPure, Category = "Box")
 	bool IsLootGenerated() const { return bLootGenerated; }
+
+	/** 상자 인벤토리 컴포넌트 반환 (컨테이너 UI 바인딩용) */
+	UFUNCTION(BlueprintPure, Category = "Box")
+	UInventoryComponent* GetBoxInventory() const { return BoxInventory; }
 };
