@@ -85,7 +85,6 @@ void UInventoryWidget::BuildBackground()
 void UInventoryWidget::BuildItems()
 {
 	const TArray<FInventoryEntry>& Entries = BoundInventory->GetEntries();
-
 	for (const FInventoryEntry& Entry : Entries)
 	{
 		FItemViewData ViewData;
@@ -93,44 +92,43 @@ void UInventoryWidget::BuildItems()
 		{
 			continue;
 		}
-
 		const FIntPoint ItemSize = GetOccupiedSize(Entry.Item, ViewData);
-
 		UBorder* ItemBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
 		ItemBorder->SetBrushColor(FLinearColor(0.10f, 0.12f, 0.16f, 1.0f));
 		ItemBorder->SetPadding(FMargin(2.0f));
 		ItemBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
-
-		if (ViewData.Icon != nullptr)
+		UTexture2D* IconTexture = nullptr;
+		if (!ViewData.IconPath.IsEmpty())
+		{
+			IconTexture = LoadObject<UTexture2D>(nullptr, *ViewData.IconPath);
+		}
+		if (IconTexture != nullptr)
 		{
 			UImage* IconImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
-			IconImage->SetBrushFromTexture(ViewData.Icon, false);
+			IconImage->SetBrushFromTexture(IconTexture, false);
 			IconImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 			ItemBorder->SetContent(IconImage);
 		}
 		else
 		{
 			UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-			Label->SetText(ViewData.DisplayName);
+			Label->SetText(FText::FromString(ViewData.DisplayName));
 			Label->SetJustification(ETextJustify::Center);
 			Label->SetAutoWrapText(true);
 			Label->SetVisibility(ESlateVisibility::HitTestInvisible);
 			ItemBorder->SetContent(Label);
 		}
-
 		UCanvasPanelSlot* CanvasSlot = GridCanvas->AddChildToCanvas(ItemBorder);
 		CanvasSlot->SetAutoSize(false);
 		CanvasSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
 		CanvasSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
 		CanvasSlot->SetZOrder(1);
-
 		if (Entry.Item.StackCount > 1)
 		{
 			UTextBlock* CountLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
 			CountLabel->SetText(FText::AsNumber(Entry.Item.StackCount));
 			CountLabel->SetJustification(ETextJustify::Right);
 			CountLabel->SetVisibility(ESlateVisibility::HitTestInvisible);
-
 			UCanvasPanelSlot* CountSlot = GridCanvas->AddChildToCanvas(CountLabel);
 			CountSlot->SetAutoSize(true);
 			CountSlot->SetPosition(FVector2D(
@@ -213,9 +211,12 @@ void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 	const FIntPoint ItemSize = GetOccupiedSize(Entry.Item, ViewData);
 
 	UImage* DragVisual = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
-	if (ViewData.Icon != nullptr)
+	if (!ViewData.IconPath.IsEmpty())
 	{
-		DragVisual->SetBrushFromTexture(ViewData.Icon, false);
+		if (UTexture2D* IconTexture = LoadObject<UTexture2D>(nullptr, *ViewData.IconPath))
+		{
+			DragVisual->SetBrushFromTexture(IconTexture, false);
+		}
 	}
 	DragVisual->SetDesiredSizeOverride(FVector2D(ItemSize.X * CellSize, ItemSize.Y * CellSize));
 	DragVisual->SetOpacity(0.7f);

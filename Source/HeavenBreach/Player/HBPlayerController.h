@@ -6,6 +6,7 @@
 
 class UInputAction;
 class UInputMappingContext;
+class UInventoryUIComponent;
 struct FInputActionValue;
 
 UCLASS(Blueprintable)
@@ -41,6 +42,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	int32 MappingPriority = 0;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> ToggleInventoryAction;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
+	TObjectPtr<UInventoryUIComponent> InventoryUI;
+
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 
@@ -54,4 +61,5 @@ private:
 	void Attack();
 	void StartBlocking();
 	void StopBlocking();
+	void ToggleInventory();
 };

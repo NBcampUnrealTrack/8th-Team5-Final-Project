@@ -1,5 +1,6 @@
 #include "Player/HBPlayerController.h"
 
+#include "Inventory/InventoryUIComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
@@ -8,7 +9,10 @@
 #include "InputMappingContext.h"
 #include "Player/HBPlayerCharacter.h"
 
-AHBPlayerController::AHBPlayerController() = default;
+AHBPlayerController::AHBPlayerController()
+{
+	InventoryUI = CreateDefaultSubobject<UInventoryUIComponent>(TEXT("InventoryUI"));
+}
 
 void AHBPlayerController::BeginPlay()
 {
@@ -76,6 +80,12 @@ void AHBPlayerController::SetupInputComponent()
 				BlockAction, ETriggerEvent::Started, this, &AHBPlayerController::StartBlocking);
 			EnhancedInputComponent->BindAction(
 				BlockAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopBlocking);
+		}
+
+		if (ToggleInventoryAction)
+		{
+			EnhancedInputComponent->BindAction(
+				ToggleInventoryAction, ETriggerEvent::Started, this, &AHBPlayerController::ToggleInventory);
 		}
 	}
 }
@@ -150,5 +160,13 @@ void AHBPlayerController::StopBlocking()
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StopBlocking();
+	}
+}
+
+void AHBPlayerController::ToggleInventory()
+{
+	if (InventoryUI)
+	{
+		InventoryUI->ToggleInventory();
 	}
 }
