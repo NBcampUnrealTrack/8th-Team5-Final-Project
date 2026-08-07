@@ -351,16 +351,14 @@ void UInventoryComponent::DebugPrintGrid() const
 
 void UInventoryComponent::DebugAddItem(FName InRowName, int32 InCount)
 {
-	static const TCHAR* TablePath = TEXT("/Script/Engine.DataTable'/Game/Inventory/Data/DT_MockItem.DT_MockItem'");
-	UDataTable* Table = LoadObject<UDataTable>(nullptr, TablePath);
-	if (Table == nullptr)
+	if (DebugItemTable == nullptr)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("DebugAddItem: table not found"));
+		UE_LOG(LogTemp, Warning, TEXT("DebugAddItem: DebugItemTable is not set"));
 		return;
 	}
 
 	FItemInstance NewItem;
-	NewItem.ItemRow.DataTable = Table;
+	NewItem.ItemRow.DataTable = DebugItemTable;
 	NewItem.ItemRow.RowName = InRowName;
 	NewItem.InstanceId = FGuid::NewGuid();
 	NewItem.StackCount = FMath::Max(1, InCount);

@@ -7,6 +7,8 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChanged);
 
+class UDataTable;
+
 UCLASS(ClassGroup = (Inventory), meta = (BlueprintSpawnableComponent))
 class HEAVENBREACH_API UInventoryComponent : public UActorComponent
 {
@@ -82,6 +84,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
 	int32 Height = 5;
+
+	UPROPERTY(EditAnywhere, Category = "Inventory|Debug")
+	TObjectPtr<UDataTable> DebugItemTable;
 
 	UPROPERTY()
 	TArray<FInventoryEntry> Entries;

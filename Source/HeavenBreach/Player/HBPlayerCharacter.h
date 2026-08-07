@@ -6,6 +6,7 @@
 
 class AHB_PlayerState;
 class UCameraComponent;
+class UInventoryComponent;
 
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter
@@ -27,10 +28,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
 	virtual void StopBlocking();
 
+	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
+	UInventoryComponent* GetInventory() const { return Inventory; }
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
-	
 #pragma region ASC
 public:
 	AHB_PlayerState* GetPlayerCurrentState() const
@@ -48,4 +51,6 @@ private:
 	UPROPERTY()
 	TObjectPtr<AHB_PlayerState> HB_PlayerState;
 #pragma endregion 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
+	TObjectPtr<UInventoryComponent> Inventory;
 };
