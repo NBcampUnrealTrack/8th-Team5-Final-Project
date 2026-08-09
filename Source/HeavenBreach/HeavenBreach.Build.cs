@@ -38,8 +38,9 @@ public class HeavenBreach : ModuleRules
 			"HeavenBreach/Variant_Shooter/AI",
 			"HeavenBreach/Variant_Shooter/UI",
 			"HeavenBreach/Variant_Shooter/Weapons",
-			"HeavenBreach/Inventory"
-		});
+			"HeavenBreach/Inventory",
+            "HeavenBreach/Equipment"
+        });
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

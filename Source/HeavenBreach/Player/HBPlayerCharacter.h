@@ -6,6 +6,7 @@
 
 class UCameraComponent;
 class UInventoryComponent;
+class UEquipmentComponent;
 
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter
@@ -30,10 +31,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UInventoryComponent* GetInventory() const { return Inventory; }
 
+	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
+	UEquipmentComponent* GetEquipment() const { return Equipment; }
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UInventoryComponent> Inventory;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
+	TObjectPtr<UEquipmentComponent> Equipment;
 };
