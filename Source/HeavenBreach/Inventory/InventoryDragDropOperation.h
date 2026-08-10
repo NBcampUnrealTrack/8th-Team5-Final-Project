@@ -2,9 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/DragDropOperation.h"
+#include "InventoryTypes.h"
 #include "InventoryDragDropOperation.generated.h"
 
 class UInventoryComponent;
+class UEquipmentComponent;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryDragDropOperation : public UDragDropOperation
@@ -20,4 +22,11 @@ public:
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> SourceInventory = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UEquipmentComponent> SourceEquipment = nullptr;
+
+	UPROPERTY()
+	EEquipSlotType SourceSlot = EEquipSlotType::None;
+
 };

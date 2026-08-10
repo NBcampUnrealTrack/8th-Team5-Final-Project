@@ -65,6 +65,19 @@ bool UInventoryComponent::GetEntrySize(const FItemInstance& InItem, FIntPoint& O
 	return true;
 }
 
+bool UInventoryComponent::HasMergeableSpace(FName InRowName, int32 InMaxStack) const
+{
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		if (Entry.Item.ItemRow.RowName == InRowName && Entry.Item.StackCount < InMaxStack)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool UInventoryComponent::CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int32 InIgnoredIndex) const
 {
 	if (InSize.X <= 0 || InSize.Y <= 0)
@@ -293,6 +306,103 @@ bool UInventoryComponent::RemoveStackCount(FGuid InInstanceId, int32 InCount)
 	return true;
 }
 
+bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
+{
+	if (InSource == nullptr || InSource == this)
+	{
+		return false;
+	}
+
+	const int32 SourceIndex = InSource->FindEntryIndexById(InInstanceId);
+	if (SourceIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+
+	FIntPoint Size;
+	if (!GetEntrySize(SourceItem, Size))
+	{
+		return false;
+	}
+
+	if (!CanPlaceAt(Size, InTargetPosition))
+	{
+		return false;
+	}
+
+	FItemInstance RemovedItem;
+	if (!InSource->RemoveItem(InInstanceId, RemovedItem))
+	{
+		return false;
+	}
+
+	if (!TryAddItemAt(RemovedItem, InTargetPosition))
+	{
+		int32 Remainder = 0;
+		InSource->TryAddItem(RemovedItem, Remainder);
+		return false;
+	}
+
+	return true;
+}
+bool UInventoryComponent::TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId)
+{
+	if (InSource == nullptr || InSource == this)
+	{
+		return false;
+	}
+
+	const int32 SourceIndex = InSource->FindEntryIndexById(InInstanceId);
+	if (SourceIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(SourceItem.ItemRow, ViewData))
+	{
+		return false;
+	}
+
+	const FIntPoint Size = GetOccupiedSize(SourceItem, ViewData);
+
+	FIntPoint FreePosition;
+	const bool bHasFreeSlot = FindFirstFreeSlot(Size, FreePosition);
+	const bool bCanMerge = ViewData.IsStackable() && HasMergeableSpace(SourceItem.ItemRow.RowName, ViewData.MaxStack);
+
+	if (!bHasFreeSlot && !bCanMerge)
+	{
+		return false;
+	}
+
+	FItemInstance RemovedItem;
+	if (!InSource->RemoveItem(InInstanceId, RemovedItem))
+	{
+		return false;
+	}
+
+	int32 Remainder = 0;
+	if (!TryAddItem(RemovedItem, Remainder))
+	{
+		if (Remainder > 0)
+		{
+			FItemInstance Leftover = RemovedItem;
+			Leftover.StackCount = Remainder;
+			Leftover.InstanceId = FGuid::NewGuid();
+
+			int32 SourceRemainder = 0;
+			InSource->TryAddItem(Leftover, SourceRemainder);
+		}
+
+		return false;
+	}
+
+	return true;
+}
 void UInventoryComponent::ClearAll()
 {
 	Entries.Reset();
