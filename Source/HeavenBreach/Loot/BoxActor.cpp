@@ -7,7 +7,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Inventory/InventoryComponent.h"
 #include "Inventory/InventoryTypes.h"
-#include "Item.h"
+#include "Item/Item.h"
 #include "GameFramework/Pawn.h"
 
 ABoxActor::ABoxActor()
