@@ -18,8 +18,8 @@ class HEAVENBREACH_API IDamageableInterface
 
 public:
 	UFUNCTION(BlueprintNativeEvent,BlueprintCallable,Category="Combat")
-	bool CanBeDamaged(AActor* Instigator) const;
+	bool CanBeDamaged(AActor* InstigatorActor) const;
 	
 	UFUNCTION(BlueprintNativeEvent,BlueprintCallable,Category="Combat")
-	void ApplyMeleeHit(AActor* Instigator, float RawDamage, const FHitResult& Hit);
+	void ApplyMeleeHit(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit);
 };

@@ -99,14 +99,14 @@ void AHBPlayerCharacter::OnRep_PlayerState()
 	}
 }
 
-bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* Instigator) const
+bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* InstigatorActor) const
 {
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
 	
 	return ASC && !ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
 }
 
-void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* Instigator, float RawDamage, const FHitResult& Hit)
+void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit)
 {
 	//Player Attribute 데이터 필요
 }

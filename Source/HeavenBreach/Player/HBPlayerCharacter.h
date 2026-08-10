@@ -67,7 +67,7 @@ private:
 #pragma region DamageInterface
 	
 public:
-	virtual bool CanBeDamaged_Implementation(AActor* Instigator) const override;
+	virtual bool CanBeDamaged_Implementation(AActor* InstigatorActor) const override;
 	
 	virtual void ApplyMeleeHit_Implementation(AActor* Instigator, float RawDamage, const FHitResult& Hit) override;
 	
