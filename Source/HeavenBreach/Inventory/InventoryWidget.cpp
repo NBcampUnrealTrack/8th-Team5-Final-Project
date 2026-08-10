@@ -247,5 +247,11 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 
 	const FIntPoint TargetPosition = DropCell - Operation->GrabOffset;
 
-	return BoundInventory->MoveItem(Operation->InstanceId, TargetPosition);
+	if (Operation->SourceInventory == BoundInventory)
+	{
+		return BoundInventory->MoveItem(Operation->InstanceId, TargetPosition);
+	}
+
+	return BoundInventory->TransferItemFrom(
+		Operation->SourceInventory, Operation->InstanceId, TargetPosition);
 }

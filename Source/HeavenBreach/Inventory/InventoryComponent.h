@@ -52,6 +52,10 @@ public:
 
 	bool RemoveStackCount(FGuid InInstanceId, int32 InCount);
 
+	bool TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
+
+	bool TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
+
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ClearAll();
 
@@ -78,6 +82,8 @@ private:
 	int32 CoordToIndex(FIntPoint InCoord) const { return InCoord.Y * Width + InCoord.X; }
 
 	bool GetEntrySize(const FItemInstance& InItem, FIntPoint& OutSize) const;
+
+	bool HasMergeableSpace(FName InRowName, int32 InMaxStack) const;
 
 	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
 	int32 Width = 6;
