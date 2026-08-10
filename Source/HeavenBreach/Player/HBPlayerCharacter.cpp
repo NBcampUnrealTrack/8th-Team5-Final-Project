@@ -2,6 +2,7 @@
 
 #include "AbilitySystemComponent.h"
 #include "Inventory/InventoryComponent.h"
+#include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -20,6 +21,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
+	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
 	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
 	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 0.0f, 64.0f));
 	FirstPersonCamera->bUsePawnControlRotation = true;
