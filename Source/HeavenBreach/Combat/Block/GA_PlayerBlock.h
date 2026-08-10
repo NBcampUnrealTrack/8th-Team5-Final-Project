@@ -19,6 +19,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly,Category="Block")
 	float BlockMoveSpeedMultiplier = 0.5f;
 	
+	UPROPERTY(EditDefaultsOnly,Category="Block")
+	TObjectPtr<UAnimMontage> AM_Block;
+	
 private:
 	float CachedMaxWalkSpeed = 0.f;
 };

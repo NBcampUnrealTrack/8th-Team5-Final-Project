@@ -1,5 +1,6 @@
 #include "GA_PlayerBlock.h"
 
+#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "GameFramework/Character.h"
@@ -35,6 +36,13 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 			CachedMaxWalkSpeed = Movement->MaxWalkSpeed;
 			Movement->MaxWalkSpeed = CachedMaxWalkSpeed * BlockMoveSpeedMultiplier;
 		}
+	}
+	
+	if (AM_Block)
+	{
+		UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+			this,NAME_None,AM_Block,1.f,NAME_None,true);
+		MontageTask->ReadyForActivation();
 	}
 	
 }
