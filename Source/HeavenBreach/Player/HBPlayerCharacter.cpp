@@ -53,7 +53,7 @@ void AHBPlayerCharacter::Attack()
 {
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
 	{
-		ASC->TryActivateAbilityByClass(UGA_PlayerAttack::StaticClass());
+		ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(StateTag::TAG_State_Attacking));
 	}
 }
 
@@ -61,7 +61,7 @@ void AHBPlayerCharacter::StartBlocking()
 {
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
 	{
-		ASC->TryActivateAbilityByClass(UGA_PlayerBlock::StaticClass());
+		ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(StateTag::TAG_State_Blocking));
 	}
 }
 

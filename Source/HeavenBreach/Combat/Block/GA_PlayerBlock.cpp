@@ -8,6 +8,8 @@
 
 UGA_PlayerBlock::UGA_PlayerBlock()
 {
+	SetAssetTags(FGameplayTagContainer(StateTag::TAG_State_Blocking));
+	
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
 	

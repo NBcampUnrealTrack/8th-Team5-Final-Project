@@ -13,6 +13,8 @@
 
 UGA_PlayerAttack::UGA_PlayerAttack()
 {
+	SetAssetTags(FGameplayTagContainer(StateTag::TAG_State_Attacking));
+	
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
 	
