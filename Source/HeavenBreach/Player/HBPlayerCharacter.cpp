@@ -5,8 +5,11 @@
 #include "Inventory/InventoryComponent.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Combat/Attack/GA_PlayerAttack.h"
+#include "Combat/Block/GA_PlayerBlock.h"
 #include "Components/CapsuleComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/State/HB_StateTag.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "PlayerState/HB_PlayerState.h"
@@ -48,14 +51,28 @@ void AHBPlayerCharacter::MoveRight(const float Value)
 
 void AHBPlayerCharacter::Attack()
 {
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		ASC->TryActivateAbilityByClass(UGA_PlayerAttack::StaticClass());
+	}
 }
 
 void AHBPlayerCharacter::StartBlocking()
 {
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		ASC->TryActivateAbilityByClass(UGA_PlayerBlock::StaticClass());
+	}
 }
 
 void AHBPlayerCharacter::StopBlocking()
 {
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		FGameplayTagContainer BlockTag;
+		BlockTag.AddTag(StateTag::TAG_State_Blocking);
+		ASC->CancelAbilities(&BlockTag,nullptr,nullptr);
+	}
 }
 
 UAbilitySystemComponent* AHBPlayerCharacter::GetAbilitySystemComponent() const
