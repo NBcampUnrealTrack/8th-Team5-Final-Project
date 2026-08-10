@@ -4,6 +4,7 @@
 #include "GameFramework/Character.h"
 #include "HBPlayerCharacter.generated.h"
 
+class AHB_PlayerState;
 class UCameraComponent;
 class UInventoryComponent;
 class UEquipmentComponent;
@@ -43,4 +44,23 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UEquipmentComponent> Equipment;
+	
+#pragma region ASC
+public:
+	AHB_PlayerState* GetPlayerCurrentState() const
+	{
+		if (HB_PlayerState)
+		{
+			return HB_PlayerState;
+		}
+		return nullptr;
+	}
+protected:
+	virtual void PossessedBy(AController* NewController) override;
+	virtual void OnRep_PlayerState() override;
+private:
+	UPROPERTY()
+	TObjectPtr<AHB_PlayerState> HB_PlayerState;
+#pragma endregion 
+
 };
