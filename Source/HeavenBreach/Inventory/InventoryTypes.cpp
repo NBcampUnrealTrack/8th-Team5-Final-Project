@@ -1,5 +1,5 @@
 #include "InventoryTypes.h"
-#include "Item.h"
+#include "Item/Item.h"
 
 namespace
 {
