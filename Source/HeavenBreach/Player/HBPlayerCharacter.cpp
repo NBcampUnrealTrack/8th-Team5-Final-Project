@@ -1,10 +1,13 @@
 #include "Player/HBPlayerCharacter.h"
 
 #include "AbilitySystemComponent.h"
+#include "Item.h"
 #include "Inventory/InventoryComponent.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/Team/HB_TeamTag.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "PlayerState/HB_PlayerState.h"
 
@@ -55,6 +58,11 @@ void AHBPlayerCharacter::StopBlocking()
 {
 }
 
+UAbilitySystemComponent* AHBPlayerCharacter::GetAbilitySystemComponent() const
+{
+	return HB_PlayerState ? HB_PlayerState->GetAbilitySystemComponent() : nullptr;
+}
+
 void AHBPlayerCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
@@ -63,7 +71,21 @@ void AHBPlayerCharacter::PossessedBy(AController* NewController)
 	
 	if (HB_PlayerState)
 	{
-		HB_PlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(HB_PlayerState,this);	
+		UAbilitySystemComponent* ASC = HB_PlayerState->GetAbilitySystemComponent();
+		ASC->InitAbilityActorInfo(HB_PlayerState, this);
+		
+		if (HasAuthority())
+		{
+			ASC->AddLooseGameplayTag(TeamTag::TAG_Team_Player);
+			
+			for (const TSubclassOf<UGameplayAbility>& AbilityClass : DefaultAbilities)
+			{
+				if (AbilityClass)
+				{
+					ASC->GiveAbility(FGameplayAbilitySpec(AbilityClass,1,INDEX_NONE,this));
+				}
+			}
+		}
 	}
 }
 
@@ -75,4 +97,83 @@ void AHBPlayerCharacter::OnRep_PlayerState()
 	{
 		HB_PlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(HB_PlayerState,this);
 	}
+}
+
+bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* Instigator) const
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	
+	return ASC && !ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
+}
+
+void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* Instigator, float RawDamage, const FHitResult& Hit)
+{
+	//Player Attribute 데이터 필요
+}
+
+float AHBPlayerCharacter::GetAttackPower() const
+{
+	if (Equipment)
+	{
+		FItemInstance WeaponItem;
+		if (Equipment->GetItemInSlot(EEquipSlotType::PrimaryWeapon,WeaponItem))
+		{
+			if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetAttackPower")))
+			{
+				return WeaponData->AttackPower;
+			}
+		}
+	}
+	
+	return BaseAttackPower;
+}
+
+float AHBPlayerCharacter::GetAttackRange() const
+{
+	if (Equipment)
+	{
+		FItemInstance WeaponItem;
+		if (Equipment->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
+		{
+			if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetAttackRange")))
+			{
+				return WeaponData->AttackRange;
+			}
+		}
+	}
+	return BaseAttackRange;
+}
+
+float AHBPlayerCharacter::GetBlockDamageReduction() const
+{
+	if (Equipment && Equipment->IsSlotOccupied(EEquipSlotType::SecondaryEquip))
+	{
+		FItemInstance ShieldItem;
+		if (Equipment->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+		{
+			if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("GetBlockDamageReduction")))
+			{
+				return ShieldData->DamageReduction;
+			}
+		}
+	}
+	
+	return BaseBlockDamageReduction;
+}
+
+float AHBPlayerCharacter::GetBlockAngle() const
+{
+	if (Equipment && Equipment->IsSlotOccupied(EEquipSlotType::SecondaryEquip))
+	{
+		FItemInstance ShieldItem;
+		if (Equipment->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+		{
+			if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("GetBlockAngle")))
+			{
+				return ShieldData->BlockAngle;
+			}
+		}
+	}
+	
+	return BaseBlockingAngle;
 }
