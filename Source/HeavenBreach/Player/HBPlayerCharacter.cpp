@@ -1,9 +1,11 @@
 #include "Player/HBPlayerCharacter.h"
 
+#include "AbilitySystemComponent.h"
 #include "Inventory/InventoryComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "PlayerState/HB_PlayerState.h"
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
@@ -49,4 +51,26 @@ void AHBPlayerCharacter::StartBlocking()
 
 void AHBPlayerCharacter::StopBlocking()
 {
+}
+
+void AHBPlayerCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	
+	HB_PlayerState = GetPlayerState<AHB_PlayerState>();
+	
+	if (HB_PlayerState)
+	{
+		HB_PlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(HB_PlayerState,this);	
+	}
+}
+
+void AHBPlayerCharacter::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+	
+	if (HB_PlayerState)
+	{
+		HB_PlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(HB_PlayerState,this);
+	}
 }
