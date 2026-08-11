@@ -111,6 +111,8 @@ void AHBPlayerCharacter::OnRep_PlayerState()
 {
 	Super::OnRep_PlayerState();
 	
+	HB_PlayerState = GetPlayerState<AHB_PlayerState>();
+	
 	if (HB_PlayerState)
 	{
 		HB_PlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(HB_PlayerState,this);
