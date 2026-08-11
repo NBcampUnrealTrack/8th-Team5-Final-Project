@@ -1,6 +1,7 @@
 ﻿#include "ItemBase.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SphereComponent.h"
+#include "Inventory/InventoryComponent.h"
 
 AItemBase::AItemBase()
 {
@@ -46,7 +47,7 @@ void AItemBase::InitializeFromDataTable()
 		SellValue = Row->SellValue;
 		GridWidth = Row->GridWidth;
 		GridHeight = Row->GridHeight;
-		IconPath = Row->IconPath;
+		Icon = Row->Icon;
 		MeshPathToLoad = Row->EquipMeshPath;
 		break;
 	}
@@ -69,7 +70,7 @@ void AItemBase::InitializeFromDataTable()
 		SellValue = Row->SellValue;
 		GridWidth = Row->GridWidth;
 		GridHeight = Row->GridHeight;
-		IconPath = Row->IconPath;
+		Icon = Row->Icon;
 		MeshPathToLoad = Row->EquipMeshPath;
 		break;
 	}
@@ -93,7 +94,7 @@ void AItemBase::InitializeFromDataTable()
 		SellValue = Row->SellValue;
 		GridWidth = Row->GridWidth;
 		GridHeight = Row->GridHeight;
-		IconPath = Row->IconPath;
+		Icon = Row->Icon;
 		MeshPathToLoad = Row->WorldMeshPath;
 		break;
 	}
@@ -111,5 +112,44 @@ void AItemBase::InitializeFromDataTable()
 			// Mesh paths are still temp placeholders ("/Game/Temp/..."), so a load failure here is expected for now.
 			UE_LOG(LogTemp, Warning, TEXT("AItemBase: Failed to load mesh path '%s' (expected if still a temp path)"), *MeshPathToLoad);
 		}
+	}
+}
+
+void AItemBase::NotifyActorBeginOverlap(AActor* OtherActor)
+{
+	Super::NotifyActorBeginOverlap(OtherActor);
+
+	if (!OtherActor) return;
+
+	UInventoryComponent* Inventory = OtherActor->FindComponentByClass<UInventoryComponent>();
+	if (!Inventory) return;
+
+	UDataTable* TargetTable = nullptr;
+	switch (SourceTable)
+	{
+	case EItemSourceTable::Weapon:
+		TargetTable = WeaponDataTable;
+		break;
+	case EItemSourceTable::Shield:
+		TargetTable = ShieldDataTable;
+		break;
+	case EItemSourceTable::Item:
+	default:
+		TargetTable = ItemDataTable;
+		break;
+	}
+
+	if (!TargetTable) return;
+
+	FItemInstance NewItem;
+	NewItem.ItemRow.DataTable = TargetTable;
+	NewItem.ItemRow.RowName = ItemID;
+	NewItem.InstanceId = FGuid::NewGuid();
+	NewItem.StackCount = 1;
+
+	int32 Remainder = 0;
+	if (Inventory->TryAddItem(NewItem, Remainder) && Remainder == 0)
+	{
+		Destroy();
 	}
 }

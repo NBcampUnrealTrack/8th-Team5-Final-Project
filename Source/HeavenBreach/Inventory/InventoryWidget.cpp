@@ -22,8 +22,7 @@ void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 	if (BoundInventory != nullptr)
 	{
 		BoundInventory->OnInventoryChanged.AddDynamic(this, &UInventoryWidget::HandleInventoryChanged);
-	}
-
+	} 
 	SetVisibility(ESlateVisibility::Visible);
 
 	RefreshGrid();
