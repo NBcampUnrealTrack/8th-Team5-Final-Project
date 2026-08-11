@@ -1,7 +1,6 @@
 #include "Player/HBPlayerCharacter.h"
 
 #include "AbilitySystemComponent.h"
-#include "Item.h"
 #include "Inventory/InventoryComponent.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
@@ -12,6 +11,7 @@
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Item/Item.h"
 #include "PlayerState/HB_PlayerState.h"
 
 AHBPlayerCharacter::AHBPlayerCharacter()
