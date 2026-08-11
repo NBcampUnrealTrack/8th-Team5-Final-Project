@@ -13,8 +13,8 @@ UCLASS()
 class HEAVENBREACH_API UEquipmentWidget : public UUserWidget
 {
 	GENERATED_BODY()
-
 public:
+
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void BindToEquipment(UEquipmentComponent* InEquipment, UInventoryComponent* InInventory);
 
@@ -22,9 +22,12 @@ public:
 	void RefreshSlots();
 
 protected:
+
 	virtual void NativeDestruct() override;
 
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+
+	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 

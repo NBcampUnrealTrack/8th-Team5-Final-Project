@@ -1,6 +1,8 @@
 #include "InventoryTypes.h"
-#include "Item.h"
+
+#include "Item/Item.h"
 #include "Engine/Texture2D.h"
+
 
 namespace
 {

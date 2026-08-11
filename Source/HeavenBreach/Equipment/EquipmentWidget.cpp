@@ -196,6 +196,32 @@ FReply UEquipmentWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, co
 	return FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton);
 }
 
+FReply UEquipmentWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (InMouseEvent.GetEffectingButton() != EKeys::RightMouseButton)
+	{
+		return FReply::Unhandled();
+	}
+
+	EEquipSlotType TargetSlot;
+	if (!ScreenToSlot(InMouseEvent.GetScreenSpacePosition(), TargetSlot))
+	{
+		return FReply::Unhandled();
+	}
+
+	if (BoundEquipment == nullptr || BoundInventory == nullptr)
+	{
+		return FReply::Unhandled();
+	}
+
+	if (!BoundEquipment->UnequipToInventory(TargetSlot, BoundInventory))
+	{
+		return FReply::Unhandled();
+	}
+
+	return FReply::Handled();
+}
+
 void UEquipmentWidget::NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation)
 {
 	Super::NativeOnDragDetected(InGeometry, InMouseEvent, OutOperation);
@@ -228,6 +254,7 @@ void UEquipmentWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 	UInventoryDragDropOperation* Operation = NewObject<UInventoryDragDropOperation>(this);
 	Operation->InstanceId = EquippedItem.InstanceId;
 	Operation->GrabOffset = FIntPoint::ZeroValue;
+	Operation->GrabPixelOffset = FVector2D(SlotSize * 0.5f, SlotSize * 0.5f);
 	Operation->SourceInventory = nullptr;
 	Operation->SourceEquipment = BoundEquipment;
 	Operation->SourceSlot = PressedSlot;
