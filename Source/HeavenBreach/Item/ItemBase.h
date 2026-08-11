@@ -75,7 +75,7 @@ public:
 	int32 GridHeight = 1;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item|Cached")
-	FString IconPath;
+	TObjectPtr<UTexture2D> Icon;
 
 	// ----- ÇÔ¼ö -----
 
@@ -86,4 +86,6 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+
+	virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
 };
