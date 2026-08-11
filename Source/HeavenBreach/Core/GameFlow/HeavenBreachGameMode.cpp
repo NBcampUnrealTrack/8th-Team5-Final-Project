@@ -5,12 +5,17 @@
 
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "Player/HBPlayerController.h"
+#include "Player/HBPlayerCharacter.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 
 AHeavenBreachGameMode::AHeavenBreachGameMode()
 {
 	bDelayedStart = true;
 
 	GameStateClass = AHeavenBreachGameState::StaticClass();
+	PlayerControllerClass = AHBPlayerController::StaticClass();
+	PlayerStateClass = AHB_PlayerState::StaticClass();
+	DefaultPawnClass = AHBPlayerCharacter::StaticClass();
 }
 
 void AHeavenBreachGameMode::StartExtractionMatch()
@@ -46,6 +51,14 @@ void AHeavenBreachGameMode::FinishExtractionMatch()
 int32 AHeavenBreachGameMode::GetConnectedPlayerCount() 
 {
 	return GetNumPlayers();
+}
+
+void AHeavenBreachGameMode::NotifyPlayerDied(APlayerState* PlayerState)
+{
+}
+
+void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
+{
 }
 
 void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
@@ -84,11 +97,15 @@ void AHeavenBreachGameMode::HandleMatchIsWaitingToStart()
 void AHeavenBreachGameMode::HandleMatchHasStarted()
 {
 	Super::HandleMatchHasStarted();
+	
+	StartMatchTimer();
 }
 
 void AHeavenBreachGameMode::HandleMatchHasEnded()
 {
 	Super::HandleMatchHasEnded();
+	
+	StopMatchTimer();
 }
 
 void AHeavenBreachGameMode::HandleLeavingMap()
@@ -99,4 +116,80 @@ void AHeavenBreachGameMode::HandleLeavingMap()
 void AHeavenBreachGameMode::OnMatchStateSet()
 {
 	Super::OnMatchStateSet();
+}
+
+void AHeavenBreachGameMode::InitializeActivePlayers()
+{
+	InitializeActivePlayers().
+}
+
+void AHeavenBreachGameMode::EvaluateMatchEnd()
+{
+}
+
+void AHeavenBreachGameMode::StartMatchTimer()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
+	AHeavenBreachGameState* HBGameState = GetGameState<AHeavenBreachGameState>();
+	if (!HBGameState)
+	{
+		return;
+	}
+	
+	const double EndServerTime = HBGameState->GetServerWorldTimeSeconds() + static_cast<double>(MatchDurationSeconds);
+	HBGameState->SetMatchEndServerTime(EndServerTime);
+	
+	GetWorldTimerManager().SetTimer(
+		MatchTimerHandle,
+		this,
+		&AHeavenBreachGameMode::HandleMatchTimeExpired,
+		MatchDurationSeconds,
+		false
+		);
+	
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("HeavenBreachGM | Match Timer Started | Duration : %.2f"), MatchDurationSeconds
+		);
+}
+
+void AHeavenBreachGameMode::StopMatchTimer()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
+	GetWorldTimerManager().ClearTimer(MatchTimerHandle);
+	
+	if (AHeavenBreachGameState* HBGameState = GetGameState<AHeavenBreachGameState>())
+	{
+		HBGameState->SetMatchEndServerTime(0.0f);
+	}
+}
+
+void AHeavenBreachGameMode::HandleMatchTimeExpired()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
+	if (!IsMatchInProgress)
+	{
+		return;
+	}
+	
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("HeavenBreachGM | Match Time Expired")
+		);
+	
+	FinishExtractionMatch();
 }
