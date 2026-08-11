@@ -53,7 +53,9 @@ void AHeavenBreachGameState::OnRep_MatchEndServerTime()
 	UE_LOG(
 		LogTemp,
 		Log,
-		TEXT("HeavenBreachGS | MatchEndServerTime : %.2f"),
-		MatchEndServerTime
+		TEXT("End: %.2f | Now: %.2f | Remaining: %.2f"),
+		MatchEndServerTime,
+		GetServerWorldTimeSeconds(),
+		GetRemainingMatchTime()
 	);
 }

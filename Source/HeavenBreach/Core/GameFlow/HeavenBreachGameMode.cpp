@@ -110,7 +110,17 @@ void AHeavenBreachGameMode::Logout(AController* Exiting)
 	
 	if (IsMatchInProgress() && IsValid(ExitingPlayerState))
 	{
-		ActivePlayers.Remove(ExitingPlayerState);
+		const int32 RemovedCount =
+		   ActivePlayers.Remove(ExitingPlayerState);
+
+		UE_LOG(
+			LogTemp,
+			Log,
+			TEXT("HeavenBreachGM | Player Logout | Removed: %d | ActivePlayers: %d"),
+			RemovedCount,
+			ActivePlayers.Num()
+		);
+		//ActivePlayers.Remove(ExitingPlayerState);
 	}
 	
 	Super::Logout(Exiting);
@@ -183,6 +193,13 @@ void AHeavenBreachGameMode::InitializeActivePlayers()
 			ActivePlayers.Add(PlayerState);
 		}
 	}
+	
+	UE_LOG(
+	LogTemp,
+	Log,
+	TEXT("HeavenBreachGM | ActivePlayers Initialized : %d"),
+	ActivePlayers.Num()
+);
 }
 
 void AHeavenBreachGameMode::EvaluateMatchEnd()
@@ -258,7 +275,7 @@ void AHeavenBreachGameMode::HandleMatchTimeExpired()
 		return;
 	}
 	
-	if (!IsMatchInProgress)
+	if (!IsMatchInProgress())
 	{
 		return;
 	}
