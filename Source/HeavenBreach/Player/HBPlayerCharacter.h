@@ -33,6 +33,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
 	virtual void StopBlocking();
 
+	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
+	virtual void ToggleBlocking();
+
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UInventoryComponent* GetInventory() const { return Inventory; }
 

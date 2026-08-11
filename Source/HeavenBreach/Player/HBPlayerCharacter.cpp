@@ -76,6 +76,24 @@ void AHBPlayerCharacter::StopBlocking()
 	}
 }
 
+void AHBPlayerCharacter::ToggleBlocking()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
+	{
+		StopBlocking();
+	}
+	else
+	{
+		StartBlocking();
+	}
+}
+
 UAbilitySystemComponent* AHBPlayerCharacter::GetAbilitySystemComponent() const
 {
 	return HB_PlayerState ? HB_PlayerState->GetAbilitySystemComponent() : nullptr;

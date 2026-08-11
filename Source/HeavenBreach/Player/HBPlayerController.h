@@ -59,7 +59,6 @@ private:
 	void StartCrouch();
 	void StopCrouch();
 	void Attack();
-	void StartBlocking();
-	void StopBlocking();
+	void ToggleBlocking();
 	void ToggleInventory();
 };

@@ -77,9 +77,7 @@ void AHBPlayerController::SetupInputComponent()
 		if (BlockAction)
 		{
 			EnhancedInputComponent->BindAction(
-				BlockAction, ETriggerEvent::Started, this, &AHBPlayerController::StartBlocking);
-			EnhancedInputComponent->BindAction(
-				BlockAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopBlocking);
+				BlockAction, ETriggerEvent::Started, this, &AHBPlayerController::ToggleBlocking);
 		}
 
 		if (ToggleInventoryAction)
@@ -147,19 +145,11 @@ void AHBPlayerController::Attack()
 	}
 }
 
-void AHBPlayerController::StartBlocking()
+void AHBPlayerController::ToggleBlocking()
 {
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
-		PlayerCharacter->StartBlocking();
-	}
-}
-
-void AHBPlayerController::StopBlocking()
-{
-	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
-	{
-		PlayerCharacter->StopBlocking();
+		PlayerCharacter->ToggleBlocking();
 	}
 }
 
