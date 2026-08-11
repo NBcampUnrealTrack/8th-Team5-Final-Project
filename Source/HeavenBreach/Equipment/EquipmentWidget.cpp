@@ -180,19 +180,24 @@ void UEquipmentWidget::BuildSlots()
 
 FReply UEquipmentWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
+	if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+	{
+		return FReply::Handled();
+	}
+	if (InMouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	{
+		return FReply::Unhandled();
+	}
 	EEquipSlotType PressedCandidate;
 	if (!ScreenToSlot(InMouseEvent.GetScreenSpacePosition(), PressedCandidate))
 	{
 		return FReply::Unhandled();
 	}
-
 	if (BoundEquipment == nullptr || !BoundEquipment->IsSlotOccupied(PressedCandidate))
 	{
 		return FReply::Unhandled();
 	}
-
 	PressedSlot = PressedCandidate;
-
 	return FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton);
 }
 
@@ -202,23 +207,31 @@ FReply UEquipmentWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, cons
 	{
 		return FReply::Unhandled();
 	}
-
 	EEquipSlotType TargetSlot;
 	if (!ScreenToSlot(InMouseEvent.GetScreenSpacePosition(), TargetSlot))
 	{
 		return FReply::Unhandled();
 	}
-
 	if (BoundEquipment == nullptr || BoundInventory == nullptr)
 	{
 		return FReply::Unhandled();
 	}
-
-	if (!BoundEquipment->UnequipToInventory(TargetSlot, BoundInventory))
+	FItemInstance EquippedItem;
+	if (!BoundEquipment->GetItemInSlot(TargetSlot, EquippedItem))
 	{
 		return FReply::Unhandled();
 	}
-
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(EquippedItem.ItemRow, ViewData))
+	{
+		return FReply::Unhandled();
+	}
+	FIntPoint FreePosition;
+	if (!BoundInventory->FindFirstFreeSlot(GetOccupiedSize(EquippedItem, ViewData), FreePosition))
+	{
+		return FReply::Unhandled();
+	}
+	BoundInventory->Server_UnequipItem(BoundEquipment, TargetSlot, FreePosition);
 	return FReply::Handled();
 }
 
@@ -288,5 +301,6 @@ bool UEquipmentWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 		return false;
 	}
 
-	return BoundEquipment->EquipFromInventory(Operation->SourceInventory, Operation->InstanceId, TargetSlot);
+	Operation->SourceInventory->Server_EquipItem(BoundEquipment, Operation->InstanceId, TargetSlot);
+	return true;
 }
