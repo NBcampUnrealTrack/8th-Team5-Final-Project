@@ -8,6 +8,7 @@
 #include "Combat/Block/GA_PlayerBlock.h"
 #include "Components/CapsuleComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/Data/HB_DataTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -126,6 +127,18 @@ bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* InstigatorActor) co
 void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit)
 {
 	//Player Attribute 데이터 필요
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || !GE_PlayerDamage)
+	{
+		return;
+	}
+	
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(GE_PlayerDamage,1.f,ASC->MakeEffectContext());
+	if (Spec.IsValid())
+	{
+		Spec.Data->SetSetByCallerMagnitude(DataTag::TAG_Data_Damage, -RawDamage);
+		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	}
 }
 
 float AHBPlayerCharacter::GetAttackPower() const

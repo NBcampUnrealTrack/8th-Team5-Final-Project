@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "HBPlayerCharacter.generated.h"
 
+class UGameplayEffect;
 class UGameplayAbility;
 class AHB_PlayerState;
 class UCameraComponent;
@@ -92,6 +93,9 @@ protected:
 	/****GA***/
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
 	TArray<TSubclassOf<UGameplayAbility>> DefaultAbilities;
+	/****GE***/
+	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
+	TSubclassOf<UGameplayEffect> GE_PlayerDamage;
 	/****BaseAbilities Stat Value***/
 	// TODO:: Temp변수 데이터테이블로 변경 or AttributeData변경
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
