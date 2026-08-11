@@ -55,10 +55,48 @@ int32 AHeavenBreachGameMode::GetConnectedPlayerCount()
 
 void AHeavenBreachGameMode::NotifyPlayerDied(APlayerState* PlayerState)
 {
+	if (!HasAuthority() || !IsMatchInProgress() || !IsValid(PlayerState))
+	{
+		return;
+	}
+	
+	const int32 RemovedCount = ActivePlayers.Remove(PlayerState);
+	if (RemovedCount == 0)
+	{
+		return;
+	}
+	
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("HeavenBreachGM | Player Died | ActivePlayers: %d"), 
+		ActivePlayers.Num()
+		);
+	
+	EvaluateMatchEnd();
 }
 
 void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
 {
+	if (!HasAuthority() || !IsMatchInProgress() || !IsValid(PlayerState))
+	{
+		return;
+	}
+	
+	const int32 RemovedCount = ActivePlayers.Remove(PlayerState);
+	if (RemovedCount == 0)
+	{
+		return;
+	}
+	
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("HeavenBreachGM | Player Extracted | ActivePlayers: %d"),
+		ActivePlayers.Num()
+		);
+	
+	EvaluateMatchEnd();
 }
 
 void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
@@ -68,8 +106,16 @@ void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
 
 void AHeavenBreachGameMode::Logout(AController* Exiting)
 {
-
+	APlayerState* ExitingPlayerState = Exiting ? Exiting->PlayerState : nullptr;
+	
+	if (IsMatchInProgress() && IsValid(ExitingPlayerState))
+	{
+		ActivePlayers.Remove(ExitingPlayerState);
+	}
+	
 	Super::Logout(Exiting);
+	
+	EvaluateMatchEnd();
 }
 
 bool AHeavenBreachGameMode::ReadyToStartMatch_Implementation()
@@ -98,6 +144,7 @@ void AHeavenBreachGameMode::HandleMatchHasStarted()
 {
 	Super::HandleMatchHasStarted();
 	
+	InitializeActivePlayers();
 	StartMatchTimer();
 }
 
@@ -106,6 +153,7 @@ void AHeavenBreachGameMode::HandleMatchHasEnded()
 	Super::HandleMatchHasEnded();
 	
 	StopMatchTimer();
+	ActivePlayers.Reset();
 }
 
 void AHeavenBreachGameMode::HandleLeavingMap()
@@ -120,11 +168,41 @@ void AHeavenBreachGameMode::OnMatchStateSet()
 
 void AHeavenBreachGameMode::InitializeActivePlayers()
 {
-	InitializeActivePlayers().
+	ActivePlayers.Reset();
+	
+	AHeavenBreachGameState* HBGameState = GetGameState<AHeavenBreachGameState>();
+	if (!HBGameState)
+	{
+		return;
+	}
+	
+	for (APlayerState* PlayerState : HBGameState->PlayerArray)
+	{
+		if (IsValid(PlayerState))
+		{
+			ActivePlayers.Add(PlayerState);
+		}
+	}
 }
 
 void AHeavenBreachGameMode::EvaluateMatchEnd()
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
+	if (!IsMatchInProgress())
+	{
+		return;
+	}
+	
+	if (!ActivePlayers.IsEmpty())
+	{
+		return;
+	}
+	
+	FinishExtractionMatch();
 }
 
 void AHeavenBreachGameMode::StartMatchTimer()

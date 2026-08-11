@@ -62,6 +62,9 @@ protected:
 	void StopMatchTimer();
 	void HandleMatchTimeExpired();
 	
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<APlayerState>> ActivePlayers;
+	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match | Timer", meta = (ClamMin = "1.0"))
 	float MatchDurationSeconds = 1500.0f;
 	
