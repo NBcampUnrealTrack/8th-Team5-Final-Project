@@ -8,6 +8,8 @@
 #include "EnemyArchetypeData.generated.h"
 
 class UBehaviorTree;
+class UGameplayEffect;
+class UGameplayAbility;
 
 /**
  * 
@@ -26,12 +28,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Stats")
 	FEnemyStatRow FallbackStats;
 
-	//// 애셋 참조. 테이블에 담지 못한 데이터들
-	//UPROPERTY(EditDefaultsOnly, Category = "Behavior")
-	//TObjectPtr<UBehaviorTree> IdleTree;
-	//
-	//UPROPERTY(EditDefaultsOnly, Category = "Behavior")
-	//TObjectPtr<UBehaviorTree> EngagedTree;
+	// GAS에 사용될 어빌리티들
+	UPROPERTY(EditDefaultsOnly, Category = "GAS")
+	TArray<TSubclassOf<UGameplayAbility>> Abilities;
 
 	// TODO: TSubclassOf<UGameplayEffect> InitStatsEffect;
 	// TODO: TArray<TSubclassOf<UGameplayAbility>> Abilities;

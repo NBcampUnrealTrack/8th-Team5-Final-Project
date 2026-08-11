@@ -5,6 +5,9 @@
 #include "AI/EnemyAIControllerBase.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "AI/GAS/EnemyAbilitySystemComponent.h"
+#include "AI/GAS/EnemyAttributeSetBase.h"
+#include "AI/Enum/EAlertState.h"
 
 // Sets default values
 AEnemyCharacterBase::AEnemyCharacterBase()
@@ -25,6 +28,17 @@ AEnemyCharacterBase::AEnemyCharacterBase()
 		Movement->RotationRate = FRotator(0.f, 360.f, 0.f);
 	}
 
+	// ----- GAS -----
+
+	AbilitySystemComp = CreateDefaultSubobject<UEnemyAbilitySystemComponent>(TEXT("AbilitySystemComp"));
+	// 어트리뷰트와 태그를 클라이언트에 복제하려면 필요하다.
+	AbilitySystemComp->SetIsReplicated(true);
+	// AI적은 레플리 케이션모드가 Minimal이 적합하다. 서버 위주 로직이기에 다른 클라가 자세히 알피룡없음
+	AbilitySystemComp->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
+
+	// GAS스텟 담당 어트리뷰트 셋
+	AttributeSet = CreateDefaultSubobject<UEnemyAttributeSetBase>(TEXT("AttributeSet"));
+
 }
 
 void AEnemyCharacterBase::SetMoveSpeed(bool bRun)
@@ -44,17 +58,30 @@ void AEnemyCharacterBase::BeginPlay()
 	SetMoveSpeed(false);
 }
 
+void AEnemyCharacterBase::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	if (!AbilitySystemComp)
+	{
+		return;
+	}
+
+	// 인자가 둘 다 this 인 이유: Owner와 Avatar가 AI 에서는 같은 액터다.
+	AbilitySystemComp->InitAbilityActorInfo(this, this);
+
+	UE_LOG(LogEnemyAI, Log, TEXT("[GAS] %s ASC 초기화 완료"), *GetName());
+}
+
+UAbilitySystemComponent* AEnemyCharacterBase::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComp;
+}
+
 // Called every frame
 void AEnemyCharacterBase::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
-}
-
-// Called to bind functionality to input
-void AEnemyCharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
-{
-	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
 }
 

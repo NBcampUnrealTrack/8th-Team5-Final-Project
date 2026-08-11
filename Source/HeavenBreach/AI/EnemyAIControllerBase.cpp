@@ -14,6 +14,7 @@
 #include "AI/EnemyCharacterBase.h"
 #include "AI/DataRow/EnemyArchetypeData.h"
 #include "Components/StateTreeAIComponent.h"
+#include "AI/GAS/EnemyAbilitySystemComponent.h"
 
 DEFINE_LOG_CATEGORY(LogEnemyAI);
 
@@ -116,7 +117,6 @@ void AEnemyAIControllerBase::Tick(float DeltaSeconds)
 	case EAlertState::Alerted: Color = FColor::Yellow; break;
 	case EAlertState::Engaged: Color = FColor::Red;    break;
 	case EAlertState::Lost:    Color = FColor::Orange; break;
-	case EAlertState::Dead:    Color = FColor::Black;  break;
 	}
 
 	// TestBaseActor 를 넘기면 첫 인자가 "액터 기준 상대 오프셋"이 되어 문자가 폰을 따라간다.
@@ -135,6 +135,11 @@ float AEnemyAIControllerBase::GetMaxMoveDistance() const
 float AEnemyAIControllerBase::GetAcceptanceRadius() const
 {
 	return CachedArchetype ? CachedArchetype->GetStats().AcceptanceRadius : 100.f;
+}
+
+float AEnemyAIControllerBase::GetAttackRange() const
+{
+	return CachedArchetype ? CachedArchetype->GetStats().AttackRange : 200.f;
 }
 
 void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
@@ -166,7 +171,12 @@ void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 		Char->SetWalkSpeed(S.WalkSpeed);
 		Char->SetRunSpeed(S.RunSpeed);
 		Char->SetAccRadius(S.AcceptanceRadius);
-		//Enemy->SetMovementStats(S.WalkSpeed, S.RunSpeed, S.AcceptanceRadius);
+
+		if (UEnemyAbilitySystemComponent* ASC = Char->GetEnemyASC())
+		{
+			ASC->InitStats(S.MaxHealth);
+			ASC->SetupAbilities(Data->Abilities);
+		}
 	}
 }
 
