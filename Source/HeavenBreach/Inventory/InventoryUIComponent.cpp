@@ -70,6 +70,7 @@ void UInventoryUIComponent::OpenInventory()
 	}
 
 	InventoryWidget->BindToInventory(PlayerCharacter->GetInventory());
+	InventoryWidget->BindToEquipment(PlayerCharacter->GetEquipment());
 	InventoryWidget->SetVisibility(ESlateVisibility::Visible);
 
 	FInputModeGameAndUI InputMode;

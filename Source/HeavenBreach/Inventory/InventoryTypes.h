@@ -1,8 +1,12 @@
+// Copyright RelicsOfTheFallenHeaven. All Rights Reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
 #include "InventoryTypes.generated.h"
+
+class UTexture2D;
 
 UENUM(BlueprintType)
 enum class EEquipSlotType : uint8
@@ -84,3 +88,5 @@ struct FInventoryEntry
 HEAVENBREACH_API bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutViewData);
 
 HEAVENBREACH_API FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InViewData);
+
+HEAVENBREACH_API UTexture2D* LoadItemIcon(const FString& InIconPath);

@@ -7,6 +7,8 @@
 #include "Components/TextBlock.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
+#include "EquipmentComponent.h"
+#include "EquipmentWidget.h"
 
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
@@ -59,6 +61,14 @@ void UInventoryWidget::RefreshGrid()
 	BuildItems();
 }
 
+void UInventoryWidget::BindToEquipment(UEquipmentComponent* InEquipment)
+{
+	if (EquipmentPanel != nullptr)
+	{
+		EquipmentPanel->BindToEquipment(InEquipment, BoundInventory);
+	}
+}
+
 void UInventoryWidget::BuildBackground()
 {
 	const FIntPoint Size = BoundInventory->GetGridSize();
@@ -96,11 +106,7 @@ void UInventoryWidget::BuildItems()
 		ItemBorder->SetBrushColor(FLinearColor(0.10f, 0.12f, 0.16f, 1.0f));
 		ItemBorder->SetPadding(FMargin(2.0f));
 		ItemBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
-		UTexture2D* IconTexture = nullptr;
-		if (!ViewData.IconPath.IsEmpty())
-		{
-			IconTexture = LoadObject<UTexture2D>(nullptr, *ViewData.IconPath);
-		}
+		UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
 		if (IconTexture != nullptr)
 		{
 			UImage* IconImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
@@ -210,12 +216,9 @@ void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 	const FIntPoint ItemSize = GetOccupiedSize(Entry.Item, ViewData);
 
 	UImage* DragVisual = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
-	if (!ViewData.IconPath.IsEmpty())
+	if (UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath))
 	{
-		if (UTexture2D* IconTexture = LoadObject<UTexture2D>(nullptr, *ViewData.IconPath))
-		{
-			DragVisual->SetBrushFromTexture(IconTexture, false);
-		}
+		DragVisual->SetBrushFromTexture(IconTexture, false);
 	}
 	DragVisual->SetDesiredSizeOverride(FVector2D(ItemSize.X * CellSize, ItemSize.Y * CellSize));
 	DragVisual->SetOpacity(0.7f);
@@ -237,14 +240,21 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	{
 		return false;
 	}
-
 	FIntPoint DropCell;
 	if (!ScreenToCell(InDragDropEvent.GetScreenSpacePosition(), DropCell))
 	{
 		return false;
 	}
-
 	const FIntPoint TargetPosition = DropCell - Operation->GrabOffset;
-
-	return BoundInventory->MoveItem(Operation->InstanceId, TargetPosition);
+	if (Operation->SourceEquipment != nullptr)
+	{
+		return Operation->SourceEquipment->UnequipToInventoryAt(
+			Operation->SourceSlot, BoundInventory, TargetPosition);
+	}
+	if (Operation->SourceInventory == BoundInventory)
+	{
+		return BoundInventory->MoveItem(Operation->InstanceId, TargetPosition);
+	}
+	return BoundInventory->TransferItemFrom(
+		Operation->SourceInventory, Operation->InstanceId, TargetPosition);
 }

@@ -6,6 +6,8 @@
 
 class UCanvasPanel;
 class UInventoryComponent;
+class UEquipmentComponent;
+class UEquipmentWidget;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UUserWidget
@@ -18,6 +20,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void RefreshGrid();
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void BindToEquipment(UEquipmentComponent* InEquipment);
 
 protected:
 	virtual void NativeDestruct() override;
@@ -36,6 +41,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	float CellSize = 64.0f;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UEquipmentWidget> EquipmentPanel;
 
 private:
 	void BuildBackground();
