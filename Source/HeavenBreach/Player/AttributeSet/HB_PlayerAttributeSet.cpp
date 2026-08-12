@@ -1,8 +1,10 @@
 #include "HB_PlayerAttributeSet.h"
 
 #include "GameplayEffectExtension.h"
+#include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 
 UHB_PlayerAttributeSet::UHB_PlayerAttributeSet()
 {
@@ -43,6 +45,14 @@ void UHB_PlayerAttributeSet::PostGameplayEffectExecute(const struct FGameplayEff
 				if (!ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
 				{
 					ASC->AddLooseGameplayTag(AbilityTag::TAG_State_Dead);
+				}
+				
+				if (AHB_PlayerState* HBPlayerState = Cast<AHB_PlayerState>(GetOwningActor()))
+				{
+					if (AHeavenBreachGameMode* GameMode = HBPlayerState->GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>())
+					{
+						GameMode->NotifyPlayerDied(HBPlayerState);
+					}
 				}
 			}
 		}
