@@ -30,14 +30,17 @@ public class HeavenBreach : ModuleRules
 
 		PublicIncludePaths.AddRange(new string[] {
 			"HeavenBreach",
+			"HeavenBreach/Interaction",
+			"HeavenBreach/Loot",
 			"HeavenBreach/Variant_Horror",
 			"HeavenBreach/Variant_Horror/UI",
 			"HeavenBreach/Variant_Shooter",
 			"HeavenBreach/Variant_Shooter/AI",
 			"HeavenBreach/Variant_Shooter/UI",
 			"HeavenBreach/Variant_Shooter/Weapons",
-			"HeavenBreach/Inventory"
-		});
+			"HeavenBreach/Inventory",
+            "HeavenBreach/Equipment"
+        });
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

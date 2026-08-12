@@ -7,6 +7,8 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChanged);
 
+class UDataTable;
+
 UCLASS(ClassGroup = (Inventory), meta = (BlueprintSpawnableComponent))
 class HEAVENBREACH_API UInventoryComponent : public UActorComponent
 {
@@ -50,6 +52,10 @@ public:
 
 	bool RemoveStackCount(FGuid InInstanceId, int32 InCount);
 
+	bool TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
+
+	bool TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
+
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ClearAll();
 
@@ -77,11 +83,16 @@ private:
 
 	bool GetEntrySize(const FItemInstance& InItem, FIntPoint& OutSize) const;
 
+	bool HasMergeableSpace(FName InRowName, int32 InMaxStack) const;
+
 	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
 	int32 Width = 6;
 
 	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
 	int32 Height = 5;
+
+	UPROPERTY(EditAnywhere, Category = "Inventory|Debug")
+	TObjectPtr<UDataTable> DebugItemTable;
 
 	UPROPERTY()
 	TArray<FInventoryEntry> Entries;
