@@ -39,7 +39,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.EquipSlotType = ItemRow->EquipSlotType;
 		OutViewData.MaxStack = FMath::Max(1, ItemRow->MaxStack);
 		OutViewData.DisplayName = ItemRow->ItemName;
-		OutViewData.IconPath = ItemRow->IconPath;
+		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
 		return true;
 	}
 
@@ -55,7 +55,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.EquipSlotType = WeaponRow->EquipSlotType;
 		OutViewData.MaxStack = 1;
 		OutViewData.DisplayName = WeaponRow->WeaponName;
-		OutViewData.IconPath = WeaponRow->IconPath;
+		OutViewData.IconPath = WeaponRow->Icon ? WeaponRow->Icon->GetPathName() : FString();
 		return true;
 	}
 
@@ -71,7 +71,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.EquipSlotType = ShieldRow->EquipSlotType;
 		OutViewData.MaxStack = 1;
 		OutViewData.DisplayName = ShieldRow->ShieldName;
-		OutViewData.IconPath = ShieldRow->IconPath;
+		OutViewData.IconPath = ShieldRow->Icon ? ShieldRow->Icon->GetPathName() : FString();
 		return true;
 	}
 

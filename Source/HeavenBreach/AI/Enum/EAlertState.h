@@ -17,7 +17,6 @@ enum class EAlertState : uint8
 	Alerted UMETA(DisplayName = "Alerted"),   // 소리나 누군가의 경고신호를 받음, 수상함
 	Engaged UMETA(DisplayName = "Engaged"),   // 플레이어 인지 중
 	Lost    UMETA(DisplayName = "Lost"),      // 놓침, 수색 중
-	Dead    UMETA(DisplayName = "Dead")		  // 사망
 };
 
 
@@ -32,7 +31,6 @@ inline const TCHAR* LexToString(EAlertState State)
 	case EAlertState::Alerted: return TEXT("Alerted");
 	case EAlertState::Engaged: return TEXT("Engaged");
 	case EAlertState::Lost:    return TEXT("Lost");
-	case EAlertState::Dead:    return TEXT("Dead");
 	default:                   return TEXT("Unknown");
 	}
 }

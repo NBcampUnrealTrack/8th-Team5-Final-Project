@@ -1,0 +1,22 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Animation/AnimInstance.h"
+#include "HBPlayerAnimInst.generated.h"
+
+class AHBPlayerCharacter;
+
+UCLASS()
+class HEAVENBREACH_API UHBPlayerAnimInst : public UAnimInstance
+{
+	GENERATED_BODY()
+	
+protected:
+	virtual void NativeInitializeAnimation() override;
+	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+	
+	UPROPERTY(BlueprintReadOnly)
+	float MoveSpeed;
+	UPROPERTY(BlueprintReadOnly)
+	TObjectPtr<AHBPlayerCharacter> OwnerInst;
+};

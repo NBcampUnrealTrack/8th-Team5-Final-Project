@@ -21,6 +21,9 @@ public:
 	FIntPoint GrabOffset = FIntPoint::ZeroValue;
 
 	UPROPERTY()
+	FVector2D GrabPixelOffset = FVector2D::ZeroVector;
+
+	UPROPERTY()
 	TObjectPtr<UInventoryComponent> SourceInventory = nullptr;
 
 	UPROPERTY()
