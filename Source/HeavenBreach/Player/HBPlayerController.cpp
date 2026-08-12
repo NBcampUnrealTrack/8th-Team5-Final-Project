@@ -160,3 +160,11 @@ void AHBPlayerController::ToggleInventory()
 		InventoryUI->ToggleInventory();
 	}
 }
+
+void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCameraShakeBase> ShakeClass)
+{
+	if (ShakeClass && PlayerCameraManager)
+	{
+		PlayerCameraManager->StartCameraShake(ShakeClass);
+	}
+}

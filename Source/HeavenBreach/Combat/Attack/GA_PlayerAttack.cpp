@@ -9,6 +9,7 @@
 #include "Core/Tag/State/HB_StateTag.h"
 #include "GameFramework/Character.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Player/HBPlayerController.h"
 
 UGA_PlayerAttack::UGA_PlayerAttack()
 {
@@ -126,12 +127,9 @@ void UGA_PlayerAttack::ResolveWallHit(const FHitResult& Hit)
 {
 	if (APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo()))
 	{
-		if (APlayerController* PC = Cast<APlayerController>(AvatarPawn->GetController()))
+		if (AHBPlayerController* PC = Cast<AHBPlayerController>(AvatarPawn->GetController()))
 		{
-			if (ObjectHitCameraShake)
-			{
-				PC->PlayerCameraManager->StartCameraShake(ObjectHitCameraShake);
-			}
+			PC->ClientPlayCameraShake(ObjectHitCameraShake);
 		}
 	}
 }
@@ -158,4 +156,12 @@ void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit,
 	}
 	
 	IDamageableInterface::Execute_ApplyMeleeHit(Target,AttackerActor,Damage,Hit);
+	
+	if (APawn* AttackerPawn = Cast<APawn>(AttackerActor))
+	{
+		if (AHBPlayerController* PC = Cast<AHBPlayerController>(AttackerPawn->GetController()))
+		{
+			PC->ClientPlayCameraShake(CreatureHitCameraShake);
+		}
+	}
 }

@@ -61,4 +61,10 @@ private:
 	void Attack();
 	void Block();
 	void ToggleInventory();
+	
+#pragma region CameraShake
+public:
+	UFUNCTION(Client,Reliable)
+	void ClientPlayCameraShake(TSubclassOf<UCameraShakeBase> ShakeClass);
+#pragma endregion 
 };

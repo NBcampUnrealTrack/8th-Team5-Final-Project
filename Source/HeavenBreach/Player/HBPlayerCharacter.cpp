@@ -1,6 +1,7 @@
 #include "Player/HBPlayerCharacter.h"
 
 #include "AbilitySystemComponent.h"
+#include "HBPlayerController.h"
 #include "Inventory/InventoryComponent.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
@@ -146,7 +147,6 @@ bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* InstigatorActor) co
 
 void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit)
 {
-	//Player Attribute 데이터 필요
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
 	if (!ASC || !GE_PlayerDamage)
 	{
@@ -158,6 +158,11 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	{
 		Spec.Data->SetSetByCallerMagnitude(DataTag::TAG_Data_Damage, -RawDamage);
 		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	}
+	
+	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetController()))
+	{
+		PC->ClientPlayCameraShake(CS_HitReact);
 	}
 }
 
