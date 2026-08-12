@@ -40,6 +40,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.MaxStack = FMath::Max(1, ItemRow->MaxStack);
 		OutViewData.DisplayName = ItemRow->ItemName;
 		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
+		OutViewData.HealAmount = ItemRow->HealAmount;
 		return true;
 	}
 

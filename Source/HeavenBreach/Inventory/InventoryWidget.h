@@ -28,7 +28,13 @@ public:
 	void SetLinkedContainer(UInventoryComponent* InContainer);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void SetLinkedEquipment(UEquipmentComponent* InEquipment);
+	void SetLinkedEquipment(UEquipmentComponent* InEquipment);	
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	UInventoryComponent* GetBoundInventory() const { return BoundInventory; }
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool BP_ScreenToCell(const FVector2D& InScreenPosition, FIntPoint& OutCell) const { return ScreenToCell(InScreenPosition, OutCell); }
 
 protected:
 	virtual void NativeDestruct() override;
@@ -36,6 +42,8 @@ protected:
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+
+	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 
@@ -63,6 +71,8 @@ private:
 	bool ScreenToLocal(const FVector2D& InScreenPosition, FVector2D& OutLocal) const;
 
 	bool HandleRightClick(FIntPoint InCell);
+
+	bool HandleDoubleClick(FIntPoint InCell);
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;

@@ -6,6 +6,7 @@
 #include "InventoryComponent.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChanged);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUsed, FName, ItemId, float, HealAmount);
 
 class UDataTable;
 
@@ -19,6 +20,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnInventoryChanged OnInventoryChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Inventory")
+	FOnItemUsed OnItemUsed;
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void InitializeGrid(int32 InWidth, int32 InHeight);
@@ -51,6 +55,9 @@ public:
 	bool RemoveItem(FGuid InInstanceId, FItemInstance& OutRemoved);
 
 	bool RemoveStackCount(FGuid InInstanceId, int32 InCount);
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool UseItem(FGuid InInstanceId);
 
 	bool TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
 
@@ -90,6 +97,13 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
 	int32 Height = 5;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory")
+
+	float ItemUseCooldown = 6.0f;
+	
+	bool bHasUsedItem = false;
+	float LastItemUseTime = 0.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Inventory|Debug")
 	TObjectPtr<UDataTable> DebugItemTable;

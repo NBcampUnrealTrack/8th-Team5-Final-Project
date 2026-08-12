@@ -274,6 +274,39 @@ FReply UInventoryWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, cons
 	return FReply::Handled();
 }
 
+bool UInventoryWidget::HandleDoubleClick(FIntPoint InCell)
+{
+	if (BoundInventory == nullptr)
+	{
+		return false;
+	}
+	const int32 EntryIndex = BoundInventory->GetEntryIndexAt(InCell);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+	return BoundInventory->UseItem(Item.InstanceId);
+}
+
+FReply UInventoryWidget::NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (InMouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	{
+		return FReply::Unhandled();
+	}
+	FIntPoint Cell;
+	if (!ScreenToCell(InMouseEvent.GetScreenSpacePosition(), Cell))
+	{
+		return FReply::Unhandled();
+	}
+	if (!HandleDoubleClick(Cell))
+	{
+		return FReply::Unhandled();
+	}
+	return FReply::Handled();
+}
+
 void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation)
 {
 	Super::NativeOnDragDetected(InGeometry, InMouseEvent, OutOperation);

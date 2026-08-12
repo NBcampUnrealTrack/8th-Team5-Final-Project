@@ -1,7 +1,7 @@
 #include "Player/HBPlayerCharacter.h"
 
 #include "AbilitySystemComponent.h"
-#include "Item.h"
+#include "Item/Item.h"
 #include "Inventory/InventoryComponent.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
