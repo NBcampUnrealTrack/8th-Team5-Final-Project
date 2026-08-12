@@ -1,6 +1,7 @@
 #include "HBPlayerAnimInst.h"
 
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "Player/HBPlayerCharacter.h"
 
 void UHBPlayerAnimInst::NativeInitializeAnimation()
@@ -23,5 +24,12 @@ void UHBPlayerAnimInst::NativeUpdateAnimation(float DeltaSeconds)
 		
 		Velocity.Z = 0.f;
 		MoveSpeed = Velocity.Size2D();
+		
+		if (!Velocity.IsNearlyZero())
+		{
+			const FRotator VelocityRotation = Velocity.ToOrientationRotator();
+			const FRotator ActorRotation = OwnerInst->GetActorRotation();
+			Direction = FRotator::NormalizeAxis(VelocityRotation.Yaw - ActorRotation.Yaw);
+		}
 	}
 }

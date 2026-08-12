@@ -25,5 +25,8 @@ protected:
 	float FallSpeed;
 	
 	UPROPERTY(BlueprintReadOnly)
+	float Direction;
+	
+	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<AHBPlayerCharacter> OwnerInst;
 };
