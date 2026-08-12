@@ -107,18 +107,10 @@ protected:
 	void GenerateLoot();
 
 	/**
-	 *  [서버] Interactor에게 이중 인벤토리 UI를 열도록 지시한다.
-	 *  실제 위젯 생성/입력 잠금은 BP_OpenContainer에서 처리(호스트/스탠드얼론 기준).
-	 *  NOTE: 인벤토리 미복제 상태라 원격 클라 동기화는 Inventory 복제 구현 후 완성된다.
+	 *  [서버] Interactor의 InteractionComponent에 Client RPC를 보내, 요청 클라에서 컨테이너 UI를 열게 한다.
+	 *  (데디케이트 서버 대응) 실제 오픈은 클라의 OnRequestOpenContainer → BP → InventoryUI.OpenContainer.
 	 */
 	void OpenContainerUI(AActor* Interactor);
-
-	/**
-	 *  이중 인벤토리 UI를 여는 지점. BP에서 위젯 생성 + BindToInventory + 입력 모드/마우스 커서 설정.
-	 *  BoxInventory는 GetBoxInventory()로, 내 인벤토리는 Interactor에서 가져온다.
-	 */
-	UFUNCTION(BlueprintImplementableEvent, Category = "Box", meta = (DisplayName = "On Open Container"))
-	void BP_OpenContainer(APawn* Interactor);
 
 public:
 

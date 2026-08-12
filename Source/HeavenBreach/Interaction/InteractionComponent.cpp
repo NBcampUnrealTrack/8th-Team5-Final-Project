@@ -20,14 +20,8 @@ void UInteractionComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 로컬 소유 폰이 아니면 트레이스가 필요 없으므로 틱을 끈다. (서버/타 클라 폰)
-	if (const APawn* Pawn = GetOwnerPawn())
-	{
-		if (!Pawn->IsLocallyControlled())
-		{
-			PrimaryComponentTick.SetTickFunctionEnable(false);
-		}
-	}
+	// NOTE: 빙의(possess)가 BeginPlay보다 늦을 수 있어 여기서 틱을 끄면 로컬 폰인데도 영영 안 켜질 수 있다.
+	// 그래서 비활성화하지 않고, TickComponent가 매 틱 IsLocallyControlled로 조기 리턴하도록 둔다.
 }
 
 void UInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -174,4 +168,10 @@ bool UInteractionComponent::GetViewPoint(FVector& OutLocation, FVector& OutDirec
 APawn* UInteractionComponent::GetOwnerPawn() const
 {
 	return Cast<APawn>(GetOwner());
+}
+
+void UInteractionComponent::Client_OpenContainer_Implementation(UInventoryComponent* Container)
+{
+	// 요청 클라에서 실행됨. 실제 UI 오픈(InventoryUI.OpenContainer)은 BP에서 이 이벤트에 연결한다.
+	OnRequestOpenContainer.Broadcast(Container);
 }

@@ -8,9 +8,13 @@
 #include "InteractionComponent.generated.h"
 
 class APawn;
+class UInventoryComponent;
 
 /** 조준 중인 상호작용 대상이 바뀔 때 브로드캐스트 (프롬프트 UI 갱신용, 로컬 전용) */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInteractableFocusChanged, AActor*, NewInteractable);
+
+/** [클라] 서버가 "이 컨테이너 인벤토리로 UI를 열어라"고 지시할 때 브로드캐스트. BP에서 InventoryUI.OpenContainer로 연결. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRequestOpenContainer, UInventoryComponent*, Container);
 
 /**
  *  플레이어 캐릭터에 부착하는 상호작용 컴포넌트.
@@ -47,6 +51,18 @@ public:
 	/** 조준 대상 변경 알림 (프롬프트 위젯이 바인딩) */
 	UPROPERTY(BlueprintAssignable, Category = "Interaction")
 	FOnInteractableFocusChanged OnFocusChanged;
+
+	/** 컨테이너 UI 오픈 요청 (클라). BP에서 이 이벤트를 PlayerController의 InventoryUI.OpenContainer(Container)로 연결한다. */
+	UPROPERTY(BlueprintAssignable, Category = "Interaction")
+	FOnRequestOpenContainer OnRequestOpenContainer;
+
+	/**
+	 *  [Client RPC] 서버가 요청 클라에게 컨테이너 인벤토리로 UI를 열라고 지시.
+	 *  이 컴포넌트는 소유 폰(클라 커넥션 소유)에 붙어 있어 Client RPC가 해당 클라로 라우팅된다.
+	 *  → OnRequestOpenContainer 브로드캐스트 → (BP) InventoryUI.OpenContainer.
+	 */
+	UFUNCTION(Client, Reliable)
+	void Client_OpenContainer(UInventoryComponent* Container);
 
 protected:
 
