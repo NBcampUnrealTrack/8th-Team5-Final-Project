@@ -25,6 +25,9 @@ public:
 	void BindToEquipment(UEquipmentComponent* InEquipment);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetOwningInventory(UInventoryComponent* InOwningInventory);
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetLinkedContainer(UInventoryComponent* InContainer);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
@@ -66,6 +69,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
+
+	UPROPERTY()
+	TObjectPtr<UInventoryComponent> OwningInventory;
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> LinkedContainer;
