@@ -38,15 +38,20 @@ public:
 
 	bool UnequipToInventoryAt(EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition);
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 	UFUNCTION(BlueprintCallable, Category = "Equipment|Debug")
 	void DebugPrintSlots() const;
 
 protected:
 	virtual void BeginPlay() override;
 
+	UFUNCTION()
+	void OnRep_Slots();
+
 private:
 	static int32 SlotToIndex(EEquipSlotType InSlot) { return static_cast<int32>(InSlot); }
 
-	UPROPERTY()
+	UPROPERTY(ReplicatedUsing = OnRep_Slots)
 	TArray<FItemInstance> Slots;
 };
