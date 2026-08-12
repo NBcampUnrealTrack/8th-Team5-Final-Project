@@ -14,6 +14,7 @@ UEnemyAttributeSetBase::UEnemyAttributeSetBase()
 	// 때에 따라서는 SetHP를 써도되긴한데...되도록 쓰지말자
 	InitMaxHP(100.f);
 	InitHP(100.f);
+	InitAttackPower(10.f);
 }
 
 void UEnemyAttributeSetBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -22,6 +23,7 @@ void UEnemyAttributeSetBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 
 	DOREPLIFETIME(UEnemyAttributeSetBase, HP);
 	DOREPLIFETIME(UEnemyAttributeSetBase, MaxHP);
+	DOREPLIFETIME(UEnemyAttributeSetBase, AttackPower);
 }
 
 bool UEnemyAttributeSetBase::PreGameplayEffectExecute(FGameplayEffectModCallbackData& Data)
@@ -42,6 +44,10 @@ void UEnemyAttributeSetBase::PreAttributeChange(const FGameplayAttribute& Attrib
 	if (Attribute == GetHPAttribute())
 	{
 		NewValue = FMath::Clamp(NewValue, 0.f, GetMaxHP());
+	}
+	else if (Attribute == GetAttackPowerAttribute())
+	{
+		NewValue = FMath::Max(NewValue, 0.f);
 	}
 
 
@@ -74,8 +80,19 @@ void UEnemyAttributeSetBase::PostGameplayEffectExecute(const FGameplayEffectModC
 				// 이미 사망중인 적에게 다시 부여x
 				if (!ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
 				{
-					// 사망태그 수동으로 부여
-					ASC->AddLooseGameplayTag(AbilityTag::TAG_State_Dead);
+					// 사망 어빌리티가 태그부여함
+					const bool bActivated = ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_Death));
+
+					// 사망 어빌리티가 없거나 발동 실패
+					// 태그만이라도 붙여서 StateTree 가 Dead 로 넘어가게 한다
+					if (!bActivated)
+					{
+						// 원래는 TAG_Ability_Death가 할일
+						ASC->AddLooseGameplayTag(AbilityTag::TAG_State_Dead);
+
+						UE_LOG(LogEnemyAI, Warning, TEXT("[GAS] %s 사망 어빌리티 없음 — 태그만 부여"),
+							*GetNameSafe(ASC->GetAvatarActor()));
+					}
 
 					// TODO: 사망시 델리게이트 이벤트를 보내서 다른 매니저들이 알게만들어야할까...?
 
