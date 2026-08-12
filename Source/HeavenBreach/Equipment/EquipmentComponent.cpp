@@ -1,11 +1,12 @@
 #include "EquipmentComponent.h"
 
+#include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
 
 UEquipmentComponent::UEquipmentComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-
+	SetIsReplicatedByDefault(true);
 	Slots.SetNum(static_cast<int32>(EEquipSlotType::MAX));
 }
 
@@ -17,6 +18,11 @@ void UEquipmentComponent::BeginPlay()
 	{
 		Slots.SetNum(static_cast<int32>(EEquipSlotType::MAX));
 	}
+}
+
+void UEquipmentComponent::OnRep_Slots()
+{
+	OnEquipmentChanged.Broadcast();
 }
 
 bool UEquipmentComponent::IsSlotOccupied(EEquipSlotType InSlot) const
@@ -74,6 +80,11 @@ bool UEquipmentComponent::CanEquip(const FItemInstance& InItem, EEquipSlotType I
 
 bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGuid InInstanceId, EEquipSlotType InSlot)
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (InSource == nullptr)
 	{
 		return false;
@@ -121,6 +132,11 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 
 bool UEquipmentComponent::UnequipToInventory(EEquipSlotType InSlot, UInventoryComponent* InTarget)
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (InTarget == nullptr || !IsSlotOccupied(InSlot))
 	{
 		return false;
@@ -144,6 +160,11 @@ bool UEquipmentComponent::UnequipToInventory(EEquipSlotType InSlot, UInventoryCo
 
 bool UEquipmentComponent::UnequipToInventoryAt(EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition)
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (InTarget == nullptr || !IsSlotOccupied(InSlot))
 	{
 		return false;
@@ -162,6 +183,13 @@ bool UEquipmentComponent::UnequipToInventoryAt(EEquipSlotType InSlot, UInventory
 	OnEquipmentChanged.Broadcast();
 
 	return true;
+}
+
+void UEquipmentComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(UEquipmentComponent, Slots);
 }
 
 void UEquipmentComponent::DebugPrintSlots() const
