@@ -32,6 +32,11 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Sense", meta = (ClampMin = "0.1"))
 	float SightMaxAge = 2.f;
 
+	// 목격된 대상이 시야각을 벗어나도 볼수 잇는 거리
+	// -1이면 비활성
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	float AutoSuccessSightRange = -1.f;
+
 	// ----- 기억 -----
 	// Lost 유지 시간. 지나면 Idle
 	UPROPERTY(EditAnywhere, Category = "Alert", meta = (ClampMin = "0.0"))
