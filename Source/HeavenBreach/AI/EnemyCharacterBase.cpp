@@ -8,6 +8,8 @@
 #include "AI/GAS/EnemyAbilitySystemComponent.h"
 #include "AI/GAS/EnemyAttributeSetBase.h"
 #include "AI/Enum/EAlertState.h"
+#include "Components/CapsuleComponent.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
 
 // Sets default values
 AEnemyCharacterBase::AEnemyCharacterBase()
@@ -39,6 +41,50 @@ AEnemyCharacterBase::AEnemyCharacterBase()
 	// GAS스텟 담당 어트리뷰트 셋
 	AttributeSet = CreateDefaultSubobject<UEnemyAttributeSetBase>(TEXT("AttributeSet"));
 
+
+	GetCapsuleComponent()->SetCollisionProfileName(TEXT("Pawn"));
+
+}
+
+bool AEnemyCharacterBase::CanBeDamaged_Implementation(AActor* InstigatorActor) const
+{
+	if (!AbilitySystemComp)
+	{
+		return false;
+	}
+
+	// 이미 죽었으면 더 맞지 않는다.
+	if (AbilitySystemComp->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		return false;
+	}
+
+	// 무적 같은 조건이 생기면 여기에 추가한다.
+	return true;
+}
+
+void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit)
+{
+	// 데미지 확정은 서버 전용.
+	if (!HasAuthority() || !AbilitySystemComp || !IncomingDamageEffect)
+	{
+		return;
+	}
+
+	FGameplayEffectContextHandle Context = AbilitySystemComp->MakeEffectContext();
+	Context.AddInstigator(InstigatorActor, InstigatorActor);   // 누가 때렸나
+	Context.AddHitResult(Hit);
+
+	FGameplayEffectSpecHandle Spec = AbilitySystemComp->MakeOutgoingSpec(IncomingDamageEffect, 1.f, Context);
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+
+	// GE 애셋의 Modifier 가 이태그로 값을 받는다.
+	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage);
+
+	AbilitySystemComp->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 }
 
 void AEnemyCharacterBase::SetMoveSpeed(bool bRun)
