@@ -40,6 +40,16 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
 	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 0.0f, 64.0f));
 	FirstPersonCamera->bUsePawnControlRotation = true;
+	
+#pragma region Weapon
+	WeaponMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMeshComp"));
+	WeaponMeshComp->SetupAttachment(GetMesh(),WeaponSocketName);
+	WeaponMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	
+	ShieldMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShieldMeshComp"));
+	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
+	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+#pragma endregion 
 }
 
 void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -358,4 +368,68 @@ void AHBPlayerCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
 {
 	bIsSprinting = bNewSprinting;
 	GetCharacterMovement()->MaxWalkSpeed = bNewSprinting ? SprintSpeed : WalkSpeed;
+}
+
+void AHBPlayerCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	
+	if (Equipment)
+	{
+		Equipment->OnEquipmentChanged.AddDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
+	}
+	
+	RefreshEquippedVisuals();
+}
+
+void AHBPlayerCharacter::RefreshEquippedVisuals()
+{
+	RefreshWeaponVisual();
+	RefreshShieldVisual();
+}
+
+void AHBPlayerCharacter::RefreshWeaponVisual()
+{
+	if (!Equipment || !WeaponMeshComp)
+	{
+		return;
+	}
+	
+	FItemInstance WeaponItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
+	{
+		if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("RefreshWeaponVisual")))
+		{
+			if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*WeaponData->EquipMeshPath))
+			{
+				WeaponMeshComp->SetStaticMesh(WeaponMesh);
+				return;
+			}
+		}
+	}
+	
+	WeaponMeshComp->SetStaticMesh(nullptr);
+}
+
+void AHBPlayerCharacter::RefreshShieldVisual()
+{
+	if (!Equipment || !ShieldMeshComp)
+	{
+		return;
+	}
+	
+	FItemInstance ShieldItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+	{
+		if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("RefreshShieldVisual")))
+		{
+			if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*ShieldData->EquipMeshPath))
+			{
+				ShieldMeshComp->SetStaticMesh(WeaponMesh);
+				return;
+			}
+		}
+	}
+	
+	ShieldMeshComp->SetStaticMesh(nullptr);
 }
