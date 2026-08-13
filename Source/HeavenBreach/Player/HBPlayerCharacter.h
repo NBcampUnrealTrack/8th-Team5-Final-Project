@@ -170,4 +170,9 @@ protected:
 public:
 	UFUNCTION(Exec, Category = "Debug")
 	void TestDamage(float Amount);
+
+protected:
+	// C++에서 호출하면 블루프린트에서 실행되는 이벤트
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
+	void BP_OnPlayerStateReady();
 };
