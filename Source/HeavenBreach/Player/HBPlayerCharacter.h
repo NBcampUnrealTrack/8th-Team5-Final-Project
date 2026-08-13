@@ -12,6 +12,8 @@ class AHB_PlayerState;
 class UCameraComponent;
 class UInventoryComponent;
 class UEquipmentComponent;
+class UInteractionComponent;
+class UInteractionPromptWidget;
 
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface
@@ -41,6 +43,24 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UEquipmentComponent* GetEquipment() const { return Equipment; }
+
+#pragma region Interaction
+public:
+	virtual void PawnClientRestart() override;
+
+protected:
+	UPROPERTY(EditDefaultsOnly, Category = "Player|UI")
+	TSubclassOf<UInteractionPromptWidget> InteractionPromptClass;
+
+private:
+	UPROPERTY()
+	TObjectPtr<UInteractionPromptWidget> InteractionPromptWidgetInstance;
+
+	void SetupInteractionPrompt();
+
+	UFUNCTION()
+	void HandleInteractableFocusChanged(AActor* NewInteractable);
+#pragma endregion
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")

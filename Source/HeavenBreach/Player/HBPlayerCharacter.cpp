@@ -1,6 +1,7 @@
 #include "Player/HBPlayerCharacter.h"
 
 #include "AbilitySystemComponent.h"
+#include "Item/Item.h"
 #include "HBPlayerController.h"
 #include "Inventory/InventoryComponent.h"
 #include "Equipment/EquipmentComponent.h"
@@ -15,6 +16,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Item/Item.h"
 #include "PlayerState/HB_PlayerState.h"
+
+#include "Interaction/InteractionComponent.h"
+#include "Interaction/InteractionPromptWidget.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
 AHBPlayerCharacter::AHBPlayerCharacter()
@@ -232,6 +236,62 @@ float AHBPlayerCharacter::GetBlockAngle() const
 	}
 	
 	return BaseBlockingAngle;
+}
+
+void AHBPlayerCharacter::PawnClientRestart()
+{
+	Super::PawnClientRestart();
+
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	SetupInteractionPrompt();
+}
+
+void AHBPlayerCharacter::SetupInteractionPrompt()
+{
+	if (InteractionPromptWidgetInstance != nullptr || InteractionPromptClass == nullptr)
+	{
+		return;
+	}
+
+	UInteractionComponent* InteractionComp = FindComponentByClass<UInteractionComponent>();
+	if (InteractionComp == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AHBPlayerCharacter: UInteractionComponent not found (BP에 추가됐는지 확인)"));
+		return;
+	}
+
+	InteractionPromptWidgetInstance = CreateWidget<UInteractionPromptWidget>(GetWorld(), InteractionPromptClass);
+	if (InteractionPromptWidgetInstance == nullptr)
+	{
+		return;
+	}
+
+	InteractionPromptWidgetInstance->AddToViewport();
+	InteractionPromptWidgetInstance->HidePrompt();
+
+	InteractionComp->OnFocusChanged.AddDynamic(this, &AHBPlayerCharacter::HandleInteractableFocusChanged);
+}
+
+void AHBPlayerCharacter::HandleInteractableFocusChanged(AActor* NewInteractable)
+{
+	if (InteractionPromptWidgetInstance == nullptr)
+	{
+		return;
+	}
+
+	if (NewInteractable == nullptr)
+	{
+		InteractionPromptWidgetInstance->HidePrompt();
+		return;
+	}
+
+	const UInteractionComponent* InteractionComp = FindComponentByClass<UInteractionComponent>();
+	const FText Prompt = InteractionComp ? InteractionComp->GetCurrentPrompt() : FText::GetEmpty();
+	InteractionPromptWidgetInstance->ShowPrompt(Prompt);
 }
 
 void AHBPlayerCharacter::TestDamage(float Amount)
