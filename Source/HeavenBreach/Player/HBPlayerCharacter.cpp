@@ -140,6 +140,11 @@ void AHBPlayerCharacter::OnRep_PlayerState()
 	if (HB_PlayerState)
 	{
 		HB_PlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(HB_PlayerState,this);
+
+		if (IsLocallyControlled())
+		{
+			BP_OnPlayerStateReady();
+		}
 	}
 }
 
