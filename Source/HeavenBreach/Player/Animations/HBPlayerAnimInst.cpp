@@ -20,6 +20,7 @@ void UHBPlayerAnimInst::NativeUpdateAnimation(float DeltaSeconds)
 		FVector Velocity = OwnerInst->GetVelocity();
 		FallSpeed = Velocity.Z;
 		bIsFalling = OwnerInst->GetCharacterMovement()->IsFalling();
+		bIsCrouching = OwnerInst->GetCharacterMovement()->IsCrouching();
 		
 		
 		Velocity.Z = 0.f;
