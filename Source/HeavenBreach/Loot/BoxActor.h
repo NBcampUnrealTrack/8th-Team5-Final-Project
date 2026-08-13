@@ -75,7 +75,7 @@ protected:
 
 	/** 상호작용 프롬프트 문구 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box")
-	FText InteractPrompt = FText::FromString(TEXT("상자 열기 [E]"));
+	FText InteractPrompt = FText::FromString(TEXT("상자 열기 [F]"));
 
 	/** 이 상자의 식별자. DT_BoxLoot의 BoxID와 일치하는 행만 추첨 대상이 된다. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
