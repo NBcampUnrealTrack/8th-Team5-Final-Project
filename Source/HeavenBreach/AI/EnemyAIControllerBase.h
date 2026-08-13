@@ -65,6 +65,8 @@ protected:
 	// 감각컴포넌트에서 누군가 발견시 델리게이트 구독시키는 함수
 	UFUNCTION()
 	void OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus);
+	UFUNCTION()
+	void OnTargetPerceptionForgotten(AActor* Actor);
 
 	// 알람 컴포넌트 구독용
 	void HandleAlertUpdated();

@@ -14,12 +14,12 @@
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Item/Item.h"
 #include "PlayerState/HB_PlayerState.h"
 
 #include "Interaction/InteractionComponent.h"
 #include "Interaction/InteractionPromptWidget.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
+#include "Player/PlayerState/HBPlayerState.h"
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
@@ -308,4 +308,42 @@ void AHBPlayerCharacter::TestDamage(float Amount)
 			}
 		}
 	}
+}
+
+UAbilitySystemComponent* AHBPlayerCharacter::GetAbilitySystemComponent() const
+{
+	if (const AHBPlayerState* HBPlayerState = GetPlayerState<AHBPlayerState>())
+	{
+		return HBPlayerState->GetAbilitySystemComponent();
+	}
+
+	return nullptr;
+}
+
+void AHBPlayerCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	InitializeAbilitySystem();
+}
+
+void AHBPlayerCharacter::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+	InitializeAbilitySystem();
+}
+
+void AHBPlayerCharacter::InitializeAbilitySystem()
+{
+	if (AHBPlayerState* HBPlayerState = GetPlayerState<AHBPlayerState>())
+	{
+		UAbilitySystemComponent* AbilitySystem = HBPlayerState->GetAbilitySystemComponent();
+		AbilitySystem->InitAbilityActorInfo(
+			HBPlayerState,
+			this);
+		OnAbilitySystemInitialized(AbilitySystem);
+	}
+}
+
+void AHBPlayerCharacter::OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem)
+{
 }

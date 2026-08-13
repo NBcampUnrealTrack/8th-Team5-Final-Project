@@ -17,11 +17,13 @@ class UInteractionPromptWidget;
 
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface
+
 {
 	GENERATED_BODY()
 
 public:
 	AHBPlayerCharacter();
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
 	void MoveForward(float Value);
 	void MoveRight(float Value);
@@ -63,6 +65,11 @@ private:
 #pragma endregion
 
 protected:
+	virtual void PossessedBy(AController* NewController) override;
+	virtual void OnRep_PlayerState() override;
+	virtual void InitializeAbilitySystem();
+	virtual void OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem);
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
 
