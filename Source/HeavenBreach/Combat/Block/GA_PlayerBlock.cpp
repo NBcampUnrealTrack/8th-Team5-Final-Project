@@ -44,6 +44,11 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	{
 		UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
 			this,NAME_None,AM_Block,1.f,NAME_None,true);
+		
+		MontageTask->OnCompleted.AddDynamic(this,&UGA_PlayerBlock::OnBlockMontageCompleted);
+		MontageTask->OnBlendOut.AddDynamic(this,&UGA_PlayerBlock::OnBlockMontageCompleted);
+		MontageTask->OnCancelled.AddDynamic(this,&UGA_PlayerBlock::OnBlockMontageCancelled);
+		MontageTask->OnInterrupted.AddDynamic(this,&UGA_PlayerBlock::OnBlockMontageCancelled);
 		MontageTask->ReadyForActivation();
 	}
 	
@@ -52,6 +57,8 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 void UGA_PlayerBlock::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
+	ApplyCooldown(Handle,ActorInfo,ActivationInfo);
+	
 	if (ACharacter* Character = Cast<ACharacter>(ActorInfo->AvatarActor.Get()))
 	{
 		if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
@@ -64,4 +71,20 @@ void UGA_PlayerBlock::EndAbility(const FGameplayAbilitySpecHandle Handle, const 
 	}
 	
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+void UGA_PlayerBlock::CommitExecute(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo)
+{
+	ApplyCost(Handle,ActorInfo,ActivationInfo);
+}
+
+void UGA_PlayerBlock::OnBlockMontageCompleted()
+{
+	EndAbility(GetCurrentAbilitySpecHandle(),GetCurrentActorInfo(),GetCurrentActivationInfo(),true,false);
+}
+
+void UGA_PlayerBlock::OnBlockMontageCancelled()
+{
+	EndAbility(GetCurrentAbilitySpecHandle(),GetCurrentActorInfo(),GetCurrentActivationInfo(),true,true);
 }

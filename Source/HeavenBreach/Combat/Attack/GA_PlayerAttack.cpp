@@ -7,9 +7,9 @@
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Event/HB_EventTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
-#include "Core/Tag/Team/HB_TeamTag.h"
 #include "GameFramework/Character.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Player/HBPlayerController.h"
 
 UGA_PlayerAttack::UGA_PlayerAttack()
 {
@@ -127,28 +127,16 @@ void UGA_PlayerAttack::ResolveWallHit(const FHitResult& Hit)
 {
 	if (APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo()))
 	{
-		if (APlayerController* PC = Cast<APlayerController>(AvatarPawn->GetController()))
+		if (AHBPlayerController* PC = Cast<AHBPlayerController>(AvatarPawn->GetController()))
 		{
-			if (ObjectHitCameraShake)
-			{
-				PC->PlayerCameraManager->StartCameraShake(ObjectHitCameraShake);
-			}
+			PC->ClientPlayCameraShake(ObjectHitCameraShake);
 		}
 	}
 }
 
 void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit, AActor* AttackerActor)
 {
-	const UAbilitySystemComponent* AttackerASC = GetAbilitySystemComponentFromActorInfo();
 	const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
-	
-	const bool bAttackerIsPlayer = AttackerASC && AttackerASC->HasMatchingGameplayTag(TeamTag::TAG_Team_Player);
-	const bool bTargetIsPlayer = TargetASC && TargetASC->HasMatchingGameplayTag(TeamTag::TAG_Team_Player);
-	
-	if (bAttackerIsPlayer && bTargetIsPlayer)
-	{
-		return;
-	}
 	
 	AHBPlayerCharacter* AttackerPlayer = Cast<AHBPlayerCharacter>(AttackerActor);
 	float Damage = AttackerPlayer ? AttackerPlayer->GetAttackPower() : 10.f;
@@ -168,4 +156,12 @@ void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit,
 	}
 	
 	IDamageableInterface::Execute_ApplyMeleeHit(Target,AttackerActor,Damage,Hit);
+	
+	if (APawn* AttackerPawn = Cast<APawn>(AttackerActor))
+	{
+		if (AHBPlayerController* PC = Cast<AHBPlayerController>(AttackerPawn->GetController()))
+		{
+			PC->ClientPlayCameraShake(CreatureHitCameraShake);
+		}
+	}
 }
