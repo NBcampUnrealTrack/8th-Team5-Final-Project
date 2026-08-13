@@ -23,6 +23,8 @@ class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageable
 
 public:
 	AHBPlayerCharacter();
+	
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void MoveForward(float Value);
 	void MoveRight(float Value);
@@ -141,6 +143,28 @@ protected:
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
 	float BaseBlockingAngle = 120.f;
+#pragma endregion 
+	
+#pragma region Movement
+public:
+	void StartSprint();
+	
+	void StopSprint();
+protected:
+	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
+	float WalkSpeed = 300.f;
+	
+	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
+	float SprintSpeed = 600.f;
+	
+	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
+	bool bIsSprinting = false;
+	
+	UFUNCTION()
+	void OnRep_IsSprinting();
+	
+	UFUNCTION(Server, Reliable)
+	void ServerSetSprinting(bool bNewSprinting);
 #pragma endregion 
 
 public:

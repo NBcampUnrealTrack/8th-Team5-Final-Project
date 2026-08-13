@@ -38,6 +38,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	TObjectPtr<UInputAction> BlockAction;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> SprintAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	int32 MappingPriority = 0;
@@ -61,6 +64,8 @@ private:
 	void Attack();
 	void Block();
 	void ToggleInventory();
+	void StartSprint();
+	void StopSprint();
 	
 #pragma region CameraShake
 public:
