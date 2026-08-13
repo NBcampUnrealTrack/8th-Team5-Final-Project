@@ -33,6 +33,12 @@ public:
 	// 시야 놓침
 	// 되도록 유효성을 위해 Actor는 IsVaild로 유효성 검사를 해둘것
 	void SightLost(AActor* Actor, const FVector& LastSeenLocation);
+	// 시야에 놓친 대상을 잊어버림
+	void SightForgotten(AActor* Actor);
+
+	// 피격 감지
+	// 때린 쪽 위치를 마지막 목격 지점으로 삼고 Lost로 전환. Engage일 시 무시
+	void DamageSensed(const FVector& InstigatorLocation);
 
 	// lost상태 기간 설정
 	void SetLostMemoryDuration(float Duration) { LostMemoryDuration = FMath::Max(0.f, Duration); }
