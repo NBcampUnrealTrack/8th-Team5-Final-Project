@@ -16,8 +16,10 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Item/Item.h"
 #include "PlayerState/HB_PlayerState.h"
+
 #include "Interaction/InteractionComponent.h"
 #include "Interaction/InteractionPromptWidget.h"
+#include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
@@ -290,4 +292,19 @@ void AHBPlayerCharacter::HandleInteractableFocusChanged(AActor* NewInteractable)
 	const UInteractionComponent* InteractionComp = FindComponentByClass<UInteractionComponent>();
 	const FText Prompt = InteractionComp ? InteractionComp->GetCurrentPrompt() : FText::GetEmpty();
 	InteractionPromptWidgetInstance->ShowPrompt(Prompt);
+}
+
+void AHBPlayerCharacter::TestDamage(float Amount)
+{
+	if (AHB_PlayerState* PS = GetPlayerCurrentState())
+	{
+		if (UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent())
+		{
+			if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
+			{
+				float NewHP = AttribSet->GetPlayer_HP() - Amount;
+				AttribSet->SetPlayer_HP(FMath::Clamp(NewHP, 0.0f, AttribSet->GetPlayer_MaxHP()));
+			}
+		}
+	}
 }
