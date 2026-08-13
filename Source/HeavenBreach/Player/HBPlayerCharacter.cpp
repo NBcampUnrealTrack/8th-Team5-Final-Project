@@ -31,6 +31,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 
 	GetCharacterMovement()->bOrientRotationToMovement = false;
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
+	GetCharacterMovement()->MaxWalkSpeedCrouched = 300.f;
 
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
