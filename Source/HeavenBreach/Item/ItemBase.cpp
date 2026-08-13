@@ -185,5 +185,5 @@ void AItemBase::Interact_Implementation(AActor* Interactor)
 
 FText AItemBase::GetInteractPrompt_Implementation() const
 {
-	return FText::FromString(FString::Printf(TEXT("%s 획득 [E]"), *DisplayName));
+	return FText::FromString(FString::Printf(TEXT("%s"), *DisplayName));
 }
