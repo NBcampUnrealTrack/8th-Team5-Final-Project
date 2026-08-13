@@ -15,6 +15,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Item/Item.h"
 #include "PlayerState/HB_PlayerState.h"
+#include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
@@ -231,4 +232,19 @@ float AHBPlayerCharacter::GetBlockAngle() const
 	}
 	
 	return BaseBlockingAngle;
+}
+
+void AHBPlayerCharacter::TestDamage(float Amount)
+{
+	if (AHB_PlayerState* PS = GetPlayerCurrentState())
+	{
+		if (UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent())
+		{
+			if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
+			{
+				float NewHP = AttribSet->GetPlayer_HP() - Amount;
+				AttribSet->SetPlayer_HP(FMath::Clamp(NewHP, 0.0f, AttribSet->GetPlayer_MaxHP()));
+			}
+		}
+	}
 }

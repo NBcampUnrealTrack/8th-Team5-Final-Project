@@ -120,4 +120,7 @@ protected:
 	float BaseBlockingAngle = 120.f;
 #pragma endregion 
 
+public:
+	UFUNCTION(Exec, Category = "Debug")
+	void TestDamage(float Amount);
 };
