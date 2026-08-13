@@ -39,7 +39,8 @@ public class HeavenBreach : ModuleRules
 			"HeavenBreach/Variant_Shooter/UI",
 			"HeavenBreach/Variant_Shooter/Weapons",
 			"HeavenBreach/Inventory",
-            "HeavenBreach/Equipment"
+            "HeavenBreach/Equipment",
+            "HeavenBreach/Item"
         });
 
 		// Uncomment if you are using Slate UI

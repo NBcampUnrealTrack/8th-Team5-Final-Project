@@ -1,9 +1,22 @@
 #include "InventoryComponent.h"
 #include "Engine/DataTable.h"
+#include "Net/UnrealNetwork.h"
+#include "EquipmentComponent.h"
 
 UInventoryComponent::UInventoryComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+	SetIsReplicatedByDefault(true);
+}
+
+void UInventoryComponent::Server_MoveItemIn_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition)
+{
+	if (InTarget == nullptr)
+	{
+		return;
+	}
+
+	InTarget->MoveItem(InInstanceId, InNewPosition);
 }
 
 void UInventoryComponent::BeginPlay()
@@ -13,8 +26,21 @@ void UInventoryComponent::BeginPlay()
 	InitializeGrid(Width, Height);
 }
 
+void UInventoryComponent::OnRep_Entries()
+{
+
+	UE_LOG(LogTemp, Log, TEXT("OnRep_Entries: %d entries"), Entries.Num());
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+}
+
 void UInventoryComponent::InitializeGrid(int32 InWidth, int32 InHeight)
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
 	Width = FMath::Max(1, InWidth);
 	Height = FMath::Max(1, InHeight);
 
@@ -136,6 +162,11 @@ bool UInventoryComponent::TryAddItem(const FItemInstance& InItem, int32& OutRema
 
 	FItemViewData ViewData;
 
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (!ResolveItemViewData(InItem.ItemRow, ViewData))
 	{
 		return false;
@@ -207,6 +238,12 @@ bool UInventoryComponent::TryAddItem(const FItemInstance& InItem, int32& OutRema
 bool UInventoryComponent::TryAddItemAt(const FItemInstance& InItem, FIntPoint InPosition)
 {
 	FIntPoint Size;
+
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (!GetEntrySize(InItem, Size))
 	{
 		return false;
@@ -232,6 +269,12 @@ bool UInventoryComponent::TryAddItemAt(const FItemInstance& InItem, FIntPoint In
 bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition)
 {
 	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (EntryIndex == INDEX_NONE)
 	{
 		return false;
@@ -259,6 +302,12 @@ bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition)
 bool UInventoryComponent::RemoveItem(FGuid InInstanceId, FItemInstance& OutRemoved)
 {
 	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (EntryIndex == INDEX_NONE)
 	{
 		return false;
@@ -276,6 +325,11 @@ bool UInventoryComponent::RemoveItem(FGuid InInstanceId, FItemInstance& OutRemov
 
 bool UInventoryComponent::RemoveStackCount(FGuid InInstanceId, int32 InCount)
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (InCount <= 0)
 	{
 		return false;
@@ -328,6 +382,11 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 
 bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (InSource == nullptr || InSource == this)
 	{
 		return false;
@@ -369,6 +428,11 @@ bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid 
 }
 bool UInventoryComponent::TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId)
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
 	if (InSource == nullptr || InSource == this)
 	{
 		return false;
@@ -425,6 +489,11 @@ bool UInventoryComponent::TransferItemFromAuto(UInventoryComponent* InSource, FG
 }
 void UInventoryComponent::ClearAll()
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
 	Entries.Reset();
 	RebuildCache();
 
@@ -481,6 +550,11 @@ void UInventoryComponent::DebugPrintGrid() const
 
 void UInventoryComponent::DebugAddItem(FName InRowName, int32 InCount)
 {
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
 	if (DebugItemTable == nullptr)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("DebugAddItem: DebugItemTable is not set"));
@@ -528,4 +602,76 @@ void UInventoryComponent::DebugRemoveFirstItem()
 	UE_LOG(LogTemp, Log, TEXT("DebugRemove -> %s"), bRemoved ? TEXT("OK") : TEXT("FAIL"));
 
 	DebugPrintGrid();
+}
+
+void UInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(UInventoryComponent, Entries);
+}
+
+void UInventoryComponent::Server_MoveItem_Implementation(FGuid InInstanceId, FIntPoint InNewPosition)
+{
+	MoveItem(InInstanceId, InNewPosition);
+}
+
+void UInventoryComponent::Server_TransferItem_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition)
+{
+	if (InTarget == nullptr)
+	{
+		return;
+	}
+
+	InTarget->TransferItemFrom(this, InInstanceId, InTargetPosition);
+}
+
+void UInventoryComponent::Server_TransferItemAuto_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId)
+{
+	if (InTarget == nullptr)
+	{
+		return;
+	}
+
+	InTarget->TransferItemFromAuto(this, InInstanceId);
+}
+
+void UInventoryComponent::Server_EquipItem_Implementation(UEquipmentComponent* InEquipment, FGuid InInstanceId, EEquipSlotType InSlot)
+{
+	if (InEquipment == nullptr)
+	{
+		return;
+	}
+
+	InEquipment->EquipFromInventory(this, InInstanceId, InSlot);
+}
+
+void UInventoryComponent::Server_UnequipItem_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, FIntPoint InTargetPosition)
+{
+	if (InEquipment == nullptr)
+	{
+		return;
+	}
+
+	InEquipment->UnequipToInventoryAt(InSlot, this, InTargetPosition);
+}
+
+void UInventoryComponent::Server_TransferItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
+{
+	if (InSource == nullptr)
+	{
+		return;
+	}
+
+	TransferItemFrom(InSource, InInstanceId, InTargetPosition);
+}
+
+void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)
+{
+	if (InSource == nullptr)
+	{
+		return;
+	}
+
+	TransferItemFromAuto(InSource, InInstanceId);
 }

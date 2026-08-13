@@ -7,6 +7,8 @@
 #include "HB_PlayerState.generated.h"
 
 
+class UHB_PlayerAttributeSet;
+
 UCLASS()
 class HEAVENBREACH_API AHB_PlayerState : public APlayerState,public IAbilitySystemInterface
 {
@@ -22,5 +24,14 @@ public:
 private:
 	UPROPERTY()
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
+#pragma endregion 
+	
+#pragma region AttributeSet
+public:
+	UHB_PlayerAttributeSet* GetPlayerAttributeSet() const {return AttributeSet;}
+	
+private:
+	UPROPERTY()
+	TObjectPtr<UHB_PlayerAttributeSet> AttributeSet;
 #pragma endregion 
 };

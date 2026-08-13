@@ -59,7 +59,12 @@ private:
 	void StartCrouch();
 	void StopCrouch();
 	void Attack();
-	void StartBlocking();
-	void StopBlocking();
+	void Block();
 	void ToggleInventory();
+	
+#pragma region CameraShake
+public:
+	UFUNCTION(Client,Reliable)
+	void ClientPlayCameraShake(TSubclassOf<UCameraShakeBase> ShakeClass);
+#pragma endregion 
 };

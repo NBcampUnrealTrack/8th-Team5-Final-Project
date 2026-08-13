@@ -2,6 +2,7 @@
 
 #include "AbilitySystemComponent.h"
 #include "Item/Item.h"
+#include "HBPlayerController.h"
 #include "Inventory/InventoryComponent.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
@@ -9,9 +10,11 @@
 #include "Combat/Block/GA_PlayerBlock.h"
 #include "Components/CapsuleComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/Data/HB_DataTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Item/Item.h"
 #include "PlayerState/HB_PlayerState.h"
 #include "Interaction/InteractionComponent.h"
 #include "Interaction/InteractionPromptWidget.h"
@@ -77,6 +80,24 @@ void AHBPlayerCharacter::StopBlocking()
 	}
 }
 
+void AHBPlayerCharacter::ToggleBlocking()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
+	{
+		StopBlocking();
+	}
+	else
+	{
+		StartBlocking();
+	}
+}
+
 UAbilitySystemComponent* AHBPlayerCharacter::GetAbilitySystemComponent() const
 {
 	return HB_PlayerState ? HB_PlayerState->GetAbilitySystemComponent() : nullptr;
@@ -112,6 +133,8 @@ void AHBPlayerCharacter::OnRep_PlayerState()
 {
 	Super::OnRep_PlayerState();
 	
+	HB_PlayerState = GetPlayerState<AHB_PlayerState>();
+	
 	if (HB_PlayerState)
 	{
 		HB_PlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(HB_PlayerState,this);
@@ -127,7 +150,23 @@ bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* InstigatorActor) co
 
 void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit)
 {
-	//Player Attribute 데이터 필요
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || !GE_PlayerDamage)
+	{
+		return;
+	}
+	
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(GE_PlayerDamage,1.f,ASC->MakeEffectContext());
+	if (Spec.IsValid())
+	{
+		Spec.Data->SetSetByCallerMagnitude(DataTag::TAG_Data_Damage, -RawDamage);
+		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	}
+	
+	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetController()))
+	{
+		PC->ClientPlayCameraShake(CS_HitReact);
+	}
 }
 
 float AHBPlayerCharacter::GetAttackPower() const

@@ -9,6 +9,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChanged);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUsed, FName, ItemId, float, HealAmount);
 
 class UDataTable;
+class UEquipmentComponent;
 
 UCLASS(ClassGroup = (Inventory), meta = (BlueprintSpawnableComponent))
 class HEAVENBREACH_API UInventoryComponent : public UActorComponent
@@ -78,8 +79,38 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Debug")
 	void DebugRemoveFirstItem();
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	UFUNCTION(Server, Reliable)
+	void Server_MoveItem(FGuid InInstanceId, FIntPoint InNewPosition);
+
+	UFUNCTION(Server, Reliable)
+	void Server_TransferItem(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition);
+
+	UFUNCTION(Server, Reliable)
+	void Server_TransferItemAuto(UInventoryComponent* InTarget, FGuid InInstanceId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_EquipItem(UEquipmentComponent* InEquipment, FGuid InInstanceId, EEquipSlotType InSlot);
+
+	UFUNCTION(Server, Reliable)
+	void Server_UnequipItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, FIntPoint InTargetPosition);
+
+	UFUNCTION(Server, Reliable)
+	void Server_TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
+
+	UFUNCTION(Server, Reliable)
+	void Server_TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_MoveItemIn(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition);
+
 protected:
+
 	virtual void BeginPlay() override;
+
+	UFUNCTION()
+	void OnRep_Entries();
 
 private:
 	void RebuildCache();
@@ -108,7 +139,7 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Inventory|Debug")
 	TObjectPtr<UDataTable> DebugItemTable;
 
-	UPROPERTY()
+	UPROPERTY(ReplicatedUsing = OnRep_Entries)
 	TArray<FInventoryEntry> Entries;
 
 	TArray<int32> CellCache;

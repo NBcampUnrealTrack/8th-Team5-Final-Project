@@ -6,6 +6,8 @@
 #include "GameFramework/GameMode.h"
 #include "HeavenBreachGameMode.generated.h"
 
+class APlayerState;
+
 /**
  * 
  */
@@ -27,6 +29,14 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Match")
 	int32 GetConnectedPlayerCount();
+	
+	// 전투 시스템에서 사망 시 호출 
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
+	void NotifyPlayerDied(APlayerState* PlayerState);
+	
+	// 탈출시 호출 
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
+	void NotifyPlayerExtracted(APlayerState* PlayerState);
 
 protected:
 	virtual void PostLogin(APlayerController* NewPlayer) override;
@@ -40,6 +50,25 @@ protected:
 	virtual void HandleMatchHasEnded() override;
 	virtual void HandleLeavingMap() override;
 	virtual void OnMatchStateSet() override;
+	
+	// 현재 매치 참가자 초기화
+	void InitializeActivePlayers();
+	
+	// 매치 종료 조건 검사
+	void EvaluateMatchEnd();
+	
+	// Match Timer
+	void StartMatchTimer();
+	void StopMatchTimer();
+	void HandleMatchTimeExpired();
+	
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<APlayerState>> ActivePlayers;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match | Timer", meta = (ClamMin = "1.0"))
+	float MatchDurationSeconds = 1500.0f;
+	
+	FTimerHandle MatchTimerHandle;
 
 	// 테스트용, 시작 인원 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match", meta = (ClampMin = "1", ClampMax = "10"))

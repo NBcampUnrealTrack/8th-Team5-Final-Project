@@ -32,7 +32,7 @@
 //
 //}
 
-void UEnemyAbilitySystemComponent::InitStats(float InMaxHP)
+void UEnemyAbilitySystemComponent::InitStats(float InMaxHP, float InAttackPower)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority())
@@ -43,6 +43,7 @@ void UEnemyAbilitySystemComponent::InitStats(float InMaxHP)
 	// MaxHP가 먼저다. HP는 MaxHP를 상한으로 쓰므로 순서를 바꾸면 HP가 잘린다.
 	SetNumericAttributeBase(UEnemyAttributeSetBase::GetMaxHPAttribute(), InMaxHP);
 	SetNumericAttributeBase(UEnemyAttributeSetBase::GetHPAttribute(), InMaxHP);
+	SetNumericAttributeBase(UEnemyAttributeSetBase::GetAttackPowerAttribute(), InAttackPower);
 }
 
 void UEnemyAbilitySystemComponent::SetupAbilities(const TArray<TSubclassOf<UGameplayAbility>>& InAbilities)

@@ -149,8 +149,7 @@ void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 	if (!Data)
 	{
 		// 애셋 미지정. 각 클래스의 UPROPERTY 기본값으로 동작한다.
-		// Warning 으로 남기는 이유: 조용히 넘기면 "왜 값을 바꿨는데 안 먹지"를
-		// 나중에 추적하게 된다.
+		// Warning 으로 남기는 이유: 조용히 넘기면 "왜 값을 바꿨는데 안 먹지"를 나중에 추적하게 된다.
 		UE_LOG(LogEnemyAI, Warning, TEXT("[AI] %s ArchetypeData 미지정 — 폴백 값 사용"),*GetNameSafe(GetPawn()));
 		ApplySenses(nullptr);
 		return;
@@ -174,8 +173,25 @@ void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 
 		if (UEnemyAbilitySystemComponent* ASC = Char->GetEnemyASC())
 		{
-			ASC->InitStats(S.MaxHealth);
+			ASC->InitStats(S.MaxHealth, S.AttackPower);
 			ASC->SetupAbilities(Data->Abilities);
+		}
+
+		// 데이터 애셋에 적힌 컴포넌트를 붙인다.
+		for (const TSubclassOf<UActorComponent>& CompClass : Data->ExtraComponents)
+		{
+			if (!CompClass) 
+				continue;
+
+			// 이미 BP 에 붙어 있으면 중복 생성하지 않는다.
+			if (Char->FindComponentByClass(CompClass)) 
+				continue;
+
+			UActorComponent* NewComp = NewObject<UActorComponent>(Char, CompClass);
+			if (NewComp)
+			{
+				NewComp->RegisterComponent();
+			}
 		}
 	}
 }

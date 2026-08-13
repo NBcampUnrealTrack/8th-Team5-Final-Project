@@ -5,14 +5,16 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
+#include "Combat/Interface/DamageableInterface.h"
 #include "EnemyCharacterBase.generated.h"
 
 class UEnemyAbilitySystemComponent;
 class UEnemyAttributeSetBase;
 class UEnemyArchetypeData;
+class UGameplayEffect;
 
 UCLASS()
-class HEAVENBREACH_API AEnemyCharacterBase : public ACharacter, public IAbilitySystemInterface
+class HEAVENBREACH_API AEnemyCharacterBase : public ACharacter, public IAbilitySystemInterface, public IDamageableInterface
 {
 	GENERATED_BODY()
 
@@ -20,6 +22,10 @@ public:
 	// Sets default values for this character's properties
 	AEnemyCharacterBase();
 
+
+	// ----- IDamageableInterface -----
+	virtual bool CanBeDamaged_Implementation(AActor* InstigatorActor) const override;
+	virtual void ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit) override;
 
 	// ----- GAS -----
 	// 빙의 될 시
@@ -45,6 +51,10 @@ public:
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+
+	// 데미지 GE
+	UPROPERTY(EditDefaultsOnly, Category = "GAS")
+	TSubclassOf<UGameplayEffect> IncomingDamageEffect;
 
 	// character BP에서 데이터 관리
 	UPROPERTY(EditDefaultsOnly, Category = "AI")
