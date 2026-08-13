@@ -24,6 +24,7 @@ void AItemBase::BeginPlay()
 void AItemBase::InitializeFromDataTable()
 {
 	static const FString ContextString(TEXT("AItemBase::InitializeFromDataTable"));
+
 	FString MeshPathToLoad;
 
 	switch (SourceTable)
@@ -115,14 +116,18 @@ void AItemBase::InitializeFromDataTable()
 	}
 }
 
-void AItemBase::NotifyActorBeginOverlap(AActor* OtherActor)
+bool AItemBase::TryPickUp(AActor* Picker)
 {
-	Super::NotifyActorBeginOverlap(OtherActor);
+	if (!Picker)
+	{
+		return false;
+	}
 
-	if (!OtherActor) return;
-
-	UInventoryComponent* Inventory = OtherActor->FindComponentByClass<UInventoryComponent>();
-	if (!Inventory) return;
+	UInventoryComponent* Inventory = Picker->FindComponentByClass<UInventoryComponent>();
+	if (!Inventory)
+	{
+		return false;
+	}
 
 	UDataTable* TargetTable = nullptr;
 	switch (SourceTable)
@@ -139,7 +144,10 @@ void AItemBase::NotifyActorBeginOverlap(AActor* OtherActor)
 		break;
 	}
 
-	if (!TargetTable) return;
+	if (!TargetTable)
+	{
+		return false;
+	}
 
 	FItemInstance NewItem;
 	NewItem.ItemRow.DataTable = TargetTable;
@@ -151,5 +159,31 @@ void AItemBase::NotifyActorBeginOverlap(AActor* OtherActor)
 	if (Inventory->TryAddItem(NewItem, Remainder) && Remainder == 0)
 	{
 		Destroy();
+		return true;
 	}
+
+	return false;
+}
+
+void AItemBase::NotifyActorBeginOverlap(AActor* OtherActor)
+{
+	Super::NotifyActorBeginOverlap(OtherActor);
+	TryPickUp(OtherActor);
+}
+
+bool AItemBase::CanInteract_Implementation(AActor* Interactor) const
+{
+	UE_LOG(LogTemp, Warning, TEXT("[ItemBase] CanInteract called on %s"), *GetName());
+	return true;
+}
+
+void AItemBase::Interact_Implementation(AActor* Interactor)
+{
+	// 인터페이스 규약상 Interact()는 서버에서만 호출됨 (InteractionComponent::Server_Interact_Implementation 경유)
+	TryPickUp(Interactor);
+}
+
+FText AItemBase::GetInteractPrompt_Implementation() const
+{
+	return FText::FromString(FString::Printf(TEXT("%s 획득 [E]"), *DisplayName));
 }

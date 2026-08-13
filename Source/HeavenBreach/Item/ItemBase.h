@@ -1,8 +1,8 @@
 #pragma once
-
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Item.h"
+#include "InteractableInterface.h"
 #include "ItemBase.generated.h"
 
 class UStaticMeshComponent;
@@ -21,7 +21,7 @@ enum class EItemSourceTable : uint8
 // DT_Item / DT_Weapon / DT_Shield 중 하나에서 자신의 데이터를 읽어와 메쉬를 세팅하고,
 // 공통 정보(이름/등급/판매가/격자크기/장착슬롯)를 어떤 테이블 출신인지 몰라도 꺼내 쓸 수 있게 캐싱해둠.
 UCLASS()
-class HEAVENBREACH_API AItemBase : public AActor
+class HEAVENBREACH_API AItemBase : public AActor, public IInteractableInterface
 {
 	GENERATED_BODY()
 
@@ -29,7 +29,6 @@ public:
 	AItemBase();
 
 	// ----- 에디터에서 지정 -----
-
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
 	FName ItemID;
 
@@ -46,7 +45,6 @@ public:
 	UDataTable* ShieldDataTable;
 
 	// ----- 컴포넌트 -----
-
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item")
 	UStaticMeshComponent* MeshComponent;
 
@@ -55,7 +53,6 @@ public:
 	USphereComponent* InteractionSphere;
 
 	// ----- DataTable에서 읽어와 캐싱하는 공통 정보 (어느 테이블 출신이든 동일하게 사용 가능) -----
-
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item|Cached")
 	FString DisplayName;
 
@@ -78,14 +75,21 @@ public:
 	TObjectPtr<UTexture2D> Icon;
 
 	// ----- 함수 -----
-
 	// ItemID / SourceTable 기준으로 해당 DataTable에서 값을 읽어와 위 캐시 변수들을 채우고,
 	// EquipMeshPath(무기/방패) 또는 WorldMeshPath(아이템)를 로드해서 MeshComponent에 세팅
 	UFUNCTION(BlueprintCallable, Category = "Item")
 	void InitializeFromDataTable();
 
+	// ----- IInteractableInterface -----
+	virtual bool CanInteract_Implementation(AActor* Interactor) const override;
+	virtual void Interact_Implementation(AActor* Interactor) override;
+	virtual FText GetInteractPrompt_Implementation() const override;
+
 protected:
 	virtual void BeginPlay() override;
-
 	virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
+
+private:
+	// 오버랩으로 걸어서 줍는 경우와 E키 상호작용으로 줍는 경우가 공유하는 실제 습득 로직
+	bool TryPickUp(AActor* Picker);
 };
