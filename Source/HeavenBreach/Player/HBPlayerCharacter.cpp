@@ -18,6 +18,7 @@
 
 #include "Interaction/InteractionComponent.h"
 #include "Interaction/InteractionPromptWidget.h"
+#include "Net/UnrealNetwork.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
 AHBPlayerCharacter::AHBPlayerCharacter()
@@ -31,6 +32,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	GetCharacterMovement()->bOrientRotationToMovement = false;
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
 	GetCharacterMovement()->MaxWalkSpeedCrouched = 300.f;
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
@@ -38,6 +40,13 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
 	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 0.0f, 64.0f));
 	FirstPersonCamera->bUsePawnControlRotation = true;
+}
+
+void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	DOREPLIFETIME(ThisClass,bIsSprinting);
 }
 
 void AHBPlayerCharacter::MoveForward(const float Value)
@@ -316,4 +325,37 @@ void AHBPlayerCharacter::TestDamage(float Amount)
 
 void AHBPlayerCharacter::OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem)
 {
+}
+
+void AHBPlayerCharacter::StartSprint()
+{
+	bIsSprinting = true;
+	GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+	
+	if (!HasAuthority())
+	{
+		ServerSetSprinting(true);
+	}
+}
+
+void AHBPlayerCharacter::StopSprint()
+{
+	bIsSprinting = false;
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	
+	if (!HasAuthority())
+	{
+		ServerSetSprinting(false);
+	}
+}
+
+void AHBPlayerCharacter::OnRep_IsSprinting()
+{
+	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
+}
+
+void AHBPlayerCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
+{
+	bIsSprinting = bNewSprinting;
+	GetCharacterMovement()->MaxWalkSpeed = bNewSprinting ? SprintSpeed : WalkSpeed;
 }

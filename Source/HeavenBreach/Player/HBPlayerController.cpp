@@ -85,6 +85,12 @@ void AHBPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(
 				ToggleInventoryAction, ETriggerEvent::Started, this, &AHBPlayerController::ToggleInventory);
 		}
+		
+		if (SprintAction)
+		{
+			EnhancedInputComponent->BindAction(SprintAction,ETriggerEvent::Started,this,&AHBPlayerController::StartSprint);
+			EnhancedInputComponent->BindAction(SprintAction,ETriggerEvent::Completed,this,&AHBPlayerController::StopSprint);
+		}
 	}
 }
 
@@ -158,6 +164,22 @@ void AHBPlayerController::ToggleInventory()
 	if (InventoryUI)
 	{
 		InventoryUI->ToggleInventory();
+	}
+}
+
+void AHBPlayerController::StartSprint()
+{
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->StartSprint();
+	}
+}
+
+void AHBPlayerController::StopSprint()
+{
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->StopSprint();
 	}
 }
 
