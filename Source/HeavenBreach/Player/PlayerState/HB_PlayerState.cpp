@@ -19,3 +19,33 @@ AHB_PlayerState::AHB_PlayerState()
 	AttributeSet = CreateDefaultSubobject<UHB_PlayerAttributeSet>(TEXT("AttributeSet"));
 #pragma endregion
 }
+
+void AHB_PlayerState::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (AbilitySystemComponent && AttributeSet)
+	{
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_HPAttribute())
+			.AddUObject(this, &AHB_PlayerState::OnHealthChanged);
+
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute())
+			.AddUObject(this, &AHB_PlayerState::OnMaxHealthChanged);
+	}
+}
+
+void AHB_PlayerState::OnHealthChanged(const FOnAttributeChangeData& Data)
+{
+	if (OnHPChanged.IsBound() && AttributeSet)
+	{
+		OnHPChanged.Broadcast(Data.NewValue, AttributeSet->GetPlayer_MaxHP());
+	}
+}
+
+void AHB_PlayerState::OnMaxHealthChanged(const FOnAttributeChangeData& Data)
+{
+	if (OnHPChanged.IsBound() && AttributeSet)
+	{
+		OnHPChanged.Broadcast(AttributeSet->GetPlayer_HP(), Data.NewValue);
+	}
+}

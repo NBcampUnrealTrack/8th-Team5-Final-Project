@@ -9,6 +9,7 @@
 #include "Inventory/InventoryTypes.h"
 #include "Item/Item.h"
 #include "GameFramework/Pawn.h"
+#include "Interaction/InteractionComponent.h"
 
 ABoxActor::ABoxActor()
 {
@@ -53,8 +54,18 @@ void ABoxActor::BeginPlay()
 
 bool ABoxActor::CanInteract_Implementation(AActor* Interactor) const
 {
-	// 상자는 열린 뒤에도 남은 아이템 회수를 위해 재접근이 가능하다. (거리 판정은 호출측 담당)
-	return Interactor != nullptr;
+	if (Interactor == nullptr)
+	{
+		return false;
+	}
+
+	// 아직 안 연 상자는 열 수 있다. 이미 연 상자는 내용물이 남아 있을 때만 다시 열 수 있다.
+	// (거리 판정은 호출측 InteractionComponent 담당)
+	if (!bLootGenerated)
+	{
+		return true;
+	}
+	return BoxInventory != nullptr && BoxInventory->GetEntries().Num() > 0;
 }
 
 void ABoxActor::Interact_Implementation(AActor* Interactor)
@@ -177,7 +188,15 @@ void ABoxActor::GenerateLoot()
 
 void ABoxActor::OpenContainerUI(AActor* Interactor)
 {
-	// 실제 위젯 생성/입력 잠금은 BP_OpenContainer에서 처리한다. (호스트/스탠드얼론 기준)
-	// NOTE: 인벤토리 미복제 상태라, 원격 클라 동기화는 Inventory 복제 구현 후 완성된다.
-	BP_OpenContainer(Cast<APawn>(Interactor));
+	// [서버] 요청 클라에게 "이 상자 인벤토리로 컨테이너 UI를 열어라"고 Client RPC로 지시한다. (데디케이트 서버 대응)
+	// 실제 UI 오픈은 클라의 InteractionComponent → OnRequestOpenContainer → (BP) InventoryUI.OpenContainer로 이어진다.
+	if (Interactor == nullptr)
+	{
+		return;
+	}
+
+	if (UInteractionComponent* InteractionComp = Interactor->FindComponentByClass<UInteractionComponent>())
+	{
+		InteractionComp->Client_OpenContainer(BoxInventory);
+	}
 }

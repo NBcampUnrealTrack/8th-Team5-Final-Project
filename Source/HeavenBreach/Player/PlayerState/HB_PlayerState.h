@@ -9,6 +9,8 @@
 
 class UHB_PlayerAttributeSet;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
+
 UCLASS()
 class HEAVENBREACH_API AHB_PlayerState : public APlayerState,public IAbilitySystemInterface
 {
@@ -17,6 +19,9 @@ class HEAVENBREACH_API AHB_PlayerState : public APlayerState,public IAbilitySyst
 
 public:
 	AHB_PlayerState();
+
+protected:
+	virtual void BeginPlay() override;
 
 #pragma region AbilitySystem
 public:
@@ -34,4 +39,16 @@ private:
 	UPROPERTY()
 	TObjectPtr<UHB_PlayerAttributeSet> AttributeSet;
 #pragma endregion 
+	
+#pragma region BindingWidget
+
+public:
+	UPROPERTY(BlueprintAssignable, Category = "GAS|Attributes")
+	FOnHPChanged OnHPChanged;
+
+protected:
+	void OnHealthChanged(const struct FOnAttributeChangeData& Data);
+	void OnMaxHealthChanged(const struct FOnAttributeChangeData& Data);
+
+#pragma endregion
 };
