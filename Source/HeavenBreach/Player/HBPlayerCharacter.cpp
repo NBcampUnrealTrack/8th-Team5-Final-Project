@@ -19,7 +19,6 @@
 #include "Interaction/InteractionComponent.h"
 #include "Interaction/InteractionPromptWidget.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
-#include "Player/PlayerState/HBPlayerState.h"
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
@@ -307,40 +306,6 @@ void AHBPlayerCharacter::TestDamage(float Amount)
 				AttribSet->SetPlayer_HP(FMath::Clamp(NewHP, 0.0f, AttribSet->GetPlayer_MaxHP()));
 			}
 		}
-	}
-}
-
-UAbilitySystemComponent* AHBPlayerCharacter::GetAbilitySystemComponent() const
-{
-	if (const AHBPlayerState* HBPlayerState = GetPlayerState<AHBPlayerState>())
-	{
-		return HBPlayerState->GetAbilitySystemComponent();
-	}
-
-	return nullptr;
-}
-
-void AHBPlayerCharacter::PossessedBy(AController* NewController)
-{
-	Super::PossessedBy(NewController);
-	InitializeAbilitySystem();
-}
-
-void AHBPlayerCharacter::OnRep_PlayerState()
-{
-	Super::OnRep_PlayerState();
-	InitializeAbilitySystem();
-}
-
-void AHBPlayerCharacter::InitializeAbilitySystem()
-{
-	if (AHBPlayerState* HBPlayerState = GetPlayerState<AHBPlayerState>())
-	{
-		UAbilitySystemComponent* AbilitySystem = HBPlayerState->GetAbilitySystemComponent();
-		AbilitySystem->InitAbilityActorInfo(
-			HBPlayerState,
-			this);
-		OnAbilitySystemInitialized(AbilitySystem);
 	}
 }
 
