@@ -37,7 +37,7 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	// CommitAbility선언은 필수
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
 	{
-		// 맨끝의 저건 정상적으로 취소햇음? 취소·중단. 인터럽트, 조건 실패, 외부 취소여부
+		// 맨끝의 저건 정상적으로 취소햇음? 취소/중단. 인터럽트, 조건 실패, 외부 취소여부
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}

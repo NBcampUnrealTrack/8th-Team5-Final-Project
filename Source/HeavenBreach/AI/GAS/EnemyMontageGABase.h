@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -20,7 +20,7 @@ public:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 
 protected:
-	// ½ÇÇà½ÃÅ³ ¸ùÅ¸ÁÖ
+	// ì‹¤í–‰ì‹œí‚¬ ëª½íƒ€ì£¼
 	UPROPERTY(EditDefaultsOnly, Category = "Ability")
 	TObjectPtr<UAnimMontage> Montage;
 
@@ -28,11 +28,11 @@ protected:
 	float PlayRate = 1.f;
 
 
-	// ¸ùÅ¸ÁÖ°¡ ³¡³²
+	// ëª½íƒ€ì£¼ê°€ ëë‚¨
 	UFUNCTION()
 	void OnMontageFinished();
 
-	// ¸ùÅ¸ÁÖ Áß´Ü
+	// ëª½íƒ€ì£¼ ì¤‘ë‹¨
 	UFUNCTION()
 	void OnMontageCancelled();
 };

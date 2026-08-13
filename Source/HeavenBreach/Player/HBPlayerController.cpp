@@ -77,9 +77,7 @@ void AHBPlayerController::SetupInputComponent()
 		if (BlockAction)
 		{
 			EnhancedInputComponent->BindAction(
-				BlockAction, ETriggerEvent::Started, this, &AHBPlayerController::StartBlocking);
-			EnhancedInputComponent->BindAction(
-				BlockAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopBlocking);
+				BlockAction, ETriggerEvent::Started, this, &AHBPlayerController::Block);
 		}
 
 		if (ToggleInventoryAction)
@@ -147,19 +145,11 @@ void AHBPlayerController::Attack()
 	}
 }
 
-void AHBPlayerController::StartBlocking()
+void AHBPlayerController::Block()
 {
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StartBlocking();
-	}
-}
-
-void AHBPlayerController::StopBlocking()
-{
-	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
-	{
-		PlayerCharacter->StopBlocking();
 	}
 }
 
@@ -168,5 +158,13 @@ void AHBPlayerController::ToggleInventory()
 	if (InventoryUI)
 	{
 		InventoryUI->ToggleInventory();
+	}
+}
+
+void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCameraShakeBase> ShakeClass)
+{
+	if (ShakeClass && PlayerCameraManager)
+	{
+		PlayerCameraManager->StartCameraShake(ShakeClass);
 	}
 }
