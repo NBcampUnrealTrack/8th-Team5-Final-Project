@@ -32,9 +32,8 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "GAS")
 	TArray<TSubclassOf<UGameplayAbility>> Abilities;
 
-	// TODO: TSubclassOf<UGameplayEffect> InitStatsEffect;
-	// TODO: TArray<TSubclassOf<UGameplayAbility>> Abilities;
-	// TODO: UPROPERTY(Instanced) TArray<TObjectPtr<UPatternDefBase>> Patterns;
+	UPROPERTY(EditDefaultsOnly, Category = "Components")
+	TArray<TSubclassOf<UActorComponent>> ExtraComponents;
 
 	// getter
 	const FEnemyStatRow& GetStats() const;
