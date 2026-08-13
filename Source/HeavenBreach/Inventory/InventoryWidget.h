@@ -8,6 +8,8 @@ class UCanvasPanel;
 class UInventoryComponent;
 class UEquipmentComponent;
 class UEquipmentWidget;
+class UItemActionMenuWidget;
+class UItemSplitPopupWidget;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UUserWidget
@@ -28,7 +30,7 @@ public:
 	void SetLinkedContainer(UInventoryComponent* InContainer);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void SetLinkedEquipment(UEquipmentComponent* InEquipment);	
+	void SetLinkedEquipment(UEquipmentComponent* InEquipment);
 
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	UInventoryComponent* GetBoundInventory() const { return BoundInventory; }
@@ -38,15 +40,11 @@ public:
 
 protected:
 	virtual void NativeDestruct() override;
-
+	virtual void NativeConstruct() override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
-
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
-
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
-
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
-
 	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 	UFUNCTION()
@@ -63,15 +61,11 @@ protected:
 
 private:
 	void BuildBackground();
-
 	void BuildItems();
-
 	bool ScreenToCell(const FVector2D& InScreenPosition, FIntPoint& OutCell) const;
-
 	bool ScreenToLocal(const FVector2D& InScreenPosition, FVector2D& OutLocal) const;
-
 	bool HandleRightClick(FIntPoint InCell);
-
+	bool HandleContextMenu(FIntPoint InCell);
 	bool HandleDoubleClick(FIntPoint InCell);
 
 	UPROPERTY()
@@ -84,6 +78,22 @@ private:
 	TObjectPtr<UEquipmentComponent> LinkedEquipment;
 
 	FIntPoint PressedCell = FIntPoint::ZeroValue;
-
 	FVector2D PressedLocalPosition = FVector2D::ZeroVector;
+	bool bPressedWithCtrl = false;
+
+	void ShowSplitPopupForDrop(FGuid InInstanceId, FIntPoint InTargetCell, FVector2D InScreenPosition);
+
+	UPROPERTY(EditDefaultsOnly, Category = "Context Menu")
+	TSubclassOf<UItemActionMenuWidget> ItemContextMenuClass;
+
+	UPROPERTY()
+	TObjectPtr<UItemActionMenuWidget> ActiveContextMenu;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Context Menu")
+	TSubclassOf<UItemSplitPopupWidget> ItemSplitPopupClass;
+
+	UPROPERTY()
+	TObjectPtr<UItemSplitPopupWidget> ActiveSplitPopup;
+
+	FVector2D PressedScreenPosition = FVector2D::ZeroVector;
 };

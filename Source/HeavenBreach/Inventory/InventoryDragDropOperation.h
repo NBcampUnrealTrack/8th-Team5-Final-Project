@@ -21,6 +21,9 @@ public:
 	FIntPoint GrabOffset = FIntPoint::ZeroValue;
 
 	UPROPERTY()
+	bool bSplitRequested = false;
+
+	UPROPERTY()
 	FVector2D GrabPixelOffset = FVector2D::ZeroVector;
 
 	UPROPERTY()
