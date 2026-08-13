@@ -10,6 +10,8 @@
 #include "AI/Enum/EAlertState.h"
 #include "Components/CapsuleComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "AI/EnemyAIControllerBase.h"
+#include "AI/AlertComponent.h"
 
 // Sets default values
 AEnemyCharacterBase::AEnemyCharacterBase()
@@ -85,6 +87,25 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage);
 
 	AbilitySystemComp->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+
+	// 피격 반응
+	if (!AbilitySystemComp->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		// 사망이 아닌 상태라면 피격 어빌리티를 발동 시킨다.
+		AbilitySystemComp->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_HitReact));
+
+		// 때린상대의 위치로 가기위한 위치를 감각관리컴포넌트에 건네준다.
+		if (InstigatorActor)
+		{
+			if (AEnemyAIControllerBase* AIC = Cast<AEnemyAIControllerBase>(GetController()))
+			{
+				if (UAlertComponent* Alert = AIC->GetAlertComponent())
+				{
+					Alert->DamageSensed(InstigatorActor->GetActorLocation());
+				}
+			}
+		}
+	}
 }
 
 void AEnemyCharacterBase::SetMoveSpeed(bool bRun)

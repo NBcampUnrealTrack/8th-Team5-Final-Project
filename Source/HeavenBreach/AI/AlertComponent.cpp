@@ -68,6 +68,15 @@ void UAlertComponent::SightLost(AActor* Actor, const FVector& LastSeenLocation)
 	if (!Actor)
 		return;
 
+	LastKnownLocation = LastSeenLocation;
+
+	UE_LOG(LogEnemyAI, Log, TEXT("[Sight] 시야 이탈 (기억 유지) -> %s"), *LastKnownLocation.ToString());
+	OnAlertUpdated.Broadcast();
+}
+
+void UAlertComponent::SightForgotten(AActor* Actor)
+{
+	// 감지된 타겟에서 제거
 	SensedTargets.Remove(TWeakObjectPtr<AActor>(Actor));
 	PruneSensedTargets();
 
@@ -78,6 +87,8 @@ void UAlertComponent::SightLost(AActor* Actor, const FVector& LastSeenLocation)
 		{
 			CurrentTarget = NextTarget;
 		}
+
+		// 교전상태 유지
 		SetState(EAlertState::Engaged);
 		OnAlertUpdated.Broadcast();
 		return;
@@ -85,21 +96,44 @@ void UAlertComponent::SightLost(AActor* Actor, const FVector& LastSeenLocation)
 	// 다음 타겟이 없음
 	else
 	{
-		LastKnownLocation = LastSeenLocation;
+		LastKnownLocation = Actor->GetActorLocation();
 		CurrentTarget.Reset();
-		UE_LOG(LogEnemyAI, Log, TEXT("[Sight] 놓침 → 마지막 위치 %s"),
-			*LastSeenLocation.ToCompactString());
+		UE_LOG(LogEnemyAI, Log, TEXT("[Sight] 놓침 -> 마지막 위치 %s"),*LastKnownLocation.ToCompactString());
+
+		// 마지막 위치로 향하는 놓침상태
 		SetState(EAlertState::Lost);
 		OnAlertUpdated.Broadcast();
 
 		if (UWorld* World = GetWorld())
 		{
 			// 시간이 지나면 idle로 돌아가도록 설정
-			World->GetTimerManager().SetTimer(LostMemoryTimer, this,
-				&UAlertComponent::OnLostMemoryExpired, LostMemoryDuration, false);
+			World->GetTimerManager().SetTimer(LostMemoryTimer, this, &UAlertComponent::OnLostMemoryExpired, LostMemoryDuration, false);
 		}
 	}
+}
 
+void UAlertComponent::DamageSensed(const FVector& InstigatorLocation)
+{
+	// 교전중에는 무시
+	if (State == EAlertState::Engaged)
+	{
+		return;
+	}
+
+	// 해당 위치를 마지막으로 알고있는 위치로 기억하고 상태변경
+	LastKnownLocation = InstigatorLocation;
+	SetState(EAlertState::Lost);
+
+	// 수색 시간 갱신
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(LostMemoryTimer, this, &UAlertComponent::OnLostMemoryExpired, LostMemoryDuration, false);
+	}
+
+	UE_LOG(LogEnemyAI, Log, TEXT("[Damage] 피격 → 조사 지점 %s"), *InstigatorLocation.ToString());
+
+	// 변경되었음을 알림
+	OnAlertUpdated.Broadcast();
 }
 
 void UAlertComponent::SetState(EAlertState NewState)
@@ -111,8 +145,7 @@ void UAlertComponent::SetState(EAlertState NewState)
 	const EAlertState OldState = State;
 	State = NewState;
 
-	UE_LOG(LogEnemyAI, Log, TEXT("[Alert] %s: %s → %s"),
-		*GetNameSafe(GetSensingActor()), LexToString(OldState), LexToString(NewState));
+	UE_LOG(LogEnemyAI, Log, TEXT("[Alert] %s: %s → %s"), *GetNameSafe(GetSensingActor()), LexToString(OldState), LexToString(NewState));
 }
 
 AActor* UAlertComponent::PickTarget() const
