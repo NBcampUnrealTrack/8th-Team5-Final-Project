@@ -42,6 +42,16 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	FirstPersonCamera->bUsePawnControlRotation = true;
 }
 
+void AHBPlayerCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (Inventory)
+	{
+		Inventory->OnItemUsed.AddDynamic(this, &AHBPlayerCharacter::HandleItemUsed);
+	}
+}
+
 void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -319,6 +329,18 @@ void AHBPlayerCharacter::TestDamage(float Amount)
 				float NewHP = AttribSet->GetPlayer_HP() - Amount;
 				AttribSet->SetPlayer_HP(FMath::Clamp(NewHP, 0.0f, AttribSet->GetPlayer_MaxHP()));
 			}
+		}
+	}
+}
+
+void AHBPlayerCharacter::HandleItemUsed(FName ItemId, float HealAmount)
+{
+	if (AHB_PlayerState* PS = GetPlayerCurrentState())
+	{
+		if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
+		{
+			const float NewHP = AttribSet->GetPlayer_HP() + HealAmount;
+			AttribSet->SetPlayer_HP(FMath::Clamp(NewHP, 0.0f, AttribSet->GetPlayer_MaxHP()));
 		}
 	}
 }
