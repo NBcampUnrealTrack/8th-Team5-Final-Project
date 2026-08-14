@@ -41,9 +41,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool BP_ScreenToCell(const FVector2D& InScreenPosition, FIntPoint& OutCell) const { return ScreenToCell(InScreenPosition, OutCell); }
 
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetParentContainerWidget(UUserWidget* InParentWidget);
+
 protected:
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
+	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
@@ -70,6 +74,7 @@ private:
 	bool HandleRightClick(FIntPoint InCell);
 	bool HandleContextMenu(FIntPoint InCell);
 	bool HandleDoubleClick(FIntPoint InCell);
+	void RefocusAfterDrop();
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
@@ -102,4 +107,7 @@ private:
 	TObjectPtr<UItemSplitPopupWidget> ActiveSplitPopup;
 
 	FVector2D PressedScreenPosition = FVector2D::ZeroVector;
+
+	UPROPERTY()
+	TObjectPtr<UUserWidget> ParentContainerWidget;
 };
