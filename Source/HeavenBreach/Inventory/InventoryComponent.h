@@ -112,6 +112,7 @@ public:
 
 	void SetEntries(const TArray<FInventoryEntry>& InEntries);
 
+	UFUNCTION(Server, Reliable)
 	void Server_UseItem(FGuid InInstanceId);
 
 	UFUNCTION(Server, Reliable)
