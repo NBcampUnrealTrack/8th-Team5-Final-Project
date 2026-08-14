@@ -6,6 +6,7 @@
 #include "Net/UnrealNetwork.h" 
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "AI/Enum/EAlertState.h"
+#include "AI/EnemyCharacterBase.h"
 
 UEnemyAttributeSetBase::UEnemyAttributeSetBase()
 {
@@ -90,11 +91,16 @@ void UEnemyAttributeSetBase::PostGameplayEffectExecute(const FGameplayEffectModC
 						// 원래는 TAG_Ability_Death가 할일
 						ASC->AddLooseGameplayTag(AbilityTag::TAG_State_Dead);
 
-						UE_LOG(LogEnemyAI, Warning, TEXT("[GAS] %s 사망 어빌리티 없음 — 태그만 부여"),
-							*GetNameSafe(ASC->GetAvatarActor()));
+						UE_LOG(LogEnemyAI, Warning, TEXT("[GAS] %s 사망 어빌리티 없음 — 태그만 부여"),*GetNameSafe(ASC->GetAvatarActor()));
 					}
 
 					// TODO: 사망시 델리게이트 이벤트를 보내서 다른 매니저들이 알게만들어야할까...?
+
+					// 죽은상태가 되었으니 죽었을시 처리하라 알림
+					if (AEnemyCharacterBase* Char = Cast<AEnemyCharacterBase>(ASC->GetAvatarActor()))
+					{
+						Char->BecomeDead();
+					}
 
 					UE_LOG(LogEnemyAI, Log, TEXT("[GAS] %s 사망"),*GetNameSafe(ASC->GetAvatarActor()));
 				}
