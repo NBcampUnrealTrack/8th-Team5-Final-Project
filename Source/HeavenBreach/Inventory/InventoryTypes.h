@@ -43,6 +43,11 @@ struct FItemViewData
 
 	bool IsStackable() const { return MaxStack > 1; }
 	bool IsEquippable() const { return EquipSlotType != EEquipSlotType::None; }
+
+	UPROPERTY(BlueprintReadOnly)
+	float HealAmount = 0.f;
+
+	bool IsConsumable() const { return HealAmount > 0.f; }
 };
 
 USTRUCT(BlueprintType)

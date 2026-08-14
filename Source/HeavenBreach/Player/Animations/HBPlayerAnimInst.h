@@ -28,5 +28,8 @@ protected:
 	float Direction;
 	
 	UPROPERTY(BlueprintReadOnly)
+	bool bIsCrouching;
+	
+	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<AHBPlayerCharacter> OwnerInst;
 };

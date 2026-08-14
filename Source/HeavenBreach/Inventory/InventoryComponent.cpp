@@ -360,6 +360,26 @@ bool UInventoryComponent::RemoveStackCount(FGuid InInstanceId, int32 InCount)
 	return true;
 }
 
+bool UInventoryComponent::UseItem(FGuid InInstanceId)
+{
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (bHasUsedItem && CurrentTime - LastItemUseTime < ItemUseCooldown)
+	{
+		return false;
+	}
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE) return false;
+	const FItemInstance Item = Entries[EntryIndex].Item;
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(Item.ItemRow, ViewData)) return false;
+	if (!ViewData.IsConsumable()) return false;
+	bHasUsedItem = true;
+	LastItemUseTime = CurrentTime;
+	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);
+	RemoveStackCount(InInstanceId, 1);
+	return true;
+}
+
 bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
 {
 	if (GetOwnerRole() != ROLE_Authority)

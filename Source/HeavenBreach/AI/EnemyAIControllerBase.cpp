@@ -57,6 +57,7 @@ void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
 	if (PerceptionComp)
 	{
 		PerceptionComp->OnTargetPerceptionUpdated.AddUniqueDynamic(this, &AEnemyAIControllerBase::OnTargetPerceptionUpdated);
+		PerceptionComp->OnTargetPerceptionForgotten.AddUniqueDynamic(this, &AEnemyAIControllerBase::OnTargetPerceptionForgotten);
 	}
 
 	// RunBehaviorTree() 가 트리 애셋에 지정된 블랙보드로 블랙보드를 초기화한다.
@@ -236,9 +237,9 @@ void AEnemyAIControllerBase::ApplySenses(const FEnemyStatRow* Stats)
 	// 시야에 들어온대상이 벗어날 시 정보를 잃어버리기까지 수명 시간
 	SightConfig->SetMaxAge(UseMaxAge);
 
-	// 뒤에서 가까이 붙으면 자동 감지되는 기능을 끈다.
-	// 켜두면 시야각 테스트가 무의미해져서 1번 검증이 흐려진다.
-	SightConfig->AutoSuccessRangeFromLastSeenLocation = -1.f;
+	// 뒤에서 가까이 붙으면 자동 감지되는 기능
+	// -1이면 비활성화
+	SightConfig->AutoSuccessRangeFromLastSeenLocation = Stats ? Stats->AutoSuccessSightRange : -1.f;
 
 	// 팀구별 없이 중립으로만 탐지
 	SightConfig->DetectionByAffiliation.bDetectEnemies = false;
@@ -258,6 +259,13 @@ void AEnemyAIControllerBase::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulu
 	{
 		return;
 	}
+
+	// 임시 확인용
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Sight] %s sensed=%d  AutoSuccess=%.0f  MaxAge=%.1f"),
+		*GetNameSafe(Actor),
+		Stimulus.WasSuccessfullySensed() ? 1 : 0,
+		SightConfig->AutoSuccessRangeFromLastSeenLocation,
+		SightConfig->GetMaxAge());
 
 	// 청각을 추가할 때 여기
 	// const FAISenseID SightID = UAISense::GetSenseID<UAISense_Sight>();
@@ -281,6 +289,16 @@ void AEnemyAIControllerBase::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulu
 		// StimulusLocation = 마지막으로 성공 감지된 위치
 		AlertComponent->SightLost(Actor, Stimulus.StimulusLocation);
 	}
+}
+
+void AEnemyAIControllerBase::OnTargetPerceptionForgotten(AActor* Actor)
+{
+	if (!AlertComponent || !IsValidTarget(Actor))
+	{
+		return;
+	}
+	// 시야밖의 대상을 잊어먹음
+	AlertComponent->SightForgotten(Actor);
 }
 
 void AEnemyAIControllerBase::HandleAlertUpdated()

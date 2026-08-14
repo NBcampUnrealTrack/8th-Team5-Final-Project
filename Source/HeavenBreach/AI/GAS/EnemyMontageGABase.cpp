@@ -6,6 +6,7 @@
 #include "AI/Enum/EAlertState.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Animation/AnimMontage.h"
+#include "AbilitySystemComponent.h"
 
 UEnemyMontageGABase::UEnemyMontageGABase()
 {
@@ -40,6 +41,22 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		// 맨끝의 저건 정상적으로 취소햇음? 취소/중단. 인터럽트, 조건 실패, 외부 취소여부
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
+	}
+
+	// 몽타주와 별개로 지속되는 상태를 건다. 어빌리티가 끝나도 GE 는 남는다.
+	if (ActivationEffect)
+	{
+		// 당연하지만 ASC를 가지고 잇어야하며 서버만 가능
+		UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+		if (ASC && ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
+		{
+			// 자기 자신에게 GE부여
+			FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(ActivationEffect, 1.f, ASC->MakeEffectContext());
+			if (Spec.IsValid())
+			{
+				ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+			}
+		}
 	}
 
 	// 몽타주 재생을 어빌리티 태스크에 맡긴다
