@@ -28,8 +28,6 @@ void UInventoryComponent::BeginPlay()
 
 void UInventoryComponent::OnRep_Entries()
 {
-
-	UE_LOG(LogTemp, Log, TEXT("OnRep_Entries: %d entries"), Entries.Num());
 	RebuildCache();
 	OnInventoryChanged.Broadcast();
 }
@@ -672,6 +670,88 @@ void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryC
 	{
 		return;
 	}
-
 	TransferItemFromAuto(InSource, InInstanceId);
+}
+
+void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition)
+{
+	if (InEquipment == nullptr || InTarget == nullptr)
+	{
+		return;
+	}
+	InEquipment->UnequipToInventoryAt(InSlot, InTarget, InTargetPosition);
+}
+
+void UInventoryComponent::Server_UseItem_Implementation(FGuid InInstanceId)
+{
+	UseItem(InInstanceId);
+}
+
+void UInventoryComponent::Server_SplitStack_Implementation(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	const int32 SourceIndex = FindEntryIndexById(InInstanceId);
+	if (SourceIndex == INDEX_NONE)
+	{
+		return;
+	}
+
+	if (InQuantity <= 0 || InQuantity >= Entries[SourceIndex].Item.StackCount)
+	{
+		return;
+	}
+
+	FItemInstance NewItem = Entries[SourceIndex].Item;
+	NewItem.InstanceId = FGuid::NewGuid();
+	NewItem.StackCount = InQuantity;
+
+	FIntPoint FinalPosition = InTargetPosition;
+
+	// 유효하지 않은 좌표(예: 우클릭 메뉴에서 온 요청)면 빈 칸을 자동으로 찾음
+	if (InTargetPosition.X < 0 || InTargetPosition.Y < 0)
+	{
+		FIntPoint Size;
+		if (!GetEntrySize(NewItem, Size))
+		{
+			return;
+		}
+
+		if (!FindFirstFreeSlot(Size, FinalPosition, SourceIndex))
+		{
+			return;
+		}
+	}
+
+	if (!TryAddItemAt(NewItem, FinalPosition))
+	{
+		return;
+	}
+
+	if (!RemoveStackCount(InInstanceId, InQuantity))
+	{
+		FItemInstance Removed;
+		RemoveItem(NewItem.InstanceId, Removed);
+	}
+}
+
+void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)
+{
+	Width = FMath::Max(1, InWidth);
+	Height = FMath::Max(1, InHeight);
+}
+
+void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	Entries = InEntries;
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
 }
