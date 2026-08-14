@@ -120,6 +120,12 @@ void AEnemyCharacterBase::SetMoveSpeed(bool bRun)
 void AEnemyCharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 서버에서는 해당 옵션을 킨다
+	// 엔진 자체에서 최적화를 위해 뼈대의 세세한 움직임을 기록하지않은데 현재 뼈대의 위치를 알필요가있기때문에 강제로 켜준다.
+	// GetSocketLocation() = 액터의 월드 트랜스폼 * 본 트랜스폼(여기가 갱신 안 됨) * 소켓 상대 오프셋
+	if(HasAuthority())
+		GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	
 	// 이동속도 초기 설정은 false
 	SetMoveSpeed(false);
