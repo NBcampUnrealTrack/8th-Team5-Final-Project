@@ -105,7 +105,7 @@ void UInteractionComponent::TryInteract()
 bool UInteractionComponent::Server_Interact_Validate(AActor* Target)
 {
 	// 기본 검증: 대상이 유효하고 상호작용 인터페이스를 구현해야 한다.
-	return Target != nullptr && Target->Implements<UInteractableInterface>();
+	return true;
 }
 
 void UInteractionComponent::Server_Interact_Implementation(AActor* Target)

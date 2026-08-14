@@ -85,17 +85,22 @@ void AHBPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(
 				ToggleInventoryAction, ETriggerEvent::Started, this, &AHBPlayerController::ToggleInventory);
 		}
-		
+
 		if (SprintAction)
 		{
-			EnhancedInputComponent->BindAction(SprintAction,ETriggerEvent::Started,this,&AHBPlayerController::StartSprint);
-			EnhancedInputComponent->BindAction(SprintAction,ETriggerEvent::Completed,this,&AHBPlayerController::StopSprint);
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AHBPlayerController::StartSprint);
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopSprint);
 		}
 	}
 }
 
 void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 {
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		const FVector2D MovementInput = Value.Get<FVector2D>();
@@ -106,6 +111,11 @@ void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 
 void AHBPlayerController::HandleLook(const FInputActionValue& Value)
 {
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
 	const FVector2D LookInput = Value.Get<FVector2D>();
 	AddYawInput(LookInput.X);
 	AddPitchInput(LookInput.Y);
@@ -113,6 +123,11 @@ void AHBPlayerController::HandleLook(const FInputActionValue& Value)
 
 void AHBPlayerController::StartJump()
 {
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Jump();
@@ -129,6 +144,11 @@ void AHBPlayerController::StopJump()
 
 void AHBPlayerController::StartCrouch()
 {
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Crouch();
@@ -145,6 +165,11 @@ void AHBPlayerController::StopCrouch()
 
 void AHBPlayerController::Attack()
 {
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Attack();
@@ -153,6 +178,11 @@ void AHBPlayerController::Attack()
 
 void AHBPlayerController::Block()
 {
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StartBlocking();
@@ -167,8 +197,21 @@ void AHBPlayerController::ToggleInventory()
 	}
 }
 
+void AHBPlayerController::RequestCloseInventory()
+{
+	if (InventoryUI)
+	{
+		InventoryUI->CloseInventory();
+	}
+}
+
 void AHBPlayerController::StartSprint()
 {
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StartSprint();

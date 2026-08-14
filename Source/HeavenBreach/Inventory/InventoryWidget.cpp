@@ -13,6 +13,7 @@
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Item/UItemSplitPopupWidget.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Player/HBPlayerController.h"
 
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
@@ -29,6 +30,11 @@ void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 	RefreshGrid();
 }
 
+void UInventoryWidget::SetParentContainerWidget(UUserWidget* InParentWidget)
+{
+	ParentContainerWidget = InParentWidget;
+}
+
 void UInventoryWidget::NativeDestruct()
 {
 	if (BoundInventory != nullptr)
@@ -42,6 +48,24 @@ void UInventoryWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	SetIsFocusable(true);
+}
+
+FReply UInventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (InKeyEvent.GetKey() == EKeys::Tab)
+	{
+		// 상자와 연결된 위젯이 아닐 때만 Tab으로 닫기 처리
+		if (LinkedContainer == nullptr)
+		{
+			if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+			{
+				PC->RequestCloseInventory();
+			}
+			return FReply::Handled();
+		}
+	}
+
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
 void UInventoryWidget::HandleInventoryChanged()
@@ -274,7 +298,7 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 		{
 			if (BoundInventory != nullptr)
 			{
-				BoundInventory->UseItem(InstanceId);
+				BoundInventory->Server_UseItem(InstanceId);
 			}
 		});
 	ActiveContextMenu->OnSplitRequested.AddLambda([this, InstanceId, StackCount = Item.StackCount]()
@@ -297,6 +321,12 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 			ActiveSplitPopup->OnSplitConfirmed.AddLambda([this, InstanceId](int32 Quantity)
 				{
 					UE_LOG(LogTemp, Log, TEXT("[InventoryWidget] Split confirmed: instance %s, quantity %d"), *InstanceId.ToString(), Quantity);
+
+					if (BoundInventory != nullptr)
+					{
+						BoundInventory->Server_SplitStack(InstanceId, Quantity, FIntPoint(-1, -1));
+					}
+
 				});
 			ActiveSplitPopup->OnPopupClosed.AddLambda([this]()
 				{
@@ -350,33 +380,7 @@ void UInventoryWidget::ShowSplitPopupForDrop(FGuid InInstanceId, FIntPoint InTar
 			{
 				return;
 			}
-			const int32 SourceIndex = BoundInventory->FindEntryIndexById(InInstanceId);
-			if (SourceIndex == INDEX_NONE)
-			{
-				return;
-			}
-			if (Quantity <= 0 || Quantity >= BoundInventory->GetEntries()[SourceIndex].Item.StackCount)
-			{
-				UE_LOG(LogTemp, Warning, TEXT("[InventoryWidget] Split-drop: invalid quantity %d"), Quantity);
-				return;
-			}
-			FItemInstance NewItem = BoundInventory->GetEntries()[SourceIndex].Item;
-			NewItem.InstanceId = FGuid::NewGuid();
-			NewItem.StackCount = Quantity;
-			if (!BoundInventory->TryAddItemAt(NewItem, InTargetCell))
-			{
-				UE_LOG(LogTemp, Warning, TEXT("[InventoryWidget] Split-drop: target cell (%d, %d) occupied, cannot place split stack"),
-					InTargetCell.X, InTargetCell.Y);
-				return;
-			}
-			if (!BoundInventory->RemoveStackCount(InInstanceId, Quantity))
-			{
-				FItemInstance Removed;
-				BoundInventory->RemoveItem(NewItem.InstanceId, Removed);
-				return;
-			}
-			UE_LOG(LogTemp, Log, TEXT("[InventoryWidget] Split-drop applied: instance %s, quantity %d, target (%d, %d)"),
-				*InInstanceId.ToString(), Quantity, InTargetCell.X, InTargetCell.Y);
+			BoundInventory->Server_SplitStack(InInstanceId, Quantity, InTargetCell);
 		});
 	ActiveSplitPopup->OnPopupClosed.AddLambda([this]()
 		{
@@ -440,7 +444,8 @@ bool UInventoryWidget::HandleDoubleClick(FIntPoint InCell)
 		return false;
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
-	return BoundInventory->UseItem(Item.InstanceId);
+	BoundInventory->Server_UseItem(Item.InstanceId);
+	return true;
 }
 
 FReply UInventoryWidget::NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
@@ -504,6 +509,24 @@ void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 	OutOperation = Operation;
 }
 
+void UInventoryWidget::RefocusAfterDrop()
+{
+	APlayerController* PC = GetOwningPlayer();
+	if (PC == nullptr)
+	{
+		return;
+	}
+
+	TSharedRef<SWidget> WidgetToFocus = (LinkedContainer != nullptr && ParentContainerWidget != nullptr)
+		? ParentContainerWidget->TakeWidget()
+		: TakeWidget();
+
+	FInputModeGameAndUI InputMode;
+	InputMode.SetWidgetToFocus(WidgetToFocus);
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PC->SetInputMode(InputMode);
+}
+
 bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
 	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
@@ -540,6 +563,8 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	if (Operation->SourceEquipment != nullptr)
 	{
 		RequestSender->Server_UnequipItemTo(Operation->SourceEquipment, Operation->SourceSlot, BoundInventory, TargetPosition);
+		RefocusAfterDrop();
+
 		return true;
 	}
 	if (Operation->SourceInventory == BoundInventory)
@@ -552,6 +577,7 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 		{
 			RequestSender->Server_MoveItemIn(BoundInventory, Operation->InstanceId, TargetPosition);
 		}
+		RefocusAfterDrop();
 		return true;
 	}
 	if (Operation->SourceInventory == RequestSender)
@@ -562,5 +588,6 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	{
 		RequestSender->Server_TransferItemFrom(Operation->SourceInventory, Operation->InstanceId, TargetPosition);
 	}
+	RefocusAfterDrop();
 	return true;
 }

@@ -112,6 +112,11 @@ public:
 
 	void SetEntries(const TArray<FInventoryEntry>& InEntries);
 
+	void Server_UseItem(FGuid InInstanceId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_SplitStack(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition);
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -139,7 +144,7 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory")
 
 	float ItemUseCooldown = 6.0f;
-	
+
 	bool bHasUsedItem = false;
 	float LastItemUseTime = 0.0f;
 
