@@ -670,11 +670,19 @@ void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryC
 	{
 		return;
 	}
-
 	TransferItemFromAuto(InSource, InInstanceId);
 }
 
 void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition)
+{
+	if (InEquipment == nullptr || InTarget == nullptr)
+	{
+		return;
+	}
+	InEquipment->UnequipToInventoryAt(InSlot, InTarget, InTargetPosition);
+}
+
+void UInventoryComponent::Server_UseItem_Implementation(FGuid InInstanceId)
 {
 	UseItem(InInstanceId);
 }
@@ -686,18 +694,6 @@ void UInventoryComponent::Server_SplitStack_Implementation(FGuid InInstanceId, i
 		return;
 	}
 
-	InEquipment->UnequipToInventoryAt(InSlot, InTarget, InTargetPosition);
-}
-
-void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)
-{
-	Width = FMath::Max(1, InWidth);
-	Height = FMath::Max(1, InHeight);
-}
-
-void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
-{
-	if (GetOwnerRole() != ROLE_Authority)
 	const int32 SourceIndex = FindEntryIndexById(InInstanceId);
 	if (SourceIndex == INDEX_NONE)
 	{
@@ -708,12 +704,6 @@ void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
 	{
 		return;
 	}
-
-
-	Entries = InEntries;
-	RebuildCache();
-
-	OnInventoryChanged.Broadcast();
 
 	FItemInstance NewItem = Entries[SourceIndex].Item;
 	NewItem.InstanceId = FGuid::NewGuid();
@@ -746,4 +736,22 @@ void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
 		FItemInstance Removed;
 		RemoveItem(NewItem.InstanceId, Removed);
 	}
+}
+
+void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)
+{
+	Width = FMath::Max(1, InWidth);
+	Height = FMath::Max(1, InHeight);
+}
+
+void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	Entries = InEntries;
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
 }
