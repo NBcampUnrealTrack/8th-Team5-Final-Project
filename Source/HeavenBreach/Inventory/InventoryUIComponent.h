@@ -26,17 +26,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	bool IsInventoryOpen() const { return bIsOpen; }
 
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void OpenStash();
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void CloseStash();
+
 protected:
 	virtual void BeginPlay() override;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory")
 	TSubclassOf<UInventoryWidget> InventoryWidgetClass;
 
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory")
+	TSubclassOf<UUserWidget> StashWidgetClass;
+
 private:
 	void EnsureWidget();
 
 	UPROPERTY()
 	TObjectPtr<UInventoryWidget> InventoryWidget;
+
+	UPROPERTY()
+	TObjectPtr<UUserWidget> StashWidget;
 
 	bool bIsOpen = false;
 };

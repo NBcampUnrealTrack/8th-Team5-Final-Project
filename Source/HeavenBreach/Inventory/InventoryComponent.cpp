@@ -28,8 +28,6 @@ void UInventoryComponent::BeginPlay()
 
 void UInventoryComponent::OnRep_Entries()
 {
-
-	UE_LOG(LogTemp, Log, TEXT("OnRep_Entries: %d entries"), Entries.Num());
 	RebuildCache();
 	OnInventoryChanged.Broadcast();
 }
@@ -674,4 +672,33 @@ void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryC
 	}
 
 	TransferItemFromAuto(InSource, InInstanceId);
+}
+
+void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition)
+{
+	if (InEquipment == nullptr || InTarget == nullptr)
+	{
+		return;
+	}
+
+	InEquipment->UnequipToInventoryAt(InSlot, InTarget, InTargetPosition);
+}
+
+void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)
+{
+	Width = FMath::Max(1, InWidth);
+	Height = FMath::Max(1, InHeight);
+}
+
+void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	Entries = InEntries;
+	RebuildCache();
+
+	OnInventoryChanged.Broadcast();
 }
