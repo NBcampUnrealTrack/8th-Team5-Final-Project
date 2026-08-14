@@ -54,7 +54,7 @@ FReply UInventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 {
 	if (InKeyEvent.GetKey() == EKeys::Tab)
 	{
-		// »óÀÚ¿Í ¿¬°áµÈ À§Á¬ÀÌ ¾Æ´Ò ¶§¸¸ TabÀ¸·Î ´İ±â Ã³¸®
+		// ìƒìì™€ ì—°ê²°ëœ ìœ„ì ¯ì´ ì•„ë‹ ë•Œë§Œ Tabìœ¼ë¡œ ë‹«ê¸° ì²˜ë¦¬
 		if (LinkedContainer == nullptr)
 		{
 			if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
@@ -258,12 +258,13 @@ bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 
 bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Debug] HandleContextMenu called, ItemContextMenuClass=%s"), ItemContextMenuClass ? *ItemContextMenuClass->GetName() : TEXT("NULL"));
 	if (BoundInventory == nullptr)
 	{
 		return false;
 	}
+
 	const int32 EntryIndex = BoundInventory->GetEntryIndexAt(InCell);
+
 	if (EntryIndex == INDEX_NONE)
 	{
 		return false;
@@ -272,16 +273,19 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 	{
 		return false;
 	}
+
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
 	FItemViewData ViewData;
 	ResolveItemViewData(Item.ItemRow, ViewData);
+
 	if (ActiveContextMenu != nullptr)
 	{
 		ActiveContextMenu->RemoveFromParent();
 		ActiveContextMenu = nullptr;
 	}
+
 	ActiveContextMenu = CreateWidget<UItemActionMenuWidget>(GetOwningPlayer(), ItemContextMenuClass);
-	UE_LOG(LogTemp, Warning, TEXT("[Debug] CreateWidget result=%s"), ActiveContextMenu ? TEXT("Valid") : TEXT("NULL"));
+
 	if (ActiveContextMenu == nullptr)
 	{
 		return false;
@@ -316,10 +320,13 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 			ActiveSplitPopup->SetupRange(1, StackCount - 1);
 			ActiveSplitPopup->OnSplitConfirmed.AddLambda([this, InstanceId](int32 Quantity)
 				{
+					UE_LOG(LogTemp, Log, TEXT("[InventoryWidget] Split confirmed: instance %s, quantity %d"), *InstanceId.ToString(), Quantity);
+
 					if (BoundInventory != nullptr)
 					{
 						BoundInventory->Server_SplitStack(InstanceId, Quantity, FIntPoint(-1, -1));
 					}
+
 				});
 			ActiveSplitPopup->OnPopupClosed.AddLambda([this]()
 				{
@@ -334,7 +341,6 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 	ActiveContextMenu->SetKeyboardFocus();
 	const FVector2D ViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
 	ActiveContextMenu->SetPositionInViewport(ViewportPosition + FVector2D(0.f, 4.f), false);
-	UE_LOG(LogTemp, Warning, TEXT("[Debug] Menu added at ViewportPos (%f, %f)"), ViewportPosition.X, ViewportPosition.Y);
 	return true;
 }
 
@@ -533,10 +539,21 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	{
 		return false;
 	}
-	const FVector2D ItemOrigin = LocalPosition - Operation->GrabPixelOffset;
-	const FIntPoint TargetPosition(
-		FMath::RoundToInt(ItemOrigin.X / CellSize),
-		FMath::RoundToInt(ItemOrigin.Y / CellSize));
+	FIntPoint TargetPosition;
+	if (Operation->SourceInventory == BoundInventory)
+	{
+		const FVector2D ItemOrigin = LocalPosition - Operation->GrabPixelOffset;
+		TargetPosition = FIntPoint(
+			FMath::RoundToInt(ItemOrigin.X / CellSize),
+			FMath::RoundToInt(ItemOrigin.Y / CellSize));
+	}
+	else
+	{
+		const FIntPoint DropCell(
+			FMath::FloorToInt(LocalPosition.X / CellSize),
+			FMath::FloorToInt(LocalPosition.Y / CellSize));
+		TargetPosition = DropCell - Operation->GrabOffset;
+	}
 	if (Operation->bSplitRequested && ItemSplitPopupClass != nullptr)
 	{
 		ShowSplitPopupForDrop(Operation->InstanceId, TargetPosition, InDragDropEvent.GetScreenSpacePosition());
@@ -545,8 +562,9 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	UInventoryComponent* RequestSender = OwningInventory != nullptr ? OwningInventory : BoundInventory;
 	if (Operation->SourceEquipment != nullptr)
 	{
-		RequestSender->Server_UnequipItem(Operation->SourceEquipment, Operation->SourceSlot, TargetPosition);
+		RequestSender->Server_UnequipItemTo(Operation->SourceEquipment, Operation->SourceSlot, BoundInventory, TargetPosition);
 		RefocusAfterDrop();
+
 		return true;
 	}
 	if (Operation->SourceInventory == BoundInventory)

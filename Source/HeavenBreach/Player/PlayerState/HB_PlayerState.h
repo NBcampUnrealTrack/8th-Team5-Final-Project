@@ -8,6 +8,7 @@
 
 
 class UHB_PlayerAttributeSet;
+class UStashComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
 
@@ -50,5 +51,15 @@ protected:
 	void OnHealthChanged(const struct FOnAttributeChangeData& Data);
 	void OnMaxHealthChanged(const struct FOnAttributeChangeData& Data);
 
+#pragma endregion
+
+#pragma region Stash
+public:
+	UFUNCTION(BlueprintPure, Category = "Stash")
+	UStashComponent* GetStash() const { return Stash; }
+
+private:
+	UPROPERTY()
+	TObjectPtr<UStashComponent> Stash;
 #pragma endregion
 };

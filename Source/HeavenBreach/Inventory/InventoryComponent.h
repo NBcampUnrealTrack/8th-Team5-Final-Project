@@ -106,6 +106,12 @@ public:
 	void Server_MoveItemIn(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition);
 
 	UFUNCTION(Server, Reliable)
+	void Server_UnequipItemTo(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition);
+
+	void SetGridSize(int32 InWidth, int32 InHeight);
+
+	void SetEntries(const TArray<FInventoryEntry>& InEntries);
+
 	void Server_UseItem(FGuid InInstanceId);
 
 	UFUNCTION(Server, Reliable)
