@@ -69,6 +69,13 @@ void AHBPlayerCharacter::BeginPlay()
 	{
 		Inventory->OnItemUsed.AddDynamic(this, &AHBPlayerCharacter::HandleItemUsed);
 	}
+	
+	if (Equipment)
+	{
+		Equipment->OnEquipmentChanged.AddDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
+	}
+	
+	RefreshEquippedVisuals();
 }
 
 void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -399,18 +406,6 @@ void AHBPlayerCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
 {
 	bIsSprinting = bNewSprinting;
 	GetCharacterMovement()->MaxWalkSpeed = bNewSprinting ? SprintSpeed : WalkSpeed;
-}
-
-void AHBPlayerCharacter::BeginPlay()
-{
-	Super::BeginPlay();
-	
-	if (Equipment)
-	{
-		Equipment->OnEquipmentChanged.AddDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
-	}
-	
-	RefreshEquippedVisuals();
 }
 
 void AHBPlayerCharacter::RefreshEquippedVisuals()
