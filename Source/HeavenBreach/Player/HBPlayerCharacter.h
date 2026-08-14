@@ -23,8 +23,6 @@ class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageable
 
 public:
 	AHBPlayerCharacter();
-	
-	virtual void BeginPlay() override;
 
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
