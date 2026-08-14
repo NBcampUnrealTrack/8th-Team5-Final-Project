@@ -176,11 +176,20 @@ protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
 	
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<UStaticMeshComponent> HelmetMeshComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> ChestMeshComp;
+
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName WeaponSocketName = TEXT("PrimaryWeaponSocket");
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName ShieldSocketName = TEXT("SecondWeaponSocket");
+	
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
+	FName HelmetSocketName = TEXT("HelmetSocket");
 	
 	virtual void BeginPlay() override;
 	
@@ -189,7 +198,9 @@ protected:
 	
 	void RefreshWeaponVisual();
 	void RefreshShieldVisual();
-	
+	void RefreshHelmetVisual();
+	void RefreshChestVisual();
+
 #pragma endregion 
 
 public:

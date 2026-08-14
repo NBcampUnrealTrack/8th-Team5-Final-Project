@@ -49,7 +49,16 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	ShieldMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShieldMeshComp"));
 	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
 	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-#pragma endregion 
+	
+	HelmetMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HelmetMeshComp"));
+	HelmetMeshComp->SetupAttachment(GetMesh(),HelmetSocketName);
+	HelmetMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	ChestMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ChestMeshComp"));
+	ChestMeshComp->SetupAttachment(GetMesh());
+	ChestMeshComp->SetLeaderPoseComponent(GetMesh());
+	ChestMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+#pragma endregion
 }
 
 void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -386,6 +395,8 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 {
 	RefreshWeaponVisual();
 	RefreshShieldVisual();
+	RefreshHelmetVisual();
+	RefreshChestVisual();
 }
 
 void AHBPlayerCharacter::RefreshWeaponVisual()
@@ -432,4 +443,50 @@ void AHBPlayerCharacter::RefreshShieldVisual()
 	}
 	
 	ShieldMeshComp->SetStaticMesh(nullptr);
+}
+
+void AHBPlayerCharacter::RefreshHelmetVisual()
+{
+	if (!Equipment || !HelmetMeshComp)
+	{
+		return;
+	}
+	
+	FItemInstance HelmetItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::Helmet, HelmetItem))
+	{
+		if (const FItemData* HelmetData = HelmetItem.ItemRow.GetRow<FItemData>(TEXT("RefreshHelmetVisual")))
+		{
+			if (UStaticMesh* HelmetMesh = LoadObject<UStaticMesh>(nullptr, *HelmetData->WorldMeshPath))
+			{
+				HelmetMeshComp->SetStaticMesh(HelmetMesh);
+				return;
+			}
+		}
+	}
+	
+	HelmetMeshComp->SetStaticMesh(nullptr);
+}
+
+void AHBPlayerCharacter::RefreshChestVisual()
+{
+	if (!Equipment || !ChestMeshComp)
+	{
+		return;
+	}
+
+	FItemInstance ChestItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::Chest, ChestItem))
+	{
+		if (const FItemData* ChestData = ChestItem.ItemRow.GetRow<FItemData>(TEXT("RefreshChestVisual")))
+		{
+			if (USkeletalMesh* ChestMesh = LoadObject<USkeletalMesh>(nullptr, *ChestData->WorldMeshPath))
+			{
+				ChestMeshComp->SetSkeletalMesh(ChestMesh);
+				return;
+			}
+		}
+	}
+
+	ChestMeshComp->SetSkeletalMesh(nullptr);
 }
