@@ -24,6 +24,8 @@ class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageable
 public:
 	AHBPlayerCharacter();
 	
+	virtual void BeginPlay() override;
+
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void MoveForward(float Value);
@@ -64,6 +66,10 @@ private:
 	UFUNCTION()
 	void HandleInteractableFocusChanged(AActor* NewInteractable);
 #pragma endregion
+
+private:
+	UFUNCTION()
+	void HandleItemUsed(FName ItemId, float HealAmount);
 
 protected:
 	virtual void OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem);

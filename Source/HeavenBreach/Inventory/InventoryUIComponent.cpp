@@ -1,5 +1,7 @@
 #include "InventoryUIComponent.h"
 
+#include "StashComponent.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 #include "Blueprint/UserWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "InventoryComponent.h"
@@ -100,4 +102,56 @@ void UInventoryUIComponent::CloseInventory()
 	OwningController->SetShowMouseCursor(false);
 
 	bIsOpen = false;
+}
+
+void UInventoryUIComponent::OpenStash()
+{
+	APlayerController* OwningController = Cast<APlayerController>(GetOwner());
+	if (OwningController == nullptr || StashWidgetClass == nullptr)
+	{
+		return;
+	}
+
+	if (StashWidget == nullptr)
+	{
+		StashWidget = CreateWidget<UUserWidget>(OwningController, StashWidgetClass);
+		if (StashWidget == nullptr)
+		{
+			return;
+		}
+
+		StashWidget->AddToViewport();
+	}
+
+	StashWidget->SetVisibility(ESlateVisibility::Visible);
+
+	FInputModeGameAndUI InputMode;
+	InputMode.SetWidgetToFocus(StashWidget->TakeWidget());
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	InputMode.SetHideCursorDuringCapture(false);
+
+	OwningController->SetInputMode(InputMode);
+	OwningController->SetShowMouseCursor(true);
+}
+
+void UInventoryUIComponent::CloseStash()
+{
+	APlayerController* OwningController = Cast<APlayerController>(GetOwner());
+	if (StashWidget == nullptr || OwningController == nullptr)
+	{
+		return;
+	}
+
+	if (AHB_PlayerState* HBPlayerState = OwningController->GetPlayerState<AHB_PlayerState>())
+	{
+		if (UStashComponent* Stash = HBPlayerState->GetStash())
+		{
+			Stash->RequestSave();
+		}
+	}
+
+	StashWidget->SetVisibility(ESlateVisibility::Collapsed);
+
+	OwningController->SetInputMode(FInputModeGameOnly());
+	OwningController->SetShowMouseCursor(false);
 }
