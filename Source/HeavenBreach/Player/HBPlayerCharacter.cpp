@@ -40,6 +40,25 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
 	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 0.0f, 64.0f));
 	FirstPersonCamera->bUsePawnControlRotation = true;
+	
+#pragma region Weapon
+	WeaponMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMeshComp"));
+	WeaponMeshComp->SetupAttachment(GetMesh(),WeaponSocketName);
+	WeaponMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	
+	ShieldMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShieldMeshComp"));
+	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
+	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	
+	HelmetMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HelmetMeshComp"));
+	HelmetMeshComp->SetupAttachment(GetMesh(),HelmetSocketName);
+	HelmetMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	ChestMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ChestMeshComp"));
+	ChestMeshComp->SetupAttachment(GetMesh());
+	ChestMeshComp->SetLeaderPoseComponent(GetMesh());
+	ChestMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+#pragma endregion
 }
 
 void AHBPlayerCharacter::BeginPlay()
@@ -380,4 +399,116 @@ void AHBPlayerCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
 {
 	bIsSprinting = bNewSprinting;
 	GetCharacterMovement()->MaxWalkSpeed = bNewSprinting ? SprintSpeed : WalkSpeed;
+}
+
+void AHBPlayerCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	
+	if (Equipment)
+	{
+		Equipment->OnEquipmentChanged.AddDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
+	}
+	
+	RefreshEquippedVisuals();
+}
+
+void AHBPlayerCharacter::RefreshEquippedVisuals()
+{
+	RefreshWeaponVisual();
+	RefreshShieldVisual();
+	RefreshHelmetVisual();
+	RefreshChestVisual();
+}
+
+void AHBPlayerCharacter::RefreshWeaponVisual()
+{
+	if (!Equipment || !WeaponMeshComp)
+	{
+		return;
+	}
+	
+	FItemInstance WeaponItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
+	{
+		if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("RefreshWeaponVisual")))
+		{
+			if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*WeaponData->EquipMeshPath))
+			{
+				WeaponMeshComp->SetStaticMesh(WeaponMesh);
+				return;
+			}
+		}
+	}
+	
+	WeaponMeshComp->SetStaticMesh(nullptr);
+}
+
+void AHBPlayerCharacter::RefreshShieldVisual()
+{
+	if (!Equipment || !ShieldMeshComp)
+	{
+		return;
+	}
+	
+	FItemInstance ShieldItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+	{
+		if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("RefreshShieldVisual")))
+		{
+			if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*ShieldData->EquipMeshPath))
+			{
+				ShieldMeshComp->SetStaticMesh(WeaponMesh);
+				return;
+			}
+		}
+	}
+	
+	ShieldMeshComp->SetStaticMesh(nullptr);
+}
+
+void AHBPlayerCharacter::RefreshHelmetVisual()
+{
+	if (!Equipment || !HelmetMeshComp)
+	{
+		return;
+	}
+	
+	FItemInstance HelmetItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::Helmet, HelmetItem))
+	{
+		if (const FItemData* HelmetData = HelmetItem.ItemRow.GetRow<FItemData>(TEXT("RefreshHelmetVisual")))
+		{
+			if (UStaticMesh* HelmetMesh = LoadObject<UStaticMesh>(nullptr, *HelmetData->WorldMeshPath))
+			{
+				HelmetMeshComp->SetStaticMesh(HelmetMesh);
+				return;
+			}
+		}
+	}
+	
+	HelmetMeshComp->SetStaticMesh(nullptr);
+}
+
+void AHBPlayerCharacter::RefreshChestVisual()
+{
+	if (!Equipment || !ChestMeshComp)
+	{
+		return;
+	}
+
+	FItemInstance ChestItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::Chest, ChestItem))
+	{
+		if (const FItemData* ChestData = ChestItem.ItemRow.GetRow<FItemData>(TEXT("RefreshChestVisual")))
+		{
+			if (USkeletalMesh* ChestMesh = LoadObject<USkeletalMesh>(nullptr, *ChestData->WorldMeshPath))
+			{
+				ChestMeshComp->SetSkeletalMesh(ChestMesh);
+				return;
+			}
+		}
+	}
+
+	ChestMeshComp->SetSkeletalMesh(nullptr);
 }
