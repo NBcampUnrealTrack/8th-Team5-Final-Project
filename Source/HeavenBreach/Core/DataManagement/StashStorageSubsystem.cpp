@@ -1,12 +1,15 @@
 #include "StashStorageSubsystem.h"
 
+#include "BackendStashStorage.h"
 #include "MemoryStashStorage.h"
 
 void UStashStorageSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
-	Storage = MakeShared<FMemoryStashStorage>();
+	Storage = MakeShared<FBackendStashStorage>();
+	// 배포서버가 작동하지 않을때 아래 코드로 진행
+	// Storage = MakeShared<FMemoryStashStorage>();
 
 	if (!Storage->Initialize())
 	{
