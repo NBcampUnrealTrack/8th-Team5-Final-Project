@@ -46,6 +46,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI")
 	float GetAttackRange() const;
 
+	UFUNCTION(BlueprintPure, Category = "AI")
+	float GetTurnSpeed() const;
+
+	UFUNCTION(BlueprintPure, Category = "AI")
+	bool HasRangedAttack() const;
+
 protected:
 	// 데이터 에셋. 값을 복사하는 게 아니라 애셋 포인터만 들고 있는다.
 	UPROPERTY()
