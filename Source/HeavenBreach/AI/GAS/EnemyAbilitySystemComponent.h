@@ -24,4 +24,9 @@ public:
 	// true : 활성화, false : 비활성화
 	UFUNCTION(BlueprintPure, Category = "GAS")
 	bool IsAbilityActiveByTag(FGameplayTag AbilityTag) const;
+
+	// 특정 어빌리티 태그를 보유했는지 확인
+	// IsAbilityActiveByTag와 다른점은 해당 어빌리티 활성화까지는 안봄
+	UFUNCTION(BlueprintPure, Category = "GAS")
+	bool HasAbilityByTag(FGameplayTag AbilityTag) const;
 };
