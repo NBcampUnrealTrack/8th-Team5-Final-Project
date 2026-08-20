@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -15,49 +15,49 @@ struct FEnemyStatRow : public FTableRowBase
 	GENERATED_BODY()
 
 public:
-	// ----- °¨°¢ -----
+	// ----- ê°ê° -----
 	UPROPERTY(EditAnywhere, Category = "Sense", meta = (ClampMin = "0.0"))
 	float SightRadius = 1500.f;
 
-	// SightRadius ÀÌÇÏ·Î µÎ¸é °æ°è¼±¿¡¼­ ¹ß°¢/ÇØÁ¦°¡ ±ôºıÀÎ´Ù.
-	// LoseSightRadius°¡ SightRadiusº¸´Ù ³·¾Æµµ aicontrollorÃø¿¡ ¹æ¾îÄÚµå Á¸ÀçÇÔ
+	// SightRadius ì´í•˜ë¡œ ë‘ë©´ ê²½ê³„ì„ ì—ì„œ ë°œê°/í•´ì œê°€ ê¹œë¹¡ì¸ë‹¤.
+	// LoseSightRadiusê°€ SightRadiusë³´ë‹¤ ë‚®ì•„ë„ aicontrollorì¸¡ì— ë°©ì–´ì½”ë“œ ì¡´ì¬í•¨
 	UPROPERTY(EditAnywhere, Category = "Sense", meta = (ClampMin = "0.0"))
 	float LoseSightRadius = 2000.f;
 
-	// Á¤¸é ±âÁØ ¹İ°¢. 60 ÀÌ¸é ÃÑ 120µµ
+	// ì •ë©´ ê¸°ì¤€ ë°˜ê°. 60 ì´ë©´ ì´ 120ë„
 	UPROPERTY(EditAnywhere, Category = "Sense", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float PeripheralVisionAngle = 60.f;
 
-	// 0ÀÏ°æ¿ì ¿µ¿øÈ÷ ±â¾ï
+	// 0ì¼ê²½ìš° ì˜ì›íˆ ê¸°ì–µ
 	UPROPERTY(EditAnywhere, Category = "Sense", meta = (ClampMin = "0.1"))
 	float SightMaxAge = 2.f;
 
-	// ¸ñ°İµÈ ´ë»óÀÌ ½Ã¾ß°¢À» ¹ş¾î³ªµµ º¼¼ö ÀÕ´Â °Å¸®
-	// -1ÀÌ¸é ºñÈ°¼º
+	// ëª©ê²©ëœ ëŒ€ìƒì´ ì‹œì•¼ê°ì„ ë²—ì–´ë‚˜ë„ ë³¼ìˆ˜ ì‡ëŠ” ê±°ë¦¬
+	// -1ì´ë©´ ë¹„í™œì„±
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float AutoSuccessSightRange = -1.f;
 
-	// ----- ±â¾ï -----
-	// Lost À¯Áö ½Ã°£. Áö³ª¸é Idle
+	// ----- ê¸°ì–µ -----
+	// Lost ìœ ì§€ ì‹œê°„. ì§€ë‚˜ë©´ Idle
 	UPROPERTY(EditAnywhere, Category = "Alert", meta = (ClampMin = "0.0"))
 	float LostMemoryDuration = 4.f;
 
-	// ----- ÀÌµ¿ -----
+	// ----- ì´ë™ -----
 	UPROPERTY(EditAnywhere, Category = "Movement", meta = (ClampMin = "0.0"))
 	float WalkSpeed = 200.f;
 
 	UPROPERTY(EditAnywhere, Category = "Movement", meta = (ClampMin = "0.0"))
 	float RunSpeed = 600.f;
 
-	// MoveTo µµÂø ÆÇÁ¤ ¹İ°æ. ºñÇà ÀûÀÌ ÀÕÀ» °æ¿ì 300 ÀÌ»ó ÃßÃµ
+	// MoveTo ë„ì°© íŒì • ë°˜ê²½. ë¹„í–‰ ì ì´ ì‡ì„ ê²½ìš° 300 ì´ìƒ ì¶”ì²œ
 	UPROPERTY(EditAnywhere, Category = "Movement", meta = (ClampMin = "0.0"))
 	float AcceptanceRadius = 100.f;
 
-	// ½ºÆùÁöÁ¡À¸·Î ºÎÅÍ ¹èÈ¸ ¹İ°æ
+	// ìŠ¤í°ì§€ì ìœ¼ë¡œ ë¶€í„° ë°°íšŒ ë°˜ê²½
 	UPROPERTY(EditAnywhere, Category = "Behavior", meta = (ClampMin = "0.0"))
 	float MaxMoveDistance = 1000.f;
 
-	// ----- ÀüÅõ -----
+	// ----- ì „íˆ¬ -----
 	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "1.0"))
 	float MaxHealth = 100.f;
 
@@ -69,4 +69,7 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float AttackRange = 200.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	float TurnSpeed = 360.f;
 };
