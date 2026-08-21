@@ -29,7 +29,10 @@ public:
 	TObjectPtr<UTexture2D> EmptySlotIcon;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Slot Style", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float EmptyIconOpacity = 0.3f;
+	float EmptyIconOpacity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Slot Style")
+	FVector2D EmptyIconScale = FVector2D(0.8f, 0.8f);
 
 	UPROPERTY()
 	TObjectPtr<UEquipmentComponent> BoundEquipment;

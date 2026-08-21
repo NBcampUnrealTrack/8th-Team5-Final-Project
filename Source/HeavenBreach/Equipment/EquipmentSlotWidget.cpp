@@ -129,6 +129,7 @@ void UEquipmentSlotWidget::NativePreConstruct()
 	{
 		IconImage->SetBrushFromTexture(EmptySlotIcon, false);
 		IconImage->SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f, EmptyIconOpacity));
+		IconImage->SetRenderScale(EmptyIconScale);
 		IconImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 		if (SlotLabel) SlotLabel->SetVisibility(ESlateVisibility::Collapsed);
 	}
