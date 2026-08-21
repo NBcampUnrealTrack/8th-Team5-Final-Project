@@ -85,6 +85,10 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UEnemyAttributeSetBase> AttributeSet;
 
+	// 뼈대 별로 데미지 배율. 여기에 없다면 1배
+	UPROPERTY(EditDefaultsOnly, Category = "AI")
+	TMap<FName, float> BoneDamageMultipliers;
+
 	// 걷는 속도
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Movement", meta = (ClampMin = "0.0"))
 	float WalkSpeed = 200.f;

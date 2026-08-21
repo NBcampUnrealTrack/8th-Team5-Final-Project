@@ -36,7 +36,7 @@ AEnemyCharacterBase::AEnemyCharacterBase()
 	}
 
 	// ----- GAS -----
-
+	
 	AbilitySystemComp = CreateDefaultSubobject<UEnemyAbilitySystemComponent>(TEXT("AbilitySystemComp"));
 	// 어트리뷰트와 태그를 클라이언트에 복제하려면 필요하다.
 	AbilitySystemComp->SetIsReplicated(true);
@@ -95,8 +95,17 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 		return;
 	}
 
+	// 피격 부위에 따른 데미지 배율
+	float PartMult = 1.f;
+	if (const float* Found = BoneDamageMultipliers.Find(Hit.BoneName))
+	{
+		PartMult = *Found;
+	}
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Hit] Bone=%s  Comp=%s  Dmg=%.0f"),*Hit.BoneName.ToString(), *GetNameSafe(Hit.GetComponent()), RawDamage);
+
 	// GE 애셋의 Modifier 가 이태그로 값을 받는다.
-	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage);
+	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage * PartMult);
 
 	AbilitySystemComp->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 
