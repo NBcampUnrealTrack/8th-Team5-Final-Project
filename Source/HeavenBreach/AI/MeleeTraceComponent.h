@@ -38,7 +38,7 @@ protected:
 
 	// 만들어둔 채널 사용
 	UPROPERTY(EditAnywhere, Category = "Trace")
-	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_GameTraceChannel1;
+	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_GameTraceChannel3;
 
 
 	// ----- 디버깅 -----
