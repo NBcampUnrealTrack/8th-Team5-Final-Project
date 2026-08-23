@@ -42,6 +42,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
 		OutViewData.HealAmount = ItemRow->HealAmount;
 		OutViewData.SellValue = ItemRow->SellValue;
+		OutViewData.Icon = ItemRow->Icon;
 		return true;
 	}
 
@@ -59,6 +60,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.DisplayName = WeaponRow->WeaponName;
 		OutViewData.IconPath = WeaponRow->Icon ? WeaponRow->Icon->GetPathName() : FString();
 		OutViewData.SellValue = WeaponRow->SellValue;
+		OutViewData.Icon = WeaponRow->Icon;
 		return true;
 	}
 
@@ -76,6 +78,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.DisplayName = ShieldRow->ShieldName;
 		OutViewData.IconPath = ShieldRow->Icon ? ShieldRow->Icon->GetPathName() : FString();
 		OutViewData.SellValue = ShieldRow->SellValue;
+		OutViewData.Icon = ShieldRow->Icon;
 		return true;
 	}
 
