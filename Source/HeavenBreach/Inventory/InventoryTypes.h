@@ -41,6 +41,9 @@ struct FItemViewData
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString IconPath;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	int32 SellValue = 0;
+
 	bool IsStackable() const { return MaxStack > 1; }
 	bool IsEquippable() const { return EquipSlotType != EEquipSlotType::None; }
 
