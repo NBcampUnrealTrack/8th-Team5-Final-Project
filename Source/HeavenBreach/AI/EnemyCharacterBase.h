@@ -49,8 +49,8 @@ public:
 	void SetMoveSpeed(bool bRun);
 
 	// setter
-	void SetWalkSpeed(float InWalkSpeed) { WalkSpeed = InWalkSpeed; }
-	void SetRunSpeed(float InRunSpeed) { RunSpeed = InRunSpeed; }
+	void SetWalkSpeed(float InWalkSpeed) { WalkSpeed = InWalkSpeed; RefreshMoveSpeed(); }
+	void SetRunSpeed(float InRunSpeed) { RunSpeed = InRunSpeed; RefreshMoveSpeed(); }
 	void SetAccRadius(float InAcceptanceRadius) { AcceptanceRadius = InAcceptanceRadius; }
 
 	UFUNCTION(BlueprintCallable)
@@ -98,14 +98,26 @@ protected:
 	// 목적지까지 도달 허용 범위
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Movement", meta = (ClampMin = "0.0"))
 	float AcceptanceRadius = 100.f;
+	// 받아온 이동속도 배율 값
+	UPROPERTY(BlueprintReadOnly, Category = "AI|Movement")
+	float CachedSpeedRate = 1.f;
 
 	// 사망 확인
 	UPROPERTY(ReplicatedUsing = OnRep_Dead, VisibleAnywhere, BlueprintReadOnly)
 	bool bDead = false;
 
+	// 달리기 확인
+	bool bRunning = false;
+
 	// 사망변수가 변경되면 해야할것들
 	UFUNCTION()
 	void OnRep_Dead();
+
+	// 이동속도 변경 적용
+	void RefreshMoveSpeed();
+
+	// GAS에서 이동속도 변경 시 연결된 함수
+	void OnMoveSpeedRateChanged(const struct FOnAttributeChangeData& Data);
 
 public:	
 	// Called every frame

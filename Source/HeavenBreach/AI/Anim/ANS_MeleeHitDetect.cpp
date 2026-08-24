@@ -38,8 +38,8 @@ void UANS_MeleeHitDetect::NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSeq
 		return;
 	}
 
-	// 소켓과 GE삽입
-	TraceComp->BeginTrace(TraceSockets, DamageEffect, TraceRadius);
+	// 소켓과 GE, 트레이스 크기와 데미지배율 삽입
+	TraceComp->BeginTrace(TraceSockets, DamageEffect, TraceRadius, DamageMultiplier);
 }
 
 void UANS_MeleeHitDetect::NotifyTick(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float FrameDeltaTime, const FAnimNotifyEventReference& EventReference)
