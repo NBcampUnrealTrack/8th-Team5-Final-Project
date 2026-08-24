@@ -6,6 +6,8 @@
 #include "InventoryItemWidget.generated.h"
 
 class UInventoryComponent;
+class UImage;
+class UTextBlock;
 
 /**
  * Per-item input layer used to start inventory drags from the item's geometry
@@ -32,6 +34,18 @@ protected:
 		UDragDropOperation*& OutOperation) override;
 
 private:
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UImage> Image_ItemBackground;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UImage> Image_ItemIcon;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UTextBlock> Text_FallbackName;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UTextBlock> Text_StackCount;
+
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> SourceInventory;
 

@@ -11,6 +11,7 @@ class UEquipmentWidget;
 class UItemActionMenuWidget;
 class UItemSplitPopupWidget;
 class UInventoryCellWidget;
+class UInventoryItemWidget;
 class UShopComponent;
 
 UCLASS()
@@ -77,6 +78,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Widget")
 	TSubclassOf<UInventoryCellWidget> InventoryCellWidgetClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Widget")
+	TSubclassOf<UInventoryItemWidget> InventoryItemWidgetClass;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UEquipmentWidget> EquipmentPanel;

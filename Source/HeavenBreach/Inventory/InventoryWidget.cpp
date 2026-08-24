@@ -180,6 +180,23 @@ void UInventoryWidget::BuildItems()
 			continue;
 		}
 		const FIntPoint ItemSize = GetOccupiedSize(Entry.Item, ViewData);
+
+		if (InventoryItemWidgetClass != nullptr)
+		{
+			UInventoryItemWidget* ItemWidget = CreateWidget<UInventoryItemWidget>(
+				GetOwningPlayer(), InventoryItemWidgetClass);
+			if (ItemWidget != nullptr)
+			{
+				ItemWidget->InitializeItem(BoundInventory, Entry.Item, ItemSize, CellSize);
+				UCanvasPanelSlot* ItemSlot = GridCanvas->AddChildToCanvas(ItemWidget);
+				ItemSlot->SetAutoSize(false);
+				ItemSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
+				ItemSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
+				ItemSlot->SetZOrder(1);
+				continue;
+			}
+		}
+
 		UBorder* ItemBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
 		ItemBorder->SetBrushColor(FLinearColor(0.10f, 0.12f, 0.16f, 1.0f));
 		ItemBorder->SetPadding(FMargin(2.0f));

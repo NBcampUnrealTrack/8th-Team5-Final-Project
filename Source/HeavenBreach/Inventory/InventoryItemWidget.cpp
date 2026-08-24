@@ -3,6 +3,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Image.h"
+#include "Components/TextBlock.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
 
@@ -32,6 +33,52 @@ void UInventoryItemWidget::InitializeItem(
 	Item = InItem;
 	ItemSize = InItemSize;
 	CellSize = InCellSize;
+
+	FItemViewData ViewData;
+	const bool bHasViewData = ResolveItemViewData(Item.ItemRow, ViewData);
+	UTexture2D* IconTexture = bHasViewData ? LoadItemIcon(ViewData.IconPath) : nullptr;
+
+	if (Image_ItemIcon != nullptr)
+	{
+		if (IconTexture != nullptr)
+		{
+			Image_ItemIcon->SetBrushFromTexture(IconTexture, false);
+			Image_ItemIcon->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			Image_ItemIcon->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
+
+	if (Text_FallbackName != nullptr)
+	{
+		if (IconTexture == nullptr)
+		{
+			Text_FallbackName->SetText(bHasViewData
+				? FText::FromString(ViewData.DisplayName)
+				: FText::FromName(Item.ItemRow.RowName));
+			Text_FallbackName->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			Text_FallbackName->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
+
+	if (Text_StackCount != nullptr)
+	{
+		if (Item.StackCount > 1)
+		{
+			Text_StackCount->SetText(FText::AsNumber(Item.StackCount));
+			Text_StackCount->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			Text_StackCount->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
+
 	SetVisibility(ESlateVisibility::Visible);
 }
 
