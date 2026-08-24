@@ -8,6 +8,7 @@
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
 #include "InventoryCellWidget.h"
+#include "InventoryItemWidget.h"
 #include "EquipmentComponent.h"
 #include "EquipmentWidget.h"
 #include "Item/ItemActionMenuWidget.h"
@@ -205,6 +206,19 @@ void UInventoryWidget::BuildItems()
 		CanvasSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
 		CanvasSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
 		CanvasSlot->SetZOrder(1);
+
+		UInventoryItemWidget* ItemInputWidget = CreateWidget<UInventoryItemWidget>(
+			GetOwningPlayer(), UInventoryItemWidget::StaticClass());
+		if (ItemInputWidget != nullptr)
+		{
+			ItemInputWidget->InitializeItem(BoundInventory, Entry.Item, ItemSize, CellSize);
+			UCanvasPanelSlot* InputSlot = GridCanvas->AddChildToCanvas(ItemInputWidget);
+			InputSlot->SetAutoSize(false);
+			InputSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
+			InputSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
+			InputSlot->SetZOrder(2);
+		}
+
 		if (Entry.Item.StackCount > 1)
 		{
 			UTextBlock* CountLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
@@ -216,7 +230,7 @@ void UInventoryWidget::BuildItems()
 			CountSlot->SetPosition(FVector2D(
 				(Entry.Position.X + ItemSize.X) * CellSize - 20.0f,
 				(Entry.Position.Y + ItemSize.Y) * CellSize - 20.0f));
-			CountSlot->SetZOrder(2);
+			CountSlot->SetZOrder(3);
 		}
 	}
 }
