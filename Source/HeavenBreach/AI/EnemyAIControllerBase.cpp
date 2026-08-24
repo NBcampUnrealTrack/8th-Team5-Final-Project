@@ -198,7 +198,7 @@ void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 
 		if (UEnemyAbilitySystemComponent* ASC = Char->GetEnemyASC())
 		{
-			ASC->InitStats(S.MaxHealth, S.AttackPower);
+			ASC->InitStats(S.MaxHealth, S.AttackPower,S.AttackSpeedRate);
 			ASC->SetupAbilities(Data->Abilities);
 		}
 

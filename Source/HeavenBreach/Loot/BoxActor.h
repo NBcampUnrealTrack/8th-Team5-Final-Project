@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Engine/DataTable.h"
 #include "Interaction/InteractableInterface.h"
 #include "BoxActor.generated.h"
 
@@ -11,6 +12,7 @@ class UBoxComponent;
 class UStaticMeshComponent;
 class UInventoryComponent;
 class UDataTable;
+class UStaticMesh;
 class APawn;
 
 /** 상자의 개방 상태. 모든 클라이언트에 동일하게 리플리케이트된다. */
@@ -20,6 +22,46 @@ enum class EBoxState : uint8
 	Closed	UMETA(DisplayName = "Closed"),
 	Opened	UMETA(DisplayName = "Opened")
 	// NOTE: 개방 연출(후순위) 도입 시 Opening 상태 추가 예정
+};
+
+/** 상자 등급. 등급별로 드랍 풀·메시·색상이 달라진다. */
+UENUM(BlueprintType)
+enum class EBoxGrade : uint8
+{
+	Common		UMETA(DisplayName = "일반"),
+	Rare		UMETA(DisplayName = "희귀"),
+	Epic		UMETA(DisplayName = "영웅"),
+	Celestial	UMETA(DisplayName = "천상")
+};
+
+/**
+ *  등급 설정 데이터테이블(DT_BoxGrade)의 한 행.
+ *  Row Name을 등급명(Common/Rare/Epic/Celestial)으로 지정한다.
+ */
+USTRUCT(BlueprintType)
+struct FBoxGradeData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** 이 등급이 쓸 드랍 필터 ID (DT_BoxLoot의 BoxID). 비우면 등급명(Row Name)을 사용. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FString LootBoxID;
+
+	/** 등급별 몸통 메시(내용물 있는 상태) */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TSoftObjectPtr<UStaticMesh> FullMesh;
+
+	/** 등급별 빈 몸통 메시(내용물 소진 시) */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TSoftObjectPtr<UStaticMesh> EmptyMesh;
+
+	/** 등급 색상(프롬프트/머티리얼 틴트/이펙트용) */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FLinearColor GradeColor = FLinearColor::White;
+
+	/** 랜덤 등급 추첨 시 이 등급의 가중치 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = 0))
+	float SpawnWeight = 1.0f;
 };
 
 /**
@@ -89,9 +131,31 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
 	TObjectPtr<UDataTable> ItemDataTable;
 
+	/** 상자 등급. bRandomGrade가 꺼져 있으면 이 값이 고정 등급. 변경 시 OnRep_Grade에서 외형 적용. */
+	UPROPERTY(EditAnywhere, ReplicatedUsing = OnRep_Grade, BlueprintReadOnly, Category = "Box|Grade")
+	EBoxGrade Grade = EBoxGrade::Common;
+
+	/** 켜면 스폰 시 서버가 SpawnWeight로 등급을 무작위 추첨한다. 끄면 위 Grade 고정. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Grade")
+	bool bRandomGrade = false;
+
+	/** 등급 설정 데이터테이블 (FBoxGradeData 행, Row Name = 등급명). 예: DT_BoxGrade */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Grade")
+	TObjectPtr<UDataTable> BoxGradeTable;
+
 	/** BoxState 리플리케이션 콜백. 모든 클라이언트에서 열림/닫힘 외형을 갱신한다. */
 	UFUNCTION()
 	void OnRep_BoxState();
+
+	/** Grade 리플리케이션 콜백. 모든 클라이언트에서 등급 외형(메시/색)을 적용한다. */
+	UFUNCTION()
+	void OnRep_Grade();
+
+	/** [서버] bRandomGrade면 SpawnWeight 가중치로 등급을 추첨한다. */
+	void RollGradeIfNeeded();
+
+	/** 현재 Grade의 설정(FBoxGradeData)을 적용: 몸통 메시 교체 + 색/루트ID/빈메시 캐시. 서버·클라 공통. */
+	void ApplyGrade();
 
 	/**
 	 *  개방 외형/연출 갱신 (메시 스왑, 머티리얼, VFX, SFX 등).
@@ -125,4 +189,30 @@ public:
 	/** 상자 인벤토리 컴포넌트 반환 (컨테이너 UI 바인딩용) */
 	UFUNCTION(BlueprintPure, Category = "Box")
 	UInventoryComponent* GetBoxInventory() const { return BoxInventory; }
+
+	/** 현재 상자 등급 */
+	UFUNCTION(BlueprintPure, Category = "Box|Grade")
+	EBoxGrade GetGrade() const { return Grade; }
+
+	/** 현재 등급 색상 (프롬프트/이펙트용) */
+	UFUNCTION(BlueprintPure, Category = "Box|Grade")
+	FLinearColor GetGradeColor() const { return GradeColor; }
+
+	/** 현재 등급의 빈 몸통 메시 (BP 빈 상자 교체용). 없으면 nullptr */
+	UFUNCTION(BlueprintPure, Category = "Box|Grade")
+	UStaticMesh* GetEmptyMesh() const;
+
+private:
+
+	/** ApplyGrade가 캐시하는 실제 드랍 필터 ID (등급 설정 우선, 없으면 BoxID). */
+	FString EffectiveLootID;
+
+	/** ApplyGrade가 캐시하는 등급 색상 */
+	FLinearColor GradeColor = FLinearColor::White;
+
+	/** ApplyGrade가 캐시하는 빈 몸통 메시 */
+	TSoftObjectPtr<UStaticMesh> CachedEmptyMesh;
+
+	/** 등급 → 데이터테이블 Row Name */
+	static FName GradeToRowName(EBoxGrade InGrade);
 };

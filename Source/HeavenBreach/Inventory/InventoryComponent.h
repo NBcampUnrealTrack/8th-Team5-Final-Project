@@ -43,6 +43,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 FindEntryIndexById(FGuid InInstanceId) const;
 
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetTotalGold(FName InGoldRowName) const;
+
+	bool ConsumeGold(const FDataTableRowHandle& InGoldRow, int32 InAmount);
+
+	bool AddGold(const FDataTableRowHandle& InGoldRow, int32 InAmount);
+
 	bool CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int32 InIgnoredIndex = INDEX_NONE) const;
 
 	bool FindFirstFreeSlot(FIntPoint InSize, FIntPoint& OutPosition, int32 InIgnoredIndex = INDEX_NONE) const;

@@ -23,7 +23,7 @@ UMeleeTraceComponent::UMeleeTraceComponent()
 	// ...
 }
 
-void UMeleeTraceComponent::BeginTrace(const TArray<FName>& InSockets, TSubclassOf<UGameplayEffect> InDamageEffect, float InRadius)
+void UMeleeTraceComponent::BeginTrace(const TArray<FName>& InSockets, TSubclassOf<UGameplayEffect> InDamageEffect, float InRadius, float InDamageMultiplier)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority()) return;
@@ -31,6 +31,7 @@ void UMeleeTraceComponent::BeginTrace(const TArray<FName>& InSockets, TSubclassO
 	ActiveSockets = InSockets;
 	TraceRadius = InRadius;
 	ActiveDamageEffect = InDamageEffect;
+	DamageMultiplier = InDamageMultiplier;
 
 	// 이전 공격의 기록이 남으면 안 된다.
 	HitActors.Empty();
@@ -187,7 +188,7 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 	}
 
 	// 수치만 넘긴다. GE 를 만드는 건 맞는 쪽의 몫.
-	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, AttackPower, Hit);
+	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, AttackPower * DamageMultiplier, Hit);
 
 	UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (%.0f)"), *GetNameSafe(Owner), *GetNameSafe(Target), AttackPower);
 }
