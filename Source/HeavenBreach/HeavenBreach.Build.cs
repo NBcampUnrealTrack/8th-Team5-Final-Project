@@ -45,7 +45,8 @@ public class HeavenBreach : ModuleRules
 			"HeavenBreach/Inventory",
             "HeavenBreach/Equipment",
             "HeavenBreach/Item",
-            "HeavenBreach/Core/DataManagement"
+            "HeavenBreach/Core/DataManagement",
+            "HeavenBreach/Shop"
         });
 
 		// Uncomment if you are using Slate UI

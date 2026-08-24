@@ -7,6 +7,7 @@
 #include "Components/TextBlock.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
+#include "InventoryCellWidget.h"
 #include "EquipmentComponent.h"
 #include "EquipmentWidget.h"
 #include "Item/ItemActionMenuWidget.h"
@@ -14,6 +15,7 @@
 #include "Item/UItemSplitPopupWidget.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Player/HBPlayerController.h"
+#include "ShopComponent.h"
 
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
@@ -33,6 +35,19 @@ void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 void UInventoryWidget::SetParentContainerWidget(UUserWidget* InParentWidget)
 {
 	ParentContainerWidget = InParentWidget;
+}
+
+void UInventoryWidget::SetEquipmentPanelVisible(bool bVisible)
+{
+	if (EquipmentPanel != nullptr)
+	{
+		EquipmentPanel->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+}
+
+void UInventoryWidget::SetShopComponent(UShopComponent* InShop)
+{
+	LinkedShop = InShop;
 }
 
 void UInventoryWidget::NativeDestruct()
@@ -75,6 +90,7 @@ void UInventoryWidget::HandleInventoryChanged()
 
 void UInventoryWidget::RefreshGrid()
 {
+	CellWidgets.Reset();
 	if (GridCanvas == nullptr)
 	{
 		return;
@@ -114,10 +130,29 @@ void UInventoryWidget::SetLinkedEquipment(UEquipmentComponent* InEquipment)
 void UInventoryWidget::BuildBackground()
 {
 	const FIntPoint Size = BoundInventory->GetGridSize();
+	CellWidgets.Reserve(Size.X * Size.Y);
 	for (int32 Y = 0; Y < Size.Y; ++Y)
 	{
 		for (int32 X = 0; X < Size.X; ++X)
 		{
+			if (InventoryCellWidgetClass != nullptr)
+			{
+				UInventoryCellWidget* CellWidget = CreateWidget<UInventoryCellWidget>(
+					GetOwningPlayer(), InventoryCellWidgetClass);
+				if (CellWidget != nullptr)
+				{
+					CellWidget->InitializeCell(FIntPoint(X, Y));
+					CellWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+					UCanvasPanelSlot* CanvasSlot = GridCanvas->AddChildToCanvas(CellWidget);
+					CanvasSlot->SetAutoSize(false);
+					CanvasSlot->SetPosition(FVector2D(X * CellSize, Y * CellSize));
+					CanvasSlot->SetSize(FVector2D(CellSize - 2.0f, CellSize - 2.0f));
+					CanvasSlot->SetZOrder(0);
+					CellWidgets.Add(CellWidget);
+					continue;
+				}
+			}
+
 			UBorder* Cell = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
 			Cell->SetBrushColor(FLinearColor(0.04f, 0.04f, 0.05f, 0.9f));
 			Cell->SetPadding(FMargin(0.0f));
@@ -227,6 +262,10 @@ bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 		return false;
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+	if (LinkedShop != nullptr)
+	{
+		return LinkedShop->AddToSellBasket(Item.InstanceId);
+	}
 	if (LinkedContainer != nullptr)
 	{
 		if (BoundInventory == RequestSender)

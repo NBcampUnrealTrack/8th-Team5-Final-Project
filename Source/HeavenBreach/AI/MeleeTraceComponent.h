@@ -21,7 +21,7 @@ public:
 	UMeleeTraceComponent();
 
 	// 노티파이가 호출. 어디를 검사할지와 무엇을 적용할지 받는다
-	void BeginTrace(const TArray<FName>& InSockets, TSubclassOf<UGameplayEffect> InDamageEffect, float InRadius);
+	void BeginTrace(const TArray<FName>& InSockets, TSubclassOf<UGameplayEffect> InDamageEffect, float InRadius, float InDamageMultiplier);
 
 	// 노티파이가 매 틱 호출. 실제 판정
 	void UpdateTrace();
@@ -35,6 +35,10 @@ protected:
 	// 트레이스 과정에서 사용될 구의 반지름
 	UPROPERTY(EditAnywhere, Category = "Trace", meta = (ClampMin = "1.0"))
 	float TraceRadius = 30.f;
+
+	// 해당 트레이스의 데미지 배율
+	UPROPERTY(EditAnywhere, Category = "Trace")
+	float DamageMultiplier = 1.f;
 
 	// 만들어둔 채널 사용
 	UPROPERTY(EditAnywhere, Category = "Trace")
