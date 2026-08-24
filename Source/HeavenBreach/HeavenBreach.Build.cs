@@ -26,7 +26,9 @@ public class HeavenBreach : ModuleRules
             "NavigationSystem",
 			"HTTP",
 			"Json",
-            "JsonUtilities"
+            "JsonUtilities",
+			"OnlineSubsystem",
+			"OnlineSubsystemUtils"
         });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
@@ -47,6 +49,8 @@ public class HeavenBreach : ModuleRules
             "HeavenBreach/Item",
             "HeavenBreach/Core/DataManagement"
         });
+		
+		DynamicallyLoadedModuleNames.Add("OnlineSubsystemSteam");
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

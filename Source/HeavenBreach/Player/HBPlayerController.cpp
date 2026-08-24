@@ -8,6 +8,7 @@
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -92,6 +93,38 @@ void AHBPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopSprint);
 		}
 	}
+}
+
+void AHBPlayerController::TestCreateSteamLobby()
+{
+	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	
+	if (OnlineSessionSubsystem == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Lobby | Subsystem unavailable")
+			);
+		
+		return;
+	}
+	
+	OnlineSessionSubsystem->CreateLobby(10);
+}
+
+void AHBPlayerController::TestFindSteamLobby()
+{
+	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	
+	if (OnlineSessionSubsystem == nullptr)
+	{
+		return;
+	}
+	
+	OnlineSessionSubsystem->FindLobbies();
 }
 
 void AHBPlayerController::HandleMove(const FInputActionValue& Value)

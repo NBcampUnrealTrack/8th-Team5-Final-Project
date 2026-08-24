@@ -56,6 +56,15 @@ protected:
 
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+	
+	////////////////////////////////////
+	// Test for session
+	UFUNCTION(Exec)
+	void TestCreateSteamLobby();
+	
+	UFUNCTION(Exec)
+	void TestFindSteamLobby();
+	////////////////////////////////////
 
 private:
 	void HandleMove(const FInputActionValue& Value);

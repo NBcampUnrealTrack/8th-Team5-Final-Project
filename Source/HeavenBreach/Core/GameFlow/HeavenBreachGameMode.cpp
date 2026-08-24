@@ -7,6 +7,7 @@
 #include "Player/HBPlayerController.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/PlayerState/HB_PlayerState.h"
+#include  "Core/Online/Session/HBGameSession.h"
 
 AHeavenBreachGameMode::AHeavenBreachGameMode()
 {
@@ -16,6 +17,8 @@ AHeavenBreachGameMode::AHeavenBreachGameMode()
 	PlayerControllerClass = AHBPlayerController::StaticClass();
 	PlayerStateClass = AHB_PlayerState::StaticClass();
 	DefaultPawnClass = AHBPlayerCharacter::StaticClass();
+	
+	GameSessionClass = AHBGameSession::StaticClass();
 }
 
 void AHeavenBreachGameMode::StartExtractionMatch()
