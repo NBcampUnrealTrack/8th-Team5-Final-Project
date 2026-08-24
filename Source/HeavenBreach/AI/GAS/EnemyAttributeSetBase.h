@@ -28,6 +28,8 @@ public:
 	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, HP);
 	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, MaxHP);
 	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, AttackPower);
+	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, MoveSpeedRate);
+	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, AttackSpeedRate);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -64,6 +66,12 @@ protected:
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Attribute")
 	FGameplayAttributeData AttackPower;
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Attribute")
+	FGameplayAttributeData MoveSpeedRate;
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Attribute")
+	FGameplayAttributeData AttackSpeedRate;
 
 	// 더미데이터
 	UFUNCTION()

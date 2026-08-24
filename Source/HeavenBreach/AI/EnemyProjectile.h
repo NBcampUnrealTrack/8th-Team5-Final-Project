@@ -52,6 +52,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Projectile")
 	float Damage = 10.f;
 
+	// 피해 배율
+	UPROPERTY(EditDefaultsOnly, Category = "Projectile")
+	float DamageMultiplier = 1.f;
+
 	// 맞았을 때 박힐지 사라질지
 	// true : 박히고 일정기간 삼. false : 바로 사라짐
 	UPROPERTY(EditDefaultsOnly, Category = "Projectile")
