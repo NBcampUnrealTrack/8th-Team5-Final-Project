@@ -91,6 +91,7 @@ void UInventoryWidget::HandleInventoryChanged()
 void UInventoryWidget::RefreshGrid()
 {
 	HoveredCell = FIntPoint(-1, -1);
+	PlacementPreviewWidgets.Reset();
 	CellWidgets.Reset();
 	if (GridCanvas == nullptr)
 	{
@@ -131,7 +132,7 @@ void UInventoryWidget::SetLinkedEquipment(UEquipmentComponent* InEquipment)
 void UInventoryWidget::BuildBackground()
 {
 	const FIntPoint Size = BoundInventory->GetGridSize();
-	CellWidgets.Reserve(Size.X * Size.Y);
+	CellWidgets.SetNum(Size.X * Size.Y);
 	for (int32 Y = 0; Y < Size.Y; ++Y)
 	{
 		for (int32 X = 0; X < Size.X; ++X)
@@ -149,7 +150,7 @@ void UInventoryWidget::BuildBackground()
 					CanvasSlot->SetPosition(FVector2D(X * CellSize, Y * CellSize));
 					CanvasSlot->SetSize(FVector2D(CellSize - 2.0f, CellSize - 2.0f));
 					CanvasSlot->SetZOrder(0);
-					CellWidgets.Add(CellWidget);
+					CellWidgets[Y * Size.X + X] = CellWidget;
 					continue;
 				}
 			}
@@ -302,6 +303,144 @@ void UInventoryWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
 {
 	ClearHoveredCell();
 	Super::NativeOnMouseLeave(InMouseEvent);
+}
+
+bool UInventoryWidget::UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
+	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FItemInstance DraggedItem;
+	int32 IgnoredEntryIndex = INDEX_NONE;
+	if (Operation->SourceInventory != nullptr)
+	{
+		const int32 SourceIndex = Operation->SourceInventory->FindEntryIndexById(Operation->InstanceId);
+		if (!Operation->SourceInventory->GetEntries().IsValidIndex(SourceIndex))
+		{
+			ClearPlacementPreview();
+			return false;
+		}
+
+		DraggedItem = Operation->SourceInventory->GetEntries()[SourceIndex].Item;
+		if (Operation->SourceInventory == BoundInventory)
+		{
+			IgnoredEntryIndex = SourceIndex;
+		}
+	}
+	else if (Operation->SourceEquipment != nullptr)
+	{
+		if (!Operation->SourceEquipment->GetItemInSlot(Operation->SourceSlot, DraggedItem))
+		{
+			ClearPlacementPreview();
+			return false;
+		}
+	}
+	else
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(DraggedItem.ItemRow, ViewData))
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FVector2D LocalPosition;
+	if (!ScreenToLocal(InDragDropEvent.GetScreenSpacePosition(), LocalPosition))
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	const FIntPoint ItemSize = GetOccupiedSize(DraggedItem, ViewData);
+	FIntPoint TargetPosition;
+	if (Operation->SourceInventory == BoundInventory)
+	{
+		const FVector2D ItemOrigin = LocalPosition - Operation->GrabPixelOffset;
+		TargetPosition = FIntPoint(
+			FMath::RoundToInt(ItemOrigin.X / CellSize),
+			FMath::RoundToInt(ItemOrigin.Y / CellSize));
+	}
+	else
+	{
+		const FIntPoint DropCell(
+			FMath::FloorToInt(LocalPosition.X / CellSize),
+			FMath::FloorToInt(LocalPosition.Y / CellSize));
+		TargetPosition = DropCell - Operation->GrabOffset;
+	}
+
+	const bool bCanPlace = BoundInventory->CanPlaceAt(ItemSize, TargetPosition, IgnoredEntryIndex);
+	const EInventoryCellVisualState PreviewState = bCanPlace
+		? EInventoryCellVisualState::PlacementValid
+		: EInventoryCellVisualState::PlacementInvalid;
+
+	ClearHoveredCell();
+	ClearPlacementPreview();
+
+	for (int32 OffsetY = 0; OffsetY < ItemSize.Y; ++OffsetY)
+	{
+		for (int32 OffsetX = 0; OffsetX < ItemSize.X; ++OffsetX)
+		{
+			const FIntPoint Cell = TargetPosition + FIntPoint(OffsetX, OffsetY);
+			if (!BoundInventory->IsValidCoord(Cell))
+			{
+				continue;
+			}
+
+			if (InventoryCellWidgetClass != nullptr)
+			{
+				UInventoryCellWidget* PreviewWidget = CreateWidget<UInventoryCellWidget>(
+					GetOwningPlayer(), InventoryCellWidgetClass);
+				if (PreviewWidget != nullptr)
+				{
+					PreviewWidget->InitializeCell(Cell);
+					PreviewWidget->SetVisualState(PreviewState);
+					PreviewWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+					UCanvasPanelSlot* PreviewSlot = GridCanvas->AddChildToCanvas(PreviewWidget);
+					PreviewSlot->SetAutoSize(false);
+					PreviewSlot->SetPosition(FVector2D(Cell.X * CellSize, Cell.Y * CellSize));
+					PreviewSlot->SetSize(FVector2D(CellSize - 2.0f, CellSize - 2.0f));
+					PreviewSlot->SetZOrder(3);
+					PlacementPreviewWidgets.Add(PreviewWidget);
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
+void UInventoryWidget::ClearPlacementPreview()
+{
+	for (UInventoryCellWidget* PreviewWidget : PlacementPreviewWidgets)
+	{
+		if (PreviewWidget != nullptr)
+		{
+			PreviewWidget->RemoveFromParent();
+		}
+	}
+
+	PlacementPreviewWidgets.Reset();
+}
+
+bool UInventoryWidget::NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	return UpdatePlacementPreview(InDragDropEvent, InOperation)
+		|| Super::NativeOnDragOver(InGeometry, InDragDropEvent, InOperation);
+}
+
+void UInventoryWidget::NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	ClearPlacementPreview();
+	Super::NativeOnDragLeave(InDragDropEvent, InOperation);
 }
 
 bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
@@ -623,6 +762,7 @@ void UInventoryWidget::RefocusAfterDrop()
 
 bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
+	ClearPlacementPreview();
 	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
 	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
 	{
