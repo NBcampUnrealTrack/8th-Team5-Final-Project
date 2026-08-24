@@ -77,6 +77,74 @@ int32 UInventoryComponent::FindEntryIndexById(FGuid InInstanceId) const
 	return INDEX_NONE;
 }
 
+int32 UInventoryComponent::GetTotalGold(FName InGoldRowName) const
+{
+	int32 Total = 0;
+
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		if (Entry.Item.ItemRow.RowName == InGoldRowName)
+		{
+			Total += Entry.Item.StackCount;
+		}
+	}
+
+	return Total;
+}
+
+bool UInventoryComponent::ConsumeGold(const FDataTableRowHandle& InGoldRow, int32 InAmount)
+{
+	if (GetOwnerRole() != ROLE_Authority || InAmount <= 0)
+	{
+		return false;
+	}
+
+	if (GetTotalGold(InGoldRow.RowName) < InAmount)
+	{
+		return false;
+	}
+
+	int32 Remaining = InAmount;
+
+	for (int32 Index = Entries.Num() - 1; Index >= 0 && Remaining > 0; --Index)
+	{
+		if (Entries[Index].Item.ItemRow.RowName != InGoldRow.RowName)
+		{
+			continue;
+		}
+
+		const int32 Consumed = FMath::Min(Entries[Index].Item.StackCount, Remaining);
+		Entries[Index].Item.StackCount -= Consumed;
+		Remaining -= Consumed;
+
+		if (Entries[Index].Item.StackCount <= 0)
+		{
+			Entries.RemoveAt(Index);
+		}
+	}
+
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+
+bool UInventoryComponent::AddGold(const FDataTableRowHandle& InGoldRow, int32 InAmount)
+{
+	if (GetOwnerRole() != ROLE_Authority || InAmount <= 0)
+	{
+		return false;
+	}
+
+	FItemInstance GoldItem;
+	GoldItem.ItemRow = InGoldRow;
+	GoldItem.InstanceId = FGuid::NewGuid();
+	GoldItem.StackCount = InAmount;
+
+	int32 Remainder = 0;
+	return TryAddItem(GoldItem, Remainder);
+}
+
 bool UInventoryComponent::GetEntrySize(const FItemInstance& InItem, FIntPoint& OutSize) const
 {
 	FItemViewData ViewData;

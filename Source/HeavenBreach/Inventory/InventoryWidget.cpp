@@ -14,6 +14,7 @@
 #include "Item/UItemSplitPopupWidget.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Player/HBPlayerController.h"
+#include "ShopComponent.h"
 
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
@@ -33,6 +34,19 @@ void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 void UInventoryWidget::SetParentContainerWidget(UUserWidget* InParentWidget)
 {
 	ParentContainerWidget = InParentWidget;
+}
+
+void UInventoryWidget::SetEquipmentPanelVisible(bool bVisible)
+{
+	if (EquipmentPanel != nullptr)
+	{
+		EquipmentPanel->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+}
+
+void UInventoryWidget::SetShopComponent(UShopComponent* InShop)
+{
+	LinkedShop = InShop;
 }
 
 void UInventoryWidget::NativeDestruct()
@@ -227,6 +241,10 @@ bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 		return false;
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+	if (LinkedShop != nullptr)
+	{
+		return LinkedShop->AddToSellBasket(Item.InstanceId);
+	}
 	if (LinkedContainer != nullptr)
 	{
 		if (BoundInventory == RequestSender)
