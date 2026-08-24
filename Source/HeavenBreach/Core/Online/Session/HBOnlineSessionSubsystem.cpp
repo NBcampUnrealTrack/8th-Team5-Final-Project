@@ -76,6 +76,7 @@ void UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
 	LobbySettings->NumPrivateConnections = 0;
 	
 	LobbySettings->bIsLANMatch = false;
+	LobbySettings->bShouldAdvertise = true;
 	LobbySettings->bAllowJoinInProgress = true;
 	
 	LobbySettings->bUsesPresence = true;
@@ -86,7 +87,7 @@ void UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
 	
 	LobbySettings->Set(
 		FName(TEXT("HB_LOBBY")),
-		true,
+		FString(TEXT("1")),
 		EOnlineDataAdvertisementType::ViaOnlineServiceAndPing
 		);
 	
@@ -133,66 +134,149 @@ void UHBOnlineSessionSubsystem::FindLobbies()
 {
 	if (!SessionInterface.IsValid())
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Lobby | SessionInterface invalid")
-			);
-		
+		UE_LOG(LogTemp, Warning,
+			TEXT("Online | Lobby | FindLobbies failed: SessionInterface is invalid"));
 		return;
 	}
-	
+
 	LobbySearch = MakeShared<FOnlineSessionSearch>();
-	
-	LobbySearch->MaxSearchResults = 100;
+
+	LobbySearch->MaxSearchResults = 50;
 	LobbySearch->bIsLanQuery = false;
-	
+
+	// Steam Lobby 방식만 검색
 	LobbySearch->QuerySettings.Set(
 		SEARCH_LOBBIES,
 		true,
 		EOnlineComparisonOp::Equals
-		);
+	);
 	
+	
+	// Spacewar(AppID 480)의 다른 Lobby와 구분
 	LobbySearch->QuerySettings.Set(
 		FName(TEXT("HB_LOBBY")),
-		true,
+		FString(TEXT("1")),
 		EOnlineComparisonOp::Equals
+	);
+	
+	FindLobbiesCompleteDelegateHandle =
+		SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(
+			FOnFindSessionsCompleteDelegate::CreateUObject(
+				this,
+				&UHBOnlineSessionSubsystem::HandleFindLobbiesComplete
+			)
 		);
-	
-	const FOnFindSessionsCompleteDelegate Delegate = 
-		FOnFindSessionsCompleteDelegate::CreateUObject(
-			this,
-			&UHBOnlineSessionSubsystem::HandleFindLobbiesComplete
-			);
-	
-	FindLobbiesCompleteDelegateHandle = 
-		SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(Delegate);
-	
-	const bool bRequestStarted =
+
+	const bool bStarted =
 		SessionInterface->FindSessions(
 			0,
 			LobbySearch.ToSharedRef()
-			);
-	
-	if (!bRequestStarted)
+		);
+
+	if (!bStarted)
 	{
-		SessionInterface
-		->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
-		
-		FindLobbiesCompleteDelegateHandle.Reset();
-		
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Lobby | FindLobbies request failed")
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
+
+		LobbySearch.Reset();
+
+		UE_LOG(LogTemp, 
+			Warning,
+			TEXT("Online | Lobby | FindLobbies request failed to start")
 			);
+
 		return;
 	}
-	
+
+	UE_LOG(LogTemp, 
+		Warning,
+		TEXT("Online | Lobby | FindLobbies requested")
+		);
+}
+
+void UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
+{
+	if (!SessionInterface.IsValid())
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Join failed: SessionInterface invalid")
+		);
+		
+		return;
+	}
+
+	if (!LobbySearch.IsValid())
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Join failed: LobbySearch invalid")
+		);
+		
+		return;
+	}
+
+	if (!LobbySearch->SearchResults.IsValidIndex(InSearchResultIndex))
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Join failed: Invalid result index %d"),
+			InSearchResultIndex
+		);
+		
+		return;
+	}
+
+	if (SessionInterface->GetNamedSession(NAME_GameSession) != nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Join failed: Already has GameSession")
+		);
+		
+		return;
+	}
+
+	const FOnJoinSessionCompleteDelegate JoinCompleteDelegate =
+		FOnJoinSessionCompleteDelegate::CreateUObject(
+			this,
+			&UHBOnlineSessionSubsystem::HandleJoinLobbyComplete
+		);
+
+	JoinLobbyCompleteDelegateHandle =
+		SessionInterface->AddOnJoinSessionCompleteDelegate_Handle(JoinCompleteDelegate);
+
+	const bool bRequestStarted =
+		SessionInterface->JoinSession(
+			0,
+			NAME_GameSession,
+			LobbySearch->SearchResults[InSearchResultIndex]
+		);
+
+	if (!bRequestStarted)
+	{
+		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinLobbyCompleteDelegateHandle);
+
+		JoinLobbyCompleteDelegateHandle.Reset();
+
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | JoinLobby request failed")
+		);
+		
+		return;
+	}
+
 	UE_LOG(
 		LogTemp,
 		Warning,
-		TEXT("Online | Lobby | FindLobbies requested"))
+		TEXT("Online | Lobby | JoinLobby requested | Index: %d"),
+		InSearchResultIndex
+	);
 }
 
 void UHBOnlineSessionSubsystem::HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful)
@@ -226,21 +310,17 @@ void UHBOnlineSessionSubsystem::HandleCreateLobbyComplete(FName InSessionName, b
 
 void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 {
-	if (SessionInterface.IsValid() && FindLobbiesCompleteDelegateHandle.IsValid())
+	if (SessionInterface.IsValid())
 	{
-		SessionInterface
-			->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
 	}
-
-	FindLobbiesCompleteDelegateHandle.Reset();
 
 	if (!bWasSuccessful || !LobbySearch.IsValid())
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Lobby | Find failed")
-		);
+		UE_LOG(LogTemp, 
+			Warning,
+			TEXT("Online | Lobby | FindLobbies failed")
+			);
 
 		return;
 	}
@@ -248,7 +328,7 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 	UE_LOG(
 		LogTemp,
 		Warning,
-		TEXT("Online | Lobby | Find completed | Results: %d"),
+		TEXT("Online | Lobby | Find complete | Results: %d"),
 		LobbySearch->SearchResults.Num()
 	);
 
@@ -256,21 +336,33 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 	{
 		const FOnlineSessionSearchResult& Result = LobbySearch->SearchResults[Index];
 
-		bool bIsHBLobby = false;
-
-		Result.Session.SessionSettings.Get(
-			FName(TEXT("HB_LOBBY")),
-			bIsHBLobby
-		);
-
 		UE_LOG(
 			LogTemp,
 			Warning,
-			TEXT("Online | Lobby | Result[%d] | Owner: %s | Ping: %d | HB: %s"),
+			TEXT("Online | Lobby | Found [%d] | Owner: %s | SessionId: %s | Ping: %d | OpenSlots: %d"),
 			Index,
 			*Result.Session.OwningUserName,
+			*Result.GetSessionIdStr(),
 			Result.PingInMs,
-			bIsHBLobby ? TEXT("True") : TEXT("False")
+			Result.Session.NumOpenPublicConnections
 		);
 	}
+}
+
+void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(FName InSessionName, EOnJoinSessionCompleteResult::Type InResult)
+{
+	if (SessionInterface.IsValid() && JoinLobbyCompleteDelegateHandle.IsValid())
+	{
+		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinLobbyCompleteDelegateHandle);
+	}
+
+	JoinLobbyCompleteDelegateHandle.Reset();
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Lobby | Join complete | Session: %s | Result: %d"),
+		*InSessionName.ToString(),
+		static_cast<int32>(InResult)
+	);
 }
