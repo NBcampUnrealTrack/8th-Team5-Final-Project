@@ -67,6 +67,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "0.0"))
 	float Defense = 0.f;
 
+	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "0.1"))
+	float AttackSpeedRate = 1.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float AttackRange = 200.f;
 
