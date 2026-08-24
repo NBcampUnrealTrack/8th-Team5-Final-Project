@@ -11,6 +11,7 @@ class UEquipmentWidget;
 class UItemActionMenuWidget;
 class UItemSplitPopupWidget;
 class UInventoryCellWidget;
+class UShopComponent;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UUserWidget
@@ -44,6 +45,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetParentContainerWidget(UUserWidget* InParentWidget);
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetEquipmentPanelVisible(bool bVisible);
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetShopComponent(UShopComponent* InShop);
 
 protected:
 	virtual void NativeDestruct() override;
@@ -117,4 +124,5 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UInventoryCellWidget>> CellWidgets;
+	TObjectPtr<UShopComponent> LinkedShop;
 };
