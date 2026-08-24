@@ -59,6 +59,8 @@ protected:
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
@@ -86,6 +88,8 @@ private:
 	bool HandleContextMenu(FIntPoint InCell);
 	bool HandleDoubleClick(FIntPoint InCell);
 	void RefocusAfterDrop();
+	void SetHoveredCell(FIntPoint InCell);
+	void ClearHoveredCell();
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
@@ -124,5 +128,7 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UInventoryCellWidget>> CellWidgets;
+
+	FIntPoint HoveredCell = FIntPoint(-1, -1);
 	TObjectPtr<UShopComponent> LinkedShop;
 };

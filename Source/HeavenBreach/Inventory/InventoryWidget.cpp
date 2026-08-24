@@ -90,6 +90,7 @@ void UInventoryWidget::HandleInventoryChanged()
 
 void UInventoryWidget::RefreshGrid()
 {
+	HoveredCell = FIntPoint(-1, -1);
 	CellWidgets.Reset();
 	if (GridCanvas == nullptr)
 	{
@@ -247,6 +248,60 @@ bool UInventoryWidget::ScreenToLocal(const FVector2D& InScreenPosition, FVector2
 	const FGeometry& CanvasGeometry = GridCanvas->GetCachedGeometry();
 	OutLocal = CanvasGeometry.AbsoluteToLocal(InScreenPosition);
 	return true;
+}
+
+void UInventoryWidget::SetHoveredCell(FIntPoint InCell)
+{
+	if (HoveredCell == InCell || BoundInventory == nullptr)
+	{
+		return;
+	}
+
+	ClearHoveredCell();
+
+	const FIntPoint GridSize = BoundInventory->GetGridSize();
+	const int32 CellIndex = InCell.Y * GridSize.X + InCell.X;
+	if (CellWidgets.IsValidIndex(CellIndex) && CellWidgets[CellIndex] != nullptr)
+	{
+		CellWidgets[CellIndex]->SetVisualState(EInventoryCellVisualState::Hovered);
+		HoveredCell = InCell;
+	}
+}
+
+void UInventoryWidget::ClearHoveredCell()
+{
+	if (BoundInventory != nullptr)
+	{
+		const FIntPoint GridSize = BoundInventory->GetGridSize();
+		const int32 CellIndex = HoveredCell.Y * GridSize.X + HoveredCell.X;
+		if (CellWidgets.IsValidIndex(CellIndex) && CellWidgets[CellIndex] != nullptr)
+		{
+			CellWidgets[CellIndex]->SetVisualState(EInventoryCellVisualState::Default);
+		}
+	}
+
+	HoveredCell = FIntPoint(-1, -1);
+}
+
+FReply UInventoryWidget::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	FIntPoint Cell;
+	if (ScreenToCell(InMouseEvent.GetScreenSpacePosition(), Cell))
+	{
+		SetHoveredCell(Cell);
+	}
+	else
+	{
+		ClearHoveredCell();
+	}
+
+	return Super::NativeOnMouseMove(InGeometry, InMouseEvent);
+}
+
+void UInventoryWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
+{
+	ClearHoveredCell();
+	Super::NativeOnMouseLeave(InMouseEvent);
 }
 
 bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
