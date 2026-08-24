@@ -10,6 +10,7 @@ class UEquipmentComponent;
 class UEquipmentWidget;
 class UItemActionMenuWidget;
 class UItemSplitPopupWidget;
+class UInventoryCellWidget;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UUserWidget
@@ -63,6 +64,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	float CellSize = 64.0f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Widget")
+	TSubclassOf<UInventoryCellWidget> InventoryCellWidgetClass;
+
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UEquipmentWidget> EquipmentPanel;
 
@@ -110,4 +114,7 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UUserWidget> ParentContainerWidget;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UInventoryCellWidget>> CellWidgets;
 };
