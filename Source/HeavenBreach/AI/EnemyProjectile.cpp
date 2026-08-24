@@ -80,7 +80,8 @@ void AEnemyProjectile::Launch(AActor* InInstigator, float InDamage)
 	// 데미지 등록
 	if (InDamage >= 0.f)
 	{
-		Damage = InDamage;
+		// 배율 포함
+		Damage = InDamage * DamageMultiplier;
 	}
 
 	// 미사일 무브먼트는 충돌 시 바로 멈추기에 자기자신은 OnHit이 발생하지않도록 막는다.

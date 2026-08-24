@@ -7,6 +7,7 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Animation/AnimMontage.h"
 #include "AbilitySystemComponent.h"
+#include "AI/GAS/EnemyAttributeSetBase.h"
 
 UEnemyMontageGABase::UEnemyMontageGABase()
 {
@@ -43,11 +44,32 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		return;
 	}
 
+	// 당연하지만 ASC를 가지고 잇어야하며 서버만 가능
+	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+
+	// 최종 몽타주 속도
+	float FinalPlayRate = PlayRate;
+
+	if (ASC)
+	{
+		// 공격속도 보정
+		// 공격용 몽타주만 사용. 그외의 몽타주들은 기존 Rate적용
+		if (bIsAttackSpeed)
+		{
+			bool bFound = false;
+			float Rate = ASC->GetGameplayAttributeValue(UEnemyAttributeSetBase::GetAttackSpeedRateAttribute(), bFound);
+
+			if (bFound && Rate > 0.f)
+			{
+				FinalPlayRate = PlayRate * Rate;
+			}
+		}
+	}
+
+
 	// 몽타주와 별개로 지속되는 상태를 건다. 어빌리티가 끝나도 GE 는 남는다.
 	if (ActivationEffect)
 	{
-		// 당연하지만 ASC를 가지고 잇어야하며 서버만 가능
-		UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
 		if (ASC && ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
 		{
 			// 자기 자신에게 GE부여
@@ -59,8 +81,10 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		}
 	}
 
+
+
 	// 몽타주 재생을 어빌리티 태스크에 맡긴다
-	UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Montage, PlayRate);
+	UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Montage, FinalPlayRate);
 
 
 	if (!Task)
@@ -78,6 +102,24 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	// 이걸 빼먹으면 태스크가 시작되지 않는다
 	Task->ReadyForActivation();
 
+}
+
+bool UEnemyMontageGABase::IsRange(float Distance) const
+{
+	// 최소사거리보다 짧은지 판단한다.
+	// 원거리 어빌리티의 경우 필요할수도있다.
+	if (Distance < MinRange)
+	{
+		return false;
+	}
+
+	// MaxRange가 0일 시 사거리 제한없음
+	if (MaxRange > 0.f && Distance > MaxRange)
+	{
+		return false;
+	}
+
+	return true;
 }
 
 void UEnemyMontageGABase::OnMontageFinished()
