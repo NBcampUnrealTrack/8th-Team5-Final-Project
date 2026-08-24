@@ -6,6 +6,7 @@
 #include "InventoryItemWidget.generated.h"
 
 class UInventoryComponent;
+class UDragDropOperation;
 class UImage;
 class UTextBlock;
 
@@ -32,6 +33,9 @@ protected:
 		const FGeometry& InGeometry,
 		const FPointerEvent& InMouseEvent,
 		UDragDropOperation*& OutOperation) override;
+
+	UFUNCTION()
+	void HandleDragFinished(UDragDropOperation* Operation);
 
 private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))

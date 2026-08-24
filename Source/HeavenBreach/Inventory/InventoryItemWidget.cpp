@@ -3,6 +3,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Image.h"
+#include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
@@ -108,24 +109,29 @@ void UInventoryItemWidget::NativeOnDragDetected(
 		return;
 	}
 
-	FItemViewData ViewData;
-	if (!ResolveItemViewData(Item.ItemRow, ViewData))
+	// Use the pointer position at the moment the drag is detected. This keeps
+	// the decorator and drop calculation aligned after Slate's drag threshold.
+	GrabPixelOffset = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
+	const FVector2D VisualSize(
+		ItemSize.X * CellSize - 2.0f,
+		ItemSize.Y * CellSize - 2.0f);
+
+	UInventoryItemWidget* DragItemWidget = CreateWidget<UInventoryItemWidget>(
+		GetOwningPlayer(), GetClass());
+	if (DragItemWidget == nullptr)
 	{
 		return;
 	}
 
-	// Use the pointer position at the moment the drag is detected. This keeps
-	// the decorator and drop calculation aligned after Slate's drag threshold.
-	GrabPixelOffset = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
-	const FVector2D VisualSize(ItemSize.X * CellSize, ItemSize.Y * CellSize);
+	DragItemWidget->InitializeItem(SourceInventory, Item, ItemSize, CellSize);
+	DragItemWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+	DragItemWidget->SetRenderOpacity(0.7f);
 
-	UImage* DragVisual = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
-	if (UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath))
-	{
-		DragVisual->SetBrushFromTexture(IconTexture, false);
-	}
-	DragVisual->SetDesiredSizeOverride(VisualSize);
-	DragVisual->SetOpacity(0.7f);
+	USizeBox* DragVisualContainer = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+	DragVisualContainer->SetWidthOverride(VisualSize.X);
+	DragVisualContainer->SetHeightOverride(VisualSize.Y);
+	DragVisualContainer->SetContent(DragItemWidget);
+	DragVisualContainer->SetVisibility(ESlateVisibility::HitTestInvisible);
 
 	UInventoryDragDropOperation* Operation = NewObject<UInventoryDragDropOperation>(this);
 	Operation->InstanceId = Item.InstanceId;
@@ -134,9 +140,18 @@ void UInventoryItemWidget::NativeOnDragDetected(
 		FMath::Clamp(FMath::FloorToInt(GrabPixelOffset.Y / CellSize), 0, ItemSize.Y - 1));
 	Operation->GrabPixelOffset = GrabPixelOffset;
 	Operation->SourceInventory = SourceInventory;
-	Operation->DefaultDragVisual = DragVisual;
+	Operation->DefaultDragVisual = DragVisualContainer;
 	Operation->Pivot = EDragPivot::MouseDown;
 	Operation->Offset = FVector2D::ZeroVector;
 	Operation->bSplitRequested = bSplitRequested;
+	Operation->OnDrop.AddDynamic(this, &UInventoryItemWidget::HandleDragFinished);
+	Operation->OnDragCancelled.AddDynamic(this, &UInventoryItemWidget::HandleDragFinished);
+
+	SetVisibility(ESlateVisibility::Hidden);
 	OutOperation = Operation;
+}
+
+void UInventoryItemWidget::HandleDragFinished(UDragDropOperation* Operation)
+{
+	SetVisibility(ESlateVisibility::Visible);
 }
