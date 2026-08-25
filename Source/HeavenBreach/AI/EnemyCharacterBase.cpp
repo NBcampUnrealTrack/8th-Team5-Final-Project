@@ -131,10 +131,14 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 
 void AEnemyCharacterBase::SetMoveSpeed(bool bRun)
 {
-	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
-	{
-		Movement->MaxWalkSpeed = bRun ? RunSpeed : WalkSpeed;
-	}
+	// 이동속도 변경은 다른 하수로 이관됨
+	//if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	//{
+	//	Movement->MaxWalkSpeed = bRun ? RunSpeed : WalkSpeed;
+	//}
+
+	bRunning = bRun;
+	RefreshMoveSpeed();
 }
 
 void AEnemyCharacterBase::BecomeDead()
@@ -177,8 +181,17 @@ void AEnemyCharacterBase::BeginPlay()
 	// 서버에서는 해당 옵션을 킨다
 	// 엔진 자체에서 최적화를 위해 뼈대의 세세한 움직임을 기록하지않은데 현재 뼈대의 위치를 알필요가있기때문에 강제로 켜준다.
 	// GetSocketLocation() = 액터의 월드 트랜스폼 * 본 트랜스폼(여기가 갱신 안 됨) * 소켓 상대 오프셋
-	if(HasAuthority())
+	if (HasAuthority())
+	{
 		GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+
+		// ASC의 구독도 서버에서만 해준다.
+		if (AbilitySystemComp)
+		{
+			// 이동속도 배율이 변경 시 호출
+			AbilitySystemComp->GetGameplayAttributeValueChangeDelegate(UEnemyAttributeSetBase::GetMoveSpeedRateAttribute()).AddUObject(this, &AEnemyCharacterBase::OnMoveSpeedRateChanged);
+		}
+	}
 
 	UE_LOG(LogEnemyAI, Warning, TEXT("[Net] Mesh=%d Capsule=%d"),
 		GetMesh()->GetIsReplicated() ? 1 : 0,
@@ -242,6 +255,27 @@ void AEnemyCharacterBase::OnRep_Dead()
 	{
 		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	}
+}
+
+void AEnemyCharacterBase::RefreshMoveSpeed()
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement)
+	{
+		return;
+	}
+
+	// 걷거나 뛰는 속도에서 이동속도배율을 곱한다.
+	float Final = (bRunning ? RunSpeed : WalkSpeed) * CachedSpeedRate;
+
+	Movement->MaxWalkSpeed = Final;
+}
+
+void AEnemyCharacterBase::OnMoveSpeedRateChanged(const FOnAttributeChangeData& Data)
+{
+	// 해당 데이터 값은 이동속도배율
+	CachedSpeedRate = Data.NewValue;
+	RefreshMoveSpeed();
 }
 
 // Called every frame

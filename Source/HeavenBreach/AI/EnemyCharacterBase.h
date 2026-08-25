@@ -119,14 +119,6 @@ protected:
 	// GAS에서 이동속도 변경 시 연결된 함수
 	void OnMoveSpeedRateChanged(const struct FOnAttributeChangeData& Data);
 
-	// 사망 확인
-	UPROPERTY(ReplicatedUsing = OnRep_Dead, VisibleAnywhere, BlueprintReadOnly)
-	bool bDead = false;
-
-	// 사망변수가 변경되면 해야할것들
-	UFUNCTION()
-	void OnRep_Dead();
-
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;

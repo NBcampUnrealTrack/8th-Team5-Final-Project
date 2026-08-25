@@ -7,6 +7,8 @@
 #include "Components/TextBlock.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
+#include "InventoryCellWidget.h"
+#include "InventoryItemWidget.h"
 #include "EquipmentComponent.h"
 #include "EquipmentWidget.h"
 #include "Item/ItemActionMenuWidget.h"
@@ -14,6 +16,7 @@
 #include "Item/UItemSplitPopupWidget.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Player/HBPlayerController.h"
+#include "ShopComponent.h"
 
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
@@ -35,12 +38,41 @@ void UInventoryWidget::SetParentContainerWidget(UUserWidget* InParentWidget)
 	ParentContainerWidget = InParentWidget;
 }
 
+void UInventoryWidget::SetEquipmentPanelVisible(bool bVisible)
+{
+	if (EquipmentPanel != nullptr)
+	{
+		EquipmentPanel->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+}
+
+void UInventoryWidget::SetShopComponent(UShopComponent* InShop)
+{
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
+
+	LinkedShop = InShop;
+
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.AddDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
+}
+
 void UInventoryWidget::NativeDestruct()
 {
 	if (BoundInventory != nullptr)
 	{
 		BoundInventory->OnInventoryChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
 	}
+
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
+
 	Super::NativeDestruct();
 }
 
@@ -75,6 +107,9 @@ void UInventoryWidget::HandleInventoryChanged()
 
 void UInventoryWidget::RefreshGrid()
 {
+	HoveredCell = FIntPoint(-1, -1);
+	PlacementPreviewWidgets.Reset();
+	CellWidgets.Reset();
 	if (GridCanvas == nullptr)
 	{
 		return;
@@ -114,10 +149,29 @@ void UInventoryWidget::SetLinkedEquipment(UEquipmentComponent* InEquipment)
 void UInventoryWidget::BuildBackground()
 {
 	const FIntPoint Size = BoundInventory->GetGridSize();
+	CellWidgets.SetNum(Size.X * Size.Y);
 	for (int32 Y = 0; Y < Size.Y; ++Y)
 	{
 		for (int32 X = 0; X < Size.X; ++X)
 		{
+			if (InventoryCellWidgetClass != nullptr)
+			{
+				UInventoryCellWidget* CellWidget = CreateWidget<UInventoryCellWidget>(
+					GetOwningPlayer(), InventoryCellWidgetClass);
+				if (CellWidget != nullptr)
+				{
+					CellWidget->InitializeCell(FIntPoint(X, Y));
+					CellWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+					UCanvasPanelSlot* CanvasSlot = GridCanvas->AddChildToCanvas(CellWidget);
+					CanvasSlot->SetAutoSize(false);
+					CanvasSlot->SetPosition(FVector2D(X * CellSize, Y * CellSize));
+					CanvasSlot->SetSize(FVector2D(CellSize - 2.0f, CellSize - 2.0f));
+					CanvasSlot->SetZOrder(0);
+					CellWidgets[Y * Size.X + X] = CellWidget;
+					continue;
+				}
+			}
+
 			UBorder* Cell = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
 			Cell->SetBrushColor(FLinearColor(0.04f, 0.04f, 0.05f, 0.9f));
 			Cell->SetPadding(FMargin(0.0f));
@@ -142,10 +196,32 @@ void UInventoryWidget::BuildItems()
 			continue;
 		}
 		const FIntPoint ItemSize = GetOccupiedSize(Entry.Item, ViewData);
+
+		if (InventoryItemWidgetClass != nullptr)
+		{
+			UInventoryItemWidget* ItemWidget = CreateWidget<UInventoryItemWidget>(
+				GetOwningPlayer(), InventoryItemWidgetClass);
+			if (ItemWidget != nullptr)
+			{
+				ItemWidget->InitializeItem(BoundInventory, Entry.Item, ItemSize, CellSize);
+				UCanvasPanelSlot* ItemSlot = GridCanvas->AddChildToCanvas(ItemWidget);
+				ItemSlot->SetAutoSize(false);
+				ItemSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
+				ItemSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
+				ItemSlot->SetZOrder(1);
+				continue;
+			}
+		}
+
 		UBorder* ItemBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
 		ItemBorder->SetBrushColor(FLinearColor(0.10f, 0.12f, 0.16f, 1.0f));
 		ItemBorder->SetPadding(FMargin(2.0f));
 		ItemBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+		if (LinkedShop != nullptr && LinkedShop->IsInBasket(Entry.Item.InstanceId))
+		{
+			ItemBorder->SetRenderOpacity(0.4f);
+		}
 		UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
 		if (IconTexture != nullptr)
 		{
@@ -168,6 +244,19 @@ void UInventoryWidget::BuildItems()
 		CanvasSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
 		CanvasSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
 		CanvasSlot->SetZOrder(1);
+
+		UInventoryItemWidget* ItemInputWidget = CreateWidget<UInventoryItemWidget>(
+			GetOwningPlayer(), UInventoryItemWidget::StaticClass());
+		if (ItemInputWidget != nullptr)
+		{
+			ItemInputWidget->InitializeItem(BoundInventory, Entry.Item, ItemSize, CellSize);
+			UCanvasPanelSlot* InputSlot = GridCanvas->AddChildToCanvas(ItemInputWidget);
+			InputSlot->SetAutoSize(false);
+			InputSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
+			InputSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
+			InputSlot->SetZOrder(2);
+		}
+
 		if (Entry.Item.StackCount > 1)
 		{
 			UTextBlock* CountLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
@@ -179,7 +268,7 @@ void UInventoryWidget::BuildItems()
 			CountSlot->SetPosition(FVector2D(
 				(Entry.Position.X + ItemSize.X) * CellSize - 20.0f,
 				(Entry.Position.Y + ItemSize.Y) * CellSize - 20.0f));
-			CountSlot->SetZOrder(2);
+			CountSlot->SetZOrder(3);
 		}
 	}
 }
@@ -214,6 +303,198 @@ bool UInventoryWidget::ScreenToLocal(const FVector2D& InScreenPosition, FVector2
 	return true;
 }
 
+void UInventoryWidget::SetHoveredCell(FIntPoint InCell)
+{
+	if (HoveredCell == InCell || BoundInventory == nullptr)
+	{
+		return;
+	}
+
+	ClearHoveredCell();
+
+	const FIntPoint GridSize = BoundInventory->GetGridSize();
+	const int32 CellIndex = InCell.Y * GridSize.X + InCell.X;
+	if (CellWidgets.IsValidIndex(CellIndex) && CellWidgets[CellIndex] != nullptr)
+	{
+		CellWidgets[CellIndex]->SetVisualState(EInventoryCellVisualState::Hovered);
+		HoveredCell = InCell;
+	}
+}
+
+void UInventoryWidget::ClearHoveredCell()
+{
+	if (BoundInventory != nullptr)
+	{
+		const FIntPoint GridSize = BoundInventory->GetGridSize();
+		const int32 CellIndex = HoveredCell.Y * GridSize.X + HoveredCell.X;
+		if (CellWidgets.IsValidIndex(CellIndex) && CellWidgets[CellIndex] != nullptr)
+		{
+			CellWidgets[CellIndex]->SetVisualState(EInventoryCellVisualState::Default);
+		}
+	}
+
+	HoveredCell = FIntPoint(-1, -1);
+}
+
+FReply UInventoryWidget::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	FIntPoint Cell;
+	if (ScreenToCell(InMouseEvent.GetScreenSpacePosition(), Cell))
+	{
+		SetHoveredCell(Cell);
+	}
+	else
+	{
+		ClearHoveredCell();
+	}
+
+	return Super::NativeOnMouseMove(InGeometry, InMouseEvent);
+}
+
+void UInventoryWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
+{
+	ClearHoveredCell();
+	Super::NativeOnMouseLeave(InMouseEvent);
+}
+
+bool UInventoryWidget::UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
+	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FItemInstance DraggedItem;
+	int32 IgnoredEntryIndex = INDEX_NONE;
+	if (Operation->SourceInventory != nullptr)
+	{
+		const int32 SourceIndex = Operation->SourceInventory->FindEntryIndexById(Operation->InstanceId);
+		if (!Operation->SourceInventory->GetEntries().IsValidIndex(SourceIndex))
+		{
+			ClearPlacementPreview();
+			return false;
+		}
+
+		DraggedItem = Operation->SourceInventory->GetEntries()[SourceIndex].Item;
+		if (Operation->SourceInventory == BoundInventory)
+		{
+			IgnoredEntryIndex = SourceIndex;
+		}
+	}
+	else if (Operation->SourceEquipment != nullptr)
+	{
+		if (!Operation->SourceEquipment->GetItemInSlot(Operation->SourceSlot, DraggedItem))
+		{
+			ClearPlacementPreview();
+			return false;
+		}
+	}
+	else
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(DraggedItem.ItemRow, ViewData))
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FVector2D LocalPosition;
+	if (!ScreenToLocal(InDragDropEvent.GetScreenSpacePosition(), LocalPosition))
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	const FIntPoint ItemSize = GetOccupiedSize(DraggedItem, ViewData);
+	FIntPoint TargetPosition;
+	if (Operation->SourceInventory == BoundInventory)
+	{
+		const FVector2D ItemOrigin = LocalPosition - Operation->GrabPixelOffset;
+		TargetPosition = FIntPoint(
+			FMath::RoundToInt(ItemOrigin.X / CellSize),
+			FMath::RoundToInt(ItemOrigin.Y / CellSize));
+	}
+	else
+	{
+		const FIntPoint DropCell(
+			FMath::FloorToInt(LocalPosition.X / CellSize),
+			FMath::FloorToInt(LocalPosition.Y / CellSize));
+		TargetPosition = DropCell - Operation->GrabOffset;
+	}
+
+	const bool bCanPlace = BoundInventory->CanPlaceAt(ItemSize, TargetPosition, IgnoredEntryIndex);
+	const EInventoryCellVisualState PreviewState = bCanPlace
+		? EInventoryCellVisualState::PlacementValid
+		: EInventoryCellVisualState::PlacementInvalid;
+
+	ClearHoveredCell();
+	ClearPlacementPreview();
+
+	for (int32 OffsetY = 0; OffsetY < ItemSize.Y; ++OffsetY)
+	{
+		for (int32 OffsetX = 0; OffsetX < ItemSize.X; ++OffsetX)
+		{
+			const FIntPoint Cell = TargetPosition + FIntPoint(OffsetX, OffsetY);
+			if (!BoundInventory->IsValidCoord(Cell))
+			{
+				continue;
+			}
+
+			if (InventoryCellWidgetClass != nullptr)
+			{
+				UInventoryCellWidget* PreviewWidget = CreateWidget<UInventoryCellWidget>(
+					GetOwningPlayer(), InventoryCellWidgetClass);
+				if (PreviewWidget != nullptr)
+				{
+					PreviewWidget->InitializeCell(Cell);
+					PreviewWidget->SetVisualState(PreviewState);
+					PreviewWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+					UCanvasPanelSlot* PreviewSlot = GridCanvas->AddChildToCanvas(PreviewWidget);
+					PreviewSlot->SetAutoSize(false);
+					PreviewSlot->SetPosition(FVector2D(Cell.X * CellSize, Cell.Y * CellSize));
+					PreviewSlot->SetSize(FVector2D(CellSize - 2.0f, CellSize - 2.0f));
+					PreviewSlot->SetZOrder(3);
+					PlacementPreviewWidgets.Add(PreviewWidget);
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
+void UInventoryWidget::ClearPlacementPreview()
+{
+	for (UInventoryCellWidget* PreviewWidget : PlacementPreviewWidgets)
+	{
+		if (PreviewWidget != nullptr)
+		{
+			PreviewWidget->RemoveFromParent();
+		}
+	}
+
+	PlacementPreviewWidgets.Reset();
+}
+
+bool UInventoryWidget::NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	return UpdatePlacementPreview(InDragDropEvent, InOperation)
+		|| Super::NativeOnDragOver(InGeometry, InDragDropEvent, InOperation);
+}
+
+void UInventoryWidget::NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	ClearPlacementPreview();
+	Super::NativeOnDragLeave(InDragDropEvent, InOperation);
+}
+
 bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 {
 	if (BoundInventory == nullptr)
@@ -227,6 +508,10 @@ bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 		return false;
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+	if (LinkedShop != nullptr)
+	{
+		return LinkedShop->AddToSellBasket(Item.InstanceId);
+	}
 	if (LinkedContainer != nullptr)
 	{
 		if (BoundInventory == RequestSender)
@@ -529,6 +814,7 @@ void UInventoryWidget::RefocusAfterDrop()
 
 bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
+	ClearPlacementPreview();
 	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
 	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
 	{

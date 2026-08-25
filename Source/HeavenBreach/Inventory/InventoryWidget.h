@@ -10,6 +10,9 @@ class UEquipmentComponent;
 class UEquipmentWidget;
 class UItemActionMenuWidget;
 class UItemSplitPopupWidget;
+class UInventoryCellWidget;
+class UInventoryItemWidget;
+class UShopComponent;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UUserWidget
@@ -44,6 +47,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetParentContainerWidget(UUserWidget* InParentWidget);
 
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetEquipmentPanelVisible(bool bVisible);
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetShopComponent(UShopComponent* InShop);
+
 protected:
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
@@ -51,7 +60,11 @@ protected:
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
+	virtual bool NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+	virtual void NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 	UFUNCTION()
@@ -62,6 +75,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	float CellSize = 64.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Widget")
+	TSubclassOf<UInventoryCellWidget> InventoryCellWidgetClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Widget")
+	TSubclassOf<UInventoryItemWidget> InventoryItemWidgetClass;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UEquipmentWidget> EquipmentPanel;
@@ -75,6 +94,10 @@ private:
 	bool HandleContextMenu(FIntPoint InCell);
 	bool HandleDoubleClick(FIntPoint InCell);
 	void RefocusAfterDrop();
+	void SetHoveredCell(FIntPoint InCell);
+	void ClearHoveredCell();
+	bool UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation);
+	void ClearPlacementPreview();
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
@@ -110,4 +133,13 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UUserWidget> ParentContainerWidget;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UInventoryCellWidget>> CellWidgets;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UInventoryCellWidget>> PlacementPreviewWidgets;
+
+	FIntPoint HoveredCell = FIntPoint(-1, -1);
+	TObjectPtr<UShopComponent> LinkedShop;
 };
