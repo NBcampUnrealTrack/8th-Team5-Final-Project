@@ -48,7 +48,17 @@ void UInventoryWidget::SetEquipmentPanelVisible(bool bVisible)
 
 void UInventoryWidget::SetShopComponent(UShopComponent* InShop)
 {
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
+
 	LinkedShop = InShop;
+
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.AddDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
 }
 
 void UInventoryWidget::NativeDestruct()
@@ -57,6 +67,12 @@ void UInventoryWidget::NativeDestruct()
 	{
 		BoundInventory->OnInventoryChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
 	}
+
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
+
 	Super::NativeDestruct();
 }
 
@@ -201,6 +217,11 @@ void UInventoryWidget::BuildItems()
 		ItemBorder->SetBrushColor(FLinearColor(0.10f, 0.12f, 0.16f, 1.0f));
 		ItemBorder->SetPadding(FMargin(2.0f));
 		ItemBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+		if (LinkedShop != nullptr && LinkedShop->IsInBasket(Entry.Item.InstanceId))
+		{
+			ItemBorder->SetRenderOpacity(0.4f);
+		}
 		UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
 		if (IconTexture != nullptr)
 		{

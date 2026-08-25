@@ -66,6 +66,9 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_TradeResult(bool bSuccess, const FString& InMessage);
 
+	UFUNCTION(BlueprintPure, Category = "Shop")
+	bool IsInBasket(FGuid InInstanceId) const;
+
 protected:
 	virtual void BeginPlay() override;
 

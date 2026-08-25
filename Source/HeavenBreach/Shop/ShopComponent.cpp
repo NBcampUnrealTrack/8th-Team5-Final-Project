@@ -2,11 +2,25 @@
 
 #include "Engine/DataTable.h"
 #include "InventoryComponent.h"
+#include "StashComponent.h"
 
 UShopComponent::UShopComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	SetIsReplicatedByDefault(true);
+}
+
+bool UShopComponent::IsInBasket(FGuid InInstanceId) const
+{
+	for (const FTradeBasketEntry& Entry : Basket)
+	{
+		if (Entry.InstanceId == InInstanceId)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void UShopComponent::BeginPlay()
@@ -172,7 +186,14 @@ void UShopComponent::RemoveFromBasket(int32 InIndex)
 		return;
 	}
 
-	Basket.RemoveAt(InIndex);
+	if (TradeMode == ETradeMode::Buy && Basket[InIndex].Quantity > 1)
+	{
+		Basket[InIndex].Quantity -= 1;
+	}
+	else
+	{
+		Basket.RemoveAt(InIndex);
+	}
 
 	OnBasketChanged.Broadcast();
 }
@@ -274,6 +295,11 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 			}
 		}
 
+		if (UStashComponent* Stash = Cast<UStashComponent>(InStash))
+		{
+			Stash->SaveStash();
+		}
+
 		Client_TradeResult(true, TEXT("구매가 완료되었습니다."));
 		return;
 	}
@@ -297,6 +323,11 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 	{
 		Client_TradeResult(false, TEXT("골드를 받을 공간이 없습니다."));
 		return;
+	}
+
+	if (UStashComponent* Stash = Cast<UStashComponent>(InStash))
+	{
+		Stash->SaveStash();
 	}
 
 	Client_TradeResult(true, TEXT("판매가 완료되었습니다."));
