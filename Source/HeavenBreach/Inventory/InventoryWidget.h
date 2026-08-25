@@ -53,6 +53,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetShopComponent(UShopComponent* InShop);
 
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void ScrollRows(int32 InDelta);
+
 protected:
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
@@ -61,6 +64,7 @@ protected:
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseWheel(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 	virtual bool NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
@@ -75,6 +79,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	float CellSize = 64.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Inventory")
+	int32 VisibleRows = 0;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Widget")
 	TSubclassOf<UInventoryCellWidget> InventoryCellWidgetClass;
@@ -98,6 +105,10 @@ private:
 	void ClearHoveredCell();
 	bool UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation);
 	void ClearPlacementPreview();
+
+	int32 GetVisibleRowCount() const;
+	int32 GetMaxScrollRow() const;
+	int32 ScrollOffsetRow = 0;
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
