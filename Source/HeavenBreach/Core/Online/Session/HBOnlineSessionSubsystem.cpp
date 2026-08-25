@@ -6,6 +6,7 @@
 #include "OnlineSubsystem.h"
 #include "OnlineSessionSettings.h"
 #include "Online/OnlineSessionNames.h"
+#include "Engine/Engine.h"
 
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -193,6 +194,8 @@ void UHBOnlineSessionSubsystem::FindLobbies()
 		);
 }
 
+
+
 void UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 {
 	if (!SessionInterface.IsValid())
@@ -378,6 +381,16 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 			Warning,
 			TEXT("Online | Lobby | FindLobbies failed")
 			);
+		
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1,
+				20.0f,
+				FColor::Red,
+				TEXT("Find Lobby FAILED")
+			);
+		}
 
 		return;
 	}
@@ -388,11 +401,51 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 		TEXT("Online | Lobby | Find complete | Results: %d"),
 		LobbySearch->SearchResults.Num()
 	);
+	
+	const int32 ResultCount = LobbySearch->SearchResults.Num();
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(
+			-1,
+			20.0f,
+			FColor::Yellow,
+			FString::Printf(
+				TEXT("Find Complete | Results: %d"),
+				ResultCount
+			)
+		);
+	}
 
 	for (int32 Index = 0; Index < LobbySearch->SearchResults.Num(); ++Index)
 	{
 		const FOnlineSessionSearchResult& Result = LobbySearch->SearchResults[Index];
 
+		const FString OwnerName =
+			Result.Session.OwningUserName;
+
+		const FString Message = FString::Printf(
+			TEXT("[%d] Owner: %s"),
+			Index,
+			*OwnerName
+		);
+
+		UE_LOG(LogTemp, Warning,
+			TEXT("Online | Lobby | %s"),
+			*Message
+		);
+
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1,
+				20.0f,
+				FColor::Yellow,
+				Message
+			);
+		}
+
+		
 		UE_LOG(
 			LogTemp,
 			Warning,
@@ -406,11 +459,15 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 	}
 }
 
-void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(FName InSessionName, EOnJoinSessionCompleteResult::Type InResult)
+void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(
+	FName InSessionName,
+	EOnJoinSessionCompleteResult::Type InResult)
 {
 	if (SessionInterface.IsValid() && JoinLobbyCompleteDelegateHandle.IsValid())
 	{
-		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinLobbyCompleteDelegateHandle);
+		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(
+			JoinLobbyCompleteDelegateHandle
+		);
 	}
 
 	JoinLobbyCompleteDelegateHandle.Reset();
@@ -422,6 +479,29 @@ void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(FName InSessionName, EOn
 		*InSessionName.ToString(),
 		static_cast<int32>(InResult)
 	);
+
+	const bool bSuccess =
+		InResult == EOnJoinSessionCompleteResult::Success;
+
+	if (GEngine)
+	{
+		const FString Message = bSuccess
+			? FString::Printf(
+				TEXT("JOIN SUCCESS | %s"),
+				*InSessionName.ToString()
+			)
+			: FString::Printf(
+				TEXT("JOIN FAILED | Result: %d"),
+				static_cast<int32>(InResult)
+			);
+
+		GEngine->AddOnScreenDebugMessage(
+			-1,
+			20.0f,
+			bSuccess ? FColor::Green : FColor::Red,
+			Message
+		);
+	}
 }
 
 void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bool bWasSuccessful)
