@@ -2,6 +2,7 @@
 
 #include "Item/Item.h"
 #include "Engine/Texture2D.h"
+#include "AbilitySystemComponent.h"
 
 
 namespace
@@ -34,7 +35,6 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		{
 			return false;
 		}
-
 		OutViewData.GridSize = FIntPoint(ItemRow->GridWidth, ItemRow->GridHeight);
 		OutViewData.EquipSlotType = ItemRow->EquipSlotType;
 		OutViewData.MaxStack = FMath::Max(1, ItemRow->MaxStack);
@@ -43,6 +43,11 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.HealAmount = ItemRow->HealAmount;
 		OutViewData.SellValue = ItemRow->SellValue;
 		OutViewData.Icon = ItemRow->Icon;
+		OutViewData.bIsRelic = ItemRow->bIsRelic;
+		OutViewData.BenefitDescription = ItemRow->BenefitDescription;
+		OutViewData.RiskDescription = ItemRow->RiskDescription;
+		OutViewData.BenefitEffect = ItemRow->BenefitEffect;
+		OutViewData.RiskEffect = ItemRow->RiskEffect;
 		return true;
 	}
 

@@ -89,7 +89,13 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
 
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	float PickupBlockDuration = 1.0f;
+
 private:
 	// 오버랩으로 걸어서 줍는 경우와 E키 상호작용으로 줍는 경우가 공유하는 실제 습득 로직
 	bool TryPickUp(AActor* Picker);
+
+	float SpawnTime = 0.f;
 };

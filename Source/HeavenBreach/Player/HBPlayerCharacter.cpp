@@ -15,6 +15,7 @@
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "PlayerState/HB_PlayerState.h"
+#include "Inventory/QuickSlotComponent.h"
 
 #include "Interaction/InteractionComponent.h"
 #include "Interaction/InteractionPromptWidget.h"
@@ -37,6 +38,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
+	QuickSlot = CreateDefaultSubobject<UQuickSlotComponent>(TEXT("QuickSlot"));
 	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
 	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 0.0f, 64.0f));
 	FirstPersonCamera->bUsePawnControlRotation = true;

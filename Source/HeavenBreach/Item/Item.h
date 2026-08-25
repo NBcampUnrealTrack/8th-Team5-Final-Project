@@ -5,6 +5,7 @@
 #include "Item.generated.h"
 
 class UTexture2D;
+class UGameplayEffect;
 
 UENUM(BlueprintType)
 enum class EItemGrade : uint8
@@ -109,8 +110,23 @@ struct FItemData : public FTableRowBase
 	FString Notes;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float HealAmount = 0.f;
-};
 
+	// ===== 장신구(Relic) 전용 필드 =====
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
+	bool bIsRelic = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
+	FString BenefitDescription;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
+	FString RiskDescription;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
+	TSubclassOf<UGameplayEffect> BenefitEffect;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
+	TSubclassOf<UGameplayEffect> RiskEffect;
+};
 USTRUCT(BlueprintType)
 struct FBoxLootData : public FTableRowBase
 {
