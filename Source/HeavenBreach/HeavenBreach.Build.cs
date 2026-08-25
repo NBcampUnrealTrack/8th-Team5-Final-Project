@@ -20,6 +20,8 @@ public class HeavenBreach : ModuleRules
 			"UMG",
 			"Slate",
 			"SlateCore",
+			"CommonUI",
+			"CommonInput",
             "GameplayAbilities",
             "GameplayTags",
             "GameplayTasks",
@@ -46,7 +48,8 @@ public class HeavenBreach : ModuleRules
             "HeavenBreach/Equipment",
             "HeavenBreach/Item",
             "HeavenBreach/Core/DataManagement",
-            "HeavenBreach/Shop"
+            "HeavenBreach/Shop",
+            "HeavenBreach/UI"
         });
 
 		// Uncomment if you are using Slate UI

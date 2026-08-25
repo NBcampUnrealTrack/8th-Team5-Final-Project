@@ -37,6 +37,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "CommonUI",
+			"Enabled": true
+		},
+		{
 			"Name": "GameplayAbilities",
 			"Enabled": true
 		}
