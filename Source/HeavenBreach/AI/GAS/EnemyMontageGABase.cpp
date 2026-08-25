@@ -28,6 +28,8 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
+	bCooldownPending = false;
+
 	// 이거 실행하려면 몽타주 잇어야함
 	if (!Montage)
 	{
@@ -36,8 +38,20 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		return;
 	}
 
-	// CommitAbility선언은 필수
-	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
+	bool bCommitted = false;
+
+	// 쿨다운 적용방식에 따른 구분
+	if (bCooldownOnEnd)
+	{
+		bCommitted = CommitAbilityCost(Handle, ActorInfo, ActivationInfo);
+	}
+	else
+	{
+		bCommitted = CommitAbility(Handle, ActorInfo, ActivationInfo);
+	}
+
+	// 정상적으로 실행되었나를 확인
+	if (!bCommitted)
 	{
 		// 맨끝의 저건 정상적으로 취소햇음? 취소/중단. 인터럽트, 조건 실패, 외부 취소여부
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
@@ -102,6 +116,12 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	// 이걸 빼먹으면 태스크가 시작되지 않는다
 	Task->ReadyForActivation();
 
+	// 쿨다운이 끝나고나서 처리되는 어빌은 여기까지 왔으면 몽타주가 돈다. 끝날 때 쿨다운을 건다.
+	if (bCooldownOnEnd)
+	{
+		bCooldownPending = true;
+	}
+
 }
 
 bool UEnemyMontageGABase::IsRange(float Distance) const
@@ -131,4 +151,18 @@ void UEnemyMontageGABase::OnMontageFinished()
 void UEnemyMontageGABase::OnMontageCancelled()
 {
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, true);
+}
+
+void UEnemyMontageGABase::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+{
+	// 끝나고나서 쿨타임 적용방식 일 시
+	if (bCooldownPending)
+	{
+		bCooldownPending = false;
+		// 쿨타임 적용. 지금적용안하면 영원히 적용안됨.
+		ApplyCooldown(Handle, ActorInfo, ActivationInfo);
+	}
+
+	// 실제 EndAbility적용
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
