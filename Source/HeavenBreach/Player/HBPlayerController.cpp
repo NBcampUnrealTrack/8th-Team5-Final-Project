@@ -135,6 +135,15 @@ void AHBPlayerController::TestJoinSteamLobby(int32 InSearchResultIndex)
 	}
 }
 
+void AHBPlayerController::TestLeaveSteamLobby()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->LeaveLobby();
+	}
+}
+
 void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 {
 	if (InventoryUI && InventoryUI->IsInventoryOpen())

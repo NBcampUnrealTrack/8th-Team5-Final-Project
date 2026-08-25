@@ -22,6 +22,7 @@ public:
 	void CreateLobby(int32 MaxPlayers);
 	void FindLobbies();
 	void JoinLobby(int32 InSearchResultIndex);
+	void LeaveLobby();
 	
 private:
 	void HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful);
@@ -33,6 +34,11 @@ private:
 		EOnJoinSessionCompleteResult::Type InResult
 		);
 	
+	void HandleLeaveLobbyComplete(
+		FName InSessionName,
+		bool bWasSuccessful
+		);
+	
 	IOnlineSessionPtr SessionInterface;
 	
 	TSharedPtr<FOnlineSessionSettings> LobbySettings;
@@ -41,4 +47,5 @@ private:
 	FDelegateHandle CreateLobbyCompleteDelegateHandle;
 	FDelegateHandle FindLobbiesCompleteDelegateHandle;
 	FDelegateHandle JoinLobbyCompleteDelegateHandle;
+	FDelegateHandle LeaveLobbyCompleteDelegateHandle;
 };

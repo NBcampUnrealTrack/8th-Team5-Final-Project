@@ -279,6 +279,63 @@ void UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 	);
 }
 
+void UHBOnlineSessionSubsystem::LeaveLobby()
+{
+	if (!SessionInterface.IsValid())
+	{
+		UE_LOG(LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Leave failed : SessionInterface invalid")
+			);
+		
+		return;
+	}
+	
+	if (SessionInterface->GetNamedSession(NAME_GameSession) == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Leave failed : GameSession does not exist")
+			);
+		
+		return;
+	}
+	
+	const FOnDestroySessionCompleteDelegate LeaveCompleteDelegate =
+		FOnDestroySessionCompleteDelegate::CreateUObject(
+			this,
+			&UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete
+			);
+	
+	LeaveLobbyCompleteDelegateHandle = 
+		SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(LeaveCompleteDelegate);
+	
+	const bool bRequestStarted = 
+		SessionInterface->DestroySession(NAME_GameSession);
+	
+	if (!bRequestStarted)
+	{
+		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(LeaveLobbyCompleteDelegateHandle);
+		
+		LeaveLobbyCompleteDelegateHandle.Reset();
+		
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | LeaveLobby request failed")
+			);
+		
+		return;
+	}
+	
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Lobby | LeaveLobby requested")
+		);
+}
+
 void UHBOnlineSessionSubsystem::HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful)
 {
 	if (SessionInterface.IsValid() && CreateLobbyCompleteDelegateHandle.IsValid())
@@ -365,4 +422,36 @@ void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(FName InSessionName, EOn
 		*InSessionName.ToString(),
 		static_cast<int32>(InResult)
 	);
+}
+
+void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bool bWasSuccessful)
+{
+	if (SessionInterface.IsValid() && LeaveLobbyCompleteDelegateHandle.IsValid())
+	{
+		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(LeaveLobbyCompleteDelegateHandle);
+	}
+	
+	LeaveLobbyCompleteDelegateHandle.Reset();
+	
+	if (bWasSuccessful)
+	{
+		LobbySettings.Reset();
+		
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Left : %s"),
+			*InSessionName.ToString()
+			);
+	}
+	else
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Leave failed: %s"),
+			*InSessionName.ToString()
+			);
+	}
+	
 }

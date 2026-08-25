@@ -67,6 +67,9 @@ protected:
 	
 	UFUNCTION(Exec)
 	void TestJoinSteamLobby(int32 InSearchResultIndex);
+	
+	UFUNCTION(Exec)
+	void TestLeaveSteamLobby();
 	////////////////////////////////////
 
 private:
