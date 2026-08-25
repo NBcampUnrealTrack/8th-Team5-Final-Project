@@ -197,7 +197,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName HelmetSocketName = TEXT("HelmetSocket");
 	
-	virtual void BeginPlay() override;
+	//virtual void BeginPlay() override;
 	
 	UFUNCTION()
 	void RefreshEquippedVisuals();
