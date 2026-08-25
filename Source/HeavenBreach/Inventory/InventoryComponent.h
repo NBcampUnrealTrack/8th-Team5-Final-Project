@@ -43,6 +43,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 FindEntryIndexById(FGuid InInstanceId) const;
 
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetTotalGold(FName InGoldRowName) const;
+
+	bool ConsumeGold(const FDataTableRowHandle& InGoldRow, int32 InAmount);
+
+	bool AddGold(const FDataTableRowHandle& InGoldRow, int32 InAmount);
+
 	bool CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int32 InIgnoredIndex = INDEX_NONE) const;
 
 	bool FindFirstFreeSlot(FIntPoint InSize, FIntPoint& OutPosition, int32 InIgnoredIndex = INDEX_NONE) const;
@@ -105,6 +112,19 @@ public:
 	UFUNCTION(Server, Reliable)
 	void Server_MoveItemIn(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition);
 
+	UFUNCTION(Server, Reliable)
+	void Server_UnequipItemTo(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition);
+
+	void SetGridSize(int32 InWidth, int32 InHeight);
+
+	void SetEntries(const TArray<FInventoryEntry>& InEntries);
+
+	UFUNCTION(Server, Reliable)
+	void Server_UseItem(FGuid InInstanceId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_SplitStack(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition);
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -132,7 +152,7 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory")
 
 	float ItemUseCooldown = 6.0f;
-	
+
 	bool bHasUsedItem = false;
 	float LastItemUseTime = 0.0f;
 

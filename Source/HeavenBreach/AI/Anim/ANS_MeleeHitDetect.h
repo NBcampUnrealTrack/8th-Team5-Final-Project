@@ -30,6 +30,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Trace")
 	float TraceRadius = 30.f;
 
+	// 데미지 배율
+	UPROPERTY(EditAnywhere, Category = "Trace")
+	float DamageMultiplier = 1.f;
+
 	// 데미지 적용 GE
 	// 트레이스에 충돌난 대상에게 적용
 	UPROPERTY(EditAnywhere, Category = "Damage")

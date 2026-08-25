@@ -17,6 +17,9 @@ class HEAVENBREACH_API AHBPlayerController : public APlayerController
 public:
 	AHBPlayerController();
 
+	UFUNCTION(BlueprintCallable, Category = "Player|Inventory")
+	void RequestCloseInventory();
+
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	TObjectPtr<UInputMappingContext> PlayerMappingContext;

@@ -1,5 +1,8 @@
 #include "HB_PlayerState.h"
 
+#include "Inventory/StashComponent.h"
+#include "Core/DataManagement/StashStorageSubsystem.h"
+#include "Engine/GameInstance.h"
 #include "AbilitySystemComponent.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
@@ -18,6 +21,10 @@ AHB_PlayerState::AHB_PlayerState()
 #pragma region AttributeSet
 	AttributeSet = CreateDefaultSubobject<UHB_PlayerAttributeSet>(TEXT("AttributeSet"));
 #pragma endregion
+
+#pragma region Stash
+	Stash = CreateDefaultSubobject<UStashComponent>(TEXT("Stash"));
+#pragma endregion
 }
 
 void AHB_PlayerState::BeginPlay()
@@ -31,6 +38,18 @@ void AHB_PlayerState::BeginPlay()
 
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute())
 			.AddUObject(this, &AHB_PlayerState::OnMaxHealthChanged);
+	}
+
+	if (HasAuthority() && Stash)
+	{
+		if (UGameInstance* GameInstance = GetGameInstance())
+		{
+			if (UStashStorageSubsystem* StorageSubsystem = GameInstance->GetSubsystem<UStashStorageSubsystem>())
+			{
+				Stash->SetStorage(StorageSubsystem->GetStorage());
+				Stash->LoadStash(TEXT("TestAccount"));
+			}
+		}
 	}
 }
 

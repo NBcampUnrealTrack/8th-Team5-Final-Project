@@ -10,8 +10,11 @@
 #include "AI/Enum/EAlertState.h"
 #include "Components/CapsuleComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
-#include "AI/EnemyAIControllerBase.h"
 #include "AI/AlertComponent.h"
+#include "AI/LootComponent.h"
+#include "Net/UnrealNetwork.h"
+#include "Components/SkeletalMeshComponent.h"
+
 
 // Sets default values
 AEnemyCharacterBase::AEnemyCharacterBase()
@@ -33,7 +36,7 @@ AEnemyCharacterBase::AEnemyCharacterBase()
 	}
 
 	// ----- GAS -----
-
+	
 	AbilitySystemComp = CreateDefaultSubobject<UEnemyAbilitySystemComponent>(TEXT("AbilitySystemComp"));
 	// 어트리뷰트와 태그를 클라이언트에 복제하려면 필요하다.
 	AbilitySystemComp->SetIsReplicated(true);
@@ -43,9 +46,18 @@ AEnemyCharacterBase::AEnemyCharacterBase()
 	// GAS스텟 담당 어트리뷰트 셋
 	AttributeSet = CreateDefaultSubobject<UEnemyAttributeSetBase>(TEXT("AttributeSet"));
 
+	// 루팅 인벤토리
+	LootComponent = CreateDefaultSubobject<ULootComponent>(TEXT("LootInven"));
 
 	GetCapsuleComponent()->SetCollisionProfileName(TEXT("Pawn"));
 
+}
+
+void AEnemyCharacterBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AEnemyCharacterBase, bDead);
 }
 
 bool AEnemyCharacterBase::CanBeDamaged_Implementation(AActor* InstigatorActor) const
@@ -83,8 +95,17 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 		return;
 	}
 
+	// 피격 부위에 따른 데미지 배율
+	float PartMult = 1.f;
+	if (const float* Found = BoneDamageMultipliers.Find(Hit.BoneName))
+	{
+		PartMult = *Found;
+	}
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Hit] Bone=%s  Comp=%s  Dmg=%.0f"),*Hit.BoneName.ToString(), *GetNameSafe(Hit.GetComponent()), RawDamage);
+
 	// GE 애셋의 Modifier 가 이태그로 값을 받는다.
-	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage);
+	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage * PartMult);
 
 	AbilitySystemComp->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 
@@ -116,6 +137,38 @@ void AEnemyCharacterBase::SetMoveSpeed(bool bRun)
 	}
 }
 
+void AEnemyCharacterBase::BecomeDead()
+{
+	// 이미 죽거나 서버가아니면 실행x
+	if (!HasAuthority() || bDead)
+	{
+		return;
+	}
+
+	bDead = true;
+
+	// 시체는 더 이상 움직이지 않도록 막아준다.
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->StopMovementImmediately();
+	}
+
+	// Moveto로 움직이고 잇엇다면 멈춘다.
+	if (AAIController* AIC = Cast<AAIController>(GetController()))
+	{
+		AIC->StopMovement();
+	}
+
+	// 파밍될 아이템들을 인벤토리에 생성한다.
+	if (LootComponent)
+	{
+		LootComponent->GenerateLoot();
+	}
+
+	// 서버에서도 직접불러준다. Multicast로 해보려햇는데 반응속도문제땜시...
+	OnRep_Dead();
+}
+
 // Called when the game starts or when spawned
 void AEnemyCharacterBase::BeginPlay()
 {
@@ -126,6 +179,10 @@ void AEnemyCharacterBase::BeginPlay()
 	// GetSocketLocation() = 액터의 월드 트랜스폼 * 본 트랜스폼(여기가 갱신 안 됨) * 소켓 상대 오프셋
 	if(HasAuthority())
 		GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Net] Mesh=%d Capsule=%d"),
+		GetMesh()->GetIsReplicated() ? 1 : 0,
+		GetCapsuleComponent()->GetIsReplicated() ? 1 : 0);
 	
 	// 이동속도 초기 설정은 false
 	SetMoveSpeed(false);
@@ -149,6 +206,42 @@ void AEnemyCharacterBase::PossessedBy(AController* NewController)
 UAbilitySystemComponent* AEnemyCharacterBase::GetAbilitySystemComponent() const
 {
 	return AbilitySystemComp;
+}
+
+bool AEnemyCharacterBase::CanInteract_Implementation(AActor* Interactor) const
+{
+	// 상호작용 조건 : 죽었으며 인벤이 존재해야한다.
+	return Interactor != nullptr && bDead && LootComponent != nullptr;
+}
+
+void AEnemyCharacterBase::Interact_Implementation(AActor* Interactor)
+{
+	// 서버권한에서만 상호작용 가능
+	if (HasAuthority() && LootComponent)
+	{
+		// 상호작용을 한 플레이어에게 루팅될 인벤토리를 연다
+		LootComponent->HandleInteract(Interactor);
+	}
+}
+
+FText AEnemyCharacterBase::GetInteractPrompt_Implementation() const
+{
+	return LootComponent ? LootComponent->GetPrompt() : FText::GetEmpty();
+}
+
+void AEnemyCharacterBase::OnRep_Dead()
+{
+	// 스켈레톤 메쉬를 블록으로 변경
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	}
+
+	// 캡슐콜리전을....쓸필요가있나? 무시하자
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	}
 }
 
 // Called every frame

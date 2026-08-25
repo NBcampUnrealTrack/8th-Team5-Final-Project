@@ -96,3 +96,17 @@ bool UEnemyAbilitySystemComponent::IsAbilityActiveByTag(FGameplayTag AbilityTag)
 
 	return false;
 }
+
+bool UEnemyAbilitySystemComponent::HasAbilityByTag(FGameplayTag AbilityTag) const
+{
+	for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
+	{
+		// 어빌리티에 찾고자하는 assetTag가 있나 확인
+		if (Spec.Ability && Spec.Ability->GetAssetTags().HasTag(AbilityTag))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
