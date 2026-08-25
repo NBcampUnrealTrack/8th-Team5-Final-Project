@@ -18,6 +18,8 @@ public:
 	UEnemyMontageGABase();
 
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+	// 쿨타임적용을 위해 함수 오버라이드
+	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
 	// getter. 가중치
 	float GetSelectionWeight() const { return SelectionWeight; }
@@ -49,6 +51,11 @@ protected:
 	// 공격속도에 영향
 	bool bIsAttackSpeed = true;
 
+	// 쿨다운 적용방식
+	// false : 즉시 발동. true : 몽타주 종료시
+	UPROPERTY(EditDefaultsOnly, Category = "Ability")
+	bool bCooldownOnEnd = false;
+
 	// 몽타주와 함께 적용할 GE
 	// 경직시간 추가하려고 만듬. 대상에게 GE부여는 몽타주 안 애님노티파이에서 써야한다. 이거아님
 	UPROPERTY(EditDefaultsOnly, Category = "Ability")
@@ -62,4 +69,8 @@ protected:
 	// 몽타주 중단
 	UFUNCTION()
 	void OnMontageCancelled();
+
+private:
+	// 쿨다운 적용중(종료시 쿨다운 적용 용도)
+	bool bCooldownPending = false;
 };
