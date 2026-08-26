@@ -23,7 +23,13 @@ public class HeavenBreach : ModuleRules
             "GameplayAbilities",
             "GameplayTags",
             "GameplayTasks",
-            "NavigationSystem"
+            "NavigationSystem",
+			"HTTP",
+			"Json",
+            "JsonUtilities",
+            "GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks"
         });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
@@ -41,7 +47,9 @@ public class HeavenBreach : ModuleRules
 			"HeavenBreach/Variant_Shooter/Weapons",
 			"HeavenBreach/Inventory",
             "HeavenBreach/Equipment",
-            "HeavenBreach/Item"
+            "HeavenBreach/Item",
+            "HeavenBreach/Core/DataManagement",
+            "HeavenBreach/Shop"
         });
 
 		// Uncomment if you are using Slate UI

@@ -15,15 +15,12 @@ ABoxActor::ABoxActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// 상자 상태/추첨을 서버가 결정하고 모든 클라이언트에 동기화한다.
 	bReplicates = true;
 
-	// 상자 본체 메시를 루트로 사용
 	BoxMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BoxMesh"));
 	RootComponent = BoxMesh;
 	BoxMesh->SetCollisionProfileName(FName("BlockAll"));
 
-	// 상호작용 감지 볼륨
 	InteractionVolume = CreateDefaultSubobject<UBoxComponent>(TEXT("InteractionVolume"));
 	InteractionVolume->SetupAttachment(BoxMesh);
 	InteractionVolume->SetBoxExtent(FVector(80.0f, 80.0f, 80.0f));
@@ -32,8 +29,17 @@ ABoxActor::ABoxActor()
 	InteractionVolume->SetCollisionResponseToAllChannels(ECR_Ignore);
 	InteractionVolume->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 
-	// 상자 내용물 인벤토리 (그리드 크기는 컴포넌트 Details에서 조정)
 	BoxInventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("BoxInventory"));
+
+	GradeBoxIDs.Add(EBoxGrade::Common, FName(TEXT("BOX_001")));
+	GradeBoxIDs.Add(EBoxGrade::Rare, FName(TEXT("BOX_002")));
+	GradeBoxIDs.Add(EBoxGrade::Epic, FName(TEXT("BOX_003")));
+	GradeBoxIDs.Add(EBoxGrade::Celestial, FName(TEXT("BOX_004")));
+
+	GradeSpawnWeights.Add(EBoxGrade::Common, 60.0f);
+	GradeSpawnWeights.Add(EBoxGrade::Rare, 25.0f);
+	GradeSpawnWeights.Add(EBoxGrade::Epic, 12.0f);
+	GradeSpawnWeights.Add(EBoxGrade::Celestial, 3.0f);
 }
 
 void ABoxActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -42,35 +48,30 @@ void ABoxActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 
 	DOREPLIFETIME(ABoxActor, BoxState);
 	DOREPLIFETIME(ABoxActor, bLootGenerated);
+	DOREPLIFETIME(ABoxActor, Grade);
 }
 
 void ABoxActor::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 늦게 접속한 클라이언트도 초기 외형이 상태와 일치하도록 한 번 갱신한다.
+	if (HasAuthority())
+	{
+		RollGradeIfNeeded();
+	}
+
+	RefreshGrade();
+
 	BP_OnBoxStateChanged(BoxState);
 }
 
 bool ABoxActor::CanInteract_Implementation(AActor* Interactor) const
 {
-	if (Interactor == nullptr)
-	{
-		return false;
-	}
-
-	// 아직 안 연 상자는 열 수 있다. 이미 연 상자는 내용물이 남아 있을 때만 다시 열 수 있다.
-	// (거리 판정은 호출측 InteractionComponent 담당)
-	if (!bLootGenerated)
-	{
-		return true;
-	}
-	return BoxInventory != nullptr && BoxInventory->GetEntries().Num() > 0;
+	return Interactor != nullptr;
 }
 
 void ABoxActor::Interact_Implementation(AActor* Interactor)
 {
-	// 상태 전환/추첨은 서버 권한으로만 수행한다.
 	if (!HasAuthority())
 	{
 		return;
@@ -81,18 +82,15 @@ void ABoxActor::Interact_Implementation(AActor* Interactor)
 		return;
 	}
 
-	// 최초 개방: 상태 전환 + 무작위 아이템 생성 (1회)
 	if (!bLootGenerated)
 	{
 		BoxState = EBoxState::Opened;
 		GenerateLoot();
 		bLootGenerated = true;
 
-		// 서버(리슨 서버 포함)에서도 외형을 즉시 갱신. RepNotify는 서버 setter에서 자동 호출되지 않음.
 		OnRep_BoxState();
 	}
 
-	// 최초/재접근 공통: 이중 인벤토리 UI를 열고 이동/공격을 잠근다.
 	OpenContainerUI(Interactor);
 }
 
@@ -103,8 +101,56 @@ FText ABoxActor::GetInteractPrompt_Implementation() const
 
 void ABoxActor::OnRep_BoxState()
 {
-	// 모든 클라이언트에서 열림/닫힘 외형을 동일하게 갱신한다. 세부 연출은 Blueprint에서 구현.
 	BP_OnBoxStateChanged(BoxState);
+}
+
+void ABoxActor::OnRep_Grade()
+{
+	RefreshGrade();
+}
+
+void ABoxActor::RollGradeIfNeeded()
+{
+	if (!bRandomGrade || GradeSpawnWeights.Num() == 0)
+	{
+		return;
+	}
+
+	float Total = 0.0f;
+	for (const TPair<EBoxGrade, float>& Pair : GradeSpawnWeights)
+	{
+		Total += FMath::Max(0.0f, Pair.Value);
+	}
+
+	if (Total <= 0.0f)
+	{
+		return;
+	}
+
+	float Roll = FMath::FRand() * Total;
+	for (const TPair<EBoxGrade, float>& Pair : GradeSpawnWeights)
+	{
+		Roll -= FMath::Max(0.0f, Pair.Value);
+		if (Roll <= 0.0f)
+		{
+			Grade = Pair.Key;
+			return;
+		}
+	}
+}
+
+void ABoxActor::RefreshGrade()
+{
+	if (const FName* Found = GradeBoxIDs.Find(Grade))
+	{
+		EffectiveBoxID = *Found;
+	}
+	else
+	{
+		EffectiveBoxID = NAME_None;
+	}
+
+	BP_OnGradeChanged(Grade);
 }
 
 void ABoxActor::GenerateLoot()
@@ -115,14 +161,21 @@ void ABoxActor::GenerateLoot()
 		return;
 	}
 
-	// DT_BoxLoot에서 이 상자(BoxID)에 해당하는 드랍 행만 추린다.
+	if (EffectiveBoxID.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 등급에 매핑된 BoxID 없음(GradeBoxIDs 확인): %s"), *GetName());
+		return;
+	}
+
+	const FString FilterID = EffectiveBoxID.ToString();
+
 	TArray<FBoxLootData*> AllRows;
 	BoxLootTable->GetAllRows<FBoxLootData>(TEXT("BoxActor::GenerateLoot"), AllRows);
 
 	TArray<FBoxLootData*> Eligible;
 	for (FBoxLootData* Row : AllRows)
 	{
-		if (Row && Row->BoxID == BoxID)
+		if (Row && Row->BoxID == FilterID)
 		{
 			Eligible.Add(Row);
 		}
@@ -130,11 +183,10 @@ void ABoxActor::GenerateLoot()
 
 	if (Eligible.Num() == 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: BoxID '%s' 드랍 행 없음: %s"), *BoxID, *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: BoxID '%s' 드랍 행 없음: %s"), *FilterID, *GetName());
 		return;
 	}
 
-	// 아이템 1개를 상자 인벤토리에 넣는다. (스택형은 TryAddItem이 기존 스택에 병합)
 	auto AddOne = [this](const FBoxLootData& Row) -> bool
 	{
 		FItemInstance Item;
@@ -150,7 +202,6 @@ void ABoxActor::GenerateLoot()
 
 	int32 AddedCount = 0;
 
-	// 행마다 DropChance로 판정, 성공 시 1~MaxItemCount개 추가
 	for (const FBoxLootData* Row : Eligible)
 	{
 		if (FMath::FRand() <= Row->DropChance)
@@ -166,7 +217,6 @@ void ABoxActor::GenerateLoot()
 		}
 	}
 
-	// 최소 1개 보장: 하나도 안 나왔으면 DropChance가 가장 높은 행에서 1개 강제 추가
 	if (AddedCount == 0)
 	{
 		const FBoxLootData* Best = Eligible[0];
@@ -183,13 +233,11 @@ void ABoxActor::GenerateLoot()
 		}
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[BoxActor] GenerateLoot: '%s' 상자에 아이템 %d개 생성"), *BoxID, AddedCount);
+	UE_LOG(LogTemp, Log, TEXT("[BoxActor] GenerateLoot: '%s' 상자에 아이템 %d개 생성"), *FilterID, AddedCount);
 }
 
 void ABoxActor::OpenContainerUI(AActor* Interactor)
 {
-	// [서버] 요청 클라에게 "이 상자 인벤토리로 컨테이너 UI를 열어라"고 Client RPC로 지시한다. (데디케이트 서버 대응)
-	// 실제 UI 오픈은 클라의 InteractionComponent → OnRequestOpenContainer → (BP) InventoryUI.OpenContainer로 이어진다.
 	if (Interactor == nullptr)
 	{
 		return;

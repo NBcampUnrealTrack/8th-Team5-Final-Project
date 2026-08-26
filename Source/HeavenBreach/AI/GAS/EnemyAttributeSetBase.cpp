@@ -6,6 +6,7 @@
 #include "Net/UnrealNetwork.h" 
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "AI/Enum/EAlertState.h"
+#include "AI/EnemyCharacterBase.h"
 
 UEnemyAttributeSetBase::UEnemyAttributeSetBase()
 {
@@ -15,6 +16,8 @@ UEnemyAttributeSetBase::UEnemyAttributeSetBase()
 	InitMaxHP(100.f);
 	InitHP(100.f);
 	InitAttackPower(10.f);
+	InitMoveSpeedRate(1.f);
+	InitAttackSpeedRate(1.f);
 }
 
 void UEnemyAttributeSetBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -24,6 +27,8 @@ void UEnemyAttributeSetBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	DOREPLIFETIME(UEnemyAttributeSetBase, HP);
 	DOREPLIFETIME(UEnemyAttributeSetBase, MaxHP);
 	DOREPLIFETIME(UEnemyAttributeSetBase, AttackPower);
+	DOREPLIFETIME(UEnemyAttributeSetBase, MoveSpeedRate);
+	DOREPLIFETIME(UEnemyAttributeSetBase, AttackSpeedRate);
 }
 
 bool UEnemyAttributeSetBase::PreGameplayEffectExecute(FGameplayEffectModCallbackData& Data)
@@ -31,7 +36,7 @@ bool UEnemyAttributeSetBase::PreGameplayEffectExecute(FGameplayEffectModCallback
 	// UAttributeSet에서 공백이긴한데 엔진 업데이트로 공백이아닌뭐가 추가될 경우가 있을수 있음
 	Super::PreGameplayEffectExecute(Data);
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PreGameplayEffectExecute"));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PreGameplayEffectExecute"));
 
 	return true;
 }
@@ -49,16 +54,26 @@ void UEnemyAttributeSetBase::PreAttributeChange(const FGameplayAttribute& Attrib
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
+	else if (Attribute == GetMoveSpeedRateAttribute())
+	{
+		// 0이면 이동을 못한다. 0.1이 최소 배율
+		NewValue = FMath::Clamp(NewValue, 0.1f, 3.f);
+	}
+	else if (Attribute == GetAttackSpeedRateAttribute())
+	{
+		// 0 이면 몽타주가 완전히 멈춘다. 0.1이 최소
+		NewValue = FMath::Clamp(NewValue, 0.1f, 3.f);
+	}
 
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PreAttributeChange"));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PreAttributeChange"));
 }
 
 void UEnemyAttributeSetBase::PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue)
 {
 	Super::PostAttributeChange(Attribute, OldValue, NewValue);
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PostAttributeChange"));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PostAttributeChange"));
 }
 
 void UEnemyAttributeSetBase::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
@@ -90,11 +105,16 @@ void UEnemyAttributeSetBase::PostGameplayEffectExecute(const FGameplayEffectModC
 						// 원래는 TAG_Ability_Death가 할일
 						ASC->AddLooseGameplayTag(AbilityTag::TAG_State_Dead);
 
-						UE_LOG(LogEnemyAI, Warning, TEXT("[GAS] %s 사망 어빌리티 없음 — 태그만 부여"),
-							*GetNameSafe(ASC->GetAvatarActor()));
+						UE_LOG(LogEnemyAI, Warning, TEXT("[GAS] %s 사망 어빌리티 없음 — 태그만 부여"),*GetNameSafe(ASC->GetAvatarActor()));
 					}
 
 					// TODO: 사망시 델리게이트 이벤트를 보내서 다른 매니저들이 알게만들어야할까...?
+
+					// 죽은상태가 되었으니 죽었을시 처리하라 알림
+					if (AEnemyCharacterBase* Char = Cast<AEnemyCharacterBase>(ASC->GetAvatarActor()))
+					{
+						Char->BecomeDead();
+					}
 
 					UE_LOG(LogEnemyAI, Log, TEXT("[GAS] %s 사망"),*GetNameSafe(ASC->GetAvatarActor()));
 				}
@@ -102,7 +122,7 @@ void UEnemyAttributeSetBase::PostGameplayEffectExecute(const FGameplayEffectModC
 		}
 	}
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PostGameplayEffectExecute"));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PostGameplayEffectExecute"));
 }
 
 void UEnemyAttributeSetBase::OnRep_Health(const FGameplayAttributeData& OldValue)

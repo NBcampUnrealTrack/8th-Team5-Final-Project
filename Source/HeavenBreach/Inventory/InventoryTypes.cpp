@@ -2,6 +2,7 @@
 
 #include "Item/Item.h"
 #include "Engine/Texture2D.h"
+#include "AbilitySystemComponent.h"
 
 
 namespace
@@ -34,13 +35,19 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		{
 			return false;
 		}
-
 		OutViewData.GridSize = FIntPoint(ItemRow->GridWidth, ItemRow->GridHeight);
 		OutViewData.EquipSlotType = ItemRow->EquipSlotType;
 		OutViewData.MaxStack = FMath::Max(1, ItemRow->MaxStack);
 		OutViewData.DisplayName = ItemRow->ItemName;
 		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
 		OutViewData.HealAmount = ItemRow->HealAmount;
+		OutViewData.SellValue = ItemRow->SellValue;
+		OutViewData.Icon = ItemRow->Icon;
+		OutViewData.bIsRelic = ItemRow->bIsRelic;
+		OutViewData.BenefitDescription = ItemRow->BenefitDescription;
+		OutViewData.RiskDescription = ItemRow->RiskDescription;
+		OutViewData.BenefitEffect = ItemRow->BenefitEffect;
+		OutViewData.RiskEffect = ItemRow->RiskEffect;
 		return true;
 	}
 
@@ -57,6 +64,8 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.MaxStack = 1;
 		OutViewData.DisplayName = WeaponRow->WeaponName;
 		OutViewData.IconPath = WeaponRow->Icon ? WeaponRow->Icon->GetPathName() : FString();
+		OutViewData.SellValue = WeaponRow->SellValue;
+		OutViewData.Icon = WeaponRow->Icon;
 		return true;
 	}
 
@@ -73,6 +82,8 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.MaxStack = 1;
 		OutViewData.DisplayName = ShieldRow->ShieldName;
 		OutViewData.IconPath = ShieldRow->Icon ? ShieldRow->Icon->GetPathName() : FString();
+		OutViewData.SellValue = ShieldRow->SellValue;
+		OutViewData.Icon = ShieldRow->Icon;
 		return true;
 	}
 

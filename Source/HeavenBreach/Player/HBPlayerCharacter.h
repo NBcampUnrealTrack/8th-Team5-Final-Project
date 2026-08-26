@@ -17,6 +17,7 @@ class UInteractionComponent;
 class UInteractionPromptWidget;
 class UHBJobData;
 struct FGameplayAbilitySpecHandle;
+class UQuickSlotComponent;
 
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface
@@ -26,7 +27,7 @@ class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageable
 
 public:
 	AHBPlayerCharacter();
-	
+
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void MoveForward(float Value);
@@ -97,6 +98,10 @@ private:
 	void HandleInteractableFocusChanged(AActor* NewInteractable);
 #pragma endregion
 
+private:
+	UFUNCTION()
+	void HandleItemUsed(FName ItemId, float HealAmount);
+
 protected:
 	virtual void OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem);
 	void InitializeJob(UAbilitySystemComponent* AbilitySystem);
@@ -131,6 +136,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UEquipmentComponent> Equipment;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UQuickSlotComponent> QuickSlot;
 	
 #pragma region ASC
 public:
@@ -258,6 +266,42 @@ protected:
 	void ServerSetSprinting(bool bNewSprinting);
 
 	void RefreshMovementSpeed();
+#pragma endregion 
+	
+#pragma region EquimentVisual
+	
+protected:
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<UStaticMeshComponent> WeaponMeshComp;
+	
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
+	
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<UStaticMeshComponent> HelmetMeshComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> ChestMeshComp;
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
+	FName WeaponSocketName = TEXT("PrimaryWeaponSocket");
+	
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
+	FName ShieldSocketName = TEXT("SecondWeaponSocket");
+	
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
+	FName HelmetSocketName = TEXT("HelmetSocket");
+	
+	virtual void BeginPlay() override;
+	
+	UFUNCTION()
+	void RefreshEquippedVisuals();
+	
+	void RefreshWeaponVisual();
+	void RefreshShieldVisual();
+	void RefreshHelmetVisual();
+	void RefreshChestVisual();
+
 #pragma endregion 
 
 public:

@@ -7,12 +7,18 @@
 #include "Components/TextBlock.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
+#include "InventoryCellWidget.h"
+#include "InventoryItemWidget.h"
 #include "EquipmentComponent.h"
 #include "EquipmentWidget.h"
 #include "Item/ItemActionMenuWidget.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Item/UItemSplitPopupWidget.h"
+#include "Item/ItemInfoPopupWidget.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Player/HBPlayerController.h"
+#include "ShopComponent.h"
+#include "Inventory/QuickSlotComponent.h"
 
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
@@ -29,12 +35,46 @@ void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 	RefreshGrid();
 }
 
+void UInventoryWidget::SetParentContainerWidget(UUserWidget* InParentWidget)
+{
+	ParentContainerWidget = InParentWidget;
+}
+
+void UInventoryWidget::SetEquipmentPanelVisible(bool bVisible)
+{
+	if (EquipmentPanel != nullptr)
+	{
+		EquipmentPanel->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+}
+
+void UInventoryWidget::SetShopComponent(UShopComponent* InShop)
+{
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
+
+	LinkedShop = InShop;
+
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.AddDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
+}
+
 void UInventoryWidget::NativeDestruct()
 {
 	if (BoundInventory != nullptr)
 	{
 		BoundInventory->OnInventoryChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
 	}
+
+	if (LinkedShop != nullptr)
+	{
+		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+	}
+
 	Super::NativeDestruct();
 }
 
@@ -44,6 +84,32 @@ void UInventoryWidget::NativeConstruct()
 	SetIsFocusable(true);
 }
 
+FReply UInventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (InKeyEvent.GetKey() == EKeys::Tab)
+	{
+		if (LinkedContainer == nullptr)
+		{
+			if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+			{
+				PC->RequestCloseInventory();
+			}
+			return FReply::Handled();
+		}
+	}
+
+	if (InKeyEvent.GetKey() == EKeys::Three || InKeyEvent.GetKey() == EKeys::Four)
+	{
+		const int32 SlotIndex = (InKeyEvent.GetKey() == EKeys::Three) ? 2 : 3;
+		if (HandleQuickSlotRegister(SlotIndex))
+		{
+			return FReply::Handled();
+		}
+	}
+
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
 void UInventoryWidget::HandleInventoryChanged()
 {
 	RefreshGrid();
@@ -51,6 +117,9 @@ void UInventoryWidget::HandleInventoryChanged()
 
 void UInventoryWidget::RefreshGrid()
 {
+	HoveredCell = FIntPoint(-1, -1);
+	PlacementPreviewWidgets.Reset();
+	CellWidgets.Reset();
 	if (GridCanvas == nullptr)
 	{
 		return;
@@ -90,10 +159,29 @@ void UInventoryWidget::SetLinkedEquipment(UEquipmentComponent* InEquipment)
 void UInventoryWidget::BuildBackground()
 {
 	const FIntPoint Size = BoundInventory->GetGridSize();
+	CellWidgets.SetNum(Size.X * Size.Y);
 	for (int32 Y = 0; Y < Size.Y; ++Y)
 	{
 		for (int32 X = 0; X < Size.X; ++X)
 		{
+			if (InventoryCellWidgetClass != nullptr)
+			{
+				UInventoryCellWidget* CellWidget = CreateWidget<UInventoryCellWidget>(
+					GetOwningPlayer(), InventoryCellWidgetClass);
+				if (CellWidget != nullptr)
+				{
+					CellWidget->InitializeCell(FIntPoint(X, Y));
+					CellWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+					UCanvasPanelSlot* CanvasSlot = GridCanvas->AddChildToCanvas(CellWidget);
+					CanvasSlot->SetAutoSize(false);
+					CanvasSlot->SetPosition(FVector2D(X * CellSize, Y * CellSize));
+					CanvasSlot->SetSize(FVector2D(CellSize - 2.0f, CellSize - 2.0f));
+					CanvasSlot->SetZOrder(0);
+					CellWidgets[Y * Size.X + X] = CellWidget;
+					continue;
+				}
+			}
+
 			UBorder* Cell = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
 			Cell->SetBrushColor(FLinearColor(0.04f, 0.04f, 0.05f, 0.9f));
 			Cell->SetPadding(FMargin(0.0f));
@@ -118,10 +206,32 @@ void UInventoryWidget::BuildItems()
 			continue;
 		}
 		const FIntPoint ItemSize = GetOccupiedSize(Entry.Item, ViewData);
+
+		if (InventoryItemWidgetClass != nullptr)
+		{
+			UInventoryItemWidget* ItemWidget = CreateWidget<UInventoryItemWidget>(
+				GetOwningPlayer(), InventoryItemWidgetClass);
+			if (ItemWidget != nullptr)
+			{
+				ItemWidget->InitializeItem(BoundInventory, Entry.Item, ItemSize, CellSize);
+				UCanvasPanelSlot* ItemSlot = GridCanvas->AddChildToCanvas(ItemWidget);
+				ItemSlot->SetAutoSize(false);
+				ItemSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
+				ItemSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
+				ItemSlot->SetZOrder(1);
+				continue;
+			}
+		}
+
 		UBorder* ItemBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
 		ItemBorder->SetBrushColor(FLinearColor(0.10f, 0.12f, 0.16f, 1.0f));
 		ItemBorder->SetPadding(FMargin(2.0f));
 		ItemBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+		if (LinkedShop != nullptr && LinkedShop->IsInBasket(Entry.Item.InstanceId))
+		{
+			ItemBorder->SetRenderOpacity(0.4f);
+		}
 		UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
 		if (IconTexture != nullptr)
 		{
@@ -144,6 +254,19 @@ void UInventoryWidget::BuildItems()
 		CanvasSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
 		CanvasSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
 		CanvasSlot->SetZOrder(1);
+
+		UInventoryItemWidget* ItemInputWidget = CreateWidget<UInventoryItemWidget>(
+			GetOwningPlayer(), UInventoryItemWidget::StaticClass());
+		if (ItemInputWidget != nullptr)
+		{
+			ItemInputWidget->InitializeItem(BoundInventory, Entry.Item, ItemSize, CellSize);
+			UCanvasPanelSlot* InputSlot = GridCanvas->AddChildToCanvas(ItemInputWidget);
+			InputSlot->SetAutoSize(false);
+			InputSlot->SetPosition(FVector2D(Entry.Position.X * CellSize, Entry.Position.Y * CellSize));
+			InputSlot->SetSize(FVector2D(ItemSize.X * CellSize - 2.0f, ItemSize.Y * CellSize - 2.0f));
+			InputSlot->SetZOrder(2);
+		}
+
 		if (Entry.Item.StackCount > 1)
 		{
 			UTextBlock* CountLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
@@ -155,7 +278,7 @@ void UInventoryWidget::BuildItems()
 			CountSlot->SetPosition(FVector2D(
 				(Entry.Position.X + ItemSize.X) * CellSize - 20.0f,
 				(Entry.Position.Y + ItemSize.Y) * CellSize - 20.0f));
-			CountSlot->SetZOrder(2);
+			CountSlot->SetZOrder(3);
 		}
 	}
 }
@@ -190,6 +313,198 @@ bool UInventoryWidget::ScreenToLocal(const FVector2D& InScreenPosition, FVector2
 	return true;
 }
 
+void UInventoryWidget::SetHoveredCell(FIntPoint InCell)
+{
+	if (HoveredCell == InCell || BoundInventory == nullptr)
+	{
+		return;
+	}
+
+	ClearHoveredCell();
+
+	const FIntPoint GridSize = BoundInventory->GetGridSize();
+	const int32 CellIndex = InCell.Y * GridSize.X + InCell.X;
+	if (CellWidgets.IsValidIndex(CellIndex) && CellWidgets[CellIndex] != nullptr)
+	{
+		CellWidgets[CellIndex]->SetVisualState(EInventoryCellVisualState::Hovered);
+		HoveredCell = InCell;
+	}
+}
+
+void UInventoryWidget::ClearHoveredCell()
+{
+	if (BoundInventory != nullptr)
+	{
+		const FIntPoint GridSize = BoundInventory->GetGridSize();
+		const int32 CellIndex = HoveredCell.Y * GridSize.X + HoveredCell.X;
+		if (CellWidgets.IsValidIndex(CellIndex) && CellWidgets[CellIndex] != nullptr)
+		{
+			CellWidgets[CellIndex]->SetVisualState(EInventoryCellVisualState::Default);
+		}
+	}
+
+	HoveredCell = FIntPoint(-1, -1);
+}
+
+FReply UInventoryWidget::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	FIntPoint Cell;
+	if (ScreenToCell(InMouseEvent.GetScreenSpacePosition(), Cell))
+	{
+		SetHoveredCell(Cell);
+	}
+	else
+	{
+		ClearHoveredCell();
+	}
+
+	return Super::NativeOnMouseMove(InGeometry, InMouseEvent);
+}
+
+void UInventoryWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
+{
+	ClearHoveredCell();
+	Super::NativeOnMouseLeave(InMouseEvent);
+}
+
+bool UInventoryWidget::UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
+	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FItemInstance DraggedItem;
+	int32 IgnoredEntryIndex = INDEX_NONE;
+	if (Operation->SourceInventory != nullptr)
+	{
+		const int32 SourceIndex = Operation->SourceInventory->FindEntryIndexById(Operation->InstanceId);
+		if (!Operation->SourceInventory->GetEntries().IsValidIndex(SourceIndex))
+		{
+			ClearPlacementPreview();
+			return false;
+		}
+
+		DraggedItem = Operation->SourceInventory->GetEntries()[SourceIndex].Item;
+		if (Operation->SourceInventory == BoundInventory)
+		{
+			IgnoredEntryIndex = SourceIndex;
+		}
+	}
+	else if (Operation->SourceEquipment != nullptr)
+	{
+		if (!Operation->SourceEquipment->GetItemInSlot(Operation->SourceSlot, DraggedItem))
+		{
+			ClearPlacementPreview();
+			return false;
+		}
+	}
+	else
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(DraggedItem.ItemRow, ViewData))
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	FVector2D LocalPosition;
+	if (!ScreenToLocal(InDragDropEvent.GetScreenSpacePosition(), LocalPosition))
+	{
+		ClearPlacementPreview();
+		return false;
+	}
+
+	const FIntPoint ItemSize = GetOccupiedSize(DraggedItem, ViewData);
+	FIntPoint TargetPosition;
+	if (Operation->SourceInventory == BoundInventory)
+	{
+		const FVector2D ItemOrigin = LocalPosition - Operation->GrabPixelOffset;
+		TargetPosition = FIntPoint(
+			FMath::RoundToInt(ItemOrigin.X / CellSize),
+			FMath::RoundToInt(ItemOrigin.Y / CellSize));
+	}
+	else
+	{
+		const FIntPoint DropCell(
+			FMath::FloorToInt(LocalPosition.X / CellSize),
+			FMath::FloorToInt(LocalPosition.Y / CellSize));
+		TargetPosition = DropCell - Operation->GrabOffset;
+	}
+
+	const bool bCanPlace = BoundInventory->CanPlaceAt(ItemSize, TargetPosition, IgnoredEntryIndex);
+	const EInventoryCellVisualState PreviewState = bCanPlace
+		? EInventoryCellVisualState::PlacementValid
+		: EInventoryCellVisualState::PlacementInvalid;
+
+	ClearHoveredCell();
+	ClearPlacementPreview();
+
+	for (int32 OffsetY = 0; OffsetY < ItemSize.Y; ++OffsetY)
+	{
+		for (int32 OffsetX = 0; OffsetX < ItemSize.X; ++OffsetX)
+		{
+			const FIntPoint Cell = TargetPosition + FIntPoint(OffsetX, OffsetY);
+			if (!BoundInventory->IsValidCoord(Cell))
+			{
+				continue;
+			}
+
+			if (InventoryCellWidgetClass != nullptr)
+			{
+				UInventoryCellWidget* PreviewWidget = CreateWidget<UInventoryCellWidget>(
+					GetOwningPlayer(), InventoryCellWidgetClass);
+				if (PreviewWidget != nullptr)
+				{
+					PreviewWidget->InitializeCell(Cell);
+					PreviewWidget->SetVisualState(PreviewState);
+					PreviewWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+					UCanvasPanelSlot* PreviewSlot = GridCanvas->AddChildToCanvas(PreviewWidget);
+					PreviewSlot->SetAutoSize(false);
+					PreviewSlot->SetPosition(FVector2D(Cell.X * CellSize, Cell.Y * CellSize));
+					PreviewSlot->SetSize(FVector2D(CellSize - 2.0f, CellSize - 2.0f));
+					PreviewSlot->SetZOrder(3);
+					PlacementPreviewWidgets.Add(PreviewWidget);
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
+void UInventoryWidget::ClearPlacementPreview()
+{
+	for (UInventoryCellWidget* PreviewWidget : PlacementPreviewWidgets)
+	{
+		if (PreviewWidget != nullptr)
+		{
+			PreviewWidget->RemoveFromParent();
+		}
+	}
+
+	PlacementPreviewWidgets.Reset();
+}
+
+bool UInventoryWidget::NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	return UpdatePlacementPreview(InDragDropEvent, InOperation)
+		|| Super::NativeOnDragOver(InGeometry, InDragDropEvent, InOperation);
+}
+
+void UInventoryWidget::NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	ClearPlacementPreview();
+	Super::NativeOnDragLeave(InDragDropEvent, InOperation);
+}
+
 bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 {
 	if (BoundInventory == nullptr)
@@ -203,6 +518,10 @@ bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 		return false;
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+	if (LinkedShop != nullptr)
+	{
+		return LinkedShop->AddToSellBasket(Item.InstanceId);
+	}
 	if (LinkedContainer != nullptr)
 	{
 		if (BoundInventory == RequestSender)
@@ -234,12 +553,13 @@ bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 
 bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Debug] HandleContextMenu called, ItemContextMenuClass=%s"), ItemContextMenuClass ? *ItemContextMenuClass->GetName() : TEXT("NULL"));
 	if (BoundInventory == nullptr)
 	{
 		return false;
 	}
+
 	const int32 EntryIndex = BoundInventory->GetEntryIndexAt(InCell);
+
 	if (EntryIndex == INDEX_NONE)
 	{
 		return false;
@@ -248,16 +568,19 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 	{
 		return false;
 	}
+
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
 	FItemViewData ViewData;
 	ResolveItemViewData(Item.ItemRow, ViewData);
+
 	if (ActiveContextMenu != nullptr)
 	{
 		ActiveContextMenu->RemoveFromParent();
 		ActiveContextMenu = nullptr;
 	}
+
 	ActiveContextMenu = CreateWidget<UItemActionMenuWidget>(GetOwningPlayer(), ItemContextMenuClass);
-	UE_LOG(LogTemp, Warning, TEXT("[Debug] CreateWidget result=%s"), ActiveContextMenu ? TEXT("Valid") : TEXT("NULL"));
+
 	if (ActiveContextMenu == nullptr)
 	{
 		return false;
@@ -270,7 +593,7 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 		{
 			if (BoundInventory != nullptr)
 			{
-				BoundInventory->UseItem(InstanceId);
+				BoundInventory->Server_UseItem(InstanceId);
 			}
 		});
 	ActiveContextMenu->OnSplitRequested.AddLambda([this, InstanceId, StackCount = Item.StackCount]()
@@ -293,7 +616,12 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 			ActiveSplitPopup->OnSplitConfirmed.AddLambda([this, InstanceId](int32 Quantity)
 				{
 					UE_LOG(LogTemp, Log, TEXT("[InventoryWidget] Split confirmed: instance %s, quantity %d"), *InstanceId.ToString(), Quantity);
-					// TODO: BoundInventory에서 실제 스택 분할 처리
+
+					if (BoundInventory != nullptr)
+					{
+						BoundInventory->Server_SplitStack(InstanceId, Quantity, FIntPoint(-1, -1));
+					}
+
 				});
 			ActiveSplitPopup->OnPopupClosed.AddLambda([this]()
 				{
@@ -304,11 +632,42 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 			const FVector2D SplitViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
 			ActiveSplitPopup->SetPositionInViewport(SplitViewportPosition, false);
 		});
+	ActiveContextMenu->OnDiscardRequested.AddLambda([this, InstanceId]()
+		{
+			if (BoundInventory != nullptr)
+			{
+				BoundInventory->Server_DropItem(InstanceId);
+			}
+		});
+	ActiveContextMenu->OnInfoRequested.AddLambda([this, Item, ViewData]()
+		{
+			if (ItemInfoPopupClass == nullptr)
+			{
+				return;
+			}
+			if (ActiveInfoPopup != nullptr)
+			{
+				ActiveInfoPopup->RemoveFromParent();
+				ActiveInfoPopup = nullptr;
+			}
+			ActiveInfoPopup = CreateWidget<UItemInfoPopupWidget>(GetOwningPlayer(), ItemInfoPopupClass);
+			if (ActiveInfoPopup == nullptr)
+			{
+				return;
+			}
+			UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
+			ActiveInfoPopup->SetupInfo(ViewData.DisplayName, TEXT(""),
+				ViewData.bIsRelic, ViewData.BenefitDescription, ViewData.RiskDescription,
+				ViewData.SellValue, IconTexture);
+			ActiveInfoPopup->AddToViewport(100);
+			ActiveInfoPopup->SetKeyboardFocus();
+			const FVector2D InfoViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
+			ActiveInfoPopup->SetPositionInViewport(InfoViewportPosition, false);
+		});
 	ActiveContextMenu->AddToViewport(100);
 	ActiveContextMenu->SetKeyboardFocus();
 	const FVector2D ViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
 	ActiveContextMenu->SetPositionInViewport(ViewportPosition + FVector2D(0.f, 4.f), false);
-	UE_LOG(LogTemp, Warning, TEXT("[Debug] Menu added at ViewportPos (%f, %f)"), ViewportPosition.X, ViewportPosition.Y);
 	return true;
 }
 
@@ -348,33 +707,7 @@ void UInventoryWidget::ShowSplitPopupForDrop(FGuid InInstanceId, FIntPoint InTar
 			{
 				return;
 			}
-			const int32 SourceIndex = BoundInventory->FindEntryIndexById(InInstanceId);
-			if (SourceIndex == INDEX_NONE)
-			{
-				return;
-			}
-			if (Quantity <= 0 || Quantity >= BoundInventory->GetEntries()[SourceIndex].Item.StackCount)
-			{
-				UE_LOG(LogTemp, Warning, TEXT("[InventoryWidget] Split-drop: invalid quantity %d"), Quantity);
-				return;
-			}
-			FItemInstance NewItem = BoundInventory->GetEntries()[SourceIndex].Item;
-			NewItem.InstanceId = FGuid::NewGuid();
-			NewItem.StackCount = Quantity;
-			if (!BoundInventory->TryAddItemAt(NewItem, InTargetCell))
-			{
-				UE_LOG(LogTemp, Warning, TEXT("[InventoryWidget] Split-drop: target cell (%d, %d) occupied, cannot place split stack"),
-					InTargetCell.X, InTargetCell.Y);
-				return;
-			}
-			if (!BoundInventory->RemoveStackCount(InInstanceId, Quantity))
-			{
-				FItemInstance Removed;
-				BoundInventory->RemoveItem(NewItem.InstanceId, Removed);
-				return;
-			}
-			UE_LOG(LogTemp, Log, TEXT("[InventoryWidget] Split-drop applied: instance %s, quantity %d, target (%d, %d)"),
-				*InInstanceId.ToString(), Quantity, InTargetCell.X, InTargetCell.Y);
+			BoundInventory->Server_SplitStack(InInstanceId, Quantity, InTargetCell);
 		});
 	ActiveSplitPopup->OnPopupClosed.AddLambda([this]()
 		{
@@ -438,7 +771,52 @@ bool UInventoryWidget::HandleDoubleClick(FIntPoint InCell)
 		return false;
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
-	return BoundInventory->UseItem(Item.InstanceId);
+	BoundInventory->Server_UseItem(Item.InstanceId);
+	return true;
+}
+
+bool UInventoryWidget::HandleQuickSlotRegister(int32 InSlotIndex)
+{
+	if (BoundInventory == nullptr)
+	{
+		return false;
+	}
+
+	const FVector2D CursorScreenPosition = FSlateApplication::Get().GetCursorPos();
+	FIntPoint HoveredCell;
+	if (!ScreenToCell(CursorScreenPosition, HoveredCell))
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = BoundInventory->GetEntryIndexAt(HoveredCell);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+	FItemViewData ViewData;
+	const bool bResolved = ResolveItemViewData(Item.ItemRow, ViewData);
+	if (!bResolved || !ViewData.IsConsumable())
+	{
+		return false;
+	}
+
+	APawn* OwningPawn = GetOwningPlayerPawn();
+	if (OwningPawn == nullptr)
+	{
+		return false;
+	}
+
+	UQuickSlotComponent* QuickSlotComp = OwningPawn->FindComponentByClass<UQuickSlotComponent>();
+	if (QuickSlotComp == nullptr)
+	{
+		return false;
+	}
+
+	QuickSlotComp->Server_SetSlot(InSlotIndex, Item.InstanceId);
+	return true;
 }
 
 FReply UInventoryWidget::NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
@@ -502,8 +880,27 @@ void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 	OutOperation = Operation;
 }
 
+void UInventoryWidget::RefocusAfterDrop()
+{
+	APlayerController* PC = GetOwningPlayer();
+	if (PC == nullptr)
+	{
+		return;
+	}
+
+	TSharedRef<SWidget> WidgetToFocus = (LinkedContainer != nullptr && ParentContainerWidget != nullptr)
+		? ParentContainerWidget->TakeWidget()
+		: TakeWidget();
+
+	FInputModeGameAndUI InputMode;
+	InputMode.SetWidgetToFocus(WidgetToFocus);
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PC->SetInputMode(InputMode);
+}
+
 bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
+	ClearPlacementPreview();
 	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
 	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
 	{
@@ -514,10 +911,21 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	{
 		return false;
 	}
-	const FVector2D ItemOrigin = LocalPosition - Operation->GrabPixelOffset;
-	const FIntPoint TargetPosition(
-		FMath::RoundToInt(ItemOrigin.X / CellSize),
-		FMath::RoundToInt(ItemOrigin.Y / CellSize));
+	FIntPoint TargetPosition;
+	if (Operation->SourceInventory == BoundInventory)
+	{
+		const FVector2D ItemOrigin = LocalPosition - Operation->GrabPixelOffset;
+		TargetPosition = FIntPoint(
+			FMath::RoundToInt(ItemOrigin.X / CellSize),
+			FMath::RoundToInt(ItemOrigin.Y / CellSize));
+	}
+	else
+	{
+		const FIntPoint DropCell(
+			FMath::FloorToInt(LocalPosition.X / CellSize),
+			FMath::FloorToInt(LocalPosition.Y / CellSize));
+		TargetPosition = DropCell - Operation->GrabOffset;
+	}
 	if (Operation->bSplitRequested && ItemSplitPopupClass != nullptr)
 	{
 		ShowSplitPopupForDrop(Operation->InstanceId, TargetPosition, InDragDropEvent.GetScreenSpacePosition());
@@ -526,9 +934,31 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	UInventoryComponent* RequestSender = OwningInventory != nullptr ? OwningInventory : BoundInventory;
 	if (Operation->SourceEquipment != nullptr)
 	{
-		RequestSender->Server_UnequipItem(Operation->SourceEquipment, Operation->SourceSlot, TargetPosition);
+		RequestSender->Server_UnequipItemTo(Operation->SourceEquipment, Operation->SourceSlot, BoundInventory, TargetPosition);
+		RefocusAfterDrop();
+
 		return true;
 	}
+
+	const int32 TargetEntryIndex = BoundInventory->GetEntryIndexAt(TargetPosition);
+	if (TargetEntryIndex != INDEX_NONE)
+	{
+		const FGuid TargetInstanceId = BoundInventory->GetEntries()[TargetEntryIndex].Item.InstanceId;
+		if (TargetInstanceId != Operation->InstanceId)
+		{
+			if (Operation->SourceInventory == BoundInventory)
+			{
+				BoundInventory->Server_MergeStack(Operation->InstanceId, TargetInstanceId);
+			}
+			else
+			{
+				BoundInventory->Server_MergeStackFrom(Operation->SourceInventory, Operation->InstanceId, TargetInstanceId);
+			}
+			RefocusAfterDrop();
+			return true;
+		}
+	}
+
 	if (Operation->SourceInventory == BoundInventory)
 	{
 		if (BoundInventory == RequestSender)
@@ -539,6 +969,7 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 		{
 			RequestSender->Server_MoveItemIn(BoundInventory, Operation->InstanceId, TargetPosition);
 		}
+		RefocusAfterDrop();
 		return true;
 	}
 	if (Operation->SourceInventory == RequestSender)
@@ -549,5 +980,6 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	{
 		RequestSender->Server_TransferItemFrom(Operation->SourceInventory, Operation->InstanceId, TargetPosition);
 	}
+	RefocusAfterDrop();
 	return true;
 }

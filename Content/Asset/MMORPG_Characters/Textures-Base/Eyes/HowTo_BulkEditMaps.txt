@@ -1,0 +1,18 @@
+Let's say, you need these eye maps to be baked with a specific pupil. 
+
+Works with Windows, Mac, Linux:
+1. Install Mogrify Command-line tools: https://imagemagick.org/script/mogrify.php
+2. Copy the BaseColors & the PupilSample to a new folder
+3. The BaseColor maps 31 - 36 contain a baked round pupil, so you can skip these.
+4. Open the folder location in Powershell (or any preffered Command-line)
+5. Copy & Paste this command:
+
+magick mogrify -draw 'image Over 0,0 0,0 T_EYES_PupilSample.png' *png
+
+
+
+6. It will run over all png files in the folder and bake the T_EYES_PupilSample.png into them
+
+
+This is a suggested method of bulk map editing. In order to work with the models, it is not required to follow these instructions.
+You could also use the T_EYES_PupilAtlas.png. However, a texture atlas has to be handled accordingly - by a tile selector & overlay over the BaseColor. For technical support, please contact me at idafaber3d@gmail.com

@@ -2,6 +2,7 @@
 #include "Engine/DataTable.h"
 #include "Net/UnrealNetwork.h"
 #include "EquipmentComponent.h"
+#include "Item/ItemBase.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -28,8 +29,6 @@ void UInventoryComponent::BeginPlay()
 
 void UInventoryComponent::OnRep_Entries()
 {
-
-	UE_LOG(LogTemp, Log, TEXT("OnRep_Entries: %d entries"), Entries.Num());
 	RebuildCache();
 	OnInventoryChanged.Broadcast();
 }
@@ -77,6 +76,74 @@ int32 UInventoryComponent::FindEntryIndexById(FGuid InInstanceId) const
 	}
 
 	return INDEX_NONE;
+}
+
+int32 UInventoryComponent::GetTotalGold(FName InGoldRowName) const
+{
+	int32 Total = 0;
+
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		if (Entry.Item.ItemRow.RowName == InGoldRowName)
+		{
+			Total += Entry.Item.StackCount;
+		}
+	}
+
+	return Total;
+}
+
+bool UInventoryComponent::ConsumeGold(const FDataTableRowHandle& InGoldRow, int32 InAmount)
+{
+	if (GetOwnerRole() != ROLE_Authority || InAmount <= 0)
+	{
+		return false;
+	}
+
+	if (GetTotalGold(InGoldRow.RowName) < InAmount)
+	{
+		return false;
+	}
+
+	int32 Remaining = InAmount;
+
+	for (int32 Index = Entries.Num() - 1; Index >= 0 && Remaining > 0; --Index)
+	{
+		if (Entries[Index].Item.ItemRow.RowName != InGoldRow.RowName)
+		{
+			continue;
+		}
+
+		const int32 Consumed = FMath::Min(Entries[Index].Item.StackCount, Remaining);
+		Entries[Index].Item.StackCount -= Consumed;
+		Remaining -= Consumed;
+
+		if (Entries[Index].Item.StackCount <= 0)
+		{
+			Entries.RemoveAt(Index);
+		}
+	}
+
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+
+bool UInventoryComponent::AddGold(const FDataTableRowHandle& InGoldRow, int32 InAmount)
+{
+	if (GetOwnerRole() != ROLE_Authority || InAmount <= 0)
+	{
+		return false;
+	}
+
+	FItemInstance GoldItem;
+	GoldItem.ItemRow = InGoldRow;
+	GoldItem.InstanceId = FGuid::NewGuid();
+	GoldItem.StackCount = InAmount;
+
+	int32 Remainder = 0;
+	return TryAddItem(GoldItem, Remainder);
 }
 
 bool UInventoryComponent::GetEntrySize(const FItemInstance& InItem, FIntPoint& OutSize) const
@@ -487,6 +554,217 @@ bool UInventoryComponent::TransferItemFromAuto(UInventoryComponent* InSource, FG
 
 	return true;
 }
+bool UInventoryComponent::MergeStack(FGuid InSourceId, FGuid InTargetId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (InSourceId == InTargetId)
+	{
+		return false;
+	}
+
+	const int32 SourceIndex = FindEntryIndexById(InSourceId);
+	const int32 TargetIndex = FindEntryIndexById(InTargetId);
+
+	if (SourceIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	FItemInstance& SourceItem = Entries[SourceIndex].Item;
+	FItemInstance& TargetItem = Entries[TargetIndex].Item;
+
+	if (SourceItem.ItemRow.RowName != TargetItem.ItemRow.RowName
+		|| SourceItem.ItemRow.DataTable != TargetItem.ItemRow.DataTable)
+	{
+		return false;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(SourceItem.ItemRow, ViewData) || !ViewData.IsStackable())
+	{
+		return false;
+	}
+
+	const int32 Space = ViewData.MaxStack - TargetItem.StackCount;
+	if (Space <= 0)
+	{
+		return false;
+	}
+
+	const int32 Moved = FMath::Min(Space, SourceItem.StackCount);
+	TargetItem.StackCount += Moved;
+	SourceItem.StackCount -= Moved;
+
+	if (SourceItem.StackCount <= 0)
+	{
+		Entries.RemoveAt(SourceIndex);
+	}
+
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+
+bool UInventoryComponent::MergeStackFrom(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (InSource == nullptr)
+	{
+		return false;
+	}
+
+	if (InSource == this)
+	{
+		return MergeStack(InSourceId, InTargetId);
+	}
+
+	const int32 SourceIndex = InSource->FindEntryIndexById(InSourceId);
+	const int32 TargetIndex = FindEntryIndexById(InTargetId);
+
+	if (SourceIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+	FItemInstance& TargetItem = Entries[TargetIndex].Item;
+
+	if (SourceItem.ItemRow.RowName != TargetItem.ItemRow.RowName
+		|| SourceItem.ItemRow.DataTable != TargetItem.ItemRow.DataTable)
+	{
+		return false;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(SourceItem.ItemRow, ViewData) || !ViewData.IsStackable())
+	{
+		return false;
+	}
+
+	const int32 Space = ViewData.MaxStack - TargetItem.StackCount;
+	if (Space <= 0)
+	{
+		return false;
+	}
+
+	const int32 Moved = FMath::Min(Space, SourceItem.StackCount);
+	TargetItem.StackCount += Moved;
+
+	if (Moved >= SourceItem.StackCount)
+	{
+		FItemInstance Removed;
+		InSource->RemoveItem(InSourceId, Removed);
+	}
+	else
+	{
+		InSource->RemoveStackCount(InSourceId, Moved);
+	}
+
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+bool UInventoryComponent::DropItem(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FDataTableRowHandle ItemRow = Entries[EntryIndex].Item.ItemRow;
+
+	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
+	{
+		return false;
+	}
+
+	const UScriptStruct* RowStruct = ItemRow.DataTable->GetRowStruct();
+	if (RowStruct == nullptr)
+	{
+		return false;
+	}
+
+	EItemSourceTable SourceTable = EItemSourceTable::Item;
+	if (RowStruct == FWeaponData::StaticStruct())
+	{
+		SourceTable = EItemSourceTable::Weapon;
+	}
+	else if (RowStruct == FShieldData::StaticStruct())
+	{
+		SourceTable = EItemSourceTable::Shield;
+	}
+	else if (RowStruct != FItemData::StaticStruct())
+	{
+		return false;
+	}
+
+	AActor* OwnerActor = GetOwner();
+	UWorld* World = GetWorld();
+	if (OwnerActor == nullptr || World == nullptr)
+	{
+		return false;
+	}
+
+	TSubclassOf<AItemBase> ClassToSpawn = AItemBase::StaticClass();
+	if (DropItemClass != nullptr)
+	{
+		ClassToSpawn = DropItemClass;
+	}
+
+	const FVector ForwardOffset = OwnerActor->GetActorForwardVector() * 200.f;
+	const FVector UpOffset = FVector(0.f, 0.f, 50.f);
+	const FVector SpawnLocation = OwnerActor->GetActorLocation() + ForwardOffset + UpOffset;
+	const FTransform SpawnTransform(FRotator::ZeroRotator, SpawnLocation);
+
+	AItemBase* NewItemActor = World->SpawnActorDeferred<AItemBase>(ClassToSpawn, SpawnTransform);
+	if (NewItemActor == nullptr)
+	{
+		return false;
+	}
+
+	NewItemActor->ItemID = ItemRow.RowName;
+	NewItemActor->SourceTable = SourceTable;
+
+	UDataTable* MutableDataTable = const_cast<UDataTable*>(ItemRow.DataTable.Get());
+
+	switch (SourceTable)
+	{
+	case EItemSourceTable::Weapon:
+		NewItemActor->WeaponDataTable = MutableDataTable;
+		break;
+	case EItemSourceTable::Shield:
+		NewItemActor->ShieldDataTable = MutableDataTable;
+		break;
+	case EItemSourceTable::Item:
+	default:
+		NewItemActor->ItemDataTable = MutableDataTable;
+		break;
+	}
+
+	NewItemActor->FinishSpawning(SpawnTransform);
+
+	FItemInstance RemovedItem;
+	RemoveItem(InInstanceId, RemovedItem);
+
+	return true;
+}
+
 void UInventoryComponent::ClearAll()
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -672,6 +950,105 @@ void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryC
 	{
 		return;
 	}
-
 	TransferItemFromAuto(InSource, InInstanceId);
+}
+
+void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition)
+{
+	if (InEquipment == nullptr || InTarget == nullptr)
+	{
+		return;
+	}
+	InEquipment->UnequipToInventoryAt(InSlot, InTarget, InTargetPosition);
+}
+
+void UInventoryComponent::Server_UseItem_Implementation(FGuid InInstanceId)
+{
+	UseItem(InInstanceId);
+}
+
+void UInventoryComponent::Server_SplitStack_Implementation(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	const int32 SourceIndex = FindEntryIndexById(InInstanceId);
+	if (SourceIndex == INDEX_NONE)
+	{
+		return;
+	}
+
+	if (InQuantity <= 0 || InQuantity >= Entries[SourceIndex].Item.StackCount)
+	{
+		return;
+	}
+
+	FItemInstance NewItem = Entries[SourceIndex].Item;
+	NewItem.InstanceId = FGuid::NewGuid();
+	NewItem.StackCount = InQuantity;
+
+	FIntPoint FinalPosition = InTargetPosition;
+
+	// 유효하지 않은 좌표(예: 우클릭 메뉴에서 온 요청)면 빈 칸을 자동으로 찾음
+	if (InTargetPosition.X < 0 || InTargetPosition.Y < 0)
+	{
+		FIntPoint Size;
+		if (!GetEntrySize(NewItem, Size))
+		{
+			return;
+		}
+
+		if (!FindFirstFreeSlot(Size, FinalPosition, SourceIndex))
+		{
+			return;
+		}
+	}
+
+	if (!TryAddItemAt(NewItem, FinalPosition))
+	{
+		return;
+	}
+
+	if (!RemoveStackCount(InInstanceId, InQuantity))
+	{
+		FItemInstance Removed;
+		RemoveItem(NewItem.InstanceId, Removed);
+	}
+}
+void UInventoryComponent::Server_MergeStack_Implementation(FGuid InSourceId, FGuid InTargetId)
+{
+	MergeStack(InSourceId, InTargetId);
+}
+
+void UInventoryComponent::Server_MergeStackFrom_Implementation(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId)
+{
+	if (InSource == nullptr)
+	{
+		return;
+	}
+	MergeStackFrom(InSource, InSourceId, InTargetId);
+}
+void UInventoryComponent::Server_DropItem_Implementation(FGuid InInstanceId)
+{
+	DropItem(InInstanceId);
+}
+
+void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)
+{
+	Width = FMath::Max(1, InWidth);
+	Height = FMath::Max(1, InHeight);
+}
+
+void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	Entries = InEntries;
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
 }

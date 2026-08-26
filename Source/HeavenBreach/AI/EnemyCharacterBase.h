@@ -6,15 +6,17 @@
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
 #include "Combat/Interface/DamageableInterface.h"
+#include "Interaction/InteractableInterface.h"
 #include "EnemyCharacterBase.generated.h"
 
 class UEnemyAbilitySystemComponent;
 class UEnemyAttributeSetBase;
 class UEnemyArchetypeData;
 class UGameplayEffect;
+class ULootComponent;
 
 UCLASS()
-class HEAVENBREACH_API AEnemyCharacterBase : public ACharacter, public IAbilitySystemInterface, public IDamageableInterface
+class HEAVENBREACH_API AEnemyCharacterBase : public ACharacter, public IAbilitySystemInterface, public IDamageableInterface, public IInteractableInterface
 {
 	GENERATED_BODY()
 
@@ -22,6 +24,7 @@ public:
 	// Sets default values for this character's properties
 	AEnemyCharacterBase();
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	// ----- IDamageableInterface -----
 	virtual bool CanBeDamaged_Implementation(AActor* InstigatorActor) const override;
@@ -35,18 +38,28 @@ public:
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 	// ----------
 
+	//~ Begin IInteractableInterface
+	virtual bool CanInteract_Implementation(AActor* Interactor) const override;
+	virtual void Interact_Implementation(AActor* Interactor) override;
+	virtual FText GetInteractPrompt_Implementation() const override;
+	//~ End IInteractableInterface
+
 	// true = 달리기, false = 걷기
 	UFUNCTION(BlueprintCallable, Category = "AI")
 	void SetMoveSpeed(bool bRun);
 
 	// setter
-	void SetWalkSpeed(float InWalkSpeed) { WalkSpeed = InWalkSpeed; }
-	void SetRunSpeed(float InRunSpeed) { RunSpeed = InRunSpeed; }
+	void SetWalkSpeed(float InWalkSpeed) { WalkSpeed = InWalkSpeed; RefreshMoveSpeed(); }
+	void SetRunSpeed(float InRunSpeed) { RunSpeed = InRunSpeed; RefreshMoveSpeed(); }
 	void SetAccRadius(float InAcceptanceRadius) { AcceptanceRadius = InAcceptanceRadius; }
+
+	UFUNCTION(BlueprintCallable)
+	void BecomeDead();
 
 	// getter
 	const UEnemyArchetypeData* GetArchetypeData() const { return ArchetypeData; }
 	UEnemyAbilitySystemComponent* GetEnemyASC() { return AbilitySystemComp; }
+	bool IsDead() const { return bDead; }
 
 protected:
 	// Called when the game starts or when spawned
@@ -64,9 +77,17 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "GAS")
 	TObjectPtr<UEnemyAbilitySystemComponent> AbilitySystemComp;
 
+	// 적 인벤토리
+	UPROPERTY(EditDefaultsOnly, Category = "AI")
+	TObjectPtr<ULootComponent> LootComponent;
+
 	// GAS 스텟
 	UPROPERTY()
 	TObjectPtr<UEnemyAttributeSetBase> AttributeSet;
+
+	// 뼈대 별로 데미지 배율. 여기에 없다면 1배
+	UPROPERTY(EditDefaultsOnly, Category = "AI")
+	TMap<FName, float> BoneDamageMultipliers;
 
 	// 걷는 속도
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Movement", meta = (ClampMin = "0.0"))
@@ -77,6 +98,26 @@ protected:
 	// 목적지까지 도달 허용 범위
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Movement", meta = (ClampMin = "0.0"))
 	float AcceptanceRadius = 100.f;
+	// 받아온 이동속도 배율 값
+	UPROPERTY(BlueprintReadOnly, Category = "AI|Movement")
+	float CachedSpeedRate = 1.f;
+
+	// 사망 확인
+	UPROPERTY(ReplicatedUsing = OnRep_Dead, VisibleAnywhere, BlueprintReadOnly)
+	bool bDead = false;
+
+	// 달리기 확인
+	bool bRunning = false;
+
+	// 사망변수가 변경되면 해야할것들
+	UFUNCTION()
+	void OnRep_Dead();
+
+	// 이동속도 변경 적용
+	void RefreshMoveSpeed();
+
+	// GAS에서 이동속도 변경 시 연결된 함수
+	void OnMoveSpeedRateChanged(const struct FOnAttributeChangeData& Data);
 
 public:	
 	// Called every frame

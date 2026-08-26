@@ -15,6 +15,7 @@
 #include "AI/DataRow/EnemyArchetypeData.h"
 #include "Components/StateTreeAIComponent.h"
 #include "AI/GAS/EnemyAbilitySystemComponent.h"
+#include "core/Tag/Ability/HB_AbilityTag.h"
 
 DEFINE_LOG_CATEGORY(LogEnemyAI);
 
@@ -143,6 +144,29 @@ float AEnemyAIControllerBase::GetAttackRange() const
 	return CachedArchetype ? CachedArchetype->GetStats().AttackRange : 200.f;
 }
 
+float AEnemyAIControllerBase::GetTurnSpeed() const
+{
+	return CachedArchetype ? CachedArchetype->GetStats().TurnSpeed : 360.f;
+}
+
+bool AEnemyAIControllerBase::HasRangedAttack() const
+{
+	AEnemyCharacterBase* Char = Cast<AEnemyCharacterBase>(GetPawn());
+	if (!Char)
+	{
+		return false;
+	}
+
+	// ASC에 원거리 공격 태그를 가진 어빌리티가 있나 확인한다.
+	UEnemyAbilitySystemComponent* ASC = Char->GetEnemyASC();
+	if (ASC && ASC->HasAbilityByTag(AbilityTag::TAG_Ability_Offensive_Ranged))
+	{
+		return true;
+	}
+
+	return false;
+}
+
 void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 {
 	const UEnemyArchetypeData* Data = Char ? Char->GetArchetypeData() : nullptr;
@@ -174,7 +198,7 @@ void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 
 		if (UEnemyAbilitySystemComponent* ASC = Char->GetEnemyASC())
 		{
-			ASC->InitStats(S.MaxHealth, S.AttackPower);
+			ASC->InitStats(S.MaxHealth, S.AttackPower,S.AttackSpeedRate);
 			ASC->SetupAbilities(Data->Abilities);
 		}
 

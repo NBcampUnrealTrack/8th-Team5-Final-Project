@@ -6,6 +6,7 @@
 #include "Abilities/GameplayAbility.h"
 #include "AI/GAS/EnemyAttributeSetBase.h"
 #include "AI/Enum/EAlertState.h"
+#include "AI/GAS/EnemyMontageGABase.h"
 
 //void UEnemyAbilitySystemComponent::ApplyInitStats(TSubclassOf<UGameplayEffect> InitEffect, float InMaxHP)
 //{
@@ -32,7 +33,7 @@
 //
 //}
 
-void UEnemyAbilitySystemComponent::InitStats(float InMaxHP, float InAttackPower)
+void UEnemyAbilitySystemComponent::InitStats(float InMaxHP, float InAttackPower, float InAttackSpeedRate)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority())
@@ -44,6 +45,7 @@ void UEnemyAbilitySystemComponent::InitStats(float InMaxHP, float InAttackPower)
 	SetNumericAttributeBase(UEnemyAttributeSetBase::GetMaxHPAttribute(), InMaxHP);
 	SetNumericAttributeBase(UEnemyAttributeSetBase::GetHPAttribute(), InMaxHP);
 	SetNumericAttributeBase(UEnemyAttributeSetBase::GetAttackPowerAttribute(), InAttackPower);
+	SetNumericAttributeBase(UEnemyAttributeSetBase::GetAttackSpeedRateAttribute(), InAttackSpeedRate);
 }
 
 void UEnemyAbilitySystemComponent::SetupAbilities(const TArray<TSubclassOf<UGameplayAbility>>& InAbilities)
@@ -72,7 +74,87 @@ void UEnemyAbilitySystemComponent::SetupAbilities(const TArray<TSubclassOf<UGame
 	UE_LOG(LogEnemyAI, Log, TEXT("[GAS] %s 어빌리티 %d개 부여"), *GetNameSafe(Owner), InAbilities.Num());
 }
 
-bool UEnemyAbilitySystemComponent::IsAbilityActiveByTag(FGameplayTag AbilityTag) const
+bool UEnemyAbilitySystemComponent::TryActivateWeightedAbilityByTag(FGameplayTag AbilityTag, float DistanceToTarget)
+{
+	if (!AbilityTag.IsValid())
+	{
+		return false;
+	}
+
+	TArray<FGameplayAbilitySpec> AbilityList;
+	float TotalWeighte = 0;
+
+	// 활성화된 어빌리티 목록을 뒤진다
+	for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
+	{
+		if (!Spec.Ability)
+		{
+			continue;
+		}
+
+		// 발동이 가능한 올바른태그의 어빌리티인지 확인
+		if (!Spec.Ability->GetAssetTags().HasTag(AbilityTag))
+		{
+			continue;
+		}
+
+		// 가중치 값을 찾기위해 EnemyMontageGA로 캐스팅
+		UEnemyMontageGABase* MontageGA = Cast<UEnemyMontageGABase>(Spec.Ability);
+		if (!MontageGA)
+		{
+			continue;
+		}
+
+		// 쿨타임, 차단태그등 발동이 가능한 어빌리티인지 확인
+		if (!MontageGA->CanActivateAbility(Spec.Handle, AbilityActorInfo.Get()))
+		{
+			continue;
+		}
+
+		// 거리확인
+		if (!MontageGA->IsRange(DistanceToTarget))
+		{
+			continue;
+		}
+
+		// 사용가능한 어빌리티로 리스트에 넣는다.
+		AbilityList.Add(Spec);
+		TotalWeighte += MontageGA->GetSelectionWeight();
+	}
+
+	// 발동할 후보들이 없다...
+	if (AbilityList.IsEmpty())
+	{
+		return false;
+	}
+
+	//가중치 총합 값으로 랜덤을 돌린다.
+	float Roll = FMath::FRandRange(0.f, TotalWeighte);
+
+	FGameplayAbilitySpecHandle Picked;
+
+	float CurrentWeight = 0;
+	// 가중치 범위의 어빌리티를 찾아서 발동시킨다.
+	for (FGameplayAbilitySpec& Spec : AbilityList)
+	{
+		float AbilityWeight = Cast<UEnemyMontageGABase>(Spec.Ability)->GetSelectionWeight();
+
+		CurrentWeight += AbilityWeight;
+
+		// 누적치가 랜덤값을 넘어가면 해당 어빌리티가 실행된다.
+		if (Roll <= CurrentWeight)
+		{
+			Picked = Spec.Handle;
+			break;
+		}
+	}
+
+	// 해당 어빌리티 실행.
+	// 제대로 실행됨 : true, 안됨 : false
+	return TryActivateAbility(Picked);
+}
+
+bool UEnemyAbilitySystemComponent::IsAbilityActiveByTag(FGameplayTag AbilityTag)
 {
 	if (!AbilityTag.IsValid())
 	{
@@ -89,6 +171,20 @@ bool UEnemyAbilitySystemComponent::IsAbilityActiveByTag(FGameplayTag AbilityTag)
 
 		// 해당 에셋태그를 사용하는 어빌리티가 존재하며 활성화중인지 확인
 		if (Spec.Ability->GetAssetTags().HasTag(AbilityTag) && Spec.IsActive())
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool UEnemyAbilitySystemComponent::HasAbilityByTag(FGameplayTag AbilityTag)
+{
+	for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
+	{
+		// 어빌리티에 찾고자하는 assetTag가 있나 확인
+		if (Spec.Ability && Spec.Ability->GetAssetTags().HasTag(AbilityTag))
 		{
 			return true;
 		}
