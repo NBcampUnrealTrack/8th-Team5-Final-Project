@@ -10,6 +10,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUsed, FName, ItemId, float, 
 
 class UDataTable;
 class UEquipmentComponent;
+class AItemBase;
 
 UCLASS(ClassGroup = (Inventory), meta = (BlueprintSpawnableComponent))
 class HEAVENBREACH_API UInventoryComponent : public UActorComponent
@@ -71,6 +72,12 @@ public:
 
 	bool TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
 
+	bool MergeStack(FGuid InSourceId, FGuid InTargetId);
+
+	bool MergeStackFrom(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId);
+
+	bool DropItem(FGuid InInstanceId);
+
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ClearAll();
 
@@ -125,6 +132,16 @@ public:
 	UFUNCTION(Server, Reliable)
 	void Server_SplitStack(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition);
 
+	UFUNCTION(Server, Reliable)
+	void Server_MergeStack(FGuid InSourceId, FGuid InTargetId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_MergeStackFrom(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_DropItem(FGuid InInstanceId);
+
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -158,6 +175,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Inventory|Debug")
 	TObjectPtr<UDataTable> DebugItemTable;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Drop")
+	TSubclassOf<AItemBase> DropItemClass;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Entries)
 	TArray<FInventoryEntry> Entries;
