@@ -7,6 +7,7 @@
 #include "OnlineSessionSettings.h"
 #include "Online/OnlineSessionNames.h"
 #include "Engine/Engine.h"
+#include "Interfaces/OnlineIdentityInterface.h"
 
 namespace HBOnline
 {
@@ -114,6 +115,18 @@ void UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
 		FName(TEXT("HB_LOBBY")),
 		FString(TEXT("1")),
 		EOnlineDataAdvertisementType::ViaOnlineServiceAndPing
+		);
+	
+	LobbySettings->Set(
+		HBOnline::MatchReadyKey,
+		false,
+		EOnlineDataAdvertisementType::ViaOnlineService
+		);
+	
+	LobbySettings->Set(
+		HBOnline::MatchServerKey,
+		FString(),
+		EOnlineDataAdvertisementType::ViaOnlineService
 		);
 	
 	const FOnCreateSessionCompleteDelegate Delegate = 
@@ -504,6 +517,61 @@ void UHBOnlineSessionSubsystem::ConnectToPublishMatchServer()
 
 void UHBOnlineSessionSubsystem::StartMatchAsLobbyOwner(const FString& ServerAddress)
 {
+	FNamedOnlineSession* LobbySession =
+	SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
+
+	if (LobbySession == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Start failed: Party Lobby does not exist")
+		);
+
+		return;
+	}
+	
+	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
+
+	if (OnlineSubsystem == nullptr)
+	{
+		return;
+	}
+
+	IOnlineIdentityPtr IdentityInterface =
+		OnlineSubsystem->GetIdentityInterface();
+
+	if (!IdentityInterface.IsValid())
+	{
+		return;
+	}
+
+	TSharedPtr<const FUniqueNetId> LocalUserId =
+		IdentityInterface->GetUniquePlayerId(0);
+
+	if (!LocalUserId.IsValid() ||
+		!LobbySession->OwningUserId.IsValid())
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Start failed: User ID unavailable")
+		);
+
+		return;
+	}
+	
+	if (*LocalUserId != *LobbySession->OwningUserId)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Match | Start rejected: Local user is not Lobby Owner")
+		);
+
+		return;
+	}
+	
 	if (ServerAddress.IsEmpty())
 	{
 		UE_LOG(
@@ -876,6 +944,12 @@ void UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated(FName InSessionName
 	}
 
 	bool bMatchReady = false;
+	
+	if (!bMatchReady)
+	{
+		bMatchTravelRequested = false;
+		return;
+	}
 
 	if (!InSessionSettings.Get(
 			HBOnline::MatchReadyKey,
