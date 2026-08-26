@@ -14,6 +14,8 @@ class UInventoryCellWidget;
 class UInventoryItemWidget;
 class UShopComponent;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
+
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UUserWidget
 {
@@ -56,6 +58,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ScrollRows(int32 InDelta);
 
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	float GetScrollRatio() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetScrollByRatio(float InRatio);
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsScrollable() const;
 protected:
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
@@ -91,6 +101,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UEquipmentWidget> EquipmentPanel;
+
+	UPROPERTY(BlueprintAssignable, Category = "Inventory")
+	FOnScrollChanged OnScrollChanged;
 
 private:
 	void BuildBackground();

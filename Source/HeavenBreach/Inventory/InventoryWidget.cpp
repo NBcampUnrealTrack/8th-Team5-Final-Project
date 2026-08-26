@@ -73,6 +73,46 @@ void UInventoryWidget::ScrollRows(int32 InDelta)
 	ScrollOffsetRow = NewOffset;
 
 	RefreshGrid();
+
+	OnScrollChanged.Broadcast();
+}
+
+float UInventoryWidget::GetScrollRatio() const
+{
+	const int32 MaxRow = GetMaxScrollRow();
+
+	if (MaxRow <= 0)
+	{
+		return 0.0f;
+	}
+
+	return 1.0f - static_cast<float>(ScrollOffsetRow) / static_cast<float>(MaxRow);
+}
+
+void UInventoryWidget::SetScrollByRatio(float InRatio)
+{
+	const int32 MaxRow = GetMaxScrollRow();
+
+	if (MaxRow <= 0)
+	{
+		return;
+	}
+
+	const int32 NewOffset = FMath::Clamp(FMath::RoundToInt((1.0f - InRatio) * MaxRow), 0, MaxRow);
+
+	if (NewOffset == ScrollOffsetRow)
+	{
+		return;
+	}
+
+	ScrollOffsetRow = NewOffset;
+
+	RefreshGrid();
+}
+
+bool UInventoryWidget::IsScrollable() const
+{
+	return GetMaxScrollRow() > 0;
 }
 
 void UInventoryWidget::NativeDestruct()
