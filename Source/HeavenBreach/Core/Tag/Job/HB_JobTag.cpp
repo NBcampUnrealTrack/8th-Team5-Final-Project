@@ -2,7 +2,7 @@
 
 namespace JobTag
 {
-	// 아래와 같은 형식으로 정의
-	// UE_DEFINE_GAMEPLAY_TAG(TAG_Team_Player,"Team.Player")
-	// UE_DEFINE_GAMEPLAY_TAG(TAG_Team_Enemy,"Team.Enemy")
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Job_Warrior, "Job.Warrior");
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Job_Archer, "Job.Archer");
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Job_Mage, "Job.Mage");
 }
