@@ -783,13 +783,13 @@ bool UInventoryWidget::HandleQuickSlotRegister(int32 InSlotIndex)
 	}
 
 	const FVector2D CursorScreenPosition = FSlateApplication::Get().GetCursorPos();
-	FIntPoint HoveredCell;
-	if (!ScreenToCell(CursorScreenPosition, HoveredCell))
+	FIntPoint CursorCell;
+	if (!ScreenToCell(CursorScreenPosition, CursorCell))
 	{
 		return false;
 	}
 
-	const int32 EntryIndex = BoundInventory->GetEntryIndexAt(HoveredCell);
+	const int32 EntryIndex = BoundInventory->GetEntryIndexAt(CursorCell);
 	if (EntryIndex == INDEX_NONE)
 	{
 		return false;
