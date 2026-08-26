@@ -15,6 +15,8 @@ class UInventoryCellWidget;
 class UInventoryItemWidget;
 class UShopComponent;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
+
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UUserWidget
 {
@@ -54,6 +56,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetShopComponent(UShopComponent* InShop);
 
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void ScrollRows(int32 InDelta);
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	float GetScrollRatio() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetScrollByRatio(float InRatio);
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsScrollable() const;
 protected:
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
@@ -62,6 +75,7 @@ protected:
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseWheel(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 	virtual bool NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
@@ -77,6 +91,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	float CellSize = 64.0f;
 
+	UPROPERTY(EditAnywhere, Category = "Inventory")
+	int32 VisibleRows = 0;
+
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Widget")
 	TSubclassOf<UInventoryCellWidget> InventoryCellWidgetClass;
 
@@ -85,6 +102,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UEquipmentWidget> EquipmentPanel;
+
+	UPROPERTY(BlueprintAssignable, Category = "Inventory")
+	FOnScrollChanged OnScrollChanged;
 
 private:
 	void BuildBackground();
@@ -100,6 +120,10 @@ private:
 	void ClearHoveredCell();
 	bool UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation);
 	void ClearPlacementPreview();
+
+	int32 GetVisibleRowCount() const;
+	int32 GetMaxScrollRow() const;
+	int32 ScrollOffsetRow = 0;
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
