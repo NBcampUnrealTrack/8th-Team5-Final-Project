@@ -24,22 +24,34 @@ public:
 	void JoinLobby(int32 InSearchResultIndex);
 	void LeaveLobby();
 	
+	void PublishMatchServer(const FString& ServerAddress);
+	void ConnectToMatchServer(const FString& ServerAddress);
+	void ConnectToPublishMatchServer();
+	
+	void StartMatchAsLobbyOwner(const FString& ServerAddress);
+	
 private:
 	void HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful);
-	
 	void HandleFindLobbiesComplete(bool bWasSuccessful);
-	
 	void HandleJoinLobbyComplete(
 		FName InSessionName,
 		EOnJoinSessionCompleteResult::Type InResult
 		);
-	
 	void HandleLeaveLobbyComplete(
 		FName InSessionName,
 		bool bWasSuccessful
 		);
+	void HandleUpdateLobbyComplete(FName InSessionName, bool bWasSuccessful);
+	void HandleSessionSettingsUpdated(
+		FName InSessionName, 
+		const FOnlineSessionSettings& InSessionSettings);
 	
 	IOnlineSessionPtr SessionInterface;
+	
+	FString PendingMatchServerAddress;
+	bool bConnectAfterLobbyUpdate = false;
+	
+	bool bMatchTravelRequested = false;
 	
 	TSharedPtr<FOnlineSessionSettings> LobbySettings;
 	TSharedPtr<FOnlineSessionSearch> LobbySearch;
@@ -48,4 +60,6 @@ private:
 	FDelegateHandle FindLobbiesCompleteDelegateHandle;
 	FDelegateHandle JoinLobbyCompleteDelegateHandle;
 	FDelegateHandle LeaveLobbyCompleteDelegateHandle;
+	FDelegateHandle UpdateLobbyCompleteDelegateHandle;
+	FDelegateHandle SessionSettingsUpdatedDelegateHandle;
 };

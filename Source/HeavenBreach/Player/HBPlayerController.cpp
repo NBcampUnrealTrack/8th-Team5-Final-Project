@@ -133,6 +133,7 @@ void AHBPlayerController::SetupInputComponent()
 	}
 }
 
+/////////// Lobby Test /////////////////////////
 void AHBPlayerController::TestCreateSteamLobby()
 {
 	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
@@ -181,7 +182,45 @@ void AHBPlayerController::TestLeaveSteamLobby()
 		OnlineSessionSubsystem->LeaveLobby();
 	}
 }
-	
+
+void AHBPlayerController::TestConnectMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->ConnectToMatchServer(TEXT("127.0.0.1:17777"));
+	}
+}
+
+void AHBPlayerController::TestPublishMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->PublishMatchServer(TEXT("127.0.0.1:17777"));
+	}
+}
+
+void AHBPlayerController::TestConnectPublishdMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->ConnectToPublishMatchServer();
+	}
+}
+
+void AHBPlayerController::TestStartMatch()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->StartMatchAsLobbyOwner(TEXT("127.0.0.1:17777"));
+	}
+}
+
+//////////////////////////////////////////////
+
 void AHBPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);

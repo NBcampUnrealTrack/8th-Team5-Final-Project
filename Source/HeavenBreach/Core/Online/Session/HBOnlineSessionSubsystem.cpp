@@ -11,6 +11,9 @@
 namespace HBOnline
 {
 	const FName PartyLobbySessionName(TEXT("HBPartyLobbySession"));
+	
+	const FName MatchServerKey(TEXT("HB_MATCH_SERVER"));
+	const FName MatchReadyKey(TEXT("HB_MATCH_READY"));
 }
 
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -49,6 +52,13 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		return;
 	}
 	
+	SessionSettingsUpdatedDelegateHandle = 
+		SessionInterface->AddOnSessionSettingsUpdatedDelegate_Handle(
+			FOnSessionSettingsUpdatedDelegate::CreateUObject(
+				this,
+				&UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated)
+				);
+	
 	UE_LOG(
 		LogTemp,
 		Log,
@@ -58,6 +68,15 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UHBOnlineSessionSubsystem::Deinitialize()
 {
+	if (SessionInterface.IsValid() && SessionSettingsUpdatedDelegateHandle.IsValid())
+	{
+		SessionInterface->ClearOnSessionSettingsUpdatedDelegate_Handle(
+			SessionSettingsUpdatedDelegateHandle
+			);
+	}
+	
+	SessionSettingsUpdatedDelegateHandle.Reset();
+	
 	SessionInterface.Reset();
 	
 	Super::Deinitialize();
@@ -344,6 +363,253 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 		);
 }
 
+void UHBOnlineSessionSubsystem::ConnectToMatchServer(const FString& ServerAddress)
+{
+	if (ServerAddress.IsEmpty())
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Connect failed: ServerAddress is empty")
+			);
+		
+		return;
+	}
+	
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Connect failed: World unavailable")
+			);
+		
+		return;
+	}
+	
+	APlayerController* PlayerController = World->GetFirstPlayerController();
+	if (PlayerController == nullptr || !PlayerController->IsLocalController())
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Connect failed: Local PlayerController unavailable")
+			);
+		
+		return;
+	}
+	
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Match | Connecting to Dedicated Server: %s"),
+		*ServerAddress
+		);
+	
+	PlayerController->ClientTravel(
+		ServerAddress,
+		ETravelType::TRAVEL_Absolute
+		);
+}
+
+void UHBOnlineSessionSubsystem::ConnectToPublishMatchServer()
+{
+	if (!SessionInterface.IsValid())
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Connect published failed: SessionInterface invalid")
+		);
+
+		return;
+	}
+
+	FNamedOnlineSession* LobbySession =
+		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
+
+	if (LobbySession == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Connect published failed: Party Lobby does not exist")
+		);
+
+		return;
+	}
+
+	bool bMatchReady = false;
+
+	if (!LobbySession->SessionSettings.Get(
+			HBOnline::MatchReadyKey,
+			bMatchReady))
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Match | Connect published failed: MatchReady not found")
+		);
+
+		return;
+	}
+
+	if (!bMatchReady)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Match | Connect published failed: Match is not ready")
+		);
+
+		return;
+	}
+
+	FString ServerAddress;
+
+	if (!LobbySession->SessionSettings.Get(
+			HBOnline::MatchServerKey,
+			ServerAddress))
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Connect published failed: MatchServer not found")
+		);
+
+		return;
+	}
+
+	if (ServerAddress.IsEmpty())
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Connect published failed: MatchServer is empty")
+		);
+
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Match | Published server found: %s"),
+		*ServerAddress
+	);
+
+	ConnectToMatchServer(ServerAddress);
+}
+
+void UHBOnlineSessionSubsystem::StartMatchAsLobbyOwner(const FString& ServerAddress)
+{
+	if (ServerAddress.IsEmpty())
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Start failed: ServerAddress empty")
+		);
+
+		return;
+	}
+
+	PendingMatchServerAddress = ServerAddress;
+	bConnectAfterLobbyUpdate = true;
+
+	PublishMatchServer(ServerAddress);
+}
+
+void UHBOnlineSessionSubsystem::PublishMatchServer(const FString& ServerAddress)
+{
+	if (!SessionInterface.IsValid())
+    {
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("Online | Match | Publish failed: SessionInterface invalid")
+        );
+        return;
+    }
+
+    if (ServerAddress.IsEmpty())
+    {
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("Online | Match | Publish failed: ServerAddress empty")
+        );
+        return;
+    }
+
+    FNamedOnlineSession* LobbySession =
+        SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
+    if (LobbySession == nullptr)
+    {
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("Online | Match | Publish failed: Party Lobby does not exist")
+        );
+        return;
+    }
+
+    FOnlineSessionSettings UpdatedSettings = LobbySession->SessionSettings;
+
+    UpdatedSettings.Set(
+        HBOnline::MatchServerKey,
+        ServerAddress,
+        EOnlineDataAdvertisementType::ViaOnlineService
+    );
+
+    UpdatedSettings.Set(
+        HBOnline::MatchReadyKey,
+        true,
+        EOnlineDataAdvertisementType::ViaOnlineService
+    );
+
+    const FOnUpdateSessionCompleteDelegate UpdateCompleteDelegate =
+        FOnUpdateSessionCompleteDelegate::CreateUObject(
+            this,
+            &UHBOnlineSessionSubsystem::HandleUpdateLobbyComplete
+        );
+
+    UpdateLobbyCompleteDelegateHandle =
+        SessionInterface
+        ->AddOnUpdateSessionCompleteDelegate_Handle(UpdateCompleteDelegate);
+
+    const bool bRequestStarted =
+        SessionInterface->UpdateSession(
+            HBOnline::PartyLobbySessionName,
+            UpdatedSettings,
+            true
+        );
+
+    if (!bRequestStarted)
+    {
+        SessionInterface
+            ->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateLobbyCompleteDelegateHandle);
+
+        UpdateLobbyCompleteDelegateHandle.Reset();
+
+        UE_LOG(
+            LogTemp,
+            Error,
+            TEXT("Online | Match | Publish request failed")
+        );
+
+        return;
+    }
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("Online | Match | Publish requested | Server: %s"),
+        *ServerAddress
+    );
+}
+
 void UHBOnlineSessionSubsystem::HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful)
 {
 	if (SessionInterface.IsValid() && CreateLobbyCompleteDelegateHandle.IsValid())
@@ -539,4 +805,136 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 			);
 	}
 	
+}
+
+void UHBOnlineSessionSubsystem::HandleUpdateLobbyComplete(FName InSessionName, bool bWasSuccessful)
+{
+	if (SessionInterface.IsValid() && UpdateLobbyCompleteDelegateHandle.IsValid())
+	{
+		SessionInterface
+			->ClearOnUpdateSessionCompleteDelegate_Handle(
+				UpdateLobbyCompleteDelegateHandle
+			);
+	}
+
+	UpdateLobbyCompleteDelegateHandle.Reset();
+
+	if (!bWasSuccessful)
+	{
+		bConnectAfterLobbyUpdate = false;
+		PendingMatchServerAddress.Reset();
+
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Lobby update | Session: %s | Success: False"),
+			*InSessionName.ToString()
+		);
+
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Match | Lobby update | Session: %s | Success: True"),
+		*InSessionName.ToString()
+	);
+
+	if (!bConnectAfterLobbyUpdate)
+	{
+		return;
+	}
+
+	bConnectAfterLobbyUpdate = false;
+
+	const FString ServerAddress = PendingMatchServerAddress;
+	PendingMatchServerAddress.Reset();
+
+	if (ServerAddress.IsEmpty())
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Pending server address is empty")
+		);
+
+		return;
+	}
+
+	bMatchTravelRequested = true;
+
+	ConnectToMatchServer(ServerAddress);
+}
+
+void UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated(FName InSessionName,
+	const FOnlineSessionSettings& InSessionSettings)
+{
+	if (InSessionName != HBOnline::PartyLobbySessionName)
+	{
+		return;
+	}
+
+	bool bMatchReady = false;
+
+	if (!InSessionSettings.Get(
+			HBOnline::MatchReadyKey,
+			bMatchReady))
+	{
+		return;
+	}
+
+	if (!bMatchReady)
+	{
+		return;
+	}
+
+	FString ServerAddress;
+
+	if (!InSessionSettings.Get(
+			HBOnline::MatchServerKey,
+			ServerAddress))
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Lobby updated but server address does not exist")
+		);
+
+		return;
+	}
+
+	if (ServerAddress.IsEmpty())
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Lobby updated but server address is empty")
+		);
+
+		return;
+	}
+
+	/*
+	 * Lobby Owner는 UpdateSession 완료 후
+	 * HandleUpdateLobbyComplete()에서 직접 접속한다.
+	 *
+	 * SettingsUpdated가 Owner에게도 발생할 수 있으므로
+	 * 중복 ClientTravel을 방지한다.
+	 */
+	if (bConnectAfterLobbyUpdate || bMatchTravelRequested)
+	{
+		return;
+	}
+
+	bMatchTravelRequested = true;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Match | Match server received from Lobby | Server: %s"),
+		*ServerAddress
+	);
+
+	ConnectToMatchServer(ServerAddress);
 }

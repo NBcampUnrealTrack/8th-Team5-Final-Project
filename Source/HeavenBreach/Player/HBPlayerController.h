@@ -89,6 +89,18 @@ protected:
 	
 	UFUNCTION(Exec)
 	void TestLeaveSteamLobby();
+	
+	UFUNCTION(Exec)
+	void TestConnectMatchServer();
+	
+	UFUNCTION(Exec)
+	void TestPublishMatchServer();
+	
+	UFUNCTION(Exec)
+	void TestConnectPublishdMatchServer();
+	
+	UFUNCTION(Exec)
+	void TestStartMatch();
 	////////////////////////////////////
 
 
