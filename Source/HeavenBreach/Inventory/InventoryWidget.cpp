@@ -742,7 +742,7 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 				return;
 			}
 			UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
-			ActiveInfoPopup->SetupInfo(ViewData.DisplayName, TEXT(""),
+			ActiveInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, TEXT(""),
 				ViewData.bIsRelic, ViewData.BenefitDescription, ViewData.RiskDescription,
 				ViewData.SellValue, IconTexture);
 			ActiveInfoPopup->AddToViewport(100);
