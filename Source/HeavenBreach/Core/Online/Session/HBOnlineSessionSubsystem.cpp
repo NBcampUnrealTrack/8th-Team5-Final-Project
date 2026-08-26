@@ -8,6 +8,11 @@
 #include "Online/OnlineSessionNames.h"
 #include "Engine/Engine.h"
 
+namespace HBOnline
+{
+	const FName PartyLobbySessionName(TEXT("HBPartyLobbySession"));
+}
+
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -104,7 +109,7 @@ void UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
 	const bool bRequestStarted = 
 		SessionInterface->CreateSession(
 			0,
-			NAME_GameSession,
+			HBOnline::PartyLobbySessionName,
 			*LobbySettings
 			);
 	
@@ -232,7 +237,7 @@ void UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 		return;
 	}
 
-	if (SessionInterface->GetNamedSession(NAME_GameSession) != nullptr)
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
 	{
 		UE_LOG(
 			LogTemp,
@@ -255,7 +260,7 @@ void UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 	const bool bRequestStarted =
 		SessionInterface->JoinSession(
 			0,
-			NAME_GameSession,
+			HBOnline::PartyLobbySessionName,
 			LobbySearch->SearchResults[InSearchResultIndex]
 		);
 
@@ -294,7 +299,7 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 		return;
 	}
 	
-	if (SessionInterface->GetNamedSession(NAME_GameSession) == nullptr)
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) == nullptr)
 	{
 		UE_LOG(
 			LogTemp,
@@ -315,7 +320,7 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 		SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(LeaveCompleteDelegate);
 	
 	const bool bRequestStarted = 
-		SessionInterface->DestroySession(NAME_GameSession);
+		SessionInterface->DestroySession(HBOnline::PartyLobbySessionName);
 	
 	if (!bRequestStarted)
 	{

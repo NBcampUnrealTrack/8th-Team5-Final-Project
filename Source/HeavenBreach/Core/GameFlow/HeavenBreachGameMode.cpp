@@ -105,6 +105,21 @@ void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
 void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
+	
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("HeavenBreach | Player Connected | ConnectedPlayers: %d / %d"),
+		GetConnectedPlayerCount(),
+		ExpectedPlayerCount
+		);
+	
+	TryStartExtractionMatch();
 }
 
 void AHeavenBreachGameMode::Logout(AController* Exiting)
@@ -133,12 +148,7 @@ void AHeavenBreachGameMode::Logout(AController* Exiting)
 
 bool AHeavenBreachGameMode::ReadyToStartMatch_Implementation()
 {
-	if (!bAutoStartMatch)
-	{
-		return false;
-	}
-
-	return GetConnectedPlayerCount() >= MinimumPlayersToStart;
+	return false;
 }
 
 bool AHeavenBreachGameMode::ReadyToEndMatch_Implementation()
@@ -146,6 +156,31 @@ bool AHeavenBreachGameMode::ReadyToEndMatch_Implementation()
 	// 매치 종료 조건 추가 예정 
 
 	return false;
+}
+
+void AHeavenBreachGameMode::TryStartExtractionMatch()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
+	if (GetMatchState() != MatchState::WaitingToStart)
+	{
+		return;
+	}
+	
+	if (ExpectedPlayerCount <= 0)
+	{
+		return;
+	}
+	
+	if (GetConnectedPlayerCount() < ExpectedPlayerCount)
+	{
+		return;
+	}
+	
+	StartMatch();
 }
 
 void AHeavenBreachGameMode::HandleMatchIsWaitingToStart()

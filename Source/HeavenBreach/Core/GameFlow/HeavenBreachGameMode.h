@@ -44,6 +44,8 @@ protected:
 
 	virtual bool ReadyToStartMatch_Implementation() override;
 	virtual bool ReadyToEndMatch_Implementation() override;
+	
+	void TryStartExtractionMatch();
 
 	virtual void HandleMatchIsWaitingToStart() override;
 	virtual void HandleMatchHasStarted() override;
@@ -64,6 +66,8 @@ protected:
 	
 	UPROPERTY(Transient)
 	TSet<TObjectPtr<APlayerState>> ActivePlayers;
+	
+	int32 ExpectedPlayerCount = 2;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match | Timer", meta = (ClamMin = "1.0"))
 	float MatchDurationSeconds = 1500.0f;
