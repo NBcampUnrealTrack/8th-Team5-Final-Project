@@ -9,6 +9,7 @@
 #include "InputMappingContext.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
+#include "Inventory/QuickSlotComponent.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -39,7 +40,7 @@ void AHBPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
 
-	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent))
+	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent))	
 	{
 		if (MoveAction)
 		{
@@ -92,6 +93,30 @@ void AHBPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AHBPlayerController::StartSprint);
 			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopSprint);
 		}
+
+		if (QuickSlot1Action)
+		{
+			EnhancedInputComponent->BindAction(
+				QuickSlot1Action, ETriggerEvent::Started, this, &AHBPlayerController::UseQuickSlot1);
+		}
+
+		if (QuickSlot2Action)
+		{
+			EnhancedInputComponent->BindAction(
+				QuickSlot2Action, ETriggerEvent::Started, this, &AHBPlayerController::UseQuickSlot2);
+		}
+
+		if (QuickSlot3Action)
+		{
+			EnhancedInputComponent->BindAction(
+				QuickSlot3Action, ETriggerEvent::Started, this, &AHBPlayerController::UseQuickSlot3);
+		}
+
+		if (QuickSlot4Action)
+		{
+			EnhancedInputComponent->BindAction(
+				QuickSlot4Action, ETriggerEvent::Started, this, &AHBPlayerController::UseQuickSlot4);
+		}
 	}
 }
 
@@ -143,6 +168,32 @@ void AHBPlayerController::TestLeaveSteamLobby()
 		OnlineSessionSubsystem->LeaveLobby();
 	}
 }
+	
+void AHBPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	if (PlayerInput == nullptr)
+	{
+		return;
+	}
+
+	auto CheckKey = [this](const FKey& Key, bool& bWasPressed, void (AHBPlayerController::* UseFunc)())
+		{
+			const bool bNow = PlayerInput->IsPressed(Key);
+			if (bNow && !bWasPressed)
+			{
+				(this->*UseFunc)();
+			}
+			bWasPressed = bNow;
+		};
+
+	CheckKey(EKeys::One, bWasQuickSlot1Pressed, &AHBPlayerController::UseQuickSlot1);
+	CheckKey(EKeys::Two, bWasQuickSlot2Pressed, &AHBPlayerController::UseQuickSlot2);
+	CheckKey(EKeys::Three, bWasQuickSlot3Pressed, &AHBPlayerController::UseQuickSlot3);
+	CheckKey(EKeys::Four, bWasQuickSlot4Pressed, &AHBPlayerController::UseQuickSlot4);
+}
+	
 
 void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 {
@@ -281,5 +332,77 @@ void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCame
 	if (ShakeClass && PlayerCameraManager)
 	{
 		PlayerCameraManager->StartCameraShake(ShakeClass);
+	}
+}
+
+void AHBPlayerController::UseQuickSlot1()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot1 called, InventoryOpen=%d"),
+		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
+		{
+			QuickSlotComp->Server_UseSlot(0);
+		}
+	}
+}
+
+void AHBPlayerController::UseQuickSlot2()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot2 called, InventoryOpen=%d"),
+		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
+		{
+			QuickSlotComp->Server_UseSlot(1);
+		}
+	}
+}
+
+void AHBPlayerController::UseQuickSlot3()
+{
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
+	APawn* CurrentPawn = GetPawn();
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(CurrentPawn))
+	{
+		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
+		{
+			QuickSlotComp->Server_UseSlot(2);
+		}
+	}
+}
+
+void AHBPlayerController::UseQuickSlot4()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot4 called, InventoryOpen=%d"),
+		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
+
+	if (InventoryUI && InventoryUI->IsInventoryOpen())
+	{
+		return;
+	}
+
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
+		{
+			QuickSlotComp->Server_UseSlot(3);
+		}
 	}
 }
