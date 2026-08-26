@@ -163,6 +163,18 @@ void UEnemyMontageGABase::EndAbility(const FGameplayAbilitySpecHandle Handle, co
 		ApplyCooldown(Handle, ActorInfo, ActivationInfo);
 	}
 
+	// 종료후 경직시간 적용
+	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (ASC && RecoveryEffect)
+	{
+		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(RecoveryEffect, 1.f, ASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			// 경직용 GE발동. 일정시간동안 Tag를 부여
+			ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		}
+	}
+
 	// 실제 EndAbility적용
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

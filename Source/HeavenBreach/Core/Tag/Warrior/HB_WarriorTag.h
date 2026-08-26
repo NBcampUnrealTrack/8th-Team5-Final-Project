@@ -1,0 +1,21 @@
+#pragma once
+
+#include "NativeGameplayTags.h"
+
+namespace WarriorTag
+{
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_CombatInstinct);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_BerserkerRage);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_ConsecutiveAttack);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_KillingMomentum);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_WeaknessDetection);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_CombatRecovery);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_Revenge);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_BloodThirst);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_ChargeSlash);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_CombatRoll);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_Execute);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_BattleCry);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_ChainPull);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_BloodThirst);
+}

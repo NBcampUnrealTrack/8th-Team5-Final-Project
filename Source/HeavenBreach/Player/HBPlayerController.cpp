@@ -117,6 +117,19 @@ void AHBPlayerController::SetupInputComponent()
 			EnhancedInputComponent->BindAction(
 				QuickSlot4Action, ETriggerEvent::Started, this, &AHBPlayerController::UseQuickSlot4);
 		}
+
+		if (Skill1Action)
+		{
+			EnhancedInputComponent->BindAction(
+				Skill1Action, ETriggerEvent::Started, this, &AHBPlayerController::ActivateSkill1);
+		}
+
+		if (Skill2Action)
+		{
+			EnhancedInputComponent->BindAction(
+				Skill2Action, ETriggerEvent::Started, this, &AHBPlayerController::ActivateSkill2);
+		}
+
 	}
 }
 
@@ -324,6 +337,22 @@ void AHBPlayerController::StopSprint()
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StopSprint();
+	}
+}
+
+void AHBPlayerController::ActivateSkill1()
+{
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->ActivateSkill1();
+	}
+}
+
+void AHBPlayerController::ActivateSkill2()
+{
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->ActivateSkill2();
 	}
 }
 
