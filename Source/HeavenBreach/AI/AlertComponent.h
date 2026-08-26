@@ -43,6 +43,9 @@ public:
 	// lost상태 기간 설정
 	void SetLostMemoryDuration(float Duration) { LostMemoryDuration = FMath::Max(0.f, Duration); }
 
+	// 대상이 살았는지 죽었는지 판단하기
+	bool IsTargetAlive(const AActor* Actor);
+
 	// 구독자는 이걸 받아 게터로 현재 값을 읽는다.
 	FOnAlertUpdated OnAlertUpdated;
 
@@ -77,6 +80,9 @@ protected:
 	// 타겟을 잃을때 하는것
 	void OnLostMemoryExpired();
 
+	// 타겟 검사(사망된타겟인가)
+	void ValidTargets();
+
 private:
 	// 큰로직 구별을 담당을 이곳에 뺀이유 : 함부로 건들지 말라고
 	// 기본적인 큰 틀은 여기서 벗어나지 않도록 막음
@@ -92,5 +98,7 @@ private:
 	FVector LastKnownLocation = FVector::ZeroVector;
 
 	FTimerHandle LostMemoryTimer;
+
+	FTimerHandle TargetValidTimer;
 		
 };

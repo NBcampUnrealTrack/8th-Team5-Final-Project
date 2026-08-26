@@ -285,8 +285,18 @@ bool AEnemyAIControllerBase::IsValidTarget(const AActor* Actor) const
 
 	// IsPlayerControlled() 는 AActor로는 알수 없다. APawn으로 캐스팅 시켜 확인하도록한다.
 	const APawn* AsPawn = Cast<const APawn>(Actor);
+	if (!AsPawn || !AsPawn->IsPlayerControlled())
+	{
+		return false;
+	}
 
-	return AsPawn && AsPawn->IsPlayerControlled();
+	// 죽은 플레이어는 타겟이 아니다.
+	if (!AlertComponent->IsTargetAlive(Actor))
+	{
+		return false;
+	}
+
+	return true;
 }
 
 void AEnemyAIControllerBase::ApplySenses(const FEnemyStatRow* Stats)
