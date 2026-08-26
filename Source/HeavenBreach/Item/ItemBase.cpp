@@ -19,6 +19,7 @@ void AItemBase::BeginPlay()
 {
 	Super::BeginPlay();
 	InitializeFromDataTable();
+	SpawnTime = GetWorld()->GetTimeSeconds();
 }
 
 void AItemBase::InitializeFromDataTable()
@@ -119,6 +120,11 @@ void AItemBase::InitializeFromDataTable()
 bool AItemBase::TryPickUp(AActor* Picker)
 {
 	if (!Picker)
+	{
+		return false;
+	}
+
+	if (GetWorld()->GetTimeSeconds() - SpawnTime < PickupBlockDuration)
 	{
 		return false;
 	}

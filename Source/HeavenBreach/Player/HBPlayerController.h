@@ -57,6 +57,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	TObjectPtr<UInputAction> ToggleInventoryAction;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> QuickSlot1Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> QuickSlot2Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> QuickSlot3Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> QuickSlot4Action;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UInventoryUIComponent> InventoryUI;
 
@@ -73,6 +85,7 @@ protected:
 
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+	virtual void PlayerTick(float DeltaTime) override;
 
 	void CreateUILayout();
 
@@ -88,6 +101,16 @@ private:
 	void ToggleInventory();
 	void StartSprint();
 	void StopSprint();
+	void UseQuickSlot1();
+	void UseQuickSlot2();
+	void UseQuickSlot3();
+	void UseQuickSlot4();
+
+private:
+	bool bWasQuickSlot1Pressed = false;
+	bool bWasQuickSlot2Pressed = false;
+	bool bWasQuickSlot3Pressed = false;
+	bool bWasQuickSlot4Pressed = false;
 	
 #pragma region CameraShake
 public:

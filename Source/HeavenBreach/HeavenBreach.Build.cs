@@ -28,7 +28,10 @@ public class HeavenBreach : ModuleRules
             "NavigationSystem",
 			"HTTP",
 			"Json",
-            "JsonUtilities"
+            "JsonUtilities",
+            "GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks"
         });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
