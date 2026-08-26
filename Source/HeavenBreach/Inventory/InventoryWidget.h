@@ -10,6 +10,7 @@ class UEquipmentComponent;
 class UEquipmentWidget;
 class UItemActionMenuWidget;
 class UItemSplitPopupWidget;
+class UItemInfoPopupWidget;
 class UInventoryCellWidget;
 class UInventoryItemWidget;
 class UShopComponent;
@@ -93,6 +94,7 @@ private:
 	bool HandleRightClick(FIntPoint InCell);
 	bool HandleContextMenu(FIntPoint InCell);
 	bool HandleDoubleClick(FIntPoint InCell);
+	bool HandleQuickSlotRegister(int32 InSlotIndex);
 	void RefocusAfterDrop();
 	void SetHoveredCell(FIntPoint InCell);
 	void ClearHoveredCell();
@@ -128,6 +130,12 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UItemSplitPopupWidget> ActiveSplitPopup;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Context Menu")
+	TSubclassOf<UItemInfoPopupWidget> ItemInfoPopupClass;
+
+	UPROPERTY()
+	TObjectPtr<UItemInfoPopupWidget> ActiveInfoPopup;
 
 	FVector2D PressedScreenPosition = FVector2D::ZeroVector;
 

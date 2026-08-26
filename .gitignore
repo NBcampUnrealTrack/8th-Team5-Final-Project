@@ -14,6 +14,8 @@ Saved/
 *.log
 *.tmp
 
+*.spp
+
 .DS_Store
 
 .vscode/

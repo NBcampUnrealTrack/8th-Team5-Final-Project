@@ -4,9 +4,7 @@
 void UItemActionMenuWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-
 	SetIsFocusable(true);
-
 	if (UseButton != nullptr)
 	{
 		UseButton->OnClicked.AddDynamic(this, &UItemActionMenuWidget::HandleUseClicked);
@@ -15,12 +13,19 @@ void UItemActionMenuWidget::NativeConstruct()
 	{
 		SplitButton->OnClicked.AddDynamic(this, &UItemActionMenuWidget::HandleSplitClicked);
 	}
+	if (InfoButton != nullptr)
+	{
+		InfoButton->OnClicked.AddDynamic(this, &UItemActionMenuWidget::HandleInfoClicked);
+	}
+	if (DiscardButton != nullptr)
+	{
+		DiscardButton->OnClicked.AddDynamic(this, &UItemActionMenuWidget::HandleDiscardClicked);
+	}
 }
 
 void UItemActionMenuWidget::NativeOnFocusLost(const FFocusEvent& InFocusEvent)
 {
 	Super::NativeOnFocusLost(InFocusEvent);
-
 	if (!HasFocusedDescendants())
 	{
 		RemoveFromParent();
@@ -48,5 +53,17 @@ void UItemActionMenuWidget::HandleUseClicked()
 void UItemActionMenuWidget::HandleSplitClicked()
 {
 	OnSplitRequested.Broadcast();
+	RemoveFromParent();
+}
+
+void UItemActionMenuWidget::HandleInfoClicked()
+{
+	OnInfoRequested.Broadcast();
+	RemoveFromParent();
+}
+
+void UItemActionMenuWidget::HandleDiscardClicked()
+{
+	OnDiscardRequested.Broadcast();
 	RemoveFromParent();
 }

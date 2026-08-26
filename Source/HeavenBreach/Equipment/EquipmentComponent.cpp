@@ -2,12 +2,89 @@
 
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
+#include "AbilitySystemComponent.h"
+#include "Player/HBPlayerCharacter.h"
 
 UEquipmentComponent::UEquipmentComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	SetIsReplicatedByDefault(true);
 	Slots.SetNum(static_cast<int32>(EEquipSlotType::MAX));
+}
+
+UAbilitySystemComponent* UEquipmentComponent::GetOwnerASC() const
+{
+	if (AHBPlayerCharacter* OwnerCharacter = Cast<AHBPlayerCharacter>(GetOwner()))
+	{
+		return OwnerCharacter->GetAbilitySystemComponent();
+	}
+
+	return nullptr;
+}
+
+void UEquipmentComponent::ApplyRelicEffects(const FItemInstance& InItem)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Relic] ApplyRelicEffects CALLED"));
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(InItem.ItemRow, ViewData))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Relic] ResolveItemViewData FAILED"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Relic] bIsRelic = %s"), ViewData.bIsRelic ? TEXT("true") : TEXT("false"));
+
+	if (!ViewData.bIsRelic)
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = GetOwnerASC();
+	if (ASC == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Relic] ASC is NULL"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Relic] BenefitEffect valid: %s, RiskEffect valid: %s"),
+		ViewData.BenefitEffect ? TEXT("true") : TEXT("false"),
+		ViewData.RiskEffect ? TEXT("true") : TEXT("false"));
+
+	if (ViewData.BenefitEffect)
+	{
+		FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+		EquippedRelicBenefitHandle = ASC->ApplyGameplayEffectToSelf(
+			ViewData.BenefitEffect.GetDefaultObject(), 1.f, Context);
+	}
+
+	if (ViewData.RiskEffect)
+	{
+		FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+		EquippedRelicRiskHandle = ASC->ApplyGameplayEffectToSelf(
+			ViewData.RiskEffect.GetDefaultObject(), 1.f, Context);
+	}
+}
+
+void UEquipmentComponent::RemoveRelicEffects()
+{
+	UAbilitySystemComponent* ASC = GetOwnerASC();
+	if (ASC == nullptr)
+	{
+		return;
+	}
+
+	if (EquippedRelicBenefitHandle.IsValid())
+	{
+		ASC->RemoveActiveGameplayEffect(EquippedRelicBenefitHandle);
+		EquippedRelicBenefitHandle.Invalidate();
+	}
+
+	if (EquippedRelicRiskHandle.IsValid())
+	{
+		ASC->RemoveActiveGameplayEffect(EquippedRelicRiskHandle);
+		EquippedRelicRiskHandle.Invalidate();
+	}
 }
 
 void UEquipmentComponent::BeginPlay()
@@ -125,6 +202,14 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 
 	Slots[SlotIndex] = RemovedItem;
 
+	UE_LOG(LogTemp, Warning, TEXT("[Relic] EquipFromInventory: InSlot = %d (Accessory = %d)"),
+		(int32)InSlot, (int32)EEquipSlotType::Accessory);
+
+	if (InSlot == EEquipSlotType::Accessory)
+	{
+		ApplyRelicEffects(RemovedItem);
+	}
+
 	OnEquipmentChanged.Broadcast();
 
 	return true;
@@ -153,6 +238,11 @@ bool UEquipmentComponent::UnequipToInventory(EEquipSlotType InSlot, UInventoryCo
 
 	Slots[SlotIndex] = FItemInstance();
 
+	if (InSlot == EEquipSlotType::Accessory)
+	{
+		RemoveRelicEffects();
+	}
+
 	OnEquipmentChanged.Broadcast();
 
 	return true;
@@ -179,6 +269,11 @@ bool UEquipmentComponent::UnequipToInventoryAt(EEquipSlotType InSlot, UInventory
 	}
 
 	Slots[SlotIndex] = FItemInstance();
+
+	if (InSlot == EEquipSlotType::Accessory)
+	{
+		RemoveRelicEffects();
+	}
 
 	OnEquipmentChanged.Broadcast();
 

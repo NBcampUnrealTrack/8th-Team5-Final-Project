@@ -14,9 +14,11 @@
 #include "Item/ItemActionMenuWidget.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Item/UItemSplitPopupWidget.h"
+#include "Item/ItemInfoPopupWidget.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Player/HBPlayerController.h"
 #include "ShopComponent.h"
+#include "Inventory/QuickSlotComponent.h"
 
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
@@ -86,13 +88,21 @@ FReply UInventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 {
 	if (InKeyEvent.GetKey() == EKeys::Tab)
 	{
-		// 상자와 연결된 위젯이 아닐 때만 Tab으로 닫기 처리
 		if (LinkedContainer == nullptr)
 		{
 			if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
 			{
 				PC->RequestCloseInventory();
 			}
+			return FReply::Handled();
+		}
+	}
+
+	if (InKeyEvent.GetKey() == EKeys::Three || InKeyEvent.GetKey() == EKeys::Four)
+	{
+		const int32 SlotIndex = (InKeyEvent.GetKey() == EKeys::Three) ? 2 : 3;
+		if (HandleQuickSlotRegister(SlotIndex))
+		{
 			return FReply::Handled();
 		}
 	}
@@ -622,6 +632,38 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 			const FVector2D SplitViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
 			ActiveSplitPopup->SetPositionInViewport(SplitViewportPosition, false);
 		});
+	ActiveContextMenu->OnDiscardRequested.AddLambda([this, InstanceId]()
+		{
+			if (BoundInventory != nullptr)
+			{
+				BoundInventory->Server_DropItem(InstanceId);
+			}
+		});
+	ActiveContextMenu->OnInfoRequested.AddLambda([this, Item, ViewData]()
+		{
+			if (ItemInfoPopupClass == nullptr)
+			{
+				return;
+			}
+			if (ActiveInfoPopup != nullptr)
+			{
+				ActiveInfoPopup->RemoveFromParent();
+				ActiveInfoPopup = nullptr;
+			}
+			ActiveInfoPopup = CreateWidget<UItemInfoPopupWidget>(GetOwningPlayer(), ItemInfoPopupClass);
+			if (ActiveInfoPopup == nullptr)
+			{
+				return;
+			}
+			UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
+			ActiveInfoPopup->SetupInfo(ViewData.DisplayName, TEXT(""),
+				ViewData.bIsRelic, ViewData.BenefitDescription, ViewData.RiskDescription,
+				ViewData.SellValue, IconTexture);
+			ActiveInfoPopup->AddToViewport(100);
+			ActiveInfoPopup->SetKeyboardFocus();
+			const FVector2D InfoViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
+			ActiveInfoPopup->SetPositionInViewport(InfoViewportPosition, false);
+		});
 	ActiveContextMenu->AddToViewport(100);
 	ActiveContextMenu->SetKeyboardFocus();
 	const FVector2D ViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
@@ -730,6 +772,50 @@ bool UInventoryWidget::HandleDoubleClick(FIntPoint InCell)
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
 	BoundInventory->Server_UseItem(Item.InstanceId);
+	return true;
+}
+
+bool UInventoryWidget::HandleQuickSlotRegister(int32 InSlotIndex)
+{
+	if (BoundInventory == nullptr)
+	{
+		return false;
+	}
+
+	const FVector2D CursorScreenPosition = FSlateApplication::Get().GetCursorPos();
+	FIntPoint CursorCell;
+	if (!ScreenToCell(CursorScreenPosition, CursorCell))
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = BoundInventory->GetEntryIndexAt(CursorCell);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+	FItemViewData ViewData;
+	const bool bResolved = ResolveItemViewData(Item.ItemRow, ViewData);
+	if (!bResolved || !ViewData.IsConsumable())
+	{
+		return false;
+	}
+
+	APawn* OwningPawn = GetOwningPlayerPawn();
+	if (OwningPawn == nullptr)
+	{
+		return false;
+	}
+
+	UQuickSlotComponent* QuickSlotComp = OwningPawn->FindComponentByClass<UQuickSlotComponent>();
+	if (QuickSlotComp == nullptr)
+	{
+		return false;
+	}
+
+	QuickSlotComp->Server_SetSlot(InSlotIndex, Item.InstanceId);
 	return true;
 }
 
@@ -853,6 +939,26 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 
 		return true;
 	}
+
+	const int32 TargetEntryIndex = BoundInventory->GetEntryIndexAt(TargetPosition);
+	if (TargetEntryIndex != INDEX_NONE)
+	{
+		const FGuid TargetInstanceId = BoundInventory->GetEntries()[TargetEntryIndex].Item.InstanceId;
+		if (TargetInstanceId != Operation->InstanceId)
+		{
+			if (Operation->SourceInventory == BoundInventory)
+			{
+				BoundInventory->Server_MergeStack(Operation->InstanceId, TargetInstanceId);
+			}
+			else
+			{
+				BoundInventory->Server_MergeStackFrom(Operation->SourceInventory, Operation->InstanceId, TargetInstanceId);
+			}
+			RefocusAfterDrop();
+			return true;
+		}
+	}
+
 	if (Operation->SourceInventory == BoundInventory)
 	{
 		if (BoundInventory == RequestSender)
