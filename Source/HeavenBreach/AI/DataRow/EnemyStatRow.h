@@ -70,9 +70,18 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "0.1"))
 	float AttackSpeedRate = 1.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "0.0"))
 	float AttackRange = 200.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, Category = "Combat", meta = (ClampMin = "0.0"))
 	float TurnSpeed = 360.f;
+
+	// ----- 전술 -----
+	// 평소에 배회하지 않고 제자리에서 대기한다
+	UPROPERTY(EditAnywhere, Category = "Tactics")
+	bool bStayAtHome = false;
+
+	// 쿨다운 동안 포위/후퇴한다. false 면 제자리 대기
+	UPROPERTY(EditAnywhere, Category = "Tactics")
+	bool bUseSpacing = false;
 };
