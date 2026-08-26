@@ -3,9 +3,11 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "InventoryTypes.h"
+#include "AbilitySystemComponent.h"
 #include "EquipmentComponent.generated.h"
 
 class UInventoryComponent;
+class UAbilitySystemComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEquipmentChanged);
 
@@ -52,6 +54,18 @@ protected:
 private:
 	static int32 SlotToIndex(EEquipSlotType InSlot) { return static_cast<int32>(InSlot); }
 
+	class UAbilitySystemComponent* GetOwnerASC() const;
+
+	void ApplyRelicEffects(const FItemInstance& InItem);
+
+	void RemoveRelicEffects();
+
 	UPROPERTY(ReplicatedUsing = OnRep_Slots)
 	TArray<FItemInstance> Slots;
+
+	UPROPERTY()
+	FActiveGameplayEffectHandle EquippedRelicBenefitHandle;
+
+	UPROPERTY()
+	FActiveGameplayEffectHandle EquippedRelicRiskHandle;
 };

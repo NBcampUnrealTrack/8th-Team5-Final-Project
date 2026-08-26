@@ -7,6 +7,7 @@
 #include "InventoryTypes.generated.h"
 
 class UTexture2D;
+class UGameplayEffect;
 
 UENUM(BlueprintType)
 enum class EEquipSlotType : uint8
@@ -25,22 +26,16 @@ USTRUCT(BlueprintType)
 struct FItemViewData
 {
 	GENERATED_BODY()
-
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FIntPoint GridSize = FIntPoint(1, 1);
-
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	EEquipSlotType EquipSlotType = EEquipSlotType::None;
-
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	int32 MaxStack = 1;
-
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString DisplayName;
-
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString IconPath;
-
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	int32 SellValue = 0;
 
@@ -49,11 +44,24 @@ struct FItemViewData
 
 	bool IsStackable() const { return MaxStack > 1; }
 	bool IsEquippable() const { return EquipSlotType != EEquipSlotType::None; }
-
 	UPROPERTY(BlueprintReadOnly)
 	float HealAmount = 0.f;
-
 	bool IsConsumable() const { return HealAmount > 0.f; }
+
+	UPROPERTY(BlueprintReadOnly, Category = "Relic")
+	bool bIsRelic = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Relic")
+	FString BenefitDescription;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Relic")
+	FString RiskDescription;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Relic")
+	TSubclassOf<UGameplayEffect> BenefitEffect;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Relic")
+	TSubclassOf<UGameplayEffect> RiskEffect;
 };
 
 USTRUCT(BlueprintType)

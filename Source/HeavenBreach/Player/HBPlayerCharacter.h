@@ -14,6 +14,7 @@ class UInventoryComponent;
 class UEquipmentComponent;
 class UInteractionComponent;
 class UInteractionPromptWidget;
+class UQuickSlotComponent;
 
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface
@@ -80,6 +81,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UEquipmentComponent> Equipment;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UQuickSlotComponent> QuickSlot;
 	
 #pragma region ASC
 public:
