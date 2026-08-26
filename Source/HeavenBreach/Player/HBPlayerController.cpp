@@ -8,6 +8,9 @@
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
 #include "Player/HBPlayerCharacter.h"
+#include "CommonActivatableWidget.h"
+#include "Core/Tag/UI/HB_UITag.h"
+#include "UI/HB_UILayout.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -29,8 +32,35 @@ void AHBPlayerController::BeginPlay()
 			}
 		}
 
+		CreateUILayout();
+
+		// TODO(Step 3): drop these once the inventory/stash screens live in the
+		// UI.Layer.Menu stack - the HUD layer's input config already declares GameOnly.
 		SetInputMode(FInputModeGameOnly());
 		SetShowMouseCursor(false);
+	}
+}
+
+void AHBPlayerController::CreateUILayout()
+{
+	if (UILayout != nullptr || UILayoutClass == nullptr)
+	{
+		return;
+	}
+
+	UILayout = CreateWidget<UHB_UILayout>(this, UILayoutClass);
+	if (UILayout == nullptr)
+	{
+		return;
+	}
+
+	// The layout is the only widget added to the viewport directly.
+	// Everything else is pushed into one of its activatable widget stacks.
+	UILayout->AddToViewport();
+
+	if (HUDLayerClass)
+	{
+		UILayout->PushWidgetToLayer(UITag::TAG_UI_Layer_Game, HUDLayerClass);
 	}
 }
 
