@@ -52,6 +52,12 @@ protected:
 	TObjectPtr<UInputAction> SprintAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> Skill1Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> Skill2Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	int32 MappingPriority = 0;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
@@ -101,6 +107,8 @@ private:
 	void ToggleInventory();
 	void StartSprint();
 	void StopSprint();
+	void ActivateSkill1();
+	void ActivateSkill2();
 	void UseQuickSlot1();
 	void UseQuickSlot2();
 	void UseQuickSlot3();

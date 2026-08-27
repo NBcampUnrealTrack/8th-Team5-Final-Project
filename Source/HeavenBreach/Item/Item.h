@@ -7,15 +7,6 @@
 class UTexture2D;
 class UGameplayEffect;
 
-UENUM(BlueprintType)
-enum class EItemGrade : uint8
-{
-	Normal,
-	Rare,
-	Epic,
-	Legend
-};
-
 USTRUCT(BlueprintType)
 struct FWeaponData : public FTableRowBase
 {

@@ -688,7 +688,7 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	}
 
 	const FDataTableRowHandle ItemRow = Entries[EntryIndex].Item.ItemRow;
-
+	const int32 DroppedStackCount = Entries[EntryIndex].Item.StackCount;
 	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
 	{
 		return false;
@@ -757,6 +757,7 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 		break;
 	}
 
+	NewItemActor->StackCount = FMath::Max(1, DroppedStackCount);
 	NewItemActor->FinishSpawning(SpawnTransform);
 
 	FItemInstance RemovedItem;

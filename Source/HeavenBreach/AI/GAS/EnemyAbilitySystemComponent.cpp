@@ -82,45 +82,9 @@ bool UEnemyAbilitySystemComponent::TryActivateWeightedAbilityByTag(FGameplayTag 
 	}
 
 	TArray<FGameplayAbilitySpec> AbilityList;
-	float TotalWeighte = 0;
+	float TotalWeighte = 0.f;
 
-	// 활성화된 어빌리티 목록을 뒤진다
-	for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
-	{
-		if (!Spec.Ability)
-		{
-			continue;
-		}
-
-		// 발동이 가능한 올바른태그의 어빌리티인지 확인
-		if (!Spec.Ability->GetAssetTags().HasTag(AbilityTag))
-		{
-			continue;
-		}
-
-		// 가중치 값을 찾기위해 EnemyMontageGA로 캐스팅
-		UEnemyMontageGABase* MontageGA = Cast<UEnemyMontageGABase>(Spec.Ability);
-		if (!MontageGA)
-		{
-			continue;
-		}
-
-		// 쿨타임, 차단태그등 발동이 가능한 어빌리티인지 확인
-		if (!MontageGA->CanActivateAbility(Spec.Handle, AbilityActorInfo.Get()))
-		{
-			continue;
-		}
-
-		// 거리확인
-		if (!MontageGA->IsRange(DistanceToTarget))
-		{
-			continue;
-		}
-
-		// 사용가능한 어빌리티로 리스트에 넣는다.
-		AbilityList.Add(Spec);
-		TotalWeighte += MontageGA->GetSelectionWeight();
-	}
+	GetUsableAbilities(AbilityTag, DistanceToTarget, AbilityList, TotalWeighte);
 
 	// 발동할 후보들이 없다...
 	if (AbilityList.IsEmpty())
@@ -179,6 +143,54 @@ bool UEnemyAbilitySystemComponent::IsAbilityActiveByTag(FGameplayTag AbilityTag)
 	return false;
 }
 
+void UEnemyAbilitySystemComponent::GetUsableAbilities(FGameplayTag AbilityTag, float DistanceToTarget, TArray<FGameplayAbilitySpec>& OutList, float& OutTotalWeight)
+{
+	OutList.Reset();
+	OutTotalWeight = 0.f;
+
+	if (!AbilityTag.IsValid())
+	{
+		return;
+	}
+
+	// 활성화된 어빌리티 목록을 뒤진다
+	for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
+	{
+		if (!Spec.Ability)
+		{
+			continue;
+		}
+
+		// 발동이 가능한 올바른태그의 어빌리티인지 확인
+		if (!Spec.Ability->GetAssetTags().HasTag(AbilityTag))
+		{
+			continue;
+		}
+
+		// 가중치 값을 찾기위해 EnemyMontageGA로 캐스팅
+		const UEnemyMontageGABase* MontageGA = Cast<UEnemyMontageGABase>(Spec.Ability);
+		if (!MontageGA)
+		{
+			continue;
+		}
+
+		// 쿨타임, 차단태그등 발동이 가능한 어빌리티인지 확인
+		if (!MontageGA->CanActivateAbility(Spec.Handle, AbilityActorInfo.Get()))
+		{
+			continue;
+		}
+
+		// 거리확인
+		if (!MontageGA->IsRange(DistanceToTarget))
+		{
+			continue;
+		}
+
+		OutList.Add(Spec);
+		OutTotalWeight += MontageGA->GetSelectionWeight();
+	}
+}
+
 bool UEnemyAbilitySystemComponent::HasAbilityByTag(FGameplayTag AbilityTag)
 {
 	for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
@@ -191,4 +203,17 @@ bool UEnemyAbilitySystemComponent::HasAbilityByTag(FGameplayTag AbilityTag)
 	}
 
 	return false;
+}
+
+bool UEnemyAbilitySystemComponent::HasUsableAbilityByTag(FGameplayTag AbilityTag, float DistanceToTarget)
+{
+	TArray<FGameplayAbilitySpec> List;
+	float Total = 0.f;
+
+	GetUsableAbilities(AbilityTag, DistanceToTarget, List, Total);
+
+	// 비어있다 = 사용 가능한 어빌리티 없음.
+	bool bIsEmpty = List.IsEmpty();
+
+	return !bIsEmpty;
 }

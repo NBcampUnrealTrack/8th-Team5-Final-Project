@@ -22,6 +22,15 @@ enum class EEquipSlotType : uint8
 	MAX				UMETA(Hidden)
 };
 
+UENUM(BlueprintType)
+enum class EItemGrade : uint8
+{
+	Normal,
+	Rare,
+	Epic,
+	Legend
+};
+
 USTRUCT(BlueprintType)
 struct FItemViewData
 {
@@ -32,6 +41,8 @@ struct FItemViewData
 	EEquipSlotType EquipSlotType = EEquipSlotType::None;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	int32 MaxStack = 1;
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	EItemGrade Grade = EItemGrade::Normal;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString DisplayName;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")

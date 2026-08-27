@@ -7,6 +7,9 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "TimerManager.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
 
 // Sets default values for this component's properties
 UAlertComponent::UAlertComponent()
@@ -21,6 +24,13 @@ UAlertComponent::UAlertComponent()
 void UAlertComponent::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 1초마다 유효한 타겟(사망) 확인
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(TargetValidTimer, this, &UAlertComponent::ValidTargets, 1.f, true);
+	}
+
 }
 
 
@@ -136,6 +146,26 @@ void UAlertComponent::DamageSensed(const FVector& InstigatorLocation)
 	OnAlertUpdated.Broadcast();
 }
 
+bool UAlertComponent::IsTargetAlive(const AActor* Actor)
+{
+	if (!Actor)
+	{
+		return false;
+	}
+
+	// ASC가 없으면 그냥 살아있는걸로 친다.
+	UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Actor);
+	if (!ASC)
+	{
+		return true;
+	}
+
+	// 사망 태그 확인
+	bool bIsDead = ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
+
+	return !bIsDead;
+}
+
 void UAlertComponent::SetState(EAlertState NewState)
 {
 	// 블랙보드에 반영 시 문제될수도잇으니 동일한 상태면 막음
@@ -200,4 +230,39 @@ void UAlertComponent::OnLostMemoryExpired()
 	CurrentTarget.Reset();
 	SetState(EAlertState::Idle);
 	OnAlertUpdated.Broadcast();
+}
+
+void UAlertComponent::ValidTargets()
+{
+	// 죽은 대상을 후보 목록에서 뺀다.
+	// 뒤에서부터 도는 이유는 중간을 지워도 인덱스가 안 밀리기 때문이다.
+	for (int32 i = SensedTargets.Num() - 1; i >= 0; --i)
+	{
+		if (!IsTargetAlive(SensedTargets[i].Get()))
+		{
+			SensedTargets.RemoveAt(i);
+		}
+	}
+
+	AActor* Target = CurrentTarget.Get();
+
+	// 타겟이 없으면 할 일이 없다.
+	if (!Target)
+	{
+		return;
+	}
+
+	// 살아 있으면 그대로 둔다.
+	if (IsTargetAlive(Target))
+	{
+		return;
+	}
+	else
+	{
+		// 마지막으로 기억한 자리를 시체의 위치를 기억한다.
+		LastKnownLocation = Target->GetActorLocation();
+
+		// 대상은 잊어버려야하는타겟으로 정리
+		SightForgotten(Target);
+	}
 }

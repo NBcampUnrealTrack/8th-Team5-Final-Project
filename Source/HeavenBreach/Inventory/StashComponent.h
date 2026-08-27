@@ -33,6 +33,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stash")
 	bool IsLoaded() const { return bIsLoaded; }
 
+protected:
+	virtual void BeginPlay() override;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Stash")
+	FIntPoint StashGridSize = FIntPoint(10, 35);
+
 private:
 	void HandleLoadCompleted(bool bSuccess, const TArray<FInventoryEntry>& InEntries);
 
@@ -42,4 +48,5 @@ private:
 	FString AccountId;
 
 	bool bIsLoaded = false;
+
 };

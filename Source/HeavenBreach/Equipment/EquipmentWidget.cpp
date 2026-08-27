@@ -1,14 +1,19 @@
 #include "EquipmentWidget.h"
-
 #include "EquipmentComponent.h"
 #include "EquipmentSlotWidget.h"
 #include "InventoryComponent.h"
 
-void UEquipmentWidget::NativeConstruct()
+void UEquipmentWidget::NativeOnInitialized()
 {
-	Super::NativeConstruct();
+	Super::NativeOnInitialized();
 
-	// BindWidget으로 연결된 위젯들을 Enum 키와 1:1 매핑
+	EnsureSlotMapInitialized();
+}
+
+void UEquipmentWidget::EnsureSlotMapInitialized()
+{
+	if (SlotMap.Num() > 0) return;
+
 	SlotMap.Add(EEquipSlotType::Helmet, Slot_Helmet);
 	SlotMap.Add(EEquipSlotType::Chest, Slot_Chest);
 	SlotMap.Add(EEquipSlotType::Legs, Slot_Legs);
@@ -19,6 +24,8 @@ void UEquipmentWidget::NativeConstruct()
 
 void UEquipmentWidget::BindToEquipment(UEquipmentComponent* InEquipment, UInventoryComponent* InInventory)
 {
+	EnsureSlotMapInitialized();
+
 	if (BoundEquipment != nullptr)
 	{
 		BoundEquipment->OnEquipmentChanged.RemoveDynamic(this, &UEquipmentWidget::HandleEquipmentChanged);
@@ -32,12 +39,13 @@ void UEquipmentWidget::BindToEquipment(UEquipmentComponent* InEquipment, UInvent
 		BoundEquipment->OnEquipmentChanged.AddDynamic(this, &UEquipmentWidget::HandleEquipmentChanged);
 	}
 
-	// 각 개별 슬롯 위젯에 컴포넌트 참조와 슬롯 타입을 전달 (개별 슬롯 드래그/드롭용)
+	int32 InitializedCount = 0;
 	for (auto& Pair : SlotMap)
 	{
 		if (UEquipmentSlotWidget* SlotWidget = Pair.Value)
 		{
 			SlotWidget->InitSlot(Pair.Key, BoundEquipment, BoundInventory);
+			InitializedCount++;
 		}
 	}
 
@@ -68,7 +76,6 @@ void UEquipmentWidget::RefreshSlots()
 
 	const UEnum* SlotEnum = StaticEnum<EEquipSlotType>();
 
-	// 생성/삭제 없이 기존 위젯의 상태만 갱신
 	for (auto& Pair : SlotMap)
 	{
 		EEquipSlotType SlotType = Pair.Key;
