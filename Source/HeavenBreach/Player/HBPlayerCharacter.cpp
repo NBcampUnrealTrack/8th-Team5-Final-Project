@@ -896,7 +896,7 @@ void AHBPlayerCharacter::RefreshMovementSpeed()
 void AHBPlayerCharacter::RefreshMovementSpeedFromAttributes()
 {
 	RefreshMovementSpeed();
-	GetCharacterMovement()->MaxWalkSpeed = bNewSprinting ? SprintSpeed : WalkSpeed;
+	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
 }
 
 void AHBPlayerCharacter::RefreshEquippedVisuals()
