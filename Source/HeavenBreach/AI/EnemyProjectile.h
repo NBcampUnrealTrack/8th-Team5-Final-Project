@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "GameplayTagContainer.h"
 #include "EnemyProjectile.generated.h"
 
 class UBoxComponent;
@@ -72,6 +73,9 @@ protected:
 	// 명중 여부
 	UPROPERTY(ReplicatedUsing = OnRep_Hit)
 	bool bHit = false;
+
+	// 공격자의 팀 태그
+	FGameplayTagContainer OwnerTeamTag;
 
 	UFUNCTION()
 	void OnRep_Hit();
