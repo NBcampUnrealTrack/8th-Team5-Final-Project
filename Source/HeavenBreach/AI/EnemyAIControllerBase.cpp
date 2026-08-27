@@ -249,6 +249,7 @@ void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 		Char->SetWalkSpeed(S.WalkSpeed);
 		Char->SetRunSpeed(S.RunSpeed);
 		Char->SetAccRadius(S.AcceptanceRadius);
+		Char->SetReward(S.ExpReward);
 
 		if (UEnemyAbilitySystemComponent* ASC = Char->GetEnemyASC())
 		{

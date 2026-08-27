@@ -12,6 +12,7 @@
 #include "Combat/Interface/DamageableInterface.h"
 #include "AI/GAS/EnemyAttributeSetBase.h"
 #include "AI/EnemyCharacterBase.h"
+#include "Core/Tag/Team/HB_TeamTag.h"
 
 // Sets default values for this component's properties
 UMeleeTraceComponent::UMeleeTraceComponent()
@@ -32,6 +33,20 @@ void UMeleeTraceComponent::BeginTrace(const TArray<FName>& InSockets, TSubclassO
 	TraceRadius = InRadius;
 	ActiveDamageEffect = InDamageEffect;
 	DamageMultiplier = InDamageMultiplier;
+
+	// 현재 소유자의 팀소속확인
+	OwnerTeamTag.Reset();
+	if (UAbilitySystemComponent* OwnerASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+	{
+		FGameplayTagContainer All;
+		OwnerASC->GetOwnedGameplayTags(All);
+
+		FGameplayTagContainer TeamTags;
+		TeamTags.AddTag(TeamTag::TAG_Team_Player);
+		TeamTags.AddTag(TeamTag::TAG_Team_Enemy);
+
+		OwnerTeamTag = All.Filter(TeamTags);
+	}
 
 	// 이전 공격의 기록이 남으면 안 된다.
 	HitActors.Empty();
@@ -92,9 +107,13 @@ void UMeleeTraceComponent::UpdateTrace()
 			if (!Target)
 				continue;
 
-			// 타겟이 적인지 확인. 현재 적끼리는 피해를 입지 않아야 한다.
-			if (Cast<AEnemyCharacterBase>(Target))
+			// 타겟이 적인지 확인
+			// 태그를 감별하여 공격자가 보유중인 팀 태그들중에서 하나라도 있는 적은 스킵한다.
+			UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+			if (TargetASC && !OwnerTeamTag.IsEmpty() && TargetASC->HasAnyMatchingGameplayTags(OwnerTeamTag))
+			{
 				continue;
+			}
 
 			// 구간 동안 매틱 도므로, 없으면 한 번 휘두르고 수십 대를 때린다.
 			if (HitActors.Contains(Target))

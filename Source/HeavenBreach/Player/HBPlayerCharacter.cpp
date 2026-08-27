@@ -34,6 +34,8 @@
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "TimerManager.h"
 #include "DrawDebugHelpers.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "Core/Tag/Event/HB_EventTag.h"
 
 namespace
 {
@@ -232,9 +234,10 @@ void AHBPlayerCharacter::StopBlocking()
 {
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
 	{
-		FGameplayTagContainer BlockTag;
-		BlockTag.AddTag(StateTag::TAG_State_Blocking);
-		ASC->CancelAbilities(&BlockTag,nullptr,nullptr);
+		FGameplayEventData Payload;
+		Payload.Instigator = this;
+
+		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, EventTag::TAG_Event_Block_Release, Payload);
 	}
 }
 
