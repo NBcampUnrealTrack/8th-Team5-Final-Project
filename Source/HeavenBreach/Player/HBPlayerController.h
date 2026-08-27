@@ -4,6 +4,8 @@
 #include "GameFramework/PlayerController.h"
 #include "HBPlayerController.generated.h"
 
+class UCommonActivatableWidget;
+class UHB_UILayout;
 class UInputAction;
 class UInputMappingContext;
 class UInventoryUIComponent;
@@ -19,6 +21,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Player|Inventory")
 	void RequestCloseInventory();
+
+	// Root CommonUI widget. Every screen is pushed into one of its layers.
+	UFUNCTION(BlueprintPure, Category = "Player|UI")
+	UHB_UILayout* GetUILayout() const { return UILayout; }
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
@@ -72,9 +78,22 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UInventoryUIComponent> InventoryUI;
 
+	// WBP_UILayout
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
+	TSubclassOf<UHB_UILayout> UILayoutClass;
+
+	// WBP_MainHUD, pushed into the UI.Layer.Game stack on begin play
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
+	TSubclassOf<UCommonActivatableWidget> HUDLayerClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHB_UILayout> UILayout;
+
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override;
+
+	void CreateUILayout();
 
 private:
 	void HandleMove(const FInputActionValue& Value);
@@ -85,6 +104,7 @@ private:
 	void StopCrouch();
 	void Attack();
 	void Block();
+	void StopBlock();
 	void ToggleInventory();
 	void StartSprint();
 	void StopSprint();

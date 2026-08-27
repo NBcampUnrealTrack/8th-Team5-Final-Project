@@ -10,6 +10,9 @@
 #include "Combat/Interface/DamageableInterface.h"
 #include "AI/Enum/EAlertState.h"
 #include "AI/EnemyCharacterBase.h"
+#include "AbilitySystemGlobals.h"
+#include "AbilitySystemComponent.h"
+#include "Core/Tag/Team/HB_TeamTag.h"
 
 // Sets default values
 AEnemyProjectile::AEnemyProjectile()
@@ -90,6 +93,20 @@ void AEnemyProjectile::Launch(AActor* InInstigator, float InDamage)
 	{
 		SetInstigator(Cast<APawn>(InInstigator));
 		CollisionComp->IgnoreActorWhenMoving(InInstigator, true);
+
+		// 발사자의 팀을 기억한다.
+		OwnerTeamTag.Reset();
+		if (UAbilitySystemComponent* OwnerASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(InInstigator))
+		{
+			FGameplayTagContainer All;
+			OwnerASC->GetOwnedGameplayTags(All);
+
+			FGameplayTagContainer TeamTags;
+			TeamTags.AddTag(TeamTag::TAG_Team_Player);
+			TeamTags.AddTag(TeamTag::TAG_Team_Enemy);
+
+			OwnerTeamTag = All.Filter(TeamTags);
+		}
 	}
 }
 
@@ -112,9 +129,14 @@ void AEnemyProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 
 	bHit = true;
 
+
+	// 같은 팀이면 피해를 주지 않는다. ASC를 보유하고 보유한 팀태그 리스트에 일부 존재한다면 데미지적용x
+	UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(OtherActor);
+	bool bSameTeam = TargetASC && !OwnerTeamTag.IsEmpty() && TargetASC->HasAnyMatchingGameplayTags(OwnerTeamTag);
+
 	// 적끼리는 데미지가 가해지지않음.
 	// 인터페이스를 가지고 있으며 데미지가 가해질수 잇는 대상에게만
-	if (!Cast<AEnemyCharacterBase>(OtherComp->GetOwner()) && OtherActor && OtherActor->Implements<UDamageableInterface>() && IDamageableInterface::Execute_CanBeDamaged(OtherActor, GetInstigator()))
+	if (!bSameTeam && OtherActor && OtherActor->Implements<UDamageableInterface>() && IDamageableInterface::Execute_CanBeDamaged(OtherActor, GetInstigator()))
 	{
 		// 데미지 적용
 		IDamageableInterface::Execute_ApplyMeleeHit(OtherActor, GetInstigator(), Damage, Hit);

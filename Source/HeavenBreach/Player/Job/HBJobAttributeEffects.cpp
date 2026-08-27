@@ -16,7 +16,7 @@ namespace
 		const float AttackPower, const float AttackSpeed, const float Defense,
 		const float MoveSpeed, const float Focus)
 	{
-		Effect.DurationPolicy = EGameplayEffectDurationType::Infinite;
+		Effect.DurationPolicy = EGameplayEffectDurationType::Instant;
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute(), HP);
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_HPAttribute(), HP);
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute(), Mana);

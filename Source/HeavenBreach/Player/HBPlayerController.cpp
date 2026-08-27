@@ -9,6 +9,9 @@
 #include "InputMappingContext.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Inventory/QuickSlotComponent.h"
+#include "CommonActivatableWidget.h"
+#include "Core/Tag/UI/HB_UITag.h"
+#include "UI/HB_UILayout.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -30,8 +33,32 @@ void AHBPlayerController::BeginPlay()
 			}
 		}
 
-		SetInputMode(FInputModeGameOnly());
-		SetShowMouseCursor(false);
+		// 입력 모드와 커서는 HUD 레이어의 InputConfig(Game)가 결정한다.
+		// 메뉴가 스택에 올라오면 그쪽 Menu 설정이 이기고, 닫히면 여기로 자동 복귀한다.
+		CreateUILayout();
+	}
+}
+
+void AHBPlayerController::CreateUILayout()
+{
+	if (UILayout != nullptr || UILayoutClass == nullptr)
+	{
+		return;
+	}
+
+	UILayout = CreateWidget<UHB_UILayout>(this, UILayoutClass);
+	if (UILayout == nullptr)
+	{
+		return;
+	}
+
+	// The layout is the only widget added to the viewport directly.
+	// Everything else is pushed into one of its activatable widget stacks.
+	UILayout->AddToViewport();
+
+	if (HUDLayerClass)
+	{
+		UILayout->PushWidgetToLayer(UITag::TAG_UI_Layer_Game, HUDLayerClass);
 	}
 }
 
@@ -79,6 +106,10 @@ void AHBPlayerController::SetupInputComponent()
 		{
 			EnhancedInputComponent->BindAction(
 				BlockAction, ETriggerEvent::Started, this, &AHBPlayerController::Block);
+			EnhancedInputComponent->BindAction(
+				BlockAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopBlock);
+			EnhancedInputComponent->BindAction(
+				BlockAction, ETriggerEvent::Canceled, this, &AHBPlayerController::StopBlock);
 		}
 
 		if (ToggleInventoryAction)
@@ -159,11 +190,6 @@ void AHBPlayerController::PlayerTick(float DeltaTime)
 
 void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		const FVector2D MovementInput = Value.Get<FVector2D>();
@@ -174,11 +200,6 @@ void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 
 void AHBPlayerController::HandleLook(const FInputActionValue& Value)
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	const FVector2D LookInput = Value.Get<FVector2D>();
 	AddYawInput(LookInput.X);
 	AddPitchInput(LookInput.Y);
@@ -186,11 +207,6 @@ void AHBPlayerController::HandleLook(const FInputActionValue& Value)
 
 void AHBPlayerController::StartJump()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Jump();
@@ -207,11 +223,6 @@ void AHBPlayerController::StopJump()
 
 void AHBPlayerController::StartCrouch()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Crouch();
@@ -228,11 +239,6 @@ void AHBPlayerController::StopCrouch()
 
 void AHBPlayerController::Attack()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Attack();
@@ -241,14 +247,17 @@ void AHBPlayerController::Attack()
 
 void AHBPlayerController::Block()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StartBlocking();
+	}
+}
+
+void AHBPlayerController::StopBlock()
+{
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->StopBlocking();
 	}
 }
 
@@ -270,11 +279,6 @@ void AHBPlayerController::RequestCloseInventory()
 
 void AHBPlayerController::StartSprint()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StartSprint();
@@ -315,13 +319,6 @@ void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCame
 
 void AHBPlayerController::UseQuickSlot1()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot1 called, InventoryOpen=%d"),
-		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
@@ -333,13 +330,6 @@ void AHBPlayerController::UseQuickSlot1()
 
 void AHBPlayerController::UseQuickSlot2()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot2 called, InventoryOpen=%d"),
-		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
@@ -351,11 +341,6 @@ void AHBPlayerController::UseQuickSlot2()
 
 void AHBPlayerController::UseQuickSlot3()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	APawn* CurrentPawn = GetPawn();
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(CurrentPawn))
 	{
@@ -368,14 +353,6 @@ void AHBPlayerController::UseQuickSlot3()
 
 void AHBPlayerController::UseQuickSlot4()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot4 called, InventoryOpen=%d"),
-		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
-
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "GameplayTagContainer.h"
 #include "MeleeTraceComponent.generated.h"
 
 
@@ -44,6 +45,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Trace")
 	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_GameTraceChannel3;
 
+	// 소유자의 팀 태그
+	UPROPERTY(EditAnywhere, Category = "Trace")
+	FGameplayTagContainer OwnerTeamTag;
 
 	// ----- 디버깅 -----
 	UPROPERTY(EditAnywhere, Category = "Debug")
