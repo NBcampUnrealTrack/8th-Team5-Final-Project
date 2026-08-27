@@ -2,7 +2,7 @@
 param(
     [string]$EngineRoot = "D:\Epic Games\UE_5.7",
 
-    [string]$Map = "/Game/Levels/TierA/Maps/Floor_A",
+    [string]$Map,
 
     [ValidateRange(1, 65535)]
     [int]$Port = 17777,
@@ -117,7 +117,14 @@ try
 
     $serverArguments = @(
         "`"$projectFile`""
-        $Map
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Map))
+    {
+        $serverArguments += $Map
+    }
+
+    $serverArguments += @(
         "-server"
         "-log"
         "-port=$Port"
@@ -128,7 +135,16 @@ try
     Write-Host "Starting HeavenBreach dedicated server"
     Write-Host "  Executable : $editorExecutable"
     Write-Host "  Project    : $projectFile"
-    Write-Host "  Map        : $Map"
+    $mapDescription = if ([string]::IsNullOrWhiteSpace($Map))
+    {
+        "ServerDefaultMap (Config/DefaultEngine.ini)"
+    }
+    else
+    {
+        $Map
+    }
+
+    Write-Host "  Map        : $mapDescription"
     Write-Host "  Game port  : $Port"
     Write-Host "  Steam AppID: $expectedAppId"
     Write-Host ""
