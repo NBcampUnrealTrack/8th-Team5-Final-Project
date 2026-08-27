@@ -14,9 +14,21 @@ void UHBPlayerAnimInst::NativeInitializeAnimation()
 void UHBPlayerAnimInst::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
+
+	if (!OwnerInst)
+	{
+		OwnerInst = Cast<AHBPlayerCharacter>(TryGetPawnOwner());
+	}
 	
 	if (OwnerInst)
 	{
+		#pragma region AimOffset
+		const FRotator AimDelta = UKismetMathLibrary::NormalizedDeltaRotator(
+			OwnerInst->GetBaseAimRotation(), OwnerInst->GetActorRotation());
+		const float TargetAimPitch = FMath::Clamp(AimDelta.Pitch, AimPitchMin, AimPitchMax);
+		AimPitch = FMath::FInterpTo(AimPitch, TargetAimPitch, DeltaSeconds, AimPitchInterpSpeed);
+		#pragma endregion
+
 		FVector Velocity = OwnerInst->GetVelocity();
 		FallSpeed = Velocity.Z;
 		bIsFalling = OwnerInst->GetCharacterMovement()->IsFalling();

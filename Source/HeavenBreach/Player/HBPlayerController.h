@@ -104,6 +104,7 @@ private:
 	void StopCrouch();
 	void Attack();
 	void Block();
+	void StopBlock();
 	void ToggleInventory();
 	void StartSprint();
 	void StopSprint();

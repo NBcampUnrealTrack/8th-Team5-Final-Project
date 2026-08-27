@@ -5,6 +5,7 @@
 #include "Engine/GameInstance.h"
 #include "AbilitySystemComponent.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
+#include "Net/UnrealNetwork.h"
 
 AHB_PlayerState::AHB_PlayerState()
 {
@@ -30,6 +31,11 @@ AHB_PlayerState::AHB_PlayerState()
 void AHB_PlayerState::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (HasAuthority())
+	{
+		ResetMatchProgression();
+	}
 
 	if (AbilitySystemComponent && AttributeSet)
 	{
@@ -67,4 +73,113 @@ void AHB_PlayerState::OnMaxHealthChanged(const FOnAttributeChangeData& Data)
 	{
 		OnHPChanged.Broadcast(AttributeSet->GetPlayer_HP(), Data.NewValue);
 	}
+}
+
+void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AHB_PlayerState, PlayerLevel);
+	DOREPLIFETIME(AHB_PlayerState, CurrentExperience);
+	DOREPLIFETIME(AHB_PlayerState, TeamId);
+}
+
+void AHB_PlayerState::AddExperience(const int32 Amount)
+{
+	if (!HasAuthority() || Amount <= 0 || PlayerLevel >= MaxPlayerLevel)
+	{
+		return;
+	}
+
+	CurrentExperience += Amount;
+	while (PlayerLevel < MaxPlayerLevel)
+	{
+		const int32 RequiredExperience = GetExperienceToNextLevel();
+		if (CurrentExperience < RequiredExperience)
+		{
+			break;
+		}
+
+		CurrentExperience -= RequiredExperience;
+		++PlayerLevel;
+	}
+
+	if (PlayerLevel >= MaxPlayerLevel)
+	{
+		CurrentExperience = 0;
+	}
+
+	BroadcastProgression();
+	ForceNetUpdate();
+}
+
+void AHB_PlayerState::ResetMatchProgression()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	PlayerLevel = 1;
+	CurrentExperience = 0;
+	BroadcastProgression();
+	ForceNetUpdate();
+}
+
+int32 AHB_PlayerState::GetExperienceToNextLevel() const
+{
+	if (PlayerLevel >= MaxPlayerLevel)
+	{
+		return 0;
+	}
+
+	return BaseExperienceToNextLevel + (PlayerLevel - 1) * ExperienceIncreasePerLevel;
+}
+
+float AHB_PlayerState::GetExperiencePercent() const
+{
+	const int32 RequiredExperience = GetExperienceToNextLevel();
+	return RequiredExperience > 0
+		? FMath::Clamp(static_cast<float>(CurrentExperience) / static_cast<float>(RequiredExperience), 0.0f, 1.0f)
+		: 1.0f;
+}
+
+void AHB_PlayerState::OnRep_PlayerLevel()
+{
+	BroadcastProgression();
+}
+
+void AHB_PlayerState::OnRep_CurrentExperience()
+{
+	BroadcastProgression();
+}
+
+void AHB_PlayerState::BroadcastProgression()
+{
+	OnPlayerLevelChanged.Broadcast(PlayerLevel);
+	OnPlayerExperienceChanged.Broadcast(CurrentExperience, GetExperienceToNextLevel(), GetExperiencePercent());
+}
+
+void AHB_PlayerState::SetTeamId(const int32 NewTeamId)
+{
+	if (!HasAuthority() || TeamId == NewTeamId)
+	{
+		return;
+	}
+
+	TeamId = NewTeamId;
+	OnTeamIdChanged.Broadcast(TeamId);
+	ForceNetUpdate();
+}
+
+bool AHB_PlayerState::IsSameTeam(const AHB_PlayerState* OtherPlayerState) const
+{
+	return OtherPlayerState
+		&& HasValidTeam()
+		&& OtherPlayerState->HasValidTeam()
+		&& TeamId == OtherPlayerState->TeamId;
+}
+
+void AHB_PlayerState::OnRep_TeamId()
+{
+	OnTeamIdChanged.Broadcast(TeamId);
 }
