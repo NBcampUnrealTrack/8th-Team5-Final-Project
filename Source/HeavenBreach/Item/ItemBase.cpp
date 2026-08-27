@@ -159,7 +159,7 @@ bool AItemBase::TryPickUp(AActor* Picker)
 	NewItem.ItemRow.DataTable = TargetTable;
 	NewItem.ItemRow.RowName = ItemID;
 	NewItem.InstanceId = FGuid::NewGuid();
-	NewItem.StackCount = 1;
+	NewItem.StackCount = FMath::Max(1, StackCount);
 
 	int32 Remainder = 0;
 	if (Inventory->TryAddItem(NewItem, Remainder) && Remainder == 0)
