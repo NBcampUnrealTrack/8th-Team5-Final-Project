@@ -20,6 +20,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Inventory")
 	void RequestCloseInventory();
 
+	UFUNCTION(BlueprintCallable, Category = "Travel")
+	void TravelToLevel(const FString& InLevelPath);
+
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	TObjectPtr<UInputMappingContext> PlayerMappingContext;

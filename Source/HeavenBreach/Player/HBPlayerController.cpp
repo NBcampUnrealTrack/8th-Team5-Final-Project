@@ -268,6 +268,11 @@ void AHBPlayerController::RequestCloseInventory()
 	}
 }
 
+void AHBPlayerController::TravelToLevel(const FString& InLevelPath)
+{
+	ClientTravel(InLevelPath, ETravelType::TRAVEL_Absolute);
+}
+
 void AHBPlayerController::StartSprint()
 {
 	if (InventoryUI && InventoryUI->IsInventoryOpen())
