@@ -38,6 +38,23 @@ public:
 		return nullptr;
 	}
 
+	/**
+	 * 레이어에 위젯을 push 하면서 초기화까지 수행한다.
+	 * InitFunc는 위젯이 활성화되기 전에 실행되므로, NativeOnActivated 시점에는
+	 * 이미 데이터가 채워져 있는 것이 보장된다.
+	 */
+	template <typename WidgetT = UCommonActivatableWidget>
+	WidgetT* PushWidgetToLayer(FGameplayTag LayerTag,
+		TSubclassOf<UCommonActivatableWidget> WidgetClass,
+		TFunctionRef<void(WidgetT&)> InitFunc)
+	{
+		if (UCommonActivatableWidgetStack* Layer = GetLayer(LayerTag))
+		{
+			return Layer->AddWidget<WidgetT>(WidgetClass, InitFunc);
+		}
+		return nullptr;
+	}
+
 	UFUNCTION(BlueprintCallable, Category = "HB|UI", meta = (DisplayName = "Push Widget To Layer"))
 	UCommonActivatableWidget* BP_PushWidgetToLayer(FGameplayTag LayerTag, TSubclassOf<UCommonActivatableWidget> WidgetClass);
 

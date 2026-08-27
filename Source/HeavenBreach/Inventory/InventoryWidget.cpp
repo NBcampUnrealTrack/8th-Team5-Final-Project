@@ -20,6 +20,16 @@
 #include "ShopComponent.h"
 #include "Inventory/QuickSlotComponent.h"
 
+UInventoryWidget::UInventoryWidget()
+{
+	// 활성 상태에서 게임 입력을 차단하고 커서를 띄운다.
+	// 드래그&드롭 때문에 마우스는 캡처하지 않는다.
+	InputMode = EHBWidgetInputMode::Menu;
+
+	// ESC 로 자기 자신을 닫는다. 스택이 아래 위젯을 자동 재활성한다.
+	bIsBackHandler = true;
+}
+
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
 	if (BoundInventory != nullptr)
@@ -888,14 +898,14 @@ void UInventoryWidget::RefocusAfterDrop()
 		return;
 	}
 
+	// SetInputMode를 직접 부르면 CommonUI가 적용해둔 InputConfig를 덮어써서
+	// 스택 상태와 입력 모드가 어긋난다. 포커스만 되돌린다.
 	TSharedRef<SWidget> WidgetToFocus = (LinkedContainer != nullptr && ParentContainerWidget != nullptr)
 		? ParentContainerWidget->TakeWidget()
 		: TakeWidget();
 
-	FInputModeGameAndUI InputMode;
-	InputMode.SetWidgetToFocus(WidgetToFocus);
-	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-	PC->SetInputMode(InputMode);
+	FSlateApplication::Get().SetUserFocus(
+		PC->GetLocalPlayer()->GetControllerId(), WidgetToFocus, EFocusCause::SetDirectly);
 }
 
 bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)

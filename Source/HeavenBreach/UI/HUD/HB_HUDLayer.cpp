@@ -4,6 +4,8 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
+#include "TimerManager.h"
+#include "Engine/World.h"
 
 UHB_HUDLayer::UHB_HUDLayer()
 {
@@ -27,6 +29,16 @@ void UHB_HUDLayer::NativeConstruct()
 	BindPlayerState();
 }
 
+void UHB_HUDLayer::NativeDestruct()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(BindRetryTimerHandle);
+	}
+
+	Super::NativeDestruct();
+}
+
 void UHB_HUDLayer::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
@@ -45,19 +57,52 @@ void UHB_HUDLayer::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 void UHB_HUDLayer::BindPlayerState()
 {
+	if (TryBindPlayerState())
+	{
+		return;
+	}
+
+	// 클라이언트에서는 PlayerState 복제가 위젯 생성보다 늦을 수 있다.
+	// 준비될 때까지 재시도한다 (기존 BP_HBPlayerCharacter의 IsValid + Delay 루프를 대체)
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			BindRetryTimerHandle, this, &UHB_HUDLayer::HandleBindRetry, BindRetryInterval, true);
+	}
+}
+
+void UHB_HUDLayer::HandleBindRetry()
+{
+	if (!TryBindPlayerState())
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(BindRetryTimerHandle);
+	}
+}
+
+bool UHB_HUDLayer::TryBindPlayerState()
+{
 	AHB_PlayerState* PS = Cast<AHB_PlayerState>(GetOwningPlayerState());
 	if (PS == nullptr)
 	{
-		return;
+		return false;
+	}
+
+	UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet();
+	if (AttribSet == nullptr)
+	{
+		return false;
 	}
 
 	PS->OnHPChanged.RemoveAll(this);
 	PS->OnHPChanged.AddDynamic(this, &UHB_HUDLayer::UpdateHPBar);
 
-	if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
-	{
-		UpdateHPBar(AttribSet->GetPlayer_HP(), AttribSet->GetPlayer_MaxHP());
-	}
+	UpdateHPBar(AttribSet->GetPlayer_HP(), AttribSet->GetPlayer_MaxHP());
+	return true;
 }
 
 void UHB_HUDLayer::UpdateHPBar(float CurrentHP, float MaxHP)
