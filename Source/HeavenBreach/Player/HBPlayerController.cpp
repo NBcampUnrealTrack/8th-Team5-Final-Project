@@ -10,6 +10,7 @@
 #include "Player/HBPlayerCharacter.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Inventory/QuickSlotComponent.h"
+#include "Core/GameFlow/HeavenBreachGameMode.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -219,6 +220,79 @@ void AHBPlayerController::TestStartMatch()
 	}
 }
 
+void AHBPlayerController::TestExtract()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	ServerTestExtract();
+}
+
+void AHBPlayerController::ReturnToHub()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	const FString HubMap =
+		TEXT("/Game/Levels/Lobby/L_Lobby");
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("GameFlow | Returning to Hub | Map: %s"),
+		*HubMap
+	);
+
+	ClientTravel(
+		HubMap,
+		TRAVEL_Absolute
+	);
+}
+
+void AHBPlayerController::TestReturnToHub()
+{
+	ReturnToHub();
+}
+
+void AHBPlayerController::ServerTestExtract_Implementation()
+{
+	AHeavenBreachGameMode* GameMode = GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>();
+
+	if (GameMode == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Test | Extract failed: GameMode unavailable")
+		);
+
+		return;
+	}
+
+	if (PlayerState == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Test | Extract failed: PlayerState unavailable")
+		);
+
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Test | Request Player Extract")
+	);
+
+	GameMode->NotifyPlayerExtracted(PlayerState);
+
+}
 //////////////////////////////////////////////
 
 void AHBPlayerController::PlayerTick(float DeltaTime)

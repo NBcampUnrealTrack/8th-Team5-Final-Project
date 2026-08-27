@@ -101,6 +101,18 @@ protected:
 	
 	UFUNCTION(Exec)
 	void TestStartMatch();
+	
+	UFUNCTION(Exec)
+	void TestExtract();
+	
+	UFUNCTION(Server, Reliable)
+	void ServerTestExtract();
+	
+	UFUNCTION(BlueprintCallable, Category = "GameFlow")
+	void ReturnToHub();
+
+	UFUNCTION(Exec)
+	void TestReturnToHub();
 	////////////////////////////////////
 
 

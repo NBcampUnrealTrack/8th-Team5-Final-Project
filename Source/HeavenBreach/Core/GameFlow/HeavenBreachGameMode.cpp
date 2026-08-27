@@ -102,6 +102,36 @@ void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
 	EvaluateMatchEnd();
 }
 
+void AHeavenBreachGameMode::TravelPlayersToPostMatchMap()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const FString PostMatchMap =
+		TEXT("/Game/Levels/test_jh/TestMap");
+
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		APlayerController* PlayerController = It->Get();
+
+		if (!IsValid(PlayerController))
+		{
+			continue;
+		}
+
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("HeavenBreachGM | Travel Player To PostMatch Map | %s"),
+			*PostMatchMap
+		);
+
+		PlayerController->ClientTravel(PostMatchMap,TRAVEL_Absolute);
+	}
+}
+
 void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
@@ -202,6 +232,8 @@ void AHeavenBreachGameMode::HandleMatchHasEnded()
 	
 	StopMatchTimer();
 	ActivePlayers.Reset();
+	
+	TravelPlayersToPostMatchMap();
 }
 
 void AHeavenBreachGameMode::HandleLeavingMap()

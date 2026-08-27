@@ -24,7 +24,7 @@ public:
 	void JoinLobby(int32 InSearchResultIndex);
 	void LeaveLobby();
 	
-	void PublishMatchServer(const FString& ServerAddress);
+	bool PublishMatchServer(const FString& ServerAddress);
 	void ConnectToMatchServer(const FString& ServerAddress);
 	void ConnectToPublishMatchServer();
 	

@@ -1,0 +1,137 @@
+[CmdletBinding()]
+param(
+    [string]$EngineRoot = "D:\Epic Games\UE_5.7",
+
+    [string]$Map = "/Game/FirstPerson/Lvl_FirstPerson",
+
+    [ValidateRange(1, 65535)]
+    [int]$Port = 17777,
+
+    [ValidateRange(1, [int]::MaxValue)]
+    [int]$SteamAppId = 480,
+
+    [string[]]$AdditionalArguments = @()
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectFile = Join-Path $projectRoot "HeavenBreach.uproject"
+$editorExecutable = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor.exe"
+
+if (-not (Test-Path -LiteralPath $projectFile -PathType Leaf))
+{
+    throw "Project file was not found: $projectFile"
+}
+
+if (-not (Test-Path -LiteralPath $editorExecutable -PathType Leaf))
+{
+    throw "UnrealEditor.exe was not found. Pass the installed UE 5.7 directory with -EngineRoot. Expected: $editorExecutable"
+}
+
+$editorBaseDirectory = Split-Path -Parent $editorExecutable
+$steamAppIdFile = Join-Path $editorBaseDirectory "steam_appid.txt"
+$expectedAppId = $SteamAppId.ToString([Globalization.CultureInfo]::InvariantCulture)
+$steamAppIdFileCreated = $false
+$steamAppIdFileLock = $null
+
+try
+{
+    if (Test-Path -LiteralPath $steamAppIdFile)
+    {
+        $existingAppId = (Get-Content -LiteralPath $steamAppIdFile -Raw).Trim()
+
+        if ($existingAppId -ne $expectedAppId)
+        {
+            throw "The existing Steam AppID file contains '$existingAppId', expected '$expectedAppId'. It was not modified: $steamAppIdFile"
+        }
+
+        Write-Host "Using existing Steam AppID file: $steamAppIdFile"
+    }
+    else
+    {
+        [IO.File]::WriteAllText(
+            $steamAppIdFile,
+            $expectedAppId,
+            [Text.Encoding]::ASCII
+        )
+
+        $steamAppIdFileCreated = $true
+        Write-Host "Created Steam AppID file: $steamAppIdFile"
+    }
+
+    $writtenAppId = (Get-Content -LiteralPath $steamAppIdFile -Raw).Trim()
+    if ($writtenAppId -ne $expectedAppId)
+    {
+        throw "Steam AppID verification failed for: $steamAppIdFile"
+    }
+
+    # Keep the development AppID available until Steam has initialized. The
+    # handle permits reads and writes but prevents another UE process from
+    # deleting the shared Engine/Binaries/Win64 file during server startup.
+    $steamAppIdFileLock = [IO.File]::Open(
+        $steamAppIdFile,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::ReadWrite
+    )
+
+    $serverArguments = @(
+        "`"$projectFile`""
+        $Map
+        "-server"
+        "-log"
+        "-port=$Port"
+        "-NoSound"
+        "-ddc=InstalledNoZenLocalFallback"
+    ) + $AdditionalArguments
+
+    Write-Host "Starting HeavenBreach dedicated server"
+    Write-Host "  Executable : $editorExecutable"
+    Write-Host "  Project    : $projectFile"
+    Write-Host "  Map        : $Map"
+    Write-Host "  Game port  : $Port"
+    Write-Host "  Steam AppID: $expectedAppId"
+    Write-Host ""
+    Write-Host "Expected startup markers:"
+    Write-Host "  STEAM: [AppId: $expectedAppId] Game Server API initialized 1"
+    Write-Host "  Online | Subsystem: STEAM"
+    Write-Host ""
+
+    $serverProcess = Start-Process `
+        -FilePath $editorExecutable `
+        -ArgumentList $serverArguments `
+        -PassThru `
+        -Wait
+
+    if ($serverProcess.ExitCode -ne 0)
+    {
+        throw "Dedicated server exited with code $($serverProcess.ExitCode)"
+    }
+}
+finally
+{
+    if ($null -ne $steamAppIdFileLock)
+    {
+        $steamAppIdFileLock.Dispose()
+    }
+
+    if ($steamAppIdFileCreated -and (Test-Path -LiteralPath $steamAppIdFile -PathType Leaf))
+    {
+        $resolvedBaseDirectory = [IO.Path]::GetFullPath($editorBaseDirectory).TrimEnd('\', '/')
+        $resolvedAppIdFile = [IO.Path]::GetFullPath($steamAppIdFile)
+        $resolvedAppIdParent = [IO.Path]::GetDirectoryName($resolvedAppIdFile).TrimEnd('\', '/')
+
+        if (
+            -not $resolvedAppIdParent.Equals($resolvedBaseDirectory, [StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetFileName($resolvedAppIdFile) -ne "steam_appid.txt"
+        )
+        {
+            throw "Refusing to clean up an unexpected path: $resolvedAppIdFile"
+        }
+
+        Remove-Item -LiteralPath $resolvedAppIdFile -Force
+        Write-Host "Removed temporary Steam AppID file: $resolvedAppIdFile"
+    }
+}
