@@ -118,6 +118,10 @@ protected:
 	
 	UFUNCTION(Exec)
 	void TestStartMatch();
+
+	// 테스트 전용: 지정한 전용 서버 주소로 매치 시작 이동을 검증한다.
+	UFUNCTION(Exec)
+	void TestStartMatchAtAddress(const FString& ServerAddress);
 	
 	UFUNCTION(Exec)
 	void TestExtract();

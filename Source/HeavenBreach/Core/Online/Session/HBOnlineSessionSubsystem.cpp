@@ -7,7 +7,11 @@
 #include "OnlineSessionSettings.h"
 #include "Online/OnlineSessionNames.h"
 #include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "Interfaces/OnlineIdentityInterface.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 namespace HBOnline
 {
@@ -15,11 +19,23 @@ namespace HBOnline
 	
 	const FName MatchServerKey(TEXT("HB_MATCH_SERVER"));
 	const FName MatchReadyKey(TEXT("HB_MATCH_READY"));
+
+	const TCHAR* MatchServerCommandLineKey = TEXT("HBMatchServer=");
+	const TCHAR* LocalMatchServerAddress = TEXT("127.0.0.1:17777");
 }
 
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+
+	if (GEngine != nullptr)
+	{
+		NetworkFailureDelegateHandle =
+			GEngine->OnNetworkFailure().AddUObject(
+				this,
+				&UHBOnlineSessionSubsystem::HandleNetworkFailure
+				);
+	}
 	
 	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
 	
@@ -69,6 +85,13 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UHBOnlineSessionSubsystem::Deinitialize()
 {
+	if (GEngine != nullptr && NetworkFailureDelegateHandle.IsValid())
+	{
+		GEngine->OnNetworkFailure().Remove(NetworkFailureDelegateHandle);
+	}
+
+	NetworkFailureDelegateHandle.Reset();
+
 	if (SessionInterface.IsValid() && SessionSettingsUpdatedDelegateHandle.IsValid())
 	{
 		SessionInterface->ClearOnSessionSettingsUpdatedDelegate_Handle(
@@ -83,22 +106,83 @@ void UHBOnlineSessionSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
-void UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
+bool UHBOnlineSessionSubsystem::RequestCreateLobby(int32 MaxPlayers)
 {
-	if (!SessionInterface.IsValid())
+	if (IsLobbyOperationInProgress())
 	{
 		UE_LOG(
 			LogTemp,
-			Error,
-			TEXT("Online | Lobby | SessionInterface invalid")
+			Warning,
+			TEXT("Online | Lobby | Create ignored: Operation already in progress")
 			);
-		
-		return;
+
+		return false;
 	}
+
+	if (SessionInterface.IsValid() &&
+		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
+	{
+		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+		return true;
+	}
+
+	return CreateLobby(MaxPlayers);
+}
+
+bool UHBOnlineSessionSubsystem::RequestFindAndJoinLobby()
+{
+	if (IsLobbyOperationInProgress())
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Lobby | Find and join ignored: Operation already in progress")
+			);
+
+		return false;
+	}
+
+	if (SessionInterface.IsValid() &&
+		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
+	{
+		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+		return true;
+	}
+
+	bJoinFirstLobbyAfterFind = true;
+	return FindLobbies();
+}
+
+bool UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
+{
+	if (!SessionInterface.IsValid())
+	{
+		return FailLobbyOperation(TEXT("Create failed: SessionInterface invalid"));
+	}
+
+	if (IsLobbyOperationInProgress())
+	{
+		return false;
+	}
+
+	if (MaxPlayers < 1)
+	{
+		return FailLobbyOperation(TEXT("Create failed: MaxPlayers must be positive"));
+	}
+
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
+	{
+		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+		return true;
+	}
+
+	bJoinFirstLobbyAfterFind = false;
+	SetLobbyOperationState(EHBLobbyOperationState::Creating);
 	
 	PendingMatchServerAddress.Reset();
 	bConnectAfterLobbyUpdate = false;
 	bMatchTravelRequested = false;
+	SetMatchStartState(EHBMatchStartState::Idle);
 	
 	LobbySettings = MakeShared<FOnlineSessionSettings>();
 	
@@ -156,13 +240,7 @@ void UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
 		
 		CreateLobbyCompleteDelegateHandle.Reset();
 		
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Lobby | CreateLobby request failed")
-			);
-		
-		return;
+		return FailLobbyOperation(TEXT("CreateLobby request failed to start"));
 	}
 	
 	UE_LOG(
@@ -170,16 +248,24 @@ void UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
 		Warning,
 		TEXT("Online | Lobby | CreateLobby requested")
 		);
+
+	return true;
 }
 
-void UHBOnlineSessionSubsystem::FindLobbies()
+bool UHBOnlineSessionSubsystem::FindLobbies()
 {
 	if (!SessionInterface.IsValid())
 	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("Online | Lobby | FindLobbies failed: SessionInterface is invalid"));
-		return;
+		return FailLobbyOperation(TEXT("Find failed: SessionInterface invalid"));
 	}
+
+	if (LobbyOperationState == EHBLobbyOperationState::Creating ||
+		LobbyOperationState == EHBLobbyOperationState::Joining)
+	{
+		return false;
+	}
+
+	SetLobbyOperationState(EHBLobbyOperationState::Finding);
 
 	LobbySearch = MakeShared<FOnlineSessionSearch>();
 
@@ -221,68 +307,52 @@ void UHBOnlineSessionSubsystem::FindLobbies()
 
 		LobbySearch.Reset();
 
-		UE_LOG(LogTemp, 
-			Warning,
-			TEXT("Online | Lobby | FindLobbies request failed to start")
-			);
-
-		return;
+		return FailLobbyOperation(TEXT("FindLobbies request failed to start"));
 	}
 
 	UE_LOG(LogTemp, 
 		Warning,
 		TEXT("Online | Lobby | FindLobbies requested")
 		);
+
+	return true;
 }
 
 
 
-void UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
+bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 {
 	if (!SessionInterface.IsValid())
 	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | Join failed: SessionInterface invalid")
-		);
-		
-		return;
+		return FailLobbyOperation(TEXT("Join failed: SessionInterface invalid"));
+	}
+
+	if (LobbyOperationState == EHBLobbyOperationState::Creating ||
+		LobbyOperationState == EHBLobbyOperationState::Joining)
+	{
+		return false;
 	}
 
 	if (!LobbySearch.IsValid())
 	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | Join failed: LobbySearch invalid")
-		);
-		
-		return;
+		return FailLobbyOperation(TEXT("Join failed: LobbySearch invalid"));
 	}
 
 	if (!LobbySearch->SearchResults.IsValidIndex(InSearchResultIndex))
 	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | Join failed: Invalid result index %d"),
+		return FailLobbyOperation(FString::Printf(
+			TEXT("Join failed: Invalid result index %d"),
 			InSearchResultIndex
-		);
-		
-		return;
+			));
 	}
 
 	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
 	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | Join failed: Already has GameSession")
-		);
-		
-		return;
+		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+		return true;
 	}
+
+	SetLobbyOperationState(EHBLobbyOperationState::Joining);
 
 	const FOnJoinSessionCompleteDelegate JoinCompleteDelegate =
 		FOnJoinSessionCompleteDelegate::CreateUObject(
@@ -306,13 +376,7 @@ void UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 
 		JoinLobbyCompleteDelegateHandle.Reset();
 
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | JoinLobby request failed")
-		);
-		
-		return;
+		return FailLobbyOperation(TEXT("JoinLobby request failed to start"));
 	}
 
 	UE_LOG(
@@ -321,6 +385,8 @@ void UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 		TEXT("Online | Lobby | JoinLobby requested | Index: %d"),
 		InSearchResultIndex
 	);
+
+	return true;
 }
 
 void UHBOnlineSessionSubsystem::LeaveLobby()
@@ -382,13 +448,19 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 
 void UHBOnlineSessionSubsystem::ConnectToMatchServer(const FString& ServerAddress)
 {
-	if (ServerAddress.IsEmpty())
+	FString NormalizedServerAddress;
+	FString ValidationError;
+
+	if (!ValidateMatchServerAddress(
+		ServerAddress,
+		NormalizedServerAddress,
+		ValidationError))
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Connect failed: ServerAddress is empty")
-			);
+		FailMatchStart(FString::Printf(
+			TEXT("Connect failed: %s | Address: %s"),
+			*ValidationError,
+			*ServerAddress
+			));
 		
 		return;
 	}
@@ -396,11 +468,7 @@ void UHBOnlineSessionSubsystem::ConnectToMatchServer(const FString& ServerAddres
 	UWorld* World = GetWorld();
 	if (World == nullptr)
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Connect failed: World unavailable")
-			);
+		FailMatchStart(TEXT("Connect failed: World unavailable"));
 		
 		return;
 	}
@@ -408,24 +476,33 @@ void UHBOnlineSessionSubsystem::ConnectToMatchServer(const FString& ServerAddres
 	APlayerController* PlayerController = World->GetFirstPlayerController();
 	if (PlayerController == nullptr || !PlayerController->IsLocalController())
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Connect failed: Local PlayerController unavailable")
-			);
+		FailMatchStart(TEXT("Connect failed: Local PlayerController unavailable"));
 		
 		return;
 	}
+
+	SetMatchStartState(EHBMatchStartState::Traveling);
 	
 	UE_LOG(
 		LogTemp,
 		Warning,
 		TEXT("Online | Match | Connecting to Dedicated Server: %s"),
-		*ServerAddress
+		*NormalizedServerAddress
+		);
+
+	// Lobby UIOnly mode sets the persistent GameViewportClient to ignore game input.
+	// Restore native game input before travel; CommonUI's Game config does not clear that flag.
+	PlayerController->SetInputMode(FInputModeGameOnly());
+	PlayerController->SetShowMouseCursor(false);
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Match | Gameplay input restored before travel")
 		);
 	
 	PlayerController->ClientTravel(
-		ServerAddress,
+		NormalizedServerAddress,
 		ETravelType::TRAVEL_Absolute
 		);
 }
@@ -519,113 +596,187 @@ void UHBOnlineSessionSubsystem::ConnectToPublishMatchServer()
 	ConnectToMatchServer(ServerAddress);
 }
 
-void UHBOnlineSessionSubsystem::StartMatchAsLobbyOwner(const FString& ServerAddress)
+bool UHBOnlineSessionSubsystem::RequestStartMatch()
 {
+	return StartMatchAsLobbyOwner(FString());
+}
+
+bool UHBOnlineSessionSubsystem::StartMatchAsLobbyOwner(const FString& ServerAddress)
+{
+	if (IsMatchStartInProgress() ||
+		bConnectAfterLobbyUpdate ||
+		bMatchTravelRequested)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Online | Match | Start ignored: Match travel already requested")
+			);
+
+		return false;
+	}
+
 	if (!SessionInterface.IsValid())
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Start failed: SessionInterface invalid")
-        );
+	{
+		return FailMatchStart(TEXT("Start failed: SessionInterface invalid"));
+	}
 
-        return;
-    }
+	FString ResolvedServerAddress;
 
-    if (ServerAddress.IsEmpty())
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Start failed: ServerAddress empty")
-        );
+	if (!ResolveMatchServerAddress(ServerAddress, ResolvedServerAddress))
+	{
+		return FailMatchStart(
+			TEXT("Start failed: Match server address unavailable")
+			);
+	}
 
-        return;
-    }
+	FNamedOnlineSession* LobbySession =
+		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
 
-    if (bConnectAfterLobbyUpdate || bMatchTravelRequested)
-    {
-        UE_LOG(
-            LogTemp,
-            Warning,
-            TEXT("Online | Match | Start ignored: Match travel already requested")
-        );
+	if (LobbySession == nullptr || !LobbySession->OwningUserId.IsValid())
+	{
+		return FailMatchStart(
+			TEXT("Start failed: Party Lobby or Owner unavailable")
+			);
+	}
 
-        return;
-    }
+	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
 
-    FNamedOnlineSession* LobbySession =
-        SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
+	if (OnlineSubsystem == nullptr)
+	{
+		return FailMatchStart(TEXT("Start failed: OnlineSubsystem unavailable"));
+	}
 
-    if (LobbySession == nullptr || !LobbySession->OwningUserId.IsValid())
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Start failed: Party Lobby or Owner unavailable")
-        );
+	IOnlineIdentityPtr IdentityInterface = OnlineSubsystem->GetIdentityInterface();
 
-        return;
-    }
+	if (!IdentityInterface.IsValid())
+	{
+		return FailMatchStart(TEXT("Start failed: IdentityInterface unavailable"));
+	}
 
-    IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
+	const TSharedPtr<const FUniqueNetId> LocalUserId =
+		IdentityInterface->GetUniquePlayerId(0);
 
-    if (OnlineSubsystem == nullptr)
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Start failed: OnlineSubsystem unavailable")
-        );
+	if (!LocalUserId.IsValid())
+	{
+		return FailMatchStart(TEXT("Start failed: Local User ID unavailable"));
+	}
 
-        return;
-    }
+	if (*LocalUserId != *LobbySession->OwningUserId)
+	{
+		return FailMatchStart(
+			TEXT("Start rejected: Local user is not Lobby Owner")
+			);
+	}
 
-    IOnlineIdentityPtr IdentityInterface = OnlineSubsystem->GetIdentityInterface();
+	SetMatchStartState(EHBMatchStartState::Publishing);
+	PendingMatchServerAddress = ResolvedServerAddress;
+	bConnectAfterLobbyUpdate = true;
 
-    if (!IdentityInterface.IsValid())
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Start failed: IdentityInterface unavailable")
-        );
+	if (!PublishMatchServer(ResolvedServerAddress))
+	{
+		return FailMatchStart(
+			TEXT("Start failed: Match server publish request failed")
+			);
+	}
 
-        return;
-    }
+	return true;
+}
 
-    const TSharedPtr<const FUniqueNetId> LocalUserId = IdentityInterface->GetUniquePlayerId(0);
+bool UHBOnlineSessionSubsystem::FailLobbyOperation(const FString& ErrorMessage)
+{
+	bJoinFirstLobbyAfterFind = false;
 
-    if (!LocalUserId.IsValid())
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Start failed: Local User ID unavailable")
-        );
+	const FString ResolvedErrorMessage = ErrorMessage.IsEmpty()
+		? TEXT("Unknown lobby operation error")
+		: ErrorMessage;
 
-        return;
-    }
+	UE_LOG(
+		LogTemp,
+		Error,
+		TEXT("Online | Lobby | Failed: %s"),
+		*ResolvedErrorMessage
+		);
 
-    if (*LocalUserId != *LobbySession->OwningUserId)
-    {
-        UE_LOG(
-            LogTemp,
-            Warning,
-            TEXT("Online | Match | Start rejected: Local user is not Lobby Owner")
-        );
+	SetLobbyOperationState(
+		EHBLobbyOperationState::Failed,
+		ResolvedErrorMessage
+		);
 
-        return;
-    }
+	return false;
+}
 
-    PendingMatchServerAddress = ServerAddress;
-    bConnectAfterLobbyUpdate = true;
+void UHBOnlineSessionSubsystem::SetLobbyOperationState(
+	EHBLobbyOperationState NewState,
+	const FString& ErrorMessage)
+{
+	const FString ResolvedErrorMessage =
+		NewState == EHBLobbyOperationState::Failed
+			? ErrorMessage
+			: FString();
 
-    if (!PublishMatchServer(ServerAddress))
-    {
-        PendingMatchServerAddress.Reset();
-        bConnectAfterLobbyUpdate = false;
-    }
+	if (LobbyOperationState == NewState &&
+		LastLobbyOperationError == ResolvedErrorMessage)
+	{
+		return;
+	}
+
+	LobbyOperationState = NewState;
+	LastLobbyOperationError = ResolvedErrorMessage;
+
+	OnLobbyOperationStateChanged.Broadcast(
+		LobbyOperationState,
+		LastLobbyOperationError
+		);
+}
+
+bool UHBOnlineSessionSubsystem::FailMatchStart(const FString& ErrorMessage)
+{
+	PendingMatchServerAddress.Reset();
+	bConnectAfterLobbyUpdate = false;
+	bMatchTravelRequested = false;
+
+	const FString ResolvedErrorMessage = ErrorMessage.IsEmpty()
+		? TEXT("Unknown match start error")
+		: ErrorMessage;
+
+	UE_LOG(
+		LogTemp,
+		Error,
+		TEXT("Online | Match | Failed: %s"),
+		*ResolvedErrorMessage
+		);
+
+	SetMatchStartState(
+		EHBMatchStartState::Failed,
+		ResolvedErrorMessage
+		);
+
+	return false;
+}
+
+void UHBOnlineSessionSubsystem::SetMatchStartState(
+	EHBMatchStartState NewState,
+	const FString& ErrorMessage)
+{
+	const FString ResolvedErrorMessage =
+		NewState == EHBMatchStartState::Failed
+			? ErrorMessage
+			: FString();
+
+	if (MatchStartState == NewState &&
+		LastMatchStartError == ResolvedErrorMessage)
+	{
+		return;
+	}
+
+	MatchStartState = NewState;
+	LastMatchStartError = ResolvedErrorMessage;
+
+	OnMatchStartStateChanged.Broadcast(
+		MatchStartState,
+		LastMatchStartError
+		);
 }
 
 bool UHBOnlineSessionSubsystem::PublishMatchServer(const FString& ServerAddress)
@@ -641,12 +792,20 @@ bool UHBOnlineSessionSubsystem::PublishMatchServer(const FString& ServerAddress)
         return false;
     }
 
-    if (ServerAddress.IsEmpty())
+	FString NormalizedServerAddress;
+	FString ValidationError;
+
+	if (!ValidateMatchServerAddress(
+		ServerAddress,
+		NormalizedServerAddress,
+		ValidationError))
     {
         UE_LOG(
             LogTemp,
             Error,
-            TEXT("Online | Match | Publish failed: ServerAddress empty")
+            TEXT("Online | Match | Publish failed: %s | Address: %s"),
+			*ValidationError,
+			*ServerAddress
         );
 
         return false;
@@ -673,7 +832,7 @@ bool UHBOnlineSessionSubsystem::PublishMatchServer(const FString& ServerAddress)
 
     UpdatedSettings.Set(
         HBOnline::MatchServerKey,
-        ServerAddress,
+        NormalizedServerAddress,
         EOnlineDataAdvertisementType::ViaOnlineService
     );
 
@@ -721,7 +880,7 @@ bool UHBOnlineSessionSubsystem::PublishMatchServer(const FString& ServerAddress)
         LogTemp,
         Warning,
         TEXT("Online | Match | Publish requested | Server: %s"),
-        *ServerAddress
+		*NormalizedServerAddress
     );
 
     return true;
@@ -738,6 +897,8 @@ void UHBOnlineSessionSubsystem::HandleCreateLobbyComplete(FName InSessionName, b
 	CreateLobbyCompleteDelegateHandle.Reset();
 	if (bWasSuccessful)
 	{
+		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+
 		UE_LOG(
 			LogTemp,
 			Warning,
@@ -747,12 +908,10 @@ void UHBOnlineSessionSubsystem::HandleCreateLobbyComplete(FName InSessionName, b
 	}
 	else
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Lobby | Create failed: %s"),
+		FailLobbyOperation(FString::Printf(
+			TEXT("Create failed: %s"),
 			*InSessionName.ToString()
-			);
+			));
 	}
 }
 
@@ -763,13 +922,10 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
 	}
 
+	FindLobbiesCompleteDelegateHandle.Reset();
+
 	if (!bWasSuccessful || !LobbySearch.IsValid())
 	{
-		UE_LOG(LogTemp, 
-			Warning,
-			TEXT("Online | Lobby | FindLobbies failed")
-			);
-		
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(
@@ -779,6 +935,8 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 				TEXT("Find Lobby FAILED")
 			);
 		}
+
+		FailLobbyOperation(TEXT("FindLobbies failed"));
 
 		return;
 	}
@@ -845,6 +1003,23 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 			Result.Session.NumOpenPublicConnections
 		);
 	}
+
+	const bool bShouldJoinFirstLobby = bJoinFirstLobbyAfterFind;
+	bJoinFirstLobbyAfterFind = false;
+
+	if (!bShouldJoinFirstLobby)
+	{
+		SetLobbyOperationState(EHBLobbyOperationState::Idle);
+		return;
+	}
+
+	if (LobbySearch->SearchResults.IsEmpty())
+	{
+		FailLobbyOperation(TEXT("No matching Steam lobby found"));
+		return;
+	}
+
+	JoinLobby(0);
 }
 
 void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(
@@ -870,6 +1045,18 @@ void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(
 
 	const bool bSuccess =
 		InResult == EOnJoinSessionCompleteResult::Success;
+
+	if (bSuccess)
+	{
+		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+	}
+	else
+	{
+		FailLobbyOperation(FString::Printf(
+			TEXT("Join failed | Result: %d"),
+			static_cast<int32>(InResult)
+			));
+	}
 
 	if (GEngine)
 	{
@@ -904,10 +1091,13 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 	if (bWasSuccessful)
 	{
 		LobbySettings.Reset();
+		LobbySearch.Reset();
+		bJoinFirstLobbyAfterFind = false;
 		
 		PendingMatchServerAddress.Reset();
 		bConnectAfterLobbyUpdate = false;
 		bMatchTravelRequested = false;
+		SetLobbyOperationState(EHBLobbyOperationState::Idle);
 		
 		UE_LOG(
 			LogTemp,
@@ -918,6 +1108,11 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 	}
 	else
 	{
+		FailLobbyOperation(FString::Printf(
+			TEXT("Leave failed: %s"),
+			*InSessionName.ToString()
+			));
+
 		UE_LOG(
 			LogTemp,
 			Warning,
@@ -940,15 +1135,10 @@ void UHBOnlineSessionSubsystem::HandleUpdateLobbyComplete(FName InSessionName, b
 
 	if (!bWasSuccessful)
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Lobby update | Session: %s | Success: False"),
+		FailMatchStart(FString::Printf(
+			TEXT("Lobby update failed | Session: %s"),
 			*InSessionName.ToString()
-		);
-
-		PendingMatchServerAddress.Reset();
-		bConnectAfterLobbyUpdate = false;
+			));
 
 		return;
 	}
@@ -973,11 +1163,7 @@ void UHBOnlineSessionSubsystem::HandleUpdateLobbyComplete(FName InSessionName, b
 
 	if (ServerAddress.IsEmpty())
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Start failed: Pending server address empty")
-		);
+		FailMatchStart(TEXT("Start failed: Pending server address empty"));
 
 		return;
 	}
@@ -1013,6 +1199,7 @@ void UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated(FName InSessionName
 	if (!bMatchReady)
 	{
 		bMatchTravelRequested = false;
+		SetMatchStartState(EHBMatchStartState::Idle);
 		return;
 	}
 
@@ -1020,22 +1207,16 @@ void UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated(FName InSessionName
 
 	if (!InSessionSettings.Get(HBOnline::MatchServerKey,ServerAddress))
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Lobby updated but server address does not exist")
-		);
+		FailMatchStart(
+			TEXT("Lobby updated but server address does not exist")
+			);
 
 		return;
 	}
 
 	if (ServerAddress.IsEmpty())
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Lobby updated but server address is empty")
-		);
+		FailMatchStart(TEXT("Lobby updated but server address is empty"));
 
 		return;
 	}
@@ -1062,4 +1243,201 @@ void UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated(FName InSessionName
 	);
 
 	ConnectToMatchServer(ServerAddress);
+}
+
+void UHBOnlineSessionSubsystem::HandleNetworkFailure(
+	UWorld* InWorld,
+	UNetDriver* InNetDriver,
+	ENetworkFailure::Type InFailureType,
+	const FString& InErrorString)
+{
+	(void)InNetDriver;
+
+	if (InWorld != nullptr && InWorld->GetGameInstance() != GetGameInstance())
+	{
+		return;
+	}
+
+	const bool bHasMatchTravelState =
+		bMatchTravelRequested ||
+		bConnectAfterLobbyUpdate ||
+		!PendingMatchServerAddress.IsEmpty() ||
+		MatchStartState == EHBMatchStartState::Publishing ||
+		MatchStartState == EHBMatchStartState::Traveling;
+
+	if (!bHasMatchTravelState)
+	{
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Error,
+		TEXT("Online | Match | Network failure | Type: %s | Error: %s"),
+		ENetworkFailure::ToString(InFailureType),
+		*InErrorString
+		);
+
+	PendingMatchServerAddress.Reset();
+	bConnectAfterLobbyUpdate = false;
+	bMatchTravelRequested = false;
+	SetMatchStartState(EHBMatchStartState::Failed, InErrorString);
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Match | Travel state reset | Retry allowed")
+		);
+}
+
+bool UHBOnlineSessionSubsystem::ResolveMatchServerAddress(
+	const FString& RequestedAddress,
+	FString& OutServerAddress) const
+{
+	FString CandidateAddress = RequestedAddress;
+	CandidateAddress.TrimStartAndEndInline();
+
+	const TCHAR* AddressSource = TEXT("Explicit");
+
+	if (CandidateAddress.IsEmpty())
+	{
+		if (FParse::Value(
+			FCommandLine::Get(),
+			HBOnline::MatchServerCommandLineKey,
+			CandidateAddress))
+		{
+			CandidateAddress.TrimStartAndEndInline();
+			AddressSource = TEXT("CommandLine");
+		}
+		else
+		{
+			CandidateAddress = HBOnline::LocalMatchServerAddress;
+			AddressSource = TEXT("LocalDefault");
+		}
+	}
+
+	FString ValidationError;
+
+	if (!ValidateMatchServerAddress(
+		CandidateAddress,
+		OutServerAddress,
+		ValidationError))
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Address resolution failed | Source: %s | Address: %s | Error: %s"),
+			AddressSource,
+			*CandidateAddress,
+			*ValidationError
+			);
+
+		OutServerAddress.Reset();
+		return false;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Match | Address resolved | Source: %s | Server: %s"),
+		AddressSource,
+		*OutServerAddress
+		);
+
+	return true;
+}
+
+bool UHBOnlineSessionSubsystem::ValidateMatchServerAddress(
+	const FString& ServerAddress,
+	FString& OutNormalizedAddress,
+	FString& OutError) const
+{
+	OutNormalizedAddress.Reset();
+	OutError.Reset();
+
+	FString CandidateAddress = ServerAddress;
+	CandidateAddress.TrimStartAndEndInline();
+
+	if (CandidateAddress.IsEmpty())
+	{
+		OutError = TEXT("Address is empty");
+		return false;
+	}
+
+	int32 PortSeparatorIndex = INDEX_NONE;
+	if (!CandidateAddress.FindLastChar(TEXT(':'), PortSeparatorIndex))
+	{
+		OutError = TEXT("Port is missing; expected Host:Port");
+		return false;
+	}
+
+	FString Host = CandidateAddress.Left(PortSeparatorIndex);
+	FString PortText = CandidateAddress.Mid(PortSeparatorIndex + 1);
+	Host.TrimStartAndEndInline();
+	PortText.TrimStartAndEndInline();
+
+	if (Host.IsEmpty())
+	{
+		OutError = TEXT("Host is empty");
+		return false;
+	}
+
+	if (Host.Len() > 253)
+	{
+		OutError = TEXT("Host is too long");
+		return false;
+	}
+
+	if (
+		Host.Equals(TEXT("0.0.0.0"), ESearchCase::IgnoreCase) ||
+		Host.Equals(TEXT("*"), ESearchCase::IgnoreCase))
+	{
+		OutError = TEXT("Bind-all address cannot be used as a client destination");
+		return false;
+	}
+
+	for (const TCHAR Character : Host)
+	{
+		const bool bAllowedCharacter =
+			FChar::IsAlnum(Character) ||
+			Character == TEXT('.') ||
+			Character == TEXT('-') ||
+			Character == TEXT('_');
+
+		if (!bAllowedCharacter)
+		{
+			OutError = TEXT("Host contains an unsupported character; use an IPv4 address or hostname");
+			return false;
+		}
+	}
+
+	if (PortText.IsEmpty())
+	{
+		OutError = TEXT("Port is empty");
+		return false;
+	}
+
+	for (const TCHAR Character : PortText)
+	{
+		if (!FChar::IsDigit(Character))
+		{
+			OutError = TEXT("Port must contain digits only");
+			return false;
+		}
+	}
+
+	const int64 Port = FCString::Atoi64(*PortText);
+	if (Port < 1 || Port > 65535)
+	{
+		OutError = TEXT("Port must be between 1 and 65535");
+		return false;
+	}
+
+	OutNormalizedAddress = FString::Printf(
+		TEXT("%s:%lld"),
+		*Host,
+		Port
+		);
+
+	return true;
 }

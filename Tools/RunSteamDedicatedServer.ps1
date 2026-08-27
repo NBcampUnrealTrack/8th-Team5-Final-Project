@@ -2,7 +2,7 @@
 param(
     [string]$EngineRoot = "D:\Epic Games\UE_5.7",
 
-    [string]$Map = "/Game/FirstPerson/Lvl_FirstPerson",
+    [string]$Map = "/Game/Levels/TierA/Maps/Floor_A",
 
     [ValidateRange(1, 65535)]
     [int]$Port = 17777,
@@ -35,6 +35,44 @@ $steamAppIdFile = Join-Path $editorBaseDirectory "steam_appid.txt"
 $expectedAppId = $SteamAppId.ToString([Globalization.CultureInfo]::InvariantCulture)
 $steamAppIdFileCreated = $false
 $steamAppIdFileLock = $null
+$serverProcess = $null
+
+$existingEndpoints = @(
+    Get-NetUDPEndpoint `
+        -LocalPort $Port `
+        -ErrorAction SilentlyContinue
+)
+
+if ($existingEndpoints.Count -gt 0)
+{
+    Write-Host "Port $Port is already in use:" -ForegroundColor Red
+
+    foreach ($endpoint in $existingEndpoints)
+    {
+        $ownerProcess = Get-Process `
+            -Id $endpoint.OwningProcess `
+            -ErrorAction SilentlyContinue
+
+        $ownerName = if ($null -ne $ownerProcess)
+        {
+            $ownerProcess.ProcessName
+        }
+        else
+        {
+            "Unknown"
+        }
+
+        Write-Host (
+            "  {0}:{1} | PID: {2} | Process: {3}" -f `
+                $endpoint.LocalAddress,
+                $endpoint.LocalPort,
+                $endpoint.OwningProcess,
+                $ownerName
+        )
+    }
+
+    throw "Dedicated server was not started because UDP port $Port is already in use."
+}
 
 try
 {
@@ -102,8 +140,48 @@ try
     $serverProcess = Start-Process `
         -FilePath $editorExecutable `
         -ArgumentList $serverArguments `
-        -PassThru `
-        -Wait
+        -PassThru
+
+    Write-Host "Server process started | PID: $($serverProcess.Id)"
+    Write-Host "Waiting for UDP port $Port..."
+
+    $serverEndpoint = $null
+
+    while ($null -eq $serverEndpoint)
+    {
+        $serverProcess.Refresh()
+
+        if ($serverProcess.HasExited)
+        {
+            throw (
+                "Dedicated server exited before opening UDP port {0}. Exit code: {1}" -f `
+                    $Port,
+                    $serverProcess.ExitCode
+            )
+        }
+
+        $serverEndpoint = Get-NetUDPEndpoint `
+            -LocalPort $Port `
+            -ErrorAction SilentlyContinue |
+            Where-Object { $_.OwningProcess -eq $serverProcess.Id } |
+            Select-Object -First 1
+
+        if ($null -eq $serverEndpoint)
+        {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
+    Write-Host (
+        "Server ready | Address: {0}:{1} | PID: {2}" -f `
+            $serverEndpoint.LocalAddress,
+            $serverEndpoint.LocalPort,
+            $serverEndpoint.OwningProcess
+    ) -ForegroundColor Green
+    Write-Host "This PowerShell remains attached until the server exits."
+
+    Wait-Process -Id $serverProcess.Id
+    $serverProcess.Refresh()
 
     if ($serverProcess.ExitCode -ne 0)
     {
@@ -112,12 +190,24 @@ try
 }
 finally
 {
+    $serverIsStillRunning = $false
+
+    if ($null -ne $serverProcess)
+    {
+        $serverProcess.Refresh()
+        $serverIsStillRunning = -not $serverProcess.HasExited
+    }
+
     if ($null -ne $steamAppIdFileLock)
     {
         $steamAppIdFileLock.Dispose()
     }
 
-    if ($steamAppIdFileCreated -and (Test-Path -LiteralPath $steamAppIdFile -PathType Leaf))
+    if (
+        $steamAppIdFileCreated -and
+        -not $serverIsStillRunning -and
+        (Test-Path -LiteralPath $steamAppIdFile -PathType Leaf)
+    )
     {
         $resolvedBaseDirectory = [IO.Path]::GetFullPath($editorBaseDirectory).TrimEnd('\', '/')
         $resolvedAppIdFile = [IO.Path]::GetFullPath($steamAppIdFile)
@@ -133,5 +223,12 @@ finally
 
         Remove-Item -LiteralPath $resolvedAppIdFile -Force
         Write-Host "Removed temporary Steam AppID file: $resolvedAppIdFile"
+    }
+    elseif ($steamAppIdFileCreated -and $serverIsStillRunning)
+    {
+        Write-Warning ((
+                "The script stopped while server PID {0} is still running. " +
+                "The Steam AppID file was left in place: {1}"
+            ) -f $serverProcess.Id, $steamAppIdFile)
     }
 }

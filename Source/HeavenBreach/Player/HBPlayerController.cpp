@@ -247,7 +247,17 @@ void AHBPlayerController::TestStartMatch()
 	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
 		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
 	{
-		OnlineSessionSubsystem->StartMatchAsLobbyOwner(TEXT("127.0.0.1:17777"));
+		OnlineSessionSubsystem->StartMatchAsLobbyOwner(FString());
+	}
+}
+
+// 테스트 전용: 지정한 전용 서버 주소로 매치 시작 이동을 검증한다.
+void AHBPlayerController::TestStartMatchAtAddress(const FString& ServerAddress)
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->StartMatchAsLobbyOwner(ServerAddress);
 	}
 }
 
