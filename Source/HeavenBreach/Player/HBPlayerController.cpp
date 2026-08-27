@@ -79,6 +79,10 @@ void AHBPlayerController::SetupInputComponent()
 		{
 			EnhancedInputComponent->BindAction(
 				BlockAction, ETriggerEvent::Started, this, &AHBPlayerController::Block);
+			EnhancedInputComponent->BindAction(
+				BlockAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopBlock);
+			EnhancedInputComponent->BindAction(
+				BlockAction, ETriggerEvent::Canceled, this, &AHBPlayerController::StopBlock);
 		}
 
 		if (ToggleInventoryAction)
@@ -249,6 +253,14 @@ void AHBPlayerController::Block()
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StartBlocking();
+	}
+}
+
+void AHBPlayerController::StopBlock()
+{
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->StopBlocking();
 	}
 }
 
