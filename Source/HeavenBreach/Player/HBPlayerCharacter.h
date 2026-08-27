@@ -16,6 +16,8 @@ class UEquipmentComponent;
 class UInteractionComponent;
 class UInteractionPromptWidget;
 class UHBJobData;
+class USkeletalMesh;
+class UStaticMesh;
 struct FGameplayAbilitySpecHandle;
 class UQuickSlotComponent;
 
@@ -268,7 +270,7 @@ protected:
 	void RefreshMovementSpeed();
 #pragma endregion 
 	
-#pragma region EquimentVisual
+#pragma region EquipmentVisual
 	
 protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
@@ -277,20 +279,31 @@ protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
 	
+	#pragma region ModularEquipmentMesh
+	// Modular equipment meshes copy the character mesh pose instead of attaching to a socket.
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
-	TObjectPtr<UStaticMeshComponent> HelmetMeshComp;
+	TObjectPtr<USkeletalMeshComponent> HelmetMeshComp;
 
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<USkeletalMeshComponent> ChestMeshComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> LegsMeshComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> ShoesMeshComp;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Helmet")
+	FName HairMaterialSlotName = TEXT("MAT_M_CHAMP_HAIR");
+
+	void SetHairVisibleForHelmet(bool bVisible);
+	#pragma endregion
 
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName WeaponSocketName = TEXT("PrimaryWeaponSocket");
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName ShieldSocketName = TEXT("SecondWeaponSocket");
-	
-	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
-	FName HelmetSocketName = TEXT("HelmetSocket");
 	
 	virtual void BeginPlay() override;
 	
@@ -301,6 +314,33 @@ protected:
 	void RefreshShieldVisual();
 	void RefreshHelmetVisual();
 	void RefreshChestVisual();
+
+	// TODO: Replace this temporary visual test with item data after coordinating the equipment data format.
+	#pragma region TemporaryEquipmentVisualTest
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test")
+	bool bEnableEquipmentVisualTest = false;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestHelmetMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestChestMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestLegsMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestShoesMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<UStaticMesh> TestWeaponMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<UStaticMesh> TestShieldMesh;
+
+	UFUNCTION(BlueprintCallable, Category="Player|Equipment|Temporary Test")
+	void ApplyTemporaryEquipmentVisualTest();
+	#pragma endregion
 
 #pragma endregion 
 
