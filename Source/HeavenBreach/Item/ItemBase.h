@@ -74,6 +74,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item|Cached")
 	TObjectPtr<UTexture2D> Icon;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	int32 StackCount = 1;
+
 	// ----- 함수 -----
 	// ItemID / SourceTable 기준으로 해당 DataTable에서 값을 읽어와 위 캐시 변수들을 채우고,
 	// EquipMeshPath(무기/방패) 또는 WorldMeshPath(아이템)를 로드해서 MeshComponent에 세팅

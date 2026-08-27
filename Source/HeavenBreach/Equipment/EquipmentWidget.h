@@ -24,7 +24,7 @@ public:
 
 protected:
 
-	virtual void NativeConstruct() override;
+	virtual void NativeOnInitialized() override;
 	virtual void NativeDestruct() override;
 
 	UFUNCTION()
@@ -63,4 +63,6 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
+
+	void EnsureSlotMapInitialized();
 };

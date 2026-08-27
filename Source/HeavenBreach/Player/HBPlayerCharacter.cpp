@@ -31,6 +31,7 @@
 #include "Player/Job/HBJobAttributeEffects.h"
 #include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
 #include "Player/Warrior/Effects/HBWarriorGameplayEffects.h"
+#include "Rendering/SkeletalMeshRenderData.h"
 #include "TimerManager.h"
 #include "DrawDebugHelpers.h"
 
@@ -88,8 +89,8 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 0.0f, 64.0f));
 	FirstPersonCamera->bUsePawnControlRotation = true;
 
-	
-#pragma region Weapon
+
+#pragma region EquipmentVisual
 	WeaponMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMeshComp"));
 	WeaponMeshComp->SetupAttachment(GetMesh(),WeaponSocketName);
 	WeaponMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -98,14 +99,27 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
 	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	
-	HelmetMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HelmetMeshComp"));
-	HelmetMeshComp->SetupAttachment(GetMesh(),HelmetSocketName);
+	#pragma region ModularEquipmentMesh
+	HelmetMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HelmetMeshComp"));
+	HelmetMeshComp->SetupAttachment(GetMesh());
+	HelmetMeshComp->SetLeaderPoseComponent(GetMesh());
 	HelmetMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	ChestMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ChestMeshComp"));
 	ChestMeshComp->SetupAttachment(GetMesh());
 	ChestMeshComp->SetLeaderPoseComponent(GetMesh());
 	ChestMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	LegsMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("LegsMeshComp"));
+	LegsMeshComp->SetupAttachment(GetMesh());
+	LegsMeshComp->SetLeaderPoseComponent(GetMesh());
+	LegsMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	ShoesMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ShoesMeshComp"));
+	ShoesMeshComp->SetupAttachment(GetMesh());
+	ShoesMeshComp->SetLeaderPoseComponent(GetMesh());
+	ShoesMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	#pragma endregion
 #pragma endregion
 }
 
@@ -124,6 +138,10 @@ void AHBPlayerCharacter::BeginPlay()
 	}
 	
 	RefreshEquippedVisuals();
+
+	#pragma region TemporaryEquipmentVisualTest
+	ApplyTemporaryEquipmentVisualTest();
+	#pragma endregion
 }
 
 void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -923,6 +941,12 @@ void AHBPlayerCharacter::RefreshMovementSpeedFromAttributes()
 
 void AHBPlayerCharacter::RefreshEquippedVisuals()
 {
+	if (bEnableEquipmentVisualTest)
+	{
+		ApplyTemporaryEquipmentVisualTest();
+		return;
+	}
+
 	RefreshWeaponVisual();
 	RefreshShieldVisual();
 	RefreshHelmetVisual();
@@ -987,15 +1011,17 @@ void AHBPlayerCharacter::RefreshHelmetVisual()
 	{
 		if (const FItemData* HelmetData = HelmetItem.ItemRow.GetRow<FItemData>(TEXT("RefreshHelmetVisual")))
 		{
-			if (UStaticMesh* HelmetMesh = LoadObject<UStaticMesh>(nullptr, *HelmetData->WorldMeshPath))
+			if (USkeletalMesh* HelmetMesh = LoadObject<USkeletalMesh>(nullptr, *HelmetData->WorldMeshPath))
 			{
-				HelmetMeshComp->SetStaticMesh(HelmetMesh);
+				HelmetMeshComp->SetSkeletalMesh(HelmetMesh);
+				SetHairVisibleForHelmet(false);
 				return;
 			}
 		}
 	}
 	
-	HelmetMeshComp->SetStaticMesh(nullptr);
+	HelmetMeshComp->SetSkeletalMesh(nullptr);
+	SetHairVisibleForHelmet(true);
 }
 
 void AHBPlayerCharacter::RefreshChestVisual()
@@ -1020,3 +1046,76 @@ void AHBPlayerCharacter::RefreshChestVisual()
 
 	ChestMeshComp->SetSkeletalMesh(nullptr);
 }
+
+#pragma region ModularEquipmentMesh
+void AHBPlayerCharacter::SetHairVisibleForHelmet(const bool bVisible)
+{
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	USkeletalMesh* SkeletalMesh = CharacterMesh ? CharacterMesh->GetSkeletalMeshAsset() : nullptr;
+	if (!CharacterMesh || !SkeletalMesh)
+	{
+		return;
+	}
+
+	const int32 HairMaterialIndex = CharacterMesh->GetMaterialIndex(HairMaterialSlotName);
+	const FSkeletalMeshRenderData* RenderData = SkeletalMesh->GetResourceForRendering();
+	if (HairMaterialIndex == INDEX_NONE || !RenderData)
+	{
+		return;
+	}
+
+	for (int32 LODIndex = 0; LODIndex < RenderData->LODRenderData.Num(); ++LODIndex)
+	{
+		const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
+		for (int32 SectionIndex = 0; SectionIndex < LODData.RenderSections.Num(); ++SectionIndex)
+		{
+			if (LODData.RenderSections[SectionIndex].MaterialIndex == HairMaterialIndex)
+			{
+				CharacterMesh->ShowMaterialSection(HairMaterialIndex, SectionIndex, bVisible, LODIndex);
+			}
+		}
+	}
+}
+#pragma endregion
+
+#pragma region TemporaryEquipmentVisualTest
+void AHBPlayerCharacter::ApplyTemporaryEquipmentVisualTest()
+{
+	if (!bEnableEquipmentVisualTest)
+	{
+		return;
+	}
+
+	if (HelmetMeshComp)
+	{
+		USkeletalMesh* HelmetMesh = TestHelmetMesh.LoadSynchronous();
+		HelmetMeshComp->SetSkeletalMesh(HelmetMesh);
+		SetHairVisibleForHelmet(HelmetMesh == nullptr);
+	}
+
+	if (ChestMeshComp)
+	{
+		ChestMeshComp->SetSkeletalMesh(TestChestMesh.LoadSynchronous());
+	}
+
+	if (LegsMeshComp)
+	{
+		LegsMeshComp->SetSkeletalMesh(TestLegsMesh.LoadSynchronous());
+	}
+
+	if (ShoesMeshComp)
+	{
+		ShoesMeshComp->SetSkeletalMesh(TestShoesMesh.LoadSynchronous());
+	}
+
+	if (WeaponMeshComp)
+	{
+		WeaponMeshComp->SetStaticMesh(TestWeaponMesh.LoadSynchronous());
+	}
+
+	if (ShieldMeshComp)
+	{
+		ShieldMeshComp->SetStaticMesh(TestShieldMesh.LoadSynchronous());
+	}
+}
+#pragma endregion
