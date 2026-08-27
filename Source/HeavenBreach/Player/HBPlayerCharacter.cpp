@@ -86,8 +86,9 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
 	QuickSlot = CreateDefaultSubobject<UQuickSlotComponent>(TEXT("QuickSlot"));
-	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
-	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 0.0f, 64.0f));
+	FirstPersonCamera->SetupAttachment(GetMesh(), FirstPersonCameraSocketName);
+	FirstPersonCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
+	FirstPersonCamera->SetAbsolute(false, true, true);
 	FirstPersonCamera->bUsePawnControlRotation = true;
 
 

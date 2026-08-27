@@ -133,6 +133,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
 
+	/** Socket whose animated position is followed by the first-person camera. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Camera")
+	FName FirstPersonCameraSocketName = TEXT("FirstPersonCameraSocket");
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UInventoryComponent> Inventory;
 
