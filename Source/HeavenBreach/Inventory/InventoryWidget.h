@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h"
+#include "UI/HB_ActivatableWidget.h"
 #include "InventoryWidget.generated.h"
 
 class UCanvasPanel;
@@ -17,12 +17,23 @@ class UShopComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
 
+/**
+ * 인벤토리 화면.
+ *
+ * UI.Layer.Menu 스택에 push 되어 동작한다. 활성 상태에서 Menu 입력 모드를
+ * 선언하므로 PlayerController가 이동/공격 입력을 따로 막을 필요가 없다.
+ *
+ * 상자/상점 UI 안에 자식 위젯으로 들어가는 경우도 있는데, 그때는 활성화되지
+ * 않으므로 입력 모드나 Back 처리에 관여하지 않는다.
+ */
 UCLASS()
-class HEAVENBREACH_API UInventoryWidget : public UUserWidget
+class HEAVENBREACH_API UInventoryWidget : public UHB_ActivatableWidget
 {
 	GENERATED_BODY()
 
 public:
+	UInventoryWidget();
+
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void BindToInventory(UInventoryComponent* InInventory);
 
