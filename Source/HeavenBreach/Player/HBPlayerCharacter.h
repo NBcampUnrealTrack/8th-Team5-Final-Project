@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "AbilitySystemInterface.h"
+#include "GameplayEffectTypes.h"
 #include "Combat/Interface/DamageableInterface.h"
 #include "GameFramework/Character.h"
 #include "HBPlayerCharacter.generated.h"
@@ -14,6 +15,10 @@ class UInventoryComponent;
 class UEquipmentComponent;
 class UInteractionComponent;
 class UInteractionPromptWidget;
+class UHBJobData;
+class USkeletalMesh;
+class UStaticMesh;
+struct FGameplayAbilitySpecHandle;
 class UQuickSlotComponent;
 
 UCLASS(Blueprintable)
@@ -41,6 +46,35 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
 	virtual void ToggleBlocking();
+
+	UFUNCTION(BlueprintCallable, Category = "Player|Abilities")
+	virtual void ActivateSkill1();
+
+	UFUNCTION(BlueprintCallable, Category = "Player|Abilities")
+	virtual void ActivateSkill2();
+
+	UFUNCTION(BlueprintPure, Category = "Player|Job")
+	UHBJobData* GetJobData() const { return JobData; }
+
+	/** Applies IDs selected by the lobby. The server validates every ID against JobData. */
+	UFUNCTION(BlueprintCallable, Category="Player|Loadout")
+	void RequestApplyLoadout(FName SkillQId, FName SkillEId, const TArray<FName>& PassiveSkillIds);
+
+	UFUNCTION(BlueprintPure, Category="Player|Loadout")
+	FName GetSelectedSkillQId() const { return SelectedSkillQId; }
+
+	UFUNCTION(BlueprintPure, Category="Player|Loadout")
+	FName GetSelectedSkillEId() const { return SelectedSkillEId; }
+
+	UFUNCTION(BlueprintPure, Category="Player|Loadout")
+	TArray<FName> GetSelectedPassiveSkillIds() const { return SelectedPassiveSkillIds; }
+
+	/** UI-ready GAS cooldown query using the same stable Skill ID stored by the loadout. */
+	UFUNCTION(BlueprintPure, Category="Player|Abilities")
+	float GetSkillCooldownRemaining(FName SkillId) const;
+
+	UFUNCTION(BlueprintPure, Category="Player|Abilities")
+	bool IsSkillOnCooldown(FName SkillId) const;
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UInventoryComponent* GetInventory() const { return Inventory; }
@@ -72,6 +106,29 @@ private:
 
 protected:
 	virtual void OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem);
+	void InitializeJob(UAbilitySystemComponent* AbilitySystem);
+	void ApplyJobAppearance();
+	FGameplayAbilitySpecHandle GrantAbilityIfMissing(
+		UAbilitySystemComponent* AbilitySystem,
+		TSubclassOf<UGameplayAbility> AbilityClass);
+	void ApplyLoadout(FName SkillQId, FName SkillEId, TArray<FName> PassiveSkillIds);
+
+	UFUNCTION(Server, Reliable)
+	void ServerApplyLoadout(FName SkillQId, FName SkillEId, const TArray<FName>& PassiveSkillIds);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Job")
+	TObjectPtr<UHBJobData> JobData;
+
+	UPROPERTY(Replicated, VisibleInstanceOnly, BlueprintReadOnly, Category="Player|Loadout")
+	FName SelectedSkillQId;
+
+	UPROPERTY(Replicated, VisibleInstanceOnly, BlueprintReadOnly, Category="Player|Loadout")
+	FName SelectedSkillEId;
+
+	UPROPERTY(Replicated, VisibleInstanceOnly, BlueprintReadOnly, Category="Player|Loadout")
+	TArray<FName> SelectedPassiveSkillIds;
+
+	TArray<FGameplayAbilitySpecHandle> LoadoutAbilityHandles;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
@@ -99,6 +156,8 @@ protected:
 private:
 	UPROPERTY()
 	TObjectPtr<AHB_PlayerState> HB_PlayerState;
+
+	bool bJobInitialized = false;
 #pragma endregion 
 	
 #pragma region DamageInterface
@@ -124,6 +183,9 @@ public:
 	
 	UFUNCTION(BlueprintPure, Category="Player|Combat")
 	float GetBlockAngle() const;
+
+	float ModifyOutgoingDamage(AActor* Target, float Damage);
+	void NotifyDamageDealt(AActor* Target, float Damage, bool bTargetKilled);
 	
 protected:
 	/****GA***/
@@ -151,6 +213,23 @@ protected:
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
 	float BaseBlockingAngle = 120.f;
+
+	/** Development-only visualization: Warrior=red, Archer=green, Mage=blue. */
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug")
+	bool bDrawBasicAttackDebug = true;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug", meta=(ClampMin="0.05"))
+	float BasicAttackDebugDuration = 1.f;
+
+private:
+	void ResetCombatInstinct();
+
+	TWeakObjectPtr<AActor> ConsecutiveTarget;
+	int32 ConsecutiveHitCount = 0;
+	TWeakObjectPtr<AActor> LastDamageInstigator;
+	double LastDamageReceivedTime = -1000.0;
+	FActiveGameplayEffectHandle KillingMomentumEffectHandle;
+	FTimerHandle CombatInstinctTimer;
 #pragma endregion 
 	
 #pragma region Movement
@@ -158,24 +237,40 @@ public:
 	void StartSprint();
 	
 	void StopSprint();
+
+	void SetMovementSpeedMultiplier(float NewMultiplier);
+
+	/** Called by the AttributeSet when a GAS movement modifier changes. */
+	void RefreshMovementSpeedFromAttributes();
 protected:
 	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
 	float WalkSpeed = 300.f;
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
 	float SprintSpeed = 600.f;
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
+	float CrouchSpeed = 300.f;
 	
 	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
 	bool bIsSprinting = false;
+
+	UPROPERTY(ReplicatedUsing=OnRep_MovementSpeedMultiplier)
+	float MovementSpeedMultiplier = 1.f;
 	
 	UFUNCTION()
 	void OnRep_IsSprinting();
+
+	UFUNCTION()
+	void OnRep_MovementSpeedMultiplier();
 	
 	UFUNCTION(Server, Reliable)
 	void ServerSetSprinting(bool bNewSprinting);
+
+	void RefreshMovementSpeed();
 #pragma endregion 
 	
-#pragma region EquimentVisual
+#pragma region EquipmentVisual
 	
 protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
@@ -184,20 +279,31 @@ protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
 	
+	#pragma region ModularEquipmentMesh
+	// Modular equipment meshes copy the character mesh pose instead of attaching to a socket.
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
-	TObjectPtr<UStaticMeshComponent> HelmetMeshComp;
+	TObjectPtr<USkeletalMeshComponent> HelmetMeshComp;
 
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<USkeletalMeshComponent> ChestMeshComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> LegsMeshComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> ShoesMeshComp;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Helmet")
+	FName HairMaterialSlotName = TEXT("MAT_M_CHAMP_HAIR");
+
+	void SetHairVisibleForHelmet(bool bVisible);
+	#pragma endregion
 
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName WeaponSocketName = TEXT("PrimaryWeaponSocket");
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName ShieldSocketName = TEXT("SecondWeaponSocket");
-	
-	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
-	FName HelmetSocketName = TEXT("HelmetSocket");
 	
 	virtual void BeginPlay() override;
 	
@@ -208,6 +314,33 @@ protected:
 	void RefreshShieldVisual();
 	void RefreshHelmetVisual();
 	void RefreshChestVisual();
+
+	// TODO: Replace this temporary visual test with item data after coordinating the equipment data format.
+	#pragma region TemporaryEquipmentVisualTest
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test")
+	bool bEnableEquipmentVisualTest = false;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestHelmetMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestChestMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestLegsMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestShoesMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<UStaticMesh> TestWeaponMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<UStaticMesh> TestShieldMesh;
+
+	UFUNCTION(BlueprintCallable, Category="Player|Equipment|Temporary Test")
+	void ApplyTemporaryEquipmentVisualTest();
+	#pragma endregion
 
 #pragma endregion 
 

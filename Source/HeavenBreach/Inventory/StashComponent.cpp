@@ -4,7 +4,7 @@
 
 UStashComponent::UStashComponent()
 {
-	SetGridSize(10, 15);
+	SetGridSize(StashGridSize.X, StashGridSize.Y);
 }
 
 void UStashComponent::SetStorage(TSharedPtr<IStashStorage> InStorage)
@@ -31,6 +31,13 @@ void UStashComponent::LoadStash(const FString& InAccountId)
 	Callback.BindUObject(this, &UStashComponent::HandleLoadCompleted);
 
 	Storage->LoadStashAsync(AccountId, Callback);
+}
+
+void UStashComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	SetGridSize(StashGridSize.X, StashGridSize.Y);
 }
 
 void UStashComponent::HandleLoadCompleted(bool bSuccess, const TArray<FInventoryEntry>& InEntries)

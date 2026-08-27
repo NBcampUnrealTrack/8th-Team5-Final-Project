@@ -61,6 +61,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Ability")
 	TSubclassOf<UGameplayEffect> ActivationEffect;
 
+	// 후딜레이 GE
+	// 해당 상태동안 적은 다음 행동을 하지않음.
+	UPROPERTY(EditDefaultsOnly, Category = "Ability")
+	TSubclassOf<UGameplayEffect> RecoveryEffect;
 
 	// 몽타주가 끝남
 	UFUNCTION()

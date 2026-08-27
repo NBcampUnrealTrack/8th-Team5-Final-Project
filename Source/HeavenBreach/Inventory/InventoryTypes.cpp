@@ -1,5 +1,4 @@
 #include "InventoryTypes.h"
-
 #include "Item/Item.h"
 #include "Engine/Texture2D.h"
 #include "AbilitySystemComponent.h"
@@ -38,6 +37,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.GridSize = FIntPoint(ItemRow->GridWidth, ItemRow->GridHeight);
 		OutViewData.EquipSlotType = ItemRow->EquipSlotType;
 		OutViewData.MaxStack = FMath::Max(1, ItemRow->MaxStack);
+		OutViewData.Grade = ItemRow->Grade;
 		OutViewData.DisplayName = ItemRow->ItemName;
 		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
 		OutViewData.HealAmount = ItemRow->HealAmount;
@@ -62,6 +62,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.GridSize = FIntPoint(WeaponRow->GridWidth, WeaponRow->GridHeight);
 		OutViewData.EquipSlotType = WeaponRow->EquipSlotType;
 		OutViewData.MaxStack = 1;
+		OutViewData.Grade = WeaponRow->Grade;
 		OutViewData.DisplayName = WeaponRow->WeaponName;
 		OutViewData.IconPath = WeaponRow->Icon ? WeaponRow->Icon->GetPathName() : FString();
 		OutViewData.SellValue = WeaponRow->SellValue;
@@ -80,6 +81,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.GridSize = FIntPoint(ShieldRow->GridWidth, ShieldRow->GridHeight);
 		OutViewData.EquipSlotType = ShieldRow->EquipSlotType;
 		OutViewData.MaxStack = 1;
+		OutViewData.Grade = ShieldRow->Grade;
 		OutViewData.DisplayName = ShieldRow->ShieldName;
 		OutViewData.IconPath = ShieldRow->Icon ? ShieldRow->Icon->GetPathName() : FString();
 		OutViewData.SellValue = ShieldRow->SellValue;

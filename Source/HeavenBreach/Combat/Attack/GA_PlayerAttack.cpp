@@ -10,6 +10,7 @@
 #include "GameFramework/Character.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/HBPlayerController.h"
+#include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
 UGA_PlayerAttack::UGA_PlayerAttack()
 {
@@ -44,7 +45,12 @@ void UGA_PlayerAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	
 	AlreadyHitActors.Reset();
 	
-	UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this,NAME_None,AM_Attack);
+	const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+	const float AttackRate = ASC
+		? FMath::Max(0.1f, ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_AttackSpeedAttribute()))
+		: 1.f;
+	UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+		this, NAME_None, AM_Attack, AttackRate);
 	MontageTask->OnCompleted.AddDynamic(this,&UGA_PlayerAttack::OnMontageCompleted);
 	MontageTask->OnBlendOut.AddDynamic(this,&UGA_PlayerAttack::OnMontageCompleted);
 	MontageTask->OnCancelled.AddDynamic(this,&UGA_PlayerAttack::OnMontageCancelled);
@@ -88,8 +94,8 @@ void UGA_PlayerAttack::PerformHitTrace(const FGameplayAbilityActorInfo* ActorInf
 	AHBPlayerCharacter* AttackPlayer = Cast<AHBPlayerCharacter>(AttackerCharacter);
 	const float AttackRange = AttackPlayer ?  AttackPlayer->GetAttackRange() : 150.f;
 	
-	const FVector Start = AttackerCharacter->GetActorLocation() + FVector::UpVector * 50.f;
-	const FVector End = Start + AttackerCharacter->GetActorForwardVector() * AttackRange;
+	const FVector Start = AttackerCharacter->GetPawnViewLocation();
+	const FVector End = Start + AttackerCharacter->GetBaseAimRotation().Vector() * AttackRange;
 	
 	FCollisionObjectQueryParams ObjectParams;
 	ObjectParams.AddObjectTypesToQuery(ECC_Pawn);
@@ -140,6 +146,10 @@ void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit,
 	
 	AHBPlayerCharacter* AttackerPlayer = Cast<AHBPlayerCharacter>(AttackerActor);
 	float Damage = AttackerPlayer ? AttackerPlayer->GetAttackPower() : 10.f;
+	if (AttackerPlayer)
+	{
+		Damage = AttackerPlayer->ModifyOutgoingDamage(Target, Damage);
+	}
 	
 	if (AHBPlayerCharacter* TargetPlayer = Cast<AHBPlayerCharacter>(Target))
 	{
@@ -156,6 +166,13 @@ void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit,
 	}
 	
 	IDamageableInterface::Execute_ApplyMeleeHit(Target,AttackerActor,Damage,Hit);
+
+	if (AttackerPlayer)
+	{
+		const bool bTargetKilled = TargetASC
+			&& TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
+		AttackerPlayer->NotifyDamageDealt(Target, Damage, bTargetKilled);
+	}
 	
 	if (APawn* AttackerPawn = Cast<APawn>(AttackerActor))
 	{
