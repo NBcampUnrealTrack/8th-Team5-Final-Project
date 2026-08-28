@@ -1,11 +1,13 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "Blueprint/UserWidget.h"
 #include "UI/HB_ActivatableWidget.h"
 #include "HB_HUDLayer.generated.h"
 
 class UImage;
 class UMaterialInstanceDynamic;
+class UEquipmentComponent;
 
 /**
  * 인게임 HUD 루트. UI.Layer.Game 스택에 항상 활성 상태로 올라간다.
@@ -30,6 +32,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI|GAS")
 	void BindPlayerState();
 
+	UFUNCTION()
+	void UpdateEquipmentSlots();
+
 protected:
 	/** 실제 바인딩 시도. PlayerState와 AttributeSet이 준비됐으면 true */
 	bool TryBindPlayerState();
@@ -50,6 +55,12 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_HP_Bar_Fill;
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_EquipWeapon;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_EquipSubWeapon;
+
 private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> HPBarDynamicMaterial;
@@ -68,4 +79,13 @@ private:
 	/** PlayerState 복제를 기다리는 재시도 간격(초) */
 	UPROPERTY(EditAnywhere, Category = "UI|GAS")
 	float BindRetryInterval = 0.1f;
+
+
+	UPROPERTY()
+	TObjectPtr<UEquipmentComponent> CachedEquipComp;
+
+	bool bIsEquipBound = false;
+
+	FSlateBrush DefaultWeaponBrush;
+	FSlateBrush DefaultSubWeaponBrush;
 };
