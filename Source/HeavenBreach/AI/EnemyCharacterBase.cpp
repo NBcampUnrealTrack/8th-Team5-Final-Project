@@ -14,7 +14,9 @@
 #include "AI/LootComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Components/SkeletalMeshComponent.h"
-
+#include "Core/Tag/Team/HB_TeamTag.h"
+#include "Player/HBPlayerCharacter.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 
 // Sets default values
 AEnemyCharacterBase::AEnemyCharacterBase()
@@ -95,6 +97,9 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 		return;
 	}
 
+	// 이놈은 진짜로 날공격하는 올바른대상이맞음
+	LastDamageInstigator = InstigatorActor;
+
 	// 피격 부위에 따른 데미지 배율
 	float PartMult = 1.f;
 	if (const float* Found = BoneDamageMultipliers.Find(Hit.BoneName))
@@ -169,6 +174,9 @@ void AEnemyCharacterBase::BecomeDead()
 		LootComponent->GenerateLoot();
 	}
 
+	// 보상처리
+	GiveExpToKiller();
+
 	// 서버에서도 직접불러준다. Multicast로 해보려햇는데 반응속도문제땜시...
 	OnRep_Dead();
 }
@@ -208,6 +216,11 @@ void AEnemyCharacterBase::PossessedBy(AController* NewController)
 	if (!AbilitySystemComp)
 	{
 		return;
+	}
+
+	if (HasAuthority())
+	{
+		AbilitySystemComp->AddLooseGameplayTag(TeamTag::TAG_Team_Enemy);
 	}
 
 	// 인자가 둘 다 this 인 이유: Owner와 Avatar가 AI 에서는 같은 액터다.
@@ -276,6 +289,31 @@ void AEnemyCharacterBase::OnMoveSpeedRateChanged(const FOnAttributeChangeData& D
 	// 해당 데이터 값은 이동속도배율
 	CachedSpeedRate = Data.NewValue;
 	RefreshMoveSpeed();
+}
+
+void AEnemyCharacterBase::GiveExpToKiller()
+{
+	if (ExpReward <= 0.f)
+	{
+		return;
+	}
+
+	// 막타를 낸 액터. 이미 파괴됐거나 플레이어가 아니면 거절
+	AHBPlayerCharacter* Killer = Cast<AHBPlayerCharacter>(LastDamageInstigator.Get());
+	if (!Killer)
+	{
+		return;
+	}
+
+	AHB_PlayerState* KillerState = Killer->GetPlayerState<AHB_PlayerState>();
+	if (!KillerState)
+	{
+		return;
+	}
+
+	KillerState->AddExperience(ExpReward);
+
+	UE_LOG(LogEnemyAI, Log, TEXT("[Exp] %s → %s  %.0f"), *GetName(), *GetNameSafe(Killer), ExpReward);
 }
 
 // Called every frame

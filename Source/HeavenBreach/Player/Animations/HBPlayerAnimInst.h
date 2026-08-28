@@ -29,6 +29,20 @@ protected:
 	
 	UPROPERTY(BlueprintReadOnly)
 	bool bIsCrouching;
+
+#pragma region AimOffset
+	UPROPERTY(BlueprintReadOnly, Category = "Animation|Aim Offset")
+	float AimPitch = 0.0f;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation|Aim Offset", meta = (ClampMin = "0.0"))
+	float AimPitchInterpSpeed = 10.0f;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation|Aim Offset", meta = (ClampMin = "-90.0", ClampMax = "0.0"))
+	float AimPitchMin = -90.0f;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation|Aim Offset", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float AimPitchMax = 60.0f;
+#pragma endregion
 	
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<AHBPlayerCharacter> OwnerInst;

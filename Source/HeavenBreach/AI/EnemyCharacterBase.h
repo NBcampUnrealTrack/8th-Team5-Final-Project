@@ -52,6 +52,7 @@ public:
 	void SetWalkSpeed(float InWalkSpeed) { WalkSpeed = InWalkSpeed; RefreshMoveSpeed(); }
 	void SetRunSpeed(float InRunSpeed) { RunSpeed = InRunSpeed; RefreshMoveSpeed(); }
 	void SetAccRadius(float InAcceptanceRadius) { AcceptanceRadius = InAcceptanceRadius; }
+	void SetReward(float InAcceptanceRadius) { AcceptanceRadius = InAcceptanceRadius; }
 
 	UFUNCTION(BlueprintCallable)
 	void BecomeDead();
@@ -102,12 +103,18 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "AI|Movement")
 	float CachedSpeedRate = 1.f;
 
+	UPROPERTY(BlueprintReadOnly, Category = "AI")
+	float ExpReward = 10.f;
+
 	// 사망 확인
 	UPROPERTY(ReplicatedUsing = OnRep_Dead, VisibleAnywhere, BlueprintReadOnly)
 	bool bDead = false;
 
 	// 달리기 확인
 	bool bRunning = false;
+
+	// 마지막으로 자신을공격한 대상
+	TWeakObjectPtr<AActor> LastDamageInstigator;
 
 	// 사망변수가 변경되면 해야할것들
 	UFUNCTION()
@@ -118,6 +125,9 @@ protected:
 
 	// GAS에서 이동속도 변경 시 연결된 함수
 	void OnMoveSpeedRateChanged(const struct FOnAttributeChangeData& Data);
+
+	// 죽인대상에게 보상
+	void GiveExpToKiller();
 
 public:	
 	// Called every frame
