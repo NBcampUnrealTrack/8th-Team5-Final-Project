@@ -27,7 +27,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stash")
 	void SaveStash();
 
-	UFUNCTION(Server, Reliable)
+	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void RequestSave();
 
 	UFUNCTION(BlueprintPure, Category = "Stash")

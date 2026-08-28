@@ -19,24 +19,28 @@ class HEAVENBREACH_API AHeavenBreachGameMode : public AGameMode
 public:
 	AHeavenBreachGameMode();
 
-	// ¸ÅÄ¡ ½ÃÀÛ
+	// ë§¤ì¹˜ ì‹œì‘
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
 	void StartExtractionMatch();
 
-	// ¸ÅÄ¡ Á¾·á 
+	// ë§¤ì¹˜ ì¢…ë£Œ
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
 	void FinishExtractionMatch();
 
 	UFUNCTION(BlueprintPure, Category = "Match")
 	int32 GetConnectedPlayerCount();
 	
-	// ÀüÅõ ½Ã½ºÅÛ¿¡¼­ »ç¸Á ½Ã È£Ãâ 
+	// ì „íˆ¬ ì‹œìŠ¤í…œì—ì„œ ì‚¬ë§ ì‹œ í˜¸ì¶œ
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
 	void NotifyPlayerDied(APlayerState* PlayerState);
 	
-	// Å»Ãâ½Ã È£Ãâ 
+	// íƒˆì¶œì‹œ í˜¸ì¶œ
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
 	void NotifyPlayerExtracted(APlayerState* PlayerState);
+	
+	// ì„ì‹œ, ì°½ê³  ê¸°ëŠ¥ ë³´ì—¬ì£¼ê¸° ìš©ë„
+	void TravelPlayersToPostMatchMap();
+	void TravelPlayerToPostMatchMap(APlayerState* PlayerState);
 
 protected:
 	virtual void PostLogin(APlayerController* NewPlayer) override;
@@ -44,6 +48,8 @@ protected:
 
 	virtual bool ReadyToStartMatch_Implementation() override;
 	virtual bool ReadyToEndMatch_Implementation() override;
+	
+	void TryStartExtractionMatch();
 
 	virtual void HandleMatchIsWaitingToStart() override;
 	virtual void HandleMatchHasStarted() override;
@@ -51,11 +57,15 @@ protected:
 	virtual void HandleLeavingMap() override;
 	virtual void OnMatchStateSet() override;
 	
-	// ÇöÀç ¸ÅÄ¡ Âü°¡ÀÚ ÃÊ±âÈ­
+	// í˜„ì¬ ë§¤ì¹˜ ì°¸ê°€ì ì´ˆê¸°í™”
 	void InitializeActivePlayers();
 	
-	// ¸ÅÄ¡ Á¾·á Á¶°Ç °Ë»ç
+	// ë§¤ì¹˜ ì¢…ë£Œ ì¡°ê±´ ê²€ì‚¬
 	void EvaluateMatchEnd();
+
+	// ë§¤ì¹˜ ì¢…ë£Œ í›„ ë°ë””ì¼€ì´í‹°ë“œ ì„œë²„ì˜ í˜„ì¬ ë§µì„ ë‹¤ìŒ ë§¤ì¹˜ìš©ìœ¼ë¡œ ë‹¤ì‹œ ë¡œë“œ
+	void ScheduleMatchMapReload();
+	void TryReloadMatchMap();
 	
 	// Match Timer
 	void StartMatchTimer();
@@ -64,17 +74,26 @@ protected:
 	
 	UPROPERTY(Transient)
 	TSet<TObjectPtr<APlayerState>> ActivePlayers;
+
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<APlayerState>> PostMatchTravelRequestedPlayers;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match | Timer", meta = (ClamMin = "1.0"))
 	float MatchDurationSeconds = 1500.0f;
 	
 	FTimerHandle MatchTimerHandle;
+	FTimerHandle MatchMapReloadTimerHandle;
 
-	// Å×½ºÆ®¿ë, ½ÃÀÛ ÀÎ¿ø 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match | Reset", meta = (ClampMin = "0.1"))
+	float MatchMapReloadRetrySeconds = 1.0f;
+
+	bool bMatchMapReloadScheduled = false;
+
+	// í…ŒìŠ¤íŠ¸ìš©, ì‹œì‘ ì¸ì›
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match", meta = (ClampMin = "1", ClampMax = "10"))
 	int32 MinimumPlayersToStart = 2;
 
-	// ÃÖ¼Ò ÀÎ¿ø Á¢¼Ó ½Ã ÀÚµ¿ ½ÃÀÛ
+	// ìµœì†Œ ì¸ì› ì ‘ì† ì‹œ ìë™ ì‹œì‘
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match")
 	bool bAutoStartMatch = true;
 };

@@ -25,8 +25,8 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Title|UI")
 	TSubclassOf<UHBGameStartMenuWidget> GameStartMenuClass;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Title|Connection")
-	FString LobbyServerAddress = TEXT("127.0.0.1:17777");
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Title|Travel")
+	FName LobbyLevelName = TEXT("/Game/Levels/Lobby/L_Lobby");
 	
 private:
 	UPROPERTY()
