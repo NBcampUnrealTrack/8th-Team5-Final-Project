@@ -40,6 +40,7 @@ public:
 	
 	// 임시, 창고 기능 보여주기 용도
 	void TravelPlayersToPostMatchMap();
+	void TravelPlayerToPostMatchMap(APlayerState* PlayerState);
 
 protected:
 	virtual void PostLogin(APlayerController* NewPlayer) override;
@@ -73,8 +74,9 @@ protected:
 	
 	UPROPERTY(Transient)
 	TSet<TObjectPtr<APlayerState>> ActivePlayers;
-	
-	int32 ExpectedPlayerCount = 1;
+
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<APlayerState>> PostMatchTravelRequestedPlayers;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match | Timer", meta = (ClamMin = "1.0"))
 	float MatchDurationSeconds = 1500.0f;

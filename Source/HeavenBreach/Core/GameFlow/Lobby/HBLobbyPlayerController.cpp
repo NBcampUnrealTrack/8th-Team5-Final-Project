@@ -5,6 +5,7 @@
 
 #include "PlayerState/HBLobbyPlayerState.h"
 #include "UI/Lobby/HBLobbyWidget.h"
+#include "UI/Lobby/HBLobbyHUDWidget.h"
 #include "HBLobbyGameMode.h"
 #include "HBLobbyGameState.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
@@ -199,7 +200,7 @@ void AHBLobbyPlayerController::BeginPlay()
 		}
 	}
 	
-	LobbyWidget = CreateWidget<UHBLobbyWidget>(
+	LobbyWidget = CreateWidget<UHBLobbyHUDWidget>(
 		this,
 		LobbyWidgetClass
 		);

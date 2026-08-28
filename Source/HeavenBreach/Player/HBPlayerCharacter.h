@@ -318,6 +318,7 @@ protected:
 	void RefreshShieldVisual();
 	void RefreshHelmetVisual();
 	void RefreshChestVisual();
+	void RefreshLegsVisual();
 
 	// TODO: Replace this temporary visual test with item data after coordinating the equipment data format.
 	#pragma region TemporaryEquipmentVisualTest
