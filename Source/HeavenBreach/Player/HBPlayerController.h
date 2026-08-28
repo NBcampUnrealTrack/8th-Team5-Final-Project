@@ -5,7 +5,9 @@
 #include "HBPlayerController.generated.h"
 
 class UCommonActivatableWidget;
+class UHB_ContainerScreen;
 class UHB_UILayout;
+class UInventoryComponent;
 class UInputAction;
 class UInputMappingContext;
 class UInventoryUIComponent;
@@ -28,6 +30,17 @@ public:
 	// Root CommonUI widget. Every screen is pushed into one of its layers.
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	UHB_UILayout* GetUILayout() const { return UILayout; }
+
+	// 상자 / 시체 등 외부 인벤토리를 Menu 레이어에 띄운다.
+	// InteractionComponent 의 OnRequestOpenContainer 를 받은 쪽에서 호출한다.
+	UFUNCTION(BlueprintCallable, Category = "Player|UI")
+	void OpenContainer(UInventoryComponent* InContainer);
+
+	UFUNCTION(BlueprintCallable, Category = "Player|UI")
+	void CloseContainer();
+
+	UFUNCTION(BlueprintPure, Category = "Player|UI")
+	bool IsContainerOpen() const { return ContainerScreen != nullptr; }
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
@@ -89,8 +102,15 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
 	TSubclassOf<UCommonActivatableWidget> HUDLayerClass;
 
+	// WBP_BoxContainer
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
+	TSubclassOf<UHB_ContainerScreen> ContainerScreenClass;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UHB_UILayout> UILayout;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHB_ContainerScreen> ContainerScreen;
 
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;

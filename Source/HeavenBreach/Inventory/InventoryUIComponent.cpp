@@ -77,6 +77,16 @@ void UInventoryUIComponent::OpenInventory()
 			Screen.SetLinkedEquipment(PlayerCharacter->GetEquipment());
 			Screen.SetLinkedContainer(nullptr);
 		});
+
+	if (InventoryWidget != nullptr)
+	{
+		// ESC 처럼 위젯이 스스로 닫히는 경로가 있으므로 참조를 여기서 정리한다.
+		// 이걸 놓치면 이미 닫힌 인벤토리를 열려 있다고 오판해서 다음 Tab 이 먹지 않는다
+		InventoryWidget->OnDeactivated().AddWeakLambda(this, [this]()
+		{
+			InventoryWidget = nullptr;
+		});
+	}
 }
 
 void UInventoryUIComponent::CloseInventory()
