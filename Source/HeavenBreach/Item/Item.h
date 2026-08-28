@@ -102,6 +102,9 @@ struct FItemData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float HealAmount = 0.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FString ShoesMeshPath;
+
 	// ===== 장신구(Relic) 전용 필드 =====
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
 	bool bIsRelic = false;

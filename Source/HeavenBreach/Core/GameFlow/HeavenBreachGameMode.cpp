@@ -9,6 +9,11 @@
 #include "Player/PlayerState/HB_PlayerState.h"
 #include  "Core/Online/Session/HBGameSession.h"
 
+namespace HBMatchFlow
+{
+	const TCHAR* PostMatchMap = TEXT("/Game/Levels/ExtractionResult");
+}
+
 AHeavenBreachGameMode::AHeavenBreachGameMode()
 {
 	bDelayedStart = true;
@@ -66,6 +71,14 @@ void AHeavenBreachGameMode::NotifyPlayerDied(APlayerState* PlayerState)
 	const int32 RemovedCount = ActivePlayers.Remove(PlayerState);
 	if (RemovedCount == 0)
 	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("HeavenBreachGM | Player Died but was not active | Player: %s | ActivePlayers: %d"),
+			*PlayerState->GetPlayerName(),
+			ActivePlayers.Num()
+			);
+
 		return;
 	}
 	
@@ -75,7 +88,8 @@ void AHeavenBreachGameMode::NotifyPlayerDied(APlayerState* PlayerState)
 		TEXT("HeavenBreachGM | Player Died | ActivePlayers: %d"), 
 		ActivePlayers.Num()
 		);
-	
+
+	TravelPlayerToPostMatchMap(PlayerState);
 	EvaluateMatchEnd();
 }
 
@@ -89,6 +103,14 @@ void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
 	const int32 RemovedCount = ActivePlayers.Remove(PlayerState);
 	if (RemovedCount == 0)
 	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("HeavenBreachGM | Player Extracted but was not active | Player: %s | ActivePlayers: %d"),
+			*PlayerState->GetPlayerName(),
+			ActivePlayers.Num()
+			);
+
 		return;
 	}
 	
@@ -98,7 +120,8 @@ void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
 		TEXT("HeavenBreachGM | Player Extracted | ActivePlayers: %d"),
 		ActivePlayers.Num()
 		);
-	
+
+	TravelPlayerToPostMatchMap(PlayerState);
 	EvaluateMatchEnd();
 }
 
@@ -109,27 +132,54 @@ void AHeavenBreachGameMode::TravelPlayersToPostMatchMap()
 		return;
 	}
 
-	const FString PostMatchMap =
-		TEXT("/Game/Levels/test_jh/TestMap");
-
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
 		APlayerController* PlayerController = It->Get();
 
-		if (!IsValid(PlayerController))
+		if (!IsValid(PlayerController) || !IsValid(PlayerController->PlayerState))
 		{
 			continue;
 		}
 
+		TravelPlayerToPostMatchMap(PlayerController->PlayerState);
+	}
+}
+
+void AHeavenBreachGameMode::TravelPlayerToPostMatchMap(APlayerState* PlayerState)
+{
+	if (!HasAuthority() || !IsValid(PlayerState) || PostMatchTravelRequestedPlayers.Contains(PlayerState))
+	{
+		return;
+	}
+
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		APlayerController* PlayerController = It->Get();
+		if (!IsValid(PlayerController) || PlayerController->PlayerState != PlayerState)
+		{
+			continue;
+		}
+
+		PostMatchTravelRequestedPlayers.Add(PlayerState);
+
 		UE_LOG(
 			LogTemp,
 			Warning,
-			TEXT("HeavenBreachGM | Travel Player To PostMatch Map | %s"),
-			*PostMatchMap
-		);
+			TEXT("HeavenBreachGM | Travel Player To PostMatch Map | Player: %s | Map: %s"),
+			*PlayerState->GetPlayerName(),
+			HBMatchFlow::PostMatchMap
+			);
 
-		PlayerController->ClientTravel(PostMatchMap,TRAVEL_Absolute);
+		PlayerController->ClientTravel(HBMatchFlow::PostMatchMap, TRAVEL_Absolute);
+		return;
 	}
+
+	UE_LOG(
+		LogTemp,
+		Error,
+		TEXT("HeavenBreachGM | PostMatch travel failed: PlayerController not found | Player: %s"),
+		*PlayerState->GetPlayerName()
+		);
 }
 
 void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
@@ -146,9 +196,27 @@ void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
 		Warning,
 		TEXT("HeavenBreach | Player Connected | ConnectedPlayers: %d / %d"),
 		GetConnectedPlayerCount(),
-		ExpectedPlayerCount
+		MinimumPlayersToStart
 		);
-	
+
+	if (IsMatchInProgress())
+	{
+		if (IsValid(NewPlayer) && IsValid(NewPlayer->PlayerState))
+		{
+			ActivePlayers.Add(NewPlayer->PlayerState);
+
+			UE_LOG(
+				LogTemp,
+				Warning,
+				TEXT("HeavenBreachGM | Late player added to active match | Player: %s | ActivePlayers: %d"),
+				*NewPlayer->PlayerState->GetPlayerName(),
+				ActivePlayers.Num()
+				);
+		}
+
+		return;
+	}
+
 	TryStartExtractionMatch();
 }
 
@@ -205,12 +273,13 @@ void AHeavenBreachGameMode::TryStartExtractionMatch()
 		return;
 	}
 	
-	if (ExpectedPlayerCount <= 0)
+	if (!bAutoStartMatch)
 	{
 		return;
 	}
-	
-	if (GetConnectedPlayerCount() < ExpectedPlayerCount)
+
+	const int32 RequiredPlayerCount = FMath::Max(1, MinimumPlayersToStart);
+	if (GetConnectedPlayerCount() < RequiredPlayerCount)
 	{
 		return;
 	}
@@ -255,6 +324,7 @@ void AHeavenBreachGameMode::OnMatchStateSet()
 void AHeavenBreachGameMode::InitializeActivePlayers()
 {
 	ActivePlayers.Reset();
+	PostMatchTravelRequestedPlayers.Reset();
 	
 	AHeavenBreachGameState* HBGameState = GetGameState<AHeavenBreachGameState>();
 	if (!HBGameState)
