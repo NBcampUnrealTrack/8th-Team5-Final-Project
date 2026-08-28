@@ -7,6 +7,7 @@
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "HBLobbyPlayerController.generated.h"
 
+class UHBLobbyHUDWidget;
 class UHBLobbyWidget;
 /**
  * 
@@ -38,7 +39,7 @@ protected:
 	void ServerRequestStartGame();
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|UI")
-	TSubclassOf<UHBLobbyWidget> LobbyWidgetClass;
+	TSubclassOf<UHBLobbyHUDWidget> LobbyWidgetClass;
 
 	/** Temporary lobby size used until host/client roles have their own flow. */
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby|Temporary")
@@ -55,5 +56,5 @@ private:
 	void UpdateTemporaryStartPermission(EHBLobbyOperationState State);
 
 	UPROPERTY()
-	TObjectPtr<UHBLobbyWidget> LobbyWidget;
+	TObjectPtr<UHBLobbyHUDWidget> LobbyWidget;
 };
