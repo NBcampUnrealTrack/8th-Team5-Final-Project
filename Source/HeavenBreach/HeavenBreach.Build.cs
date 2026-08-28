@@ -29,9 +29,8 @@ public class HeavenBreach : ModuleRules
 			"HTTP",
 			"Json",
             "JsonUtilities",
-            "GameplayAbilities",
-			"GameplayTags",
-			"GameplayTasks"
+			"OnlineSubsystem",
+			"OnlineSubsystemUtils"
         });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
@@ -54,6 +53,8 @@ public class HeavenBreach : ModuleRules
             "HeavenBreach/Shop",
             "HeavenBreach/UI"
         });
+		
+		DynamicallyLoadedModuleNames.Add("OnlineSubsystemSteam");
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

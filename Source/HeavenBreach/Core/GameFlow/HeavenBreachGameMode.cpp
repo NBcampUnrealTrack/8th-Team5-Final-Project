@@ -7,6 +7,7 @@
 #include "Player/HBPlayerController.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/PlayerState/HB_PlayerState.h"
+#include  "Core/Online/Session/HBGameSession.h"
 
 AHeavenBreachGameMode::AHeavenBreachGameMode()
 {
@@ -16,6 +17,8 @@ AHeavenBreachGameMode::AHeavenBreachGameMode()
 	PlayerControllerClass = AHBPlayerController::StaticClass();
 	PlayerStateClass = AHB_PlayerState::StaticClass();
 	DefaultPawnClass = AHBPlayerCharacter::StaticClass();
+	
+	GameSessionClass = AHBGameSession::StaticClass();
 }
 
 void AHeavenBreachGameMode::StartExtractionMatch()
@@ -99,9 +102,54 @@ void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
 	EvaluateMatchEnd();
 }
 
+void AHeavenBreachGameMode::TravelPlayersToPostMatchMap()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const FString PostMatchMap =
+		TEXT("/Game/Levels/test_jh/TestMap");
+
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		APlayerController* PlayerController = It->Get();
+
+		if (!IsValid(PlayerController))
+		{
+			continue;
+		}
+
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("HeavenBreachGM | Travel Player To PostMatch Map | %s"),
+			*PostMatchMap
+		);
+
+		PlayerController->ClientTravel(PostMatchMap,TRAVEL_Absolute);
+	}
+}
+
 void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
+	
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("HeavenBreach | Player Connected | ConnectedPlayers: %d / %d"),
+		GetConnectedPlayerCount(),
+		ExpectedPlayerCount
+		);
+	
+	TryStartExtractionMatch();
 }
 
 void AHeavenBreachGameMode::Logout(AController* Exiting)
@@ -126,23 +174,48 @@ void AHeavenBreachGameMode::Logout(AController* Exiting)
 	Super::Logout(Exiting);
 	
 	EvaluateMatchEnd();
+
+	if (GetMatchState() == MatchState::WaitingPostMatch)
+	{
+		ScheduleMatchMapReload();
+	}
 }
 
 bool AHeavenBreachGameMode::ReadyToStartMatch_Implementation()
 {
-	if (!bAutoStartMatch)
-	{
-		return false;
-	}
-
-	return GetConnectedPlayerCount() >= MinimumPlayersToStart;
+	return false;
 }
 
 bool AHeavenBreachGameMode::ReadyToEndMatch_Implementation()
 {
-	// ¸ÅÄ¡ Á¾·á Á¶°Ç Ãß°¡ ¿¹Á¤ 
+	// ë§¤ì¹˜ ì¢…ë£Œ ì¡°ê±´ ì¶”ê°€ ì˜ˆì •
 
 	return false;
+}
+
+void AHeavenBreachGameMode::TryStartExtractionMatch()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
+	if (GetMatchState() != MatchState::WaitingToStart)
+	{
+		return;
+	}
+	
+	if (ExpectedPlayerCount <= 0)
+	{
+		return;
+	}
+	
+	if (GetConnectedPlayerCount() < ExpectedPlayerCount)
+	{
+		return;
+	}
+	
+	StartMatch();
 }
 
 void AHeavenBreachGameMode::HandleMatchIsWaitingToStart()
@@ -164,6 +237,9 @@ void AHeavenBreachGameMode::HandleMatchHasEnded()
 	
 	StopMatchTimer();
 	ActivePlayers.Reset();
+	
+	TravelPlayersToPostMatchMap();
+	ScheduleMatchMapReload();
 }
 
 void AHeavenBreachGameMode::HandleLeavingMap()
@@ -220,6 +296,73 @@ void AHeavenBreachGameMode::EvaluateMatchEnd()
 	}
 	
 	FinishExtractionMatch();
+}
+
+void AHeavenBreachGameMode::ScheduleMatchMapReload()
+{
+	if (!HasAuthority() || GetNetMode() != NM_DedicatedServer)
+	{
+		return;
+	}
+
+	if (GetMatchState() != MatchState::WaitingPostMatch || bMatchMapReloadScheduled)
+	{
+		return;
+	}
+
+	bMatchMapReloadScheduled = true;
+
+	GetWorldTimerManager().SetTimer(
+		MatchMapReloadTimerHandle,
+		this,
+		&AHeavenBreachGameMode::TryReloadMatchMap,
+		MatchMapReloadRetrySeconds,
+		false
+	);
+
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("HeavenBreachGM | Match map reload scheduled | RetryDelay: %.2f"),
+		MatchMapReloadRetrySeconds
+	);
+}
+
+void AHeavenBreachGameMode::TryReloadMatchMap()
+{
+	bMatchMapReloadScheduled = false;
+
+	if (!HasAuthority() || GetNetMode() != NM_DedicatedServer)
+	{
+		return;
+	}
+
+	if (GetMatchState() != MatchState::WaitingPostMatch)
+	{
+		return;
+	}
+
+	const int32 ConnectedPlayerCount = GetConnectedPlayerCount();
+	if (ConnectedPlayerCount > 0)
+	{
+		UE_LOG(
+			LogTemp,
+			Log,
+			TEXT("HeavenBreachGM | Waiting to reload match map | ConnectedPlayers: %d"),
+			ConnectedPlayerCount
+		);
+
+		ScheduleMatchMapReload();
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("HeavenBreachGM | Reloading match map for next match")
+	);
+
+	RestartGame();
 }
 
 void AHeavenBreachGameMode::StartMatchTimer()
