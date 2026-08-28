@@ -22,6 +22,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Inventory")
 	void RequestCloseInventory();
 
+	UFUNCTION(BlueprintCallable, Category = "Travel")
+	void TravelToLevel(const FString& InLevelPath);
+
 	// Root CommonUI widget. Every screen is pushed into one of its layers.
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	UHB_UILayout* GetUILayout() const { return UILayout; }

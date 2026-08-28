@@ -277,6 +277,11 @@ void AHBPlayerController::RequestCloseInventory()
 	}
 }
 
+void AHBPlayerController::TravelToLevel(const FString& InLevelPath)
+{
+	ClientTravel(InLevelPath, ETravelType::TRAVEL_Absolute);
+}
+
 void AHBPlayerController::StartSprint()
 {
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
