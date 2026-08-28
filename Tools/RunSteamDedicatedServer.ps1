@@ -34,7 +34,6 @@ $editorBaseDirectory = Split-Path -Parent $editorExecutable
 $steamAppIdFile = Join-Path $editorBaseDirectory "steam_appid.txt"
 $expectedAppId = $SteamAppId.ToString([Globalization.CultureInfo]::InvariantCulture)
 $steamAppIdFileCreated = $false
-$steamAppIdFileLock = $null
 $serverProcess = $null
 
 $existingEndpoints = @(
@@ -105,15 +104,9 @@ try
         throw "Steam AppID verification failed for: $steamAppIdFile"
     }
 
-    # Keep the development AppID available until Steam has initialized. The
-    # handle permits reads and writes but prevents another UE process from
-    # deleting the shared Engine/Binaries/Win64 file during server startup.
-    $steamAppIdFileLock = [IO.File]::Open(
-        $steamAppIdFile,
-        [IO.FileMode]::Open,
-        [IO.FileAccess]::Read,
-        [IO.FileShare]::ReadWrite
-    )
+    # Do not keep this file open. Editor-hosted server and client processes
+    # share Engine/Binaries/Win64, and SteamShared must be able to recreate or
+    # replace steam_appid.txt while another Unreal process is already running.
 
     $serverArguments = @(
         "`"$projectFile`""
@@ -212,11 +205,6 @@ finally
     {
         $serverProcess.Refresh()
         $serverIsStillRunning = -not $serverProcess.HasExited
-    }
-
-    if ($null -ne $steamAppIdFileLock)
-    {
-        $steamAppIdFileLock.Dispose()
     }
 
     if (
