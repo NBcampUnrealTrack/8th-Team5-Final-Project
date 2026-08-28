@@ -4,6 +4,7 @@
 #include "Core/GameFlow/Title/PlayerController/HBTitlePlayerController.h"
 
 #include "UI/Title/HBGameStartMenuWidget.h"
+#include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 
 void AHBTitlePlayerController::ConnectToLobby()
@@ -13,21 +14,18 @@ void AHBTitlePlayerController::ConnectToLobby()
 		return;
 	}
 	
-	if (LobbyServerAddress.IsEmpty())
+	if (LobbyLevelName.IsNone())
 	{
 		UE_LOG(LogTemp, Error,
-			TEXT("Title | LobbyServerAddress is empty"));
+			TEXT("Title | LobbyLevelName is empty"));
 		return;
 	}
 	
 	UE_LOG(LogTemp, Log,
-	TEXT("Title | Connect To Lobby: %s"),
-	*LobbyServerAddress);
+		TEXT("Title | Open Lobby Level: %s"),
+		*LobbyLevelName.ToString());
 	
-	ClientTravel(
-		LobbyServerAddress,
-		ETravelType::TRAVEL_Absolute
-		);
+	UGameplayStatics::OpenLevel(this, LobbyLevelName);
 }
 
 void AHBTitlePlayerController::ExitGame()

@@ -22,6 +22,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Inventory")
 	void RequestCloseInventory();
 
+	UFUNCTION(BlueprintCallable, Category = "Travel")
+	void TravelToLevel(const FString& InLevelPath);
+
 	// Root CommonUI widget. Every screen is pushed into one of its layers.
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	UHB_UILayout* GetUILayout() const { return UILayout; }
@@ -92,6 +95,50 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override;
+	
+	////////////////////////////////////
+	// Test for session
+	UFUNCTION(Exec)
+	void TestCreateSteamLobby();
+	
+	UFUNCTION(Exec)
+	void TestFindSteamLobby();
+	
+	UFUNCTION(Exec)
+	void TestJoinSteamLobby(int32 InSearchResultIndex);
+	
+	UFUNCTION(Exec)
+	void TestLeaveSteamLobby();
+	
+	UFUNCTION(Exec)
+	void TestConnectMatchServer();
+	
+	UFUNCTION(Exec)
+	void TestPublishMatchServer();
+	
+	UFUNCTION(Exec)
+	void TestConnectPublishdMatchServer();
+	
+	UFUNCTION(Exec)
+	void TestStartMatch();
+
+	// 테스트 전용: 지정한 전용 서버 주소로 매치 시작 이동을 검증한다.
+	UFUNCTION(Exec)
+	void TestStartMatchAtAddress(const FString& ServerAddress);
+	
+	UFUNCTION(Exec)
+	void TestExtract();
+	
+	UFUNCTION(Server, Reliable)
+	void ServerTestExtract();
+	
+	UFUNCTION(BlueprintCallable, Category = "GameFlow")
+	void ReturnToHub();
+
+	UFUNCTION(Exec)
+	void TestReturnToHub();
+	////////////////////////////////////
+
 
 	void CreateUILayout();
 
