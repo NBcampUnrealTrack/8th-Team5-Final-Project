@@ -8,7 +8,9 @@
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Inventory/QuickSlotComponent.h"
+#include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "CommonActivatableWidget.h"
 #include "Core/Tag/UI/HB_UITag.h"
 #include "UI/HB_UILayout.h"
@@ -162,6 +164,177 @@ void AHBPlayerController::SetupInputComponent()
 
 	}
 }
+
+/////////// Lobby Test /////////////////////////
+void AHBPlayerController::TestCreateSteamLobby()
+{
+	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	
+	if (OnlineSessionSubsystem == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Lobby | Subsystem unavailable")
+			);
+		
+		return;
+	}
+	
+	OnlineSessionSubsystem->CreateLobby(10);
+}
+
+void AHBPlayerController::TestFindSteamLobby()
+{
+	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	
+	if (OnlineSessionSubsystem == nullptr)
+	{
+		return;
+	}
+	
+	OnlineSessionSubsystem->FindLobbies();
+}
+
+void AHBPlayerController::TestJoinSteamLobby(int32 InSearchResultIndex)
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->JoinLobby(InSearchResultIndex);
+	}
+}
+
+void AHBPlayerController::TestLeaveSteamLobby()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->LeaveLobby();
+	}
+}
+
+void AHBPlayerController::TestConnectMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->ConnectToMatchServer(TEXT("127.0.0.1:17777"));
+	}
+}
+
+void AHBPlayerController::TestPublishMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->PublishMatchServer(TEXT("127.0.0.1:17777"));
+	}
+}
+
+void AHBPlayerController::TestConnectPublishdMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->ConnectToPublishMatchServer();
+	}
+}
+
+void AHBPlayerController::TestStartMatch()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->StartMatchAsLobbyOwner(FString());
+	}
+}
+
+// 테스트 전용: 지정한 전용 서버 주소로 매치 시작 이동을 검증한다.
+void AHBPlayerController::TestStartMatchAtAddress(const FString& ServerAddress)
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->StartMatchAsLobbyOwner(ServerAddress);
+	}
+}
+
+void AHBPlayerController::TestExtract()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	ServerTestExtract();
+}
+
+void AHBPlayerController::ReturnToHub()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	const FString HubMap =
+		TEXT("/Game/Levels/Lobby/L_Lobby");
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("GameFlow | Returning to Hub | Map: %s"),
+		*HubMap
+	);
+
+	ClientTravel(
+		HubMap,
+		TRAVEL_Absolute
+	);
+}
+
+void AHBPlayerController::TestReturnToHub()
+{
+	ReturnToHub();
+}
+
+void AHBPlayerController::ServerTestExtract_Implementation()
+{
+	AHeavenBreachGameMode* GameMode = GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>();
+
+	if (GameMode == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Test | Extract failed: GameMode unavailable")
+		);
+
+		return;
+	}
+
+	if (PlayerState == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Test | Extract failed: PlayerState unavailable")
+		);
+
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Test | Request Player Extract")
+	);
+
+	GameMode->NotifyPlayerExtracted(PlayerState);
+
+}
+//////////////////////////////////////////////
 
 void AHBPlayerController::PlayerTick(float DeltaTime)
 {
