@@ -25,6 +25,7 @@ UGA_PlayerBlock::UGA_PlayerBlock()
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_Attacking);
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_BoxInteracting);
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_InventoryBusy);
+	ActivationBlockedTags.AddTag(StateTag::TAG_State_Blocking);
 }
 
 void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
@@ -76,13 +77,17 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	MontageTask->ReadyForActivation();
 
 	// 이동 감속. 다른 버프와 곱해지도록 GE 로 건다.
-	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
-	if (ASC && BlockSlowEffect)
+	if (ActorInfo && ActorInfo->IsNetAuthority())
 	{
-		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(BlockSlowEffect, 1.f, ASC->MakeEffectContext());
-		if (Spec.IsValid())
+		RemoveBlockSlow(ActorInfo);
+		UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+		if (ASC && BlockSlowEffect)
 		{
-			SlowHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+			FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(BlockSlowEffect, 1.f, ASC->MakeEffectContext());
+			if (Spec.IsValid())
+			{
+				SlowHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+			}
 		}
 	}
 	//if (AM_Block)
@@ -96,7 +101,8 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	//	MontageTask->OnInterrupted.AddDynamic(this, &UGA_PlayerBlock::OnBlockMontageCancelled);
 	//	MontageTask->ReadyForActivation();
 	//}
-	
+	UE_LOG(LogTemp, Warning, TEXT("[Block] Activate | Server=%d"),
+		(ActorInfo && ActorInfo->IsNetAuthority()) ? 1 : 0);
 }
 
 void UGA_PlayerBlock::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
@@ -115,14 +121,10 @@ void UGA_PlayerBlock::EndAbility(const FGameplayAbilitySpecHandle Handle, const 
 	//	}
 	//}
 
-	if (SlowHandle.IsValid())
-	{
-		if (UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr)
-		{
-			ASC->RemoveActiveGameplayEffect(SlowHandle);
-		}
-		SlowHandle.Invalidate();
-	}
+	RemoveBlockSlow(ActorInfo);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Block] End | Server=%d Cancelled=%d"),
+		(ActorInfo && ActorInfo->IsNetAuthority()) ? 1 : 0, bWasCancelled ? 1 : 0);
 	
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
@@ -174,4 +176,18 @@ void UGA_PlayerBlock::OnBlockMontageCompleted()
 void UGA_PlayerBlock::OnBlockMontageCancelled()
 {
 	EndAbility(GetCurrentAbilitySpecHandle(),GetCurrentActorInfo(),GetCurrentActivationInfo(),true,true);
+}
+
+void UGA_PlayerBlock::RemoveBlockSlow(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!SlowHandle.IsValid())
+	{
+		return;
+	}
+
+	if (UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr)
+	{
+		ASC->RemoveActiveGameplayEffect(SlowHandle);
+	}
+	SlowHandle.Invalidate();
 }

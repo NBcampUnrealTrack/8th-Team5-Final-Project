@@ -14,6 +14,7 @@
 #include "CommonActivatableWidget.h"
 #include "Core/Tag/UI/HB_UITag.h"
 #include "UI/HB_UILayout.h"
+#include "UI/HB_ContainerScreen.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -62,6 +63,56 @@ void AHBPlayerController::CreateUILayout()
 	{
 		UILayout->PushWidgetToLayer(UITag::TAG_UI_Layer_Game, HUDLayerClass);
 	}
+}
+
+void AHBPlayerController::OpenContainer(UInventoryComponent* InContainer)
+{
+	if (InContainer == nullptr || ContainerScreenClass == nullptr)
+	{
+		return;
+	}
+
+	// 이미 열려 있으면 대상만 바꾸지 않고 무시한다.
+	// (다른 상자를 열려면 먼저 닫는 것이 흐름상 명확하다)
+	if (ContainerScreen != nullptr)
+	{
+		return;
+	}
+
+	if (UILayout == nullptr)
+	{
+		return;
+	}
+
+	// 초기화 함수는 활성화 이전에 실행되므로, 첫 프레임부터 컨테이너가 채워져 있다
+	ContainerScreen = UILayout->PushWidgetToLayer<UHB_ContainerScreen>(
+		UITag::TAG_UI_Layer_Menu, ContainerScreenClass,
+		[InContainer](UHB_ContainerScreen& Screen)
+		{
+			Screen.SetContainer(InContainer);
+		});
+
+	if (ContainerScreen != nullptr)
+	{
+		// ESC / Tab 처럼 위젯이 스스로 닫히는 경로가 있으므로, 참조를 여기서 정리한다.
+		// 이걸 놓치면 이미 닫힌 화면을 열려 있다고 오판한다
+		ContainerScreen->OnDeactivated().AddWeakLambda(this, [this]()
+		{
+			ContainerScreen = nullptr;
+		});
+	}
+}
+
+void AHBPlayerController::CloseContainer()
+{
+	if (ContainerScreen == nullptr)
+	{
+		return;
+	}
+
+	// 스택이 제거하고, 아래에 남은 위젯의 InputConfig 를 다시 계산해 적용한다
+	ContainerScreen->DeactivateWidget();
+	ContainerScreen = nullptr;
 }
 
 void AHBPlayerController::SetupInputComponent()

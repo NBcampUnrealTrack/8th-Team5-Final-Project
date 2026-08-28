@@ -6,6 +6,8 @@
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
+#include "EquipmentComponent.h"
+#include "GameFramework/Pawn.h"
 
 UHB_HUDLayer::UHB_HUDLayer()
 {
@@ -24,6 +26,15 @@ void UHB_HUDLayer::NativeConstruct()
 	if (IMG_HP_Bar_Fill)
 	{
 		HPBarDynamicMaterial = IMG_HP_Bar_Fill->GetDynamicMaterial();
+	}
+
+	if (IMG_EquipWeapon)
+	{
+		DefaultWeaponBrush = IMG_EquipWeapon->GetBrush();
+	}
+	if (IMG_EquipSubWeapon)
+	{
+		DefaultSubWeaponBrush = IMG_EquipSubWeapon->GetBrush();
 	}
 
 	BindPlayerState();
@@ -86,23 +97,87 @@ void UHB_HUDLayer::HandleBindRetry()
 
 bool UHB_HUDLayer::TryBindPlayerState()
 {
+	bool bPSBound = false;
+
+	// 1. PlayerState 및 AttributeSet 바인딩
 	AHB_PlayerState* PS = Cast<AHB_PlayerState>(GetOwningPlayerState());
-	if (PS == nullptr)
+	if (PS)
 	{
-		return false;
+		if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
+		{
+			PS->OnHPChanged.RemoveAll(this);
+			PS->OnHPChanged.AddDynamic(this, &UHB_HUDLayer::UpdateHPBar);
+
+			UpdateHPBar(AttribSet->GetPlayer_HP(), AttribSet->GetPlayer_MaxHP());
+			bPSBound = true;
+		}
 	}
 
-	UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet();
-	if (AttribSet == nullptr)
+	// 2. EquipmentComponent 바인딩 (아직 바인딩되지 않은 경우에만 시도)
+	if (!bIsEquipBound)
 	{
-		return false;
+		if (APawn* Pawn = GetOwningPlayerPawn())
+		{
+			if (UEquipmentComponent* EquipComp = Pawn->FindComponentByClass<UEquipmentComponent>())
+			{
+				CachedEquipComp = EquipComp;
+
+				CachedEquipComp->OnEquipmentChanged.RemoveDynamic(this, &UHB_HUDLayer::UpdateEquipmentSlots);
+				CachedEquipComp->OnEquipmentChanged.AddDynamic(this, &UHB_HUDLayer::UpdateEquipmentSlots);
+
+				UpdateEquipmentSlots();
+				bIsEquipBound = true;
+			}
+		}
 	}
 
-	PS->OnHPChanged.RemoveAll(this);
-	PS->OnHPChanged.AddDynamic(this, &UHB_HUDLayer::UpdateHPBar);
+	// PlayerState와 EquipmentComponent 둘 다 준비되어야 재시도 타이머가 종료됩니다.
+	return bPSBound && bIsEquipBound;
+}
 
-	UpdateHPBar(AttribSet->GetPlayer_HP(), AttribSet->GetPlayer_MaxHP());
-	return true;
+void UHB_HUDLayer::UpdateEquipmentSlots()
+{
+	if (!CachedEquipComp)
+	{
+		return;
+	}
+
+	auto UpdateSlotImage = [this](EEquipSlotType SlotType, UImage* TargetImage, const FSlateBrush& DefaultBrush)
+		{
+			if (!TargetImage)
+			{
+				return;
+			}
+
+			FItemInstance ItemInstance;
+			if (CachedEquipComp->GetItemInSlot(SlotType, ItemInstance))
+			{
+				FItemViewData ViewData;
+				if (ResolveItemViewData(ItemInstance.ItemRow, ViewData))
+				{
+					UTexture2D* IconTexture = ViewData.Icon;
+
+					if (!IconTexture && !ViewData.IconPath.IsEmpty())
+					{
+						IconTexture = LoadItemIcon(ViewData.IconPath);
+					}
+
+					if (IconTexture)
+					{
+						TargetImage->SetBrushFromTexture(IconTexture);
+						TargetImage->SetColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 1.f));
+						return;
+					}
+				}
+			}
+
+			// 빈 슬롯일 경우 WBP에서 설정했던 원래 기본 브러시로 복원하고 완전 불투명하게 유지
+			TargetImage->SetBrush(DefaultBrush);
+			TargetImage->SetColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 1.f));
+		};
+
+	UpdateSlotImage(EEquipSlotType::PrimaryWeapon, IMG_EquipWeapon, DefaultWeaponBrush);
+	UpdateSlotImage(EEquipSlotType::SecondaryEquip, IMG_EquipSubWeapon, DefaultSubWeaponBrush);
 }
 
 void UHB_HUDLayer::UpdateHPBar(float CurrentHP, float MaxHP)
