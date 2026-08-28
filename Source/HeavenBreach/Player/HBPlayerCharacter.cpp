@@ -13,7 +13,6 @@
 #include "Player/Abilities/GA_ClassBasicAttacks.h"
 #include "Components/CapsuleComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
-#include "Core/Tag/Data/HB_DataTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "Core/Tag/Job/HB_JobTag.h"
@@ -35,6 +34,8 @@
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "TimerManager.h"
 #include "DrawDebugHelpers.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "Core/Tag/Event/HB_EventTag.h"
 
 namespace
 {
@@ -86,8 +87,9 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
 	QuickSlot = CreateDefaultSubobject<UQuickSlotComponent>(TEXT("QuickSlot"));
-	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
-	FirstPersonCamera->SetRelativeLocation(FVector(0.0f, 0.0f, 64.0f));
+	FirstPersonCamera->SetupAttachment(GetMesh(), FirstPersonCameraSocketName);
+	FirstPersonCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
+	FirstPersonCamera->SetAbsolute(false, true, true);
 	FirstPersonCamera->bUsePawnControlRotation = true;
 
 
@@ -232,9 +234,10 @@ void AHBPlayerCharacter::StopBlocking()
 {
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
 	{
-		FGameplayTagContainer BlockTag;
-		BlockTag.AddTag(StateTag::TAG_State_Blocking);
-		ASC->CancelAbilities(&BlockTag,nullptr,nullptr);
+		FGameplayEventData Payload;
+		Payload.Instigator = this;
+
+		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, EventTag::TAG_Event_Block_Release, Payload);
 	}
 }
 
@@ -353,8 +356,21 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(GE_PlayerDamage,1.f,ASC->MakeEffectContext());
 	if (Spec.IsValid())
 	{
-		Spec.Data->SetSetByCallerMagnitude(DataTag::TAG_Data_Damage, -RawDamage);
-		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		const float HPBefore = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute());
+		Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage);
+		const FActiveGameplayEffectHandle AppliedHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		const float HPAfter = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute());
+
+		UE_LOG(LogTemp, Warning,
+			TEXT("PlayerDamage | Target=%s RawDamage=%.2f HPBefore=%.2f HPAfter=%.2f Applied=%s"),
+			*GetNameSafe(this), RawDamage, HPBefore, HPAfter,
+			AppliedHandle.WasSuccessfullyApplied() ? TEXT("true") : TEXT("false"));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("PlayerDamage | Failed to create GameplayEffectSpec | Target=%s Effect=%s"),
+			*GetNameSafe(this), *GetNameSafe(GE_PlayerDamage));
 	}
 	
 	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetController()))
@@ -737,17 +753,28 @@ void AHBPlayerCharacter::InitializeJob(UAbilitySystemComponent* AbilitySystem)
 		}
 	}
 
-	for (const FHBJobSkillData& Skill : JobData->GetBasicSkillCatalog())
-	{
-		GrantAbilityIfMissing(AbilitySystem, Skill.AbilityClass);
-	}
-
-	const TArray<FHBJobSkillData> ActiveCatalog = JobData->GetActiveSkillCatalog();
-	const TArray<FHBJobSkillData> PassiveCatalog = JobData->GetPassiveSkillCatalog();
-	SelectedSkillQId = ActiveCatalog.IsValidIndex(0) ? ActiveCatalog[0].SkillId : NAME_None;
-	SelectedSkillEId = ActiveCatalog.IsValidIndex(1) ? ActiveCatalog[1].SkillId : NAME_None;
+	// ActiveSkills/PassiveSkills are catalogs. Only entries listed in BasicSkills
+	// are equipped as the initial loadout.
+	SelectedSkillQId = NAME_None;
+	SelectedSkillEId = NAME_None;
 	SelectedPassiveSkillIds.Reset();
-	for (const FHBJobSkillData& Skill : PassiveCatalog) SelectedPassiveSkillIds.Add(Skill.SkillId);
+	for (const FHBJobSkillData& BaseSkill : JobData->GetBasicSkillCatalog())
+	{
+		if (JobData->FindActiveSkill(BaseSkill.SkillId))
+		{
+			if (SelectedSkillQId.IsNone()) SelectedSkillQId = BaseSkill.SkillId;
+			else if (SelectedSkillEId.IsNone()) SelectedSkillEId = BaseSkill.SkillId;
+		}
+		else if (JobData->FindPassiveSkill(BaseSkill.SkillId))
+		{
+			SelectedPassiveSkillIds.AddUnique(BaseSkill.SkillId);
+		}
+		else
+		{
+			// Compatibility for a mandatory utility ability that is not selectable.
+			GrantAbilityIfMissing(AbilitySystem, BaseSkill.AbilityClass);
+		}
+	}
 	ApplyLoadout(SelectedSkillQId, SelectedSkillEId, SelectedPassiveSkillIds);
 
 	GrantAbilityIfMissing(AbilitySystem,
@@ -914,7 +941,6 @@ void AHBPlayerCharacter::RefreshMovementSpeed()
 void AHBPlayerCharacter::RefreshMovementSpeedFromAttributes()
 {
 	RefreshMovementSpeed();
-	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
 }
 
 void AHBPlayerCharacter::RefreshEquippedVisuals()

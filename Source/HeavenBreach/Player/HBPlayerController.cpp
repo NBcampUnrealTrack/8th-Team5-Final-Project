@@ -8,7 +8,12 @@
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Inventory/QuickSlotComponent.h"
+#include "Core/GameFlow/HeavenBreachGameMode.h"
+#include "CommonActivatableWidget.h"
+#include "Core/Tag/UI/HB_UITag.h"
+#include "UI/HB_UILayout.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -30,8 +35,32 @@ void AHBPlayerController::BeginPlay()
 			}
 		}
 
-		SetInputMode(FInputModeGameOnly());
-		SetShowMouseCursor(false);
+		// 입력 모드와 커서는 HUD 레이어의 InputConfig(Game)가 결정한다.
+		// 메뉴가 스택에 올라오면 그쪽 Menu 설정이 이기고, 닫히면 여기로 자동 복귀한다.
+		CreateUILayout();
+	}
+}
+
+void AHBPlayerController::CreateUILayout()
+{
+	if (UILayout != nullptr || UILayoutClass == nullptr)
+	{
+		return;
+	}
+
+	UILayout = CreateWidget<UHB_UILayout>(this, UILayoutClass);
+	if (UILayout == nullptr)
+	{
+		return;
+	}
+
+	// The layout is the only widget added to the viewport directly.
+	// Everything else is pushed into one of its activatable widget stacks.
+	UILayout->AddToViewport();
+
+	if (HUDLayerClass)
+	{
+		UILayout->PushWidgetToLayer(UITag::TAG_UI_Layer_Game, HUDLayerClass);
 	}
 }
 
@@ -79,6 +108,10 @@ void AHBPlayerController::SetupInputComponent()
 		{
 			EnhancedInputComponent->BindAction(
 				BlockAction, ETriggerEvent::Started, this, &AHBPlayerController::Block);
+			EnhancedInputComponent->BindAction(
+				BlockAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopBlock);
+			EnhancedInputComponent->BindAction(
+				BlockAction, ETriggerEvent::Canceled, this, &AHBPlayerController::StopBlock);
 		}
 
 		if (ToggleInventoryAction)
@@ -132,6 +165,177 @@ void AHBPlayerController::SetupInputComponent()
 	}
 }
 
+/////////// Lobby Test /////////////////////////
+void AHBPlayerController::TestCreateSteamLobby()
+{
+	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	
+	if (OnlineSessionSubsystem == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Lobby | Subsystem unavailable")
+			);
+		
+		return;
+	}
+	
+	OnlineSessionSubsystem->CreateLobby(10);
+}
+
+void AHBPlayerController::TestFindSteamLobby()
+{
+	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	
+	if (OnlineSessionSubsystem == nullptr)
+	{
+		return;
+	}
+	
+	OnlineSessionSubsystem->FindLobbies();
+}
+
+void AHBPlayerController::TestJoinSteamLobby(int32 InSearchResultIndex)
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->JoinLobby(InSearchResultIndex);
+	}
+}
+
+void AHBPlayerController::TestLeaveSteamLobby()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->LeaveLobby();
+	}
+}
+
+void AHBPlayerController::TestConnectMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->ConnectToMatchServer(TEXT("127.0.0.1:17777"));
+	}
+}
+
+void AHBPlayerController::TestPublishMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->PublishMatchServer(TEXT("127.0.0.1:17777"));
+	}
+}
+
+void AHBPlayerController::TestConnectPublishdMatchServer()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->ConnectToPublishMatchServer();
+	}
+}
+
+void AHBPlayerController::TestStartMatch()
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem = 
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->StartMatchAsLobbyOwner(FString());
+	}
+}
+
+// 테스트 전용: 지정한 전용 서버 주소로 매치 시작 이동을 검증한다.
+void AHBPlayerController::TestStartMatchAtAddress(const FString& ServerAddress)
+{
+	if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
+		GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+	{
+		OnlineSessionSubsystem->StartMatchAsLobbyOwner(ServerAddress);
+	}
+}
+
+void AHBPlayerController::TestExtract()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	ServerTestExtract();
+}
+
+void AHBPlayerController::ReturnToHub()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	const FString HubMap =
+		TEXT("/Game/Levels/Lobby/L_Lobby");
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("GameFlow | Returning to Hub | Map: %s"),
+		*HubMap
+	);
+
+	ClientTravel(
+		HubMap,
+		TRAVEL_Absolute
+	);
+}
+
+void AHBPlayerController::TestReturnToHub()
+{
+	ReturnToHub();
+}
+
+void AHBPlayerController::ServerTestExtract_Implementation()
+{
+	AHeavenBreachGameMode* GameMode = GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>();
+
+	if (GameMode == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Test | Extract failed: GameMode unavailable")
+		);
+
+		return;
+	}
+
+	if (PlayerState == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Test | Extract failed: PlayerState unavailable")
+		);
+
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Test | Request Player Extract")
+	);
+
+	GameMode->NotifyPlayerExtracted(PlayerState);
+
+}
+//////////////////////////////////////////////
+
 void AHBPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
@@ -159,11 +363,6 @@ void AHBPlayerController::PlayerTick(float DeltaTime)
 
 void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		const FVector2D MovementInput = Value.Get<FVector2D>();
@@ -174,11 +373,6 @@ void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 
 void AHBPlayerController::HandleLook(const FInputActionValue& Value)
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	const FVector2D LookInput = Value.Get<FVector2D>();
 	AddYawInput(LookInput.X);
 	AddPitchInput(LookInput.Y);
@@ -186,11 +380,6 @@ void AHBPlayerController::HandleLook(const FInputActionValue& Value)
 
 void AHBPlayerController::StartJump()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Jump();
@@ -207,11 +396,6 @@ void AHBPlayerController::StopJump()
 
 void AHBPlayerController::StartCrouch()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Crouch();
@@ -228,11 +412,6 @@ void AHBPlayerController::StopCrouch()
 
 void AHBPlayerController::Attack()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Attack();
@@ -241,14 +420,17 @@ void AHBPlayerController::Attack()
 
 void AHBPlayerController::Block()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StartBlocking();
+	}
+}
+
+void AHBPlayerController::StopBlock()
+{
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->StopBlocking();
 	}
 }
 
@@ -268,13 +450,13 @@ void AHBPlayerController::RequestCloseInventory()
 	}
 }
 
+void AHBPlayerController::TravelToLevel(const FString& InLevelPath)
+{
+	ClientTravel(InLevelPath, ETravelType::TRAVEL_Absolute);
+}
+
 void AHBPlayerController::StartSprint()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->StartSprint();
@@ -315,13 +497,6 @@ void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCame
 
 void AHBPlayerController::UseQuickSlot1()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot1 called, InventoryOpen=%d"),
-		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
@@ -333,13 +508,6 @@ void AHBPlayerController::UseQuickSlot1()
 
 void AHBPlayerController::UseQuickSlot2()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot2 called, InventoryOpen=%d"),
-		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
@@ -351,11 +519,6 @@ void AHBPlayerController::UseQuickSlot2()
 
 void AHBPlayerController::UseQuickSlot3()
 {
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	APawn* CurrentPawn = GetPawn();
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(CurrentPawn))
 	{
@@ -368,14 +531,6 @@ void AHBPlayerController::UseQuickSlot3()
 
 void AHBPlayerController::UseQuickSlot4()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PC] UseQuickSlot4 called, InventoryOpen=%d"),
-		InventoryUI ? InventoryUI->IsInventoryOpen() : -1);
-
-	if (InventoryUI && InventoryUI->IsInventoryOpen())
-	{
-		return;
-	}
-
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
