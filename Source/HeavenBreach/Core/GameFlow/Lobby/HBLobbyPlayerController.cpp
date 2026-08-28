@@ -5,6 +5,7 @@
 
 #include "PlayerState/HBLobbyPlayerState.h"
 #include "UI/Lobby/HBLobbyWidget.h"
+#include "UI/Lobby/HBLobbyHUDWidget.h"
 #include "HBLobbyGameMode.h"
 
 void AHBLobbyPlayerController::SetReady(bool bNewReady)
@@ -36,7 +37,7 @@ void AHBLobbyPlayerController::BeginPlay()
 		return;
 	}
 	
-	LobbyWidget = CreateWidget<UHBLobbyWidget>(
+	LobbyWidget = CreateWidget<UHBLobbyHUDWidget>(
 		this,
 		LobbyWidgetClass
 		);

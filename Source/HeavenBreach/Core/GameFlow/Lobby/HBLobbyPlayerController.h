@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "HBLobbyPlayerController.generated.h"
 
+class UHBLobbyHUDWidget;
 class UHBLobbyWidget;
 /**
  * 
@@ -32,9 +33,9 @@ protected:
 	void ServerRequestStartGame();
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|UI")
-	TSubclassOf<UHBLobbyWidget> LobbyWidgetClass;
+	TSubclassOf<UHBLobbyHUDWidget> LobbyWidgetClass;
 	
 private:
 	UPROPERTY()
-	TObjectPtr<UHBLobbyWidget> LobbyWidget;
+	TObjectPtr<UHBLobbyHUDWidget> LobbyWidget;
 };
