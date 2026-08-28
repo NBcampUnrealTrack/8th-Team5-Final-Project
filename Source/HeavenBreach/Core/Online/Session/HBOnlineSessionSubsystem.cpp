@@ -12,6 +12,7 @@
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "TimerManager.h"
 
 namespace HBOnline
 {
@@ -22,6 +23,7 @@ namespace HBOnline
 
 	const TCHAR* MatchServerCommandLineKey = TEXT("HBMatchServer=");
 	const TCHAR* LocalMatchServerAddress = TEXT("127.0.0.1:17777");
+	constexpr float MatchServerPollIntervalSeconds = 0.25f;
 }
 
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -85,6 +87,8 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UHBOnlineSessionSubsystem::Deinitialize()
 {
+	StopMatchServerPolling();
+
 	if (GEngine != nullptr && NetworkFailureDelegateHandle.IsValid())
 	{
 		GEngine->OnNetworkFailure().Remove(NetworkFailureDelegateHandle);
@@ -481,6 +485,8 @@ void UHBOnlineSessionSubsystem::ConnectToMatchServer(const FString& ServerAddres
 		return;
 	}
 
+	StopMatchServerPolling();
+	bMatchTravelRequested = true;
 	SetMatchStartState(EHBMatchStartState::Traveling);
 	
 	UE_LOG(
@@ -509,6 +515,11 @@ void UHBOnlineSessionSubsystem::ConnectToMatchServer(const FString& ServerAddres
 
 void UHBOnlineSessionSubsystem::ConnectToPublishMatchServer()
 {
+	if (bConnectAfterLobbyUpdate || bMatchTravelRequested)
+	{
+		return;
+	}
+
 	if (!SessionInterface.IsValid())
 	{
 		UE_LOG(
@@ -593,6 +604,8 @@ void UHBOnlineSessionSubsystem::ConnectToPublishMatchServer()
 		*ServerAddress
 	);
 
+	bMatchTravelRequested = true;
+	StopMatchServerPolling();
 	ConnectToMatchServer(ServerAddress);
 }
 
@@ -732,6 +745,7 @@ void UHBOnlineSessionSubsystem::SetLobbyOperationState(
 
 bool UHBOnlineSessionSubsystem::FailMatchStart(const FString& ErrorMessage)
 {
+	StopMatchServerPolling();
 	PendingMatchServerAddress.Reset();
 	bConnectAfterLobbyUpdate = false;
 	bMatchTravelRequested = false;
@@ -1049,6 +1063,7 @@ void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(
 	if (bSuccess)
 	{
 		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+		StartMatchServerPolling();
 	}
 	else
 	{
@@ -1090,6 +1105,7 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 	
 	if (bWasSuccessful)
 	{
+		StopMatchServerPolling();
 		LobbySettings.Reset();
 		LobbySearch.Reset();
 		bJoinFirstLobbyAfterFind = false;
@@ -1243,6 +1259,81 @@ void UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated(FName InSessionName
 	);
 
 	ConnectToMatchServer(ServerAddress);
+}
+
+void UHBOnlineSessionSubsystem::StartMatchServerPolling()
+{
+	// Steam refreshes the named session when lobby data changes, but unlike EOS it
+	// does not broadcast OnSessionSettingsUpdated to game code.
+	if (bConnectAfterLobbyUpdate || bMatchTravelRequested)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Online | Match | Polling failed to start: World unavailable")
+			);
+
+		return;
+	}
+
+	World->GetTimerManager().SetTimer(
+		MatchServerPollTimerHandle,
+		this,
+		&UHBOnlineSessionSubsystem::PollMatchServerSettings,
+		HBOnline::MatchServerPollIntervalSeconds,
+		true
+		);
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("Online | Match | Waiting for Steam Lobby match server update")
+		);
+
+	PollMatchServerSettings();
+}
+
+void UHBOnlineSessionSubsystem::StopMatchServerPolling()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(MatchServerPollTimerHandle);
+	}
+
+	MatchServerPollTimerHandle.Invalidate();
+}
+
+void UHBOnlineSessionSubsystem::PollMatchServerSettings()
+{
+	if (!SessionInterface.IsValid())
+	{
+		StopMatchServerPolling();
+		return;
+	}
+
+	FNamedOnlineSession* LobbySession =
+		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
+
+	if (LobbySession == nullptr)
+	{
+		StopMatchServerPolling();
+		return;
+	}
+
+	bool bMatchReady = false;
+	if (LobbySession->SessionSettings.Get(
+			HBOnline::MatchReadyKey,
+			bMatchReady) &&
+		bMatchReady)
+	{
+		ConnectToPublishMatchServer();
+	}
 }
 
 void UHBOnlineSessionSubsystem::HandleNetworkFailure(

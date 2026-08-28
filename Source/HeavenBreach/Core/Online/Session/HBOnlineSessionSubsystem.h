@@ -142,6 +142,9 @@ private:
 		ENetworkFailure::Type InFailureType,
 		const FString& InErrorString
 		);
+	void StartMatchServerPolling();
+	void StopMatchServerPolling();
+	void PollMatchServerSettings();
 	bool ResolveMatchServerAddress(
 		const FString& RequestedAddress,
 		FString& OutServerAddress
@@ -186,4 +189,5 @@ private:
 	FDelegateHandle UpdateLobbyCompleteDelegateHandle;
 	FDelegateHandle SessionSettingsUpdatedDelegateHandle;
 	FDelegateHandle NetworkFailureDelegateHandle;
+	FTimerHandle MatchServerPollTimerHandle;
 };
