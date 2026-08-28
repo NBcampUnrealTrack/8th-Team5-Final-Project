@@ -955,6 +955,7 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 	RefreshShieldVisual();
 	RefreshHelmetVisual();
 	RefreshChestVisual();
+	RefreshLegsVisual();
 }
 
 void AHBPlayerCharacter::RefreshWeaponVisual()
@@ -1049,6 +1050,32 @@ void AHBPlayerCharacter::RefreshChestVisual()
 	}
 
 	ChestMeshComp->SetSkeletalMesh(nullptr);
+}
+
+void AHBPlayerCharacter::RefreshLegsVisual()
+{
+	if (!Equipment || !LegsMeshComp)
+	{
+		return;
+	}
+	FItemInstance LegsItem;
+	if (Equipment->GetItemInSlot(EEquipSlotType::Legs, LegsItem))
+	{
+		if (const FItemData* LegsData = LegsItem.ItemRow.GetRow<FItemData>(TEXT("RefreshLegsVisual")))
+		{
+			LegsMeshComp->SetSkeletalMesh(LoadObject<USkeletalMesh>(nullptr, *LegsData->WorldMeshPath));
+			if (ShoesMeshComp)
+			{
+				ShoesMeshComp->SetSkeletalMesh(LoadObject<USkeletalMesh>(nullptr, *LegsData->ShoesMeshPath));
+			}
+			return;
+		}
+	}
+	LegsMeshComp->SetSkeletalMesh(nullptr);
+	if (ShoesMeshComp)
+	{
+		ShoesMeshComp->SetSkeletalMesh(nullptr);
+	}
 }
 
 #pragma region ModularEquipmentMesh
