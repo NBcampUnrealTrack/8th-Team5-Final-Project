@@ -47,4 +47,6 @@ private:
 
 	// 사용중인 이속감소 GE의 핸들. 취소시켜야하니 들고있는다.
 	FActiveGameplayEffectHandle SlowHandle;
+
+	void RemoveBlockSlow(const FGameplayAbilityActorInfo* ActorInfo);
 };
