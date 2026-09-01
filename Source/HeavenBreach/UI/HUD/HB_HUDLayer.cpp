@@ -10,6 +10,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/TextBlock.h"
+#include "UI/HUD/HB_HitEffectWidget.h"
 
 UHB_HUDLayer::UHB_HUDLayer()
 {
@@ -282,5 +283,13 @@ void UHB_HUDLayer::UpdateHPBar(float CurrentHP, float MaxHP)
 			HPBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), CurrentPercent);
 		}
 		bIsInitialized = true;
+	}
+}
+
+void UHB_HUDLayer::PlayHitEffect()
+{
+	if (WBP_PlayerBloodSplatter)
+	{
+		WBP_PlayerBloodSplatter->PlayHitEffect();
 	}
 }

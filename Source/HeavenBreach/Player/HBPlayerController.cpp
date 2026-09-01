@@ -1,4 +1,4 @@
-#include "Player/HBPlayerController.h"
+﻿#include "Player/HBPlayerController.h"
 
 #include "Inventory/InventoryUIComponent.h"
 #include "EnhancedInputComponent.h"
@@ -14,6 +14,7 @@
 #include "CommonActivatableWidget.h"
 #include "Core/Tag/UI/HB_UITag.h"
 #include "UI/HB_UILayout.h"
+#include "UI/HUD/HB_HUDLayer.h"
 #include "UI/HB_ContainerScreen.h"
 
 AHBPlayerController::AHBPlayerController()
@@ -61,7 +62,18 @@ void AHBPlayerController::CreateUILayout()
 
 	if (HUDLayerClass)
 	{
-		UILayout->PushWidgetToLayer(UITag::TAG_UI_Layer_Game, HUDLayerClass);
+		// 피격 연출 등에서 HUD 를 직접 호출해야 하므로 참조를 들고 있는다
+		HUDLayer = Cast<UHB_HUDLayer>(
+			UILayout->PushWidgetToLayer(UITag::TAG_UI_Layer_Game, HUDLayerClass));
+	}
+}
+
+void AHBPlayerController::ClientPlayHitEffect_Implementation(float NewHP, float NewMaxHP)
+{
+	if (HUDLayer)
+	{
+		HUDLayer->UpdateHPBar(NewHP, NewMaxHP);
+		HUDLayer->PlayHitEffect();
 	}
 }
 
