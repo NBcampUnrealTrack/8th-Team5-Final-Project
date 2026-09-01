@@ -143,5 +143,10 @@ public:
 private:
 	UPROPERTY()
 	TObjectPtr<UStashComponent> Stash;
+
+	void TryLoadStash();
+
+	FTimerHandle StashLoadTimerHandle;
+
 #pragma endregion
 };

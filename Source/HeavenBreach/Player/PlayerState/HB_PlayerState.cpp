@@ -6,6 +6,7 @@
 #include "AbilitySystemComponent.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
 
 AHB_PlayerState::AHB_PlayerState()
 {
@@ -31,31 +32,20 @@ AHB_PlayerState::AHB_PlayerState()
 void AHB_PlayerState::BeginPlay()
 {
 	Super::BeginPlay();
-
 	if (HasAuthority())
 	{
 		ResetMatchProgression();
 	}
-
 	if (AbilitySystemComponent && AttributeSet)
 	{
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_HPAttribute())
 			.AddUObject(this, &AHB_PlayerState::OnHealthChanged);
-
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute())
 			.AddUObject(this, &AHB_PlayerState::OnMaxHealthChanged);
 	}
-
 	if (HasAuthority() && Stash)
 	{
-		if (UGameInstance* GameInstance = GetGameInstance())
-		{
-			if (UStashStorageSubsystem* StorageSubsystem = GameInstance->GetSubsystem<UStashStorageSubsystem>())
-			{
-				Stash->SetStorage(StorageSubsystem->GetStorage());
-				Stash->LoadStash(TEXT("TestAccount"));
-			}
-		}
+		TryLoadStash();
 	}
 }
 
@@ -73,6 +63,46 @@ void AHB_PlayerState::OnMaxHealthChanged(const FOnAttributeChangeData& Data)
 	{
 		OnHPChanged.Broadcast(AttributeSet->GetPlayer_HP(), Data.NewValue);
 	}
+}
+
+void AHB_PlayerState::TryLoadStash()
+{
+	if (Stash == nullptr)
+	{
+		return;
+	}
+
+	const FUniqueNetIdRepl& NetId = GetUniqueId();
+	if (!NetId.IsValid())
+	{
+		GetWorldTimerManager().SetTimer(
+			StashLoadTimerHandle, this, &AHB_PlayerState::TryLoadStash, 0.2f, false);
+		return;
+	}
+
+	UGameInstance* GameInstance = GetGameInstance();
+	if (GameInstance == nullptr)
+	{
+		return;
+	}
+
+	UStashStorageSubsystem* StorageSubsystem = GameInstance->GetSubsystem<UStashStorageSubsystem>();
+	if (StorageSubsystem == nullptr)
+	{
+		return;
+	}
+
+	FString AccountId = NetId->ToString();
+
+	if (AccountId.StartsWith(TEXT("DESKTOP-")))
+	{
+		AccountId = TEXT("TestAccount");
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Stash: account id %s"), *AccountId);
+
+	Stash->SetStorage(StorageSubsystem->GetStorage());
+	Stash->LoadStash(AccountId);
 }
 
 void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
