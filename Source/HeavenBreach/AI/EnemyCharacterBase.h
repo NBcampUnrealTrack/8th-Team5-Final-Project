@@ -13,6 +13,7 @@ class UEnemyAbilitySystemComponent;
 class UEnemyAttributeSetBase;
 class UEnemyArchetypeData;
 class UGameplayEffect;
+struct FGameplayTag;
 class ULootComponent;
 
 UCLASS()
@@ -52,7 +53,7 @@ public:
 	void SetWalkSpeed(float InWalkSpeed) { WalkSpeed = InWalkSpeed; RefreshMoveSpeed(); }
 	void SetRunSpeed(float InRunSpeed) { RunSpeed = InRunSpeed; RefreshMoveSpeed(); }
 	void SetAccRadius(float InAcceptanceRadius) { AcceptanceRadius = InAcceptanceRadius; }
-	void SetReward(float InAcceptanceRadius) { AcceptanceRadius = InAcceptanceRadius; }
+	void SetReward(float InExpReward) { ExpReward = InExpReward; }
 
 	UFUNCTION(BlueprintCallable)
 	void BecomeDead();

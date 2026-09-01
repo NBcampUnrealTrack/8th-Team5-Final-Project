@@ -1,0 +1,15 @@
+﻿#pragma once
+#include "NativeGameplayTags.h"
+
+namespace CueTag
+{
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Slash)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Blunt)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Pierce)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Default)
+
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Impact_Slash)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Impact_Blunt)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Impact_Pierce)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Impact_Magic)
+}

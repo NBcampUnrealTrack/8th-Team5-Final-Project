@@ -13,6 +13,7 @@
 #include "AI/GAS/EnemyAttributeSetBase.h"
 #include "AI/EnemyCharacterBase.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
+#include "Combat/GameplayCue/HitCuePlay.h"
 
 // Sets default values for this component's properties
 UMeleeTraceComponent::UMeleeTraceComponent()
@@ -206,8 +207,14 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 		return;
 	}
 
+	// 데미지값 연산
+	float FinalDamage = AttackPower * DamageMultiplier;
+
 	// 수치만 넘긴다. GE 를 만드는 건 맞는 쪽의 몫.
-	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, AttackPower * DamageMultiplier, Hit);
+	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, FinalDamage, Hit);
+
+	// 타격시 연출
+	HitCuePlay::PlayImpact(Owner, Target, Hit, FinalDamage);
 
 	UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (%.0f)"), *GetNameSafe(Owner), *GetNameSafe(Target), AttackPower);
 }
