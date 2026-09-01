@@ -50,11 +50,21 @@ public:
 
 	/**
 	 * 피격 연출 재생.
-	 * HP 감소를 감지하면 자동으로 호출되므로 보통 직접 부를 일은 없다.
-	 * 낙하 피해처럼 HP 델리게이트를 타지 않는 연출이 필요할 때만 BP 에서 호출한다.
+	 * AHBPlayerController::ClientPlayHitEffect 가 피격 시점에 호출한다.
+	 * HP 어트리뷰트로 트리거하지 않는 이유는 그쪽 선언부 주석 참고.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "UI|HitEffect")
 	void PlayHitEffect();
+
+	/**
+	 * HP 바 갱신.
+	 * PlayerState 의 OnHPChanged 델리게이트가 호출하지만, 그 경로는 PlayerState
+	 * 복제 주기(1Hz) 때문에 최대 1초 늦다. 피격처럼 즉각적인 반응이 필요한 경우
+	 * AHBPlayerController::ClientPlayHitEffect 가 서버 값으로 먼저 호출한다.
+	 * 뒤늦게 도착하는 복제본은 같은 값이라 덧칠해도 티가 나지 않는다.
+	 */
+	UFUNCTION()
+	void UpdateHPBar(float CurrentHP, float MaxHP);
 
 	/** 텍스트 위젯 없이 BP 에서 직접 표시하고 싶을 때 사용 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Level Changed"))
@@ -75,9 +85,6 @@ protected:
 
 	// HP 감소를 프레임마다 보간해서 부드럽게 줄이기 위해 Tick 사용
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
-
-	UFUNCTION()
-	void UpdateHPBar(float CurrentHP, float MaxHP);
 
 	/** 컨트롤 회전(카메라 시야 방향)을 나침반 머티리얼의 Heading 파라미터로 보낸다 */
 	void UpdateCompass();
@@ -123,9 +130,6 @@ private:
 	float InterpSpeed = 5.0f;
 
 	bool bIsInitialized = false;
-
-	/** 직전 프레임의 HP. 이 값보다 낮아지면 피격으로 간주한다 */
-	float LastHP = 0.0f;
 
 	FTimerHandle BindRetryTimerHandle;
 
