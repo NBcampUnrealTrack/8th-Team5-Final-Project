@@ -10,6 +10,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/TextBlock.h"
+#include "UI/HUD/HB_HitEffectWidget.h"
 
 UHB_HUDLayer::UHB_HUDLayer()
 {
@@ -282,5 +283,21 @@ void UHB_HUDLayer::UpdateHPBar(float CurrentHP, float MaxHP)
 			HPBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), CurrentPercent);
 		}
 		bIsInitialized = true;
+	}
+	// 퍼센트가 아니라 실제 HP 로 비교한다. MaxHP 가 버프로 늘어나면
+	// 퍼센트는 떨어지지만 피격은 아니기 때문
+	else if (CurrentHP < LastHP)
+	{
+		PlayHitEffect();
+	}
+
+	LastHP = CurrentHP;
+}
+
+void UHB_HUDLayer::PlayHitEffect()
+{
+	if (WBP_PlayerBloodSplatter)
+	{
+		WBP_PlayerBloodSplatter->PlayHitEffect();
 	}
 }

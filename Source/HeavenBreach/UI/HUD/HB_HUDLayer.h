@@ -8,6 +8,7 @@
 class UImage;
 class UMaterialInstanceDynamic;
 class UEquipmentComponent;
+class UHB_HitEffectWidget;
 class UTextBlock;
 
 /**
@@ -46,6 +47,14 @@ public:
 	/** 경험치 바 갱신. Percent 는 0~1 */
 	UFUNCTION()
 	void UpdateExperience(int32 CurrentExperience, int32 ExperienceToNextLevel, float ExperiencePercent);
+
+	/**
+	 * 피격 연출 재생.
+	 * HP 감소를 감지하면 자동으로 호출되므로 보통 직접 부를 일은 없다.
+	 * 낙하 피해처럼 HP 델리게이트를 타지 않는 연출이 필요할 때만 BP 에서 호출한다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "UI|HitEffect")
+	void PlayHitEffect();
 
 	/** 텍스트 위젯 없이 BP 에서 직접 표시하고 싶을 때 사용 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Level Changed"))
@@ -95,6 +104,13 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> Txt_Level;
 
+	/**
+	 * 피격 혈흔 오버레이. WBP_MainHUD 캔버스에 풀스크린으로 배치하면 바인딩된다.
+	 * 배치하지 않아도 HUD 는 정상 동작하고 연출만 생략된다
+	 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UHB_HitEffectWidget> WBP_PlayerBloodSplatter;
+
 private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> HPBarDynamicMaterial;
@@ -107,6 +123,9 @@ private:
 	float InterpSpeed = 5.0f;
 
 	bool bIsInitialized = false;
+
+	/** 직전 프레임의 HP. 이 값보다 낮아지면 피격으로 간주한다 */
+	float LastHP = 0.0f;
 
 	FTimerHandle BindRetryTimerHandle;
 
