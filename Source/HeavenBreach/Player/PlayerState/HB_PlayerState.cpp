@@ -6,6 +6,8 @@
 #include "AbilitySystemComponent.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Net/UnrealNetwork.h"
+#include "InventoryComponent.h"
+#include "EquipmentComponent.h"
 
 AHB_PlayerState::AHB_PlayerState()
 {
@@ -25,6 +27,11 @@ AHB_PlayerState::AHB_PlayerState()
 
 #pragma region Stash
 	Stash = CreateDefaultSubobject<UStashComponent>(TEXT("Stash"));
+#pragma endregion
+
+#pragma region Inventory
+	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
+	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
 #pragma endregion
 }
 
