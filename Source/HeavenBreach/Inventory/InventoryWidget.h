@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Styling/SlateBrush.h"
 #include "UI/HB_ActivatableWidget.h"
 #include "InventoryWidget.generated.h"
 
@@ -91,6 +92,7 @@ protected:
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 	virtual bool NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 	virtual void NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+	virtual void NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 	UFUNCTION()
@@ -171,7 +173,8 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UItemInfoPopupWidget> ActiveInfoPopup;
-
+	FSlateBrush DragVisualBrush;
+	TSharedPtr<class SWidget> DragVisualRoot;
 	FVector2D PressedScreenPosition = FVector2D::ZeroVector;
 
 	UPROPERTY()
