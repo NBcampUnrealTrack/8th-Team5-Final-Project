@@ -70,6 +70,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Projectile")
 	float MaxLifeSpan = 20.f;
 
+	// 발사체의 성질(이펙트Cue 출력용)
+	UPROPERTY(EditDefaultsOnly, Category = "Projectile")
+	FGameplayTag ImpactTypeTag;
+
 	// 명중 여부
 	UPROPERTY(ReplicatedUsing = OnRep_Hit)
 	bool bHit = false;
