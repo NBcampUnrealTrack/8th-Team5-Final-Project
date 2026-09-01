@@ -8,6 +8,8 @@
 #include "Engine/World.h"
 #include "EquipmentComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "Components/TextBlock.h"
 
 UHB_HUDLayer::UHB_HUDLayer()
 {
@@ -37,6 +39,16 @@ void UHB_HUDLayer::NativeConstruct()
 		DefaultSubWeaponBrush = IMG_EquipSubWeapon->GetBrush();
 	}
 
+	// 머티리얼이 지정돼 있지 않으면 nullptr 이 돌아온다. 그 경우 갱신만 건너뛴다
+	if (IMG_Experience)
+	{
+		ExpBarDynamicMaterial = IMG_Experience->GetDynamicMaterial();
+	}
+	if (IMG_Compass)
+	{
+		CompassDynamicMaterial = IMG_Compass->GetDynamicMaterial();
+	}
+
 	BindPlayerState();
 }
 
@@ -64,6 +76,68 @@ void UHB_HUDLayer::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 			HPBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), CurrentPercent);
 		}
 	}
+
+	// 경험치도 같은 방식으로 부드럽게 채운다
+	if (!FMath::IsNearlyEqual(ExpCurrentPercent, ExpTargetPercent, 0.0001f))
+	{
+		ExpCurrentPercent = FMath::FInterpTo(ExpCurrentPercent, ExpTargetPercent, InDeltaTime, InterpSpeed);
+
+		if (ExpBarDynamicMaterial)
+		{
+			ExpBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), ExpCurrentPercent);
+		}
+	}
+
+	UpdateCompass();
+}
+
+void UHB_HUDLayer::UpdateCompass()
+{
+	if (CompassDynamicMaterial == nullptr)
+	{
+		return;
+	}
+
+	const APlayerController* PC = GetOwningPlayer();
+	if (PC == nullptr)
+	{
+		return;
+	}
+
+	// 카메라가 보는 방향 기준. 0~360 으로 정규화한 뒤 0~1 로 바꿔 UV 오프셋에 쓴다.
+	// 텍스처 X 타일링이 Wrap 이면 360도 경계가 자동으로 이어진다
+	const float Yaw = FRotator::ClampAxis(PC->GetControlRotation().Yaw);
+	const float Heading = (bInvertCompassDirection ? -Yaw : Yaw) / 360.0f;
+
+	CompassDynamicMaterial->SetScalarParameterValue(CompassHeadingParam, Heading);
+}
+
+void UHB_HUDLayer::UpdateLevel(int32 NewLevel)
+{
+	if (Txt_Level)
+	{
+		Txt_Level->SetText(FText::AsNumber(NewLevel));
+	}
+
+	BP_OnLevelChanged(NewLevel);
+}
+
+void UHB_HUDLayer::UpdateExperience(int32 CurrentExperience, int32 ExperienceToNextLevel, float ExperiencePercent)
+{
+	ExpTargetPercent = FMath::Clamp(ExperiencePercent, 0.0f, 1.0f);
+
+	// 최초 1회는 보간 없이 즉시 반영 (접속 직후 0 → 현재값 애니메이션 방지)
+	if (!bIsExpInitialized)
+	{
+		ExpCurrentPercent = ExpTargetPercent;
+		if (ExpBarDynamicMaterial)
+		{
+			ExpBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), ExpCurrentPercent);
+		}
+		bIsExpInitialized = true;
+	}
+
+	BP_OnExperienceChanged(CurrentExperience, ExperienceToNextLevel, ExpTargetPercent);
 }
 
 void UHB_HUDLayer::BindPlayerState()
@@ -103,6 +177,16 @@ bool UHB_HUDLayer::TryBindPlayerState()
 	AHB_PlayerState* PS = Cast<AHB_PlayerState>(GetOwningPlayerState());
 	if (PS)
 	{
+		// 레벨/경험치는 AttributeSet 이 아니라 PlayerState 가 직접 복제한다
+		PS->OnPlayerLevelChanged.RemoveAll(this);
+		PS->OnPlayerLevelChanged.AddDynamic(this, &UHB_HUDLayer::UpdateLevel);
+
+		PS->OnPlayerExperienceChanged.RemoveAll(this);
+		PS->OnPlayerExperienceChanged.AddDynamic(this, &UHB_HUDLayer::UpdateExperience);
+
+		UpdateLevel(PS->GetPlayerLevel());
+		UpdateExperience(PS->GetCurrentExperience(), PS->GetExperienceToNextLevel(), PS->GetExperiencePercent());
+
 		if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
 		{
 			PS->OnHPChanged.RemoveAll(this);
