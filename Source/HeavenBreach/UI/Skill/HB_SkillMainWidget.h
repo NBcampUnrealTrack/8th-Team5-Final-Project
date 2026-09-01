@@ -47,6 +47,9 @@ protected:
     UPROPERTY(EditAnywhere, Category = "UI Setup")
     UDataTable* SkillCatalog;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI | Skill Catalog")
+    FMargin CardPadding = FMargin(0.0f, 0.0f, 0.0f, 12.0f);
+
 public:
     UFUNCTION(BlueprintCallable, Category = "Lobby")
     void RequestApplyLoadout();
