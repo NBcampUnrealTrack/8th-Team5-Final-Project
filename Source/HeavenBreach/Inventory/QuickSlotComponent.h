@@ -34,6 +34,10 @@ public:
 	UFUNCTION(Server, Reliable)
 	void Server_UseSlot(int32 InSlotIndex);
 
+	const TArray<FGuid>& GetSlots() const { return Slots; }
+
+	void ApplyLoadedSlots(const TArray<FGuid>& InSlots);
+
 protected:
 	virtual void BeginPlay() override;
 

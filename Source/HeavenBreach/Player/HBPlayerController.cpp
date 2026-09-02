@@ -17,6 +17,7 @@
 #include "UI/HB_UILayout.h"
 #include "UI/HUD/HB_HUDLayer.h"
 #include "UI/HB_ContainerScreen.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -566,9 +567,9 @@ void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCame
 
 void AHBPlayerController::UseQuickSlot1()
 {
-	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	if (AHB_PlayerState* HBPlayerState = GetPlayerState<AHB_PlayerState>())
 	{
-		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
+		if (UQuickSlotComponent* QuickSlotComp = HBPlayerState->GetQuickSlot())
 		{
 			QuickSlotComp->Server_UseSlot(0);
 		}
@@ -577,9 +578,9 @@ void AHBPlayerController::UseQuickSlot1()
 
 void AHBPlayerController::UseQuickSlot2()
 {
-	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	if (AHB_PlayerState* HBPlayerState = GetPlayerState<AHB_PlayerState>())
 	{
-		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
+		if (UQuickSlotComponent* QuickSlotComp = HBPlayerState->GetQuickSlot())
 		{
 			QuickSlotComp->Server_UseSlot(1);
 		}
@@ -588,10 +589,9 @@ void AHBPlayerController::UseQuickSlot2()
 
 void AHBPlayerController::UseQuickSlot3()
 {
-	APawn* CurrentPawn = GetPawn();
-	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(CurrentPawn))
+	if (AHB_PlayerState* HBPlayerState = GetPlayerState<AHB_PlayerState>())
 	{
-		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
+		if (UQuickSlotComponent* QuickSlotComp = HBPlayerState->GetQuickSlot())
 		{
 			QuickSlotComp->Server_UseSlot(2);
 		}
@@ -600,9 +600,9 @@ void AHBPlayerController::UseQuickSlot3()
 
 void AHBPlayerController::UseQuickSlot4()
 {
-	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	if (AHB_PlayerState* HBPlayerState = GetPlayerState<AHB_PlayerState>())
 	{
-		if (UQuickSlotComponent* QuickSlotComp = PlayerCharacter->FindComponentByClass<UQuickSlotComponent>())
+		if (UQuickSlotComponent* QuickSlotComp = HBPlayerState->GetQuickSlot())
 		{
 			QuickSlotComp->Server_UseSlot(3);
 		}

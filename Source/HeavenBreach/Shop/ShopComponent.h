@@ -25,6 +25,8 @@ public:
 
 	void SetGoldItemRow(const FDataTableRowHandle& InRow) { GoldItemRow = InRow; }
 
+	const FDataTableRowHandle& GetGoldItemRow() const { return GoldItemRow; }
+
 	UPROPERTY(BlueprintAssignable, Category = "Shop")
 	FOnBasketChanged OnBasketChanged;
 
