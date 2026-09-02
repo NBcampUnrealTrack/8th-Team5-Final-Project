@@ -75,6 +75,12 @@ void AHB_PlayerState::BeginPlay()
 
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute())
 			.AddUObject(this, &AHB_PlayerState::OnMaxHealthChanged);
+
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute())
+			.AddUObject(this, &AHB_PlayerState::OnManaChanged);
+
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute())
+			.AddUObject(this, &AHB_PlayerState::OnMaxManaChanged);
 	}
 
 	if (HasAuthority() && Stash)
@@ -103,6 +109,22 @@ void AHB_PlayerState::OnMaxHealthChanged(const FOnAttributeChangeData& Data)
 	if (OnHPChanged.IsBound() && AttributeSet)
 	{
 		OnHPChanged.Broadcast(AttributeSet->GetPlayer_HP(), Data.NewValue);
+	}
+}
+
+void AHB_PlayerState::OnManaChanged(const FOnAttributeChangeData& Data)
+{
+	if (OnMPChanged.IsBound() && AttributeSet)
+	{
+		OnMPChanged.Broadcast(Data.NewValue, AttributeSet->GetPlayer_MaxMana());
+	}
+}
+
+void AHB_PlayerState::OnMaxManaChanged(const FOnAttributeChangeData& Data)
+{
+	if (OnMPChanged.IsBound() && AttributeSet)
+	{
+		OnMPChanged.Broadcast(AttributeSet->GetPlayer_Mana(), Data.NewValue);
 	}
 }
 
