@@ -11,6 +11,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Components/TextBlock.h"
 #include "UI/HUD/HB_HitEffectWidget.h"
+#include "Engine/TextureRenderTarget2D.h"
 
 UHB_HUDLayer::UHB_HUDLayer()
 {
@@ -31,6 +32,11 @@ void UHB_HUDLayer::NativeConstruct()
 		HPBarDynamicMaterial = IMG_HP_Bar_Fill->GetDynamicMaterial();
 	}
 
+	if (IMG_MP_Bar_Fill)
+	{
+		MPBarDynamicMaterial = IMG_MP_Bar_Fill->GetDynamicMaterial();
+	}
+
 	if (IMG_EquipWeapon)
 	{
 		DefaultWeaponBrush = IMG_EquipWeapon->GetBrush();
@@ -48,6 +54,11 @@ void UHB_HUDLayer::NativeConstruct()
 	if (IMG_Compass)
 	{
 		CompassDynamicMaterial = IMG_Compass->GetDynamicMaterial();
+	}
+
+	if (IMG_Minimap)
+	{
+		MinimapDynamicMaterial = IMG_Minimap->GetDynamicMaterial();
 	}
 
 	BindPlayerState();
@@ -75,6 +86,16 @@ void UHB_HUDLayer::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		if (HPBarDynamicMaterial)
 		{
 			HPBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), CurrentPercent);
+		}
+	}
+
+	if (!FMath::IsNearlyEqual(MPCurrentPercent, MPTargetPercent, 0.0001f))
+	{
+		MPCurrentPercent = FMath::FInterpTo(MPCurrentPercent, MPTargetPercent, InDeltaTime, InterpSpeed);
+
+		if (MPBarDynamicMaterial)
+		{
+			MPBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), MPCurrentPercent);
 		}
 	}
 
@@ -283,6 +304,34 @@ void UHB_HUDLayer::UpdateHPBar(float CurrentHP, float MaxHP)
 			HPBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), CurrentPercent);
 		}
 		bIsInitialized = true;
+	}
+}
+
+void UHB_HUDLayer::UpdateMPBar(float CurrentMP, float MaxMP)
+{
+	if (MaxMP <= 0.0f)
+	{
+		return;
+	}
+
+	TargetPercent = FMath::Clamp(CurrentMP / MaxMP, 0.0f, 1.0f);
+
+	if (!bIsMPInitialized)
+	{
+		MPCurrentPercent = MPTargetPercent;
+		if (MPBarDynamicMaterial)
+		{
+			MPBarDynamicMaterial->SetScalarParameterValue(FName("Percent"), MPCurrentPercent);
+		}
+		bIsMPInitialized = true;
+	}
+}
+
+void UHB_HUDLayer::SetMinimapTexture(UTextureRenderTarget2D* InMinimapRenderTarget)
+{
+	if (MinimapDynamicMaterial && InMinimapRenderTarget)
+	{
+		MinimapDynamicMaterial->SetTextureParameterValue(FName("MinimapTexture"), InMinimapRenderTarget);
 	}
 }
 

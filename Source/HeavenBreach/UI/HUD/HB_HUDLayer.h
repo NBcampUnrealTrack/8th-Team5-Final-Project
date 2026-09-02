@@ -10,6 +10,7 @@ class UMaterialInstanceDynamic;
 class UEquipmentComponent;
 class UHB_HitEffectWidget;
 class UTextBlock;
+class UTextureRenderTarget2D;
 
 /**
  * 인게임 HUD 루트. UI.Layer.Game 스택에 항상 활성 상태로 올라간다.
@@ -66,6 +67,12 @@ public:
 	UFUNCTION()
 	void UpdateHPBar(float CurrentHP, float MaxHP);
 
+	UFUNCTION()
+	void UpdateMPBar(float CurrentMP, float MaxMP);
+
+	UFUNCTION(BlueprintCallable, Category = "UI|Minimap")
+	void SetMinimapTexture(UTextureRenderTarget2D* InMinimapRenderTarget);
+
 	/** 텍스트 위젯 없이 BP 에서 직접 표시하고 싶을 때 사용 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Level Changed"))
 	void BP_OnLevelChanged(int32 NewLevel);
@@ -94,6 +101,9 @@ protected:
 	TObjectPtr<UImage> IMG_HP_Bar_Fill;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_MP_Bar_Fill;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_EquipWeapon;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -102,6 +112,10 @@ protected:
 	/** 경험치 바. Percent 스칼라 파라미터를 가진 머티리얼이 지정돼 있어야 채워진다 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_Experience;
+
+	/* 미니맵. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_Minimap;
 
 	/** 방위 스트립. Heading 스칼라 파라미터로 UV 를 미는 머티리얼이 필요하다 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -125,6 +139,15 @@ private:
 	float TargetPercent = 1.0f;
 
 	float CurrentPercent = 1.0f;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> MPBarDynamicMaterial;
+
+	float MPTargetPercent = 1.0f;
+
+	float MPCurrentPercent = 1.0f;
+
+	bool bIsMPInitialized = false;
 
 	UPROPERTY(EditAnywhere, Category = "UI|Animation")
 	float InterpSpeed = 5.0f;
@@ -152,6 +175,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> CompassDynamicMaterial;
 
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> MinimapDynamicMaterial;
+
 	float ExpTargetPercent = 0.0f;
 
 	float ExpCurrentPercent = 0.0f;
@@ -165,4 +191,6 @@ private:
 	/** 스트립이 반대로 흐르면 체크. 머티리얼 수정 없이 방향만 뒤집는다 */
 	UPROPERTY(EditAnywhere, Category = "UI|Compass")
 	bool bInvertCompassDirection = false;
+
+
 };
