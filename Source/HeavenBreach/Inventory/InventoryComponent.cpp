@@ -57,12 +57,12 @@ bool UInventoryComponent::IsValidCoord(FIntPoint InCoord) const
 
 int32 UInventoryComponent::GetEntryIndexAt(FIntPoint InCoord) const
 {
-	if (!IsValidCoord(InCoord))
+	const int32 Index = CoordToIndex(InCoord);
+	if (!CellCache.IsValidIndex(Index))
 	{
 		return INDEX_NONE;
 	}
-
-	return CellCache[CoordToIndex(InCoord)];
+	return CellCache[Index];
 }
 
 int32 UInventoryComponent::FindEntryIndexById(FGuid InInstanceId) const
@@ -179,6 +179,11 @@ bool UInventoryComponent::CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int
 	}
 
 	if (InPosition.X < 0 || InPosition.Y < 0)
+	{
+		return false;
+	}
+
+	if (CellCache.Num() != Width * Height)
 	{
 		return false;
 	}
