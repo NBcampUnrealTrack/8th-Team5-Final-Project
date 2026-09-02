@@ -11,6 +11,7 @@
 #include "Player/HBPlayerCharacter.h"
 #include "Player/HBPlayerController.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
+#include "Combat/GameplayCue/HitCuePlay.h"
 
 UGA_PlayerAttack::UGA_PlayerAttack()
 {
@@ -103,6 +104,7 @@ void UGA_PlayerAttack::PerformHitTrace(const FGameplayAbilityActorInfo* ActorInf
 	ObjectParams.AddObjectTypesToQuery(ECC_WorldDynamic);
 	
 	FCollisionQueryParams QueryParams;
+	QueryParams.bReturnPhysicalMaterial = true;
 	QueryParams.AddIgnoredActor(AttackerCharacter);
 	
 	TArray<FHitResult> Hits;
@@ -138,6 +140,8 @@ void UGA_PlayerAttack::ResolveWallHit(const FHitResult& Hit)
 			PC->ClientPlayCameraShake(ObjectHitCameraShake);
 		}
 	}
+
+	HitCuePlay::PlayImpact(GetAvatarActorFromActorInfo(), Hit.GetActor(), Hit, 0.f);
 }
 
 void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit, AActor* AttackerActor)
@@ -152,6 +156,8 @@ void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit,
 	}
 	
 	IDamageableInterface::Execute_ApplyMeleeHit(Target,AttackerActor,Damage,Hit);
+
+	HitCuePlay::PlayImpact(AttackerActor, Target, Hit, Damage);
 
 	if (AttackerPlayer)
 	{

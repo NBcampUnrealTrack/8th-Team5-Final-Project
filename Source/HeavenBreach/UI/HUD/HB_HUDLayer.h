@@ -8,6 +8,8 @@
 class UImage;
 class UMaterialInstanceDynamic;
 class UEquipmentComponent;
+class UHB_HitEffectWidget;
+class UTextBlock;
 
 /**
  * 인게임 HUD 루트. UI.Layer.Game 스택에 항상 활성 상태로 올라간다.
@@ -35,6 +37,42 @@ public:
 	UFUNCTION()
 	void UpdateEquipmentSlots();
 
+	/**
+	 * 레벨 표시 갱신.
+	 * TXT_Level 이 있으면 숫자를 넣고, 블루프린트에도 이벤트를 보낸다.
+	 */
+	UFUNCTION()
+	void UpdateLevel(int32 NewLevel);
+
+	/** 경험치 바 갱신. Percent 는 0~1 */
+	UFUNCTION()
+	void UpdateExperience(int32 CurrentExperience, int32 ExperienceToNextLevel, float ExperiencePercent);
+
+	/**
+	 * 피격 연출 재생.
+	 * AHBPlayerController::ClientPlayHitEffect 가 피격 시점에 호출한다.
+	 * HP 어트리뷰트로 트리거하지 않는 이유는 그쪽 선언부 주석 참고.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "UI|HitEffect")
+	void PlayHitEffect();
+
+	/**
+	 * HP 바 갱신.
+	 * PlayerState 의 OnHPChanged 델리게이트가 호출하지만, 그 경로는 PlayerState
+	 * 복제 주기(1Hz) 때문에 최대 1초 늦다. 피격처럼 즉각적인 반응이 필요한 경우
+	 * AHBPlayerController::ClientPlayHitEffect 가 서버 값으로 먼저 호출한다.
+	 * 뒤늦게 도착하는 복제본은 같은 값이라 덧칠해도 티가 나지 않는다.
+	 */
+	UFUNCTION()
+	void UpdateHPBar(float CurrentHP, float MaxHP);
+
+	/** 텍스트 위젯 없이 BP 에서 직접 표시하고 싶을 때 사용 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Level Changed"))
+	void BP_OnLevelChanged(int32 NewLevel);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Experience Changed"))
+	void BP_OnExperienceChanged(int32 CurrentExperience, int32 ExperienceToNextLevel, float ExperiencePercent);
+
 protected:
 	/** 실제 바인딩 시도. PlayerState와 AttributeSet이 준비됐으면 true */
 	bool TryBindPlayerState();
@@ -48,18 +86,37 @@ protected:
 	// HP 감소를 프레임마다 보간해서 부드럽게 줄이기 위해 Tick 사용
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
-	UFUNCTION()
-	void UpdateHPBar(float CurrentHP, float MaxHP);
+	/** 컨트롤 회전(카메라 시야 방향)을 나침반 머티리얼의 Heading 파라미터로 보낸다 */
+	void UpdateCompass();
 
 protected:
-	UPROPERTY(meta = (BindWidgetOptional))
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_HP_Bar_Fill;
 
-	UPROPERTY(meta = (BindWidgetOptional))
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_EquipWeapon;
 
-	UPROPERTY(meta = (BindWidgetOptional))
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_EquipSubWeapon;
+
+	/** 경험치 바. Percent 스칼라 파라미터를 가진 머티리얼이 지정돼 있어야 채워진다 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_Experience;
+
+	/** 방위 스트립. Heading 스칼라 파라미터로 UV 를 미는 머티리얼이 필요하다 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_Compass;
+
+	/** 레벨 숫자. 없으면 BP_OnLevelChanged 로만 알린다 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Level;
+
+	/**
+	 * 피격 혈흔 오버레이. WBP_MainHUD 캔버스에 풀스크린으로 배치하면 바인딩된다.
+	 * 배치하지 않아도 HUD 는 정상 동작하고 연출만 생략된다
+	 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UHB_HitEffectWidget> WBP_PlayerBloodSplatter;
 
 private:
 	UPROPERTY()
@@ -88,4 +145,24 @@ private:
 
 	FSlateBrush DefaultWeaponBrush;
 	FSlateBrush DefaultSubWeaponBrush;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> ExpBarDynamicMaterial;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> CompassDynamicMaterial;
+
+	float ExpTargetPercent = 0.0f;
+
+	float ExpCurrentPercent = 0.0f;
+
+	bool bIsExpInitialized = false;
+
+	/** 나침반 머티리얼의 스칼라 파라미터 이름 */
+	UPROPERTY(EditAnywhere, Category = "UI|Compass")
+	FName CompassHeadingParam = TEXT("Heading");
+
+	/** 스트립이 반대로 흐르면 체크. 머티리얼 수정 없이 방향만 뒤집는다 */
+	UPROPERTY(EditAnywhere, Category = "UI|Compass")
+	bool bInvertCompassDirection = false;
 };

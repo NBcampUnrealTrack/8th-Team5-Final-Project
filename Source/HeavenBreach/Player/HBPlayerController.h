@@ -6,6 +6,7 @@
 
 class UCommonActivatableWidget;
 class UHB_ContainerScreen;
+class UHB_HUDLayer;
 class UHB_UILayout;
 class UInventoryComponent;
 class UInputAction;
@@ -109,6 +110,10 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UHB_UILayout> UILayout;
 
+	// Game 레이어에 올린 HUD. 피격 연출처럼 외부에서 HUD 를 직접 건드려야 할 때 쓴다
+	UPROPERTY(Transient)
+	TObjectPtr<UHB_HUDLayer> HUDLayer;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UHB_ContainerScreen> ContainerScreen;
 
@@ -192,5 +197,19 @@ private:
 public:
 	UFUNCTION(Client,Reliable)
 	void ClientPlayCameraShake(TSubclassOf<UCameraShakeBase> ShakeClass);
-#pragma endregion 
+
+	/**
+	 * 피격 혈흔 연출을 재생하고 HP 바를 서버 값으로 즉시 맞춘다.
+	 *
+	 * 복제를 기다리지 않는 이유: AttributeSet 이 PlayerState 에 붙어 있고
+	 * APlayerState 의 NetUpdateFrequency 는 1 이라, HP 는 최대 1초 늦게 도착한다.
+	 * 사운드(GameplayCue)와 카메라쉐이크는 즉시 나가므로 연출과 HP 바만 뒤늦게 반응했다.
+	 * 그래서 쉐이크와 동일하게 피격 시점의 Client RPC 로 보낸다.
+	 *
+	 * 뒤늦게 도착하는 OnHPChanged 는 같은 값을 다시 넣으므로 화면상 변화가 없다.
+	 * 회복 / 리스폰 등 피격 이외의 HP 변화는 여전히 복제 경로를 탄다.
+	 */
+	UFUNCTION(Client,Reliable)
+	void ClientPlayHitEffect(float NewHP, float NewMaxHP);
+#pragma endregion
 };

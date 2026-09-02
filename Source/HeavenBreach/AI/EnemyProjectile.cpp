@@ -13,6 +13,7 @@
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystemComponent.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
+#include "Combat/GameplayCue/HitCuePlay.h"
 
 // Sets default values
 AEnemyProjectile::AEnemyProjectile()
@@ -143,6 +144,19 @@ void AEnemyProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 	}
 
 	UE_LOG(LogEnemyAI, Log, TEXT("[Projectile] %s → %s (%.0f)"), *GetNameSafe(GetInstigator()), *GetNameSafe(OtherActor), Damage);
+
+	// 타격 Cue 호출. 대상에 따라 소리가 다름
+	{
+		// 발사체는 ASC가 없어 태그를 보유하지않는다. 그러니 넘겨줄 태그들을 넣어준다.
+		FGameplayTagContainer ImpactTags;
+		if (ImpactTypeTag.IsValid())
+		{
+			ImpactTags.AddTag(ImpactTypeTag);
+		}
+
+		// 발사체의 주인, 자기자신, 히트정보, 데미지(사실지금은 없어도됨), 태그들을 넘겨 Cue호출
+		HitCuePlay::PlayImpact(GetInstigator(), OtherActor, Hit, Damage, ImpactTags);
+	}
 
 	// 바로 파괴되는 액터면 바로 삭제
 	if (HitBehavior == false)

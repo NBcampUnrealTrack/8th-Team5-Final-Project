@@ -17,6 +17,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
+#include "Core/Tag/Cue/HB_CueTag.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 
@@ -143,6 +144,7 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 			}
 		}
 	}
+	
 }
 
 void AEnemyCharacterBase::SetMoveSpeed(bool bRun)

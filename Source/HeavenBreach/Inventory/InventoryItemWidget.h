@@ -9,6 +9,9 @@ class UInventoryComponent;
 class UDragDropOperation;
 class UImage;
 class UTextBlock;
+class UBorder;
+class UWidgetAnimation;
+class UMaterialInstanceDynamic;
 
 /**
  * Per-item input layer used to start inventory drags from the item's geometry
@@ -49,6 +52,18 @@ private:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> Text_StackCount;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UImage> Image_ItemGlow;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UBorder> Border_ItemFrame;
+
+	UPROPERTY(Transient, meta = (BindWidgetAnim))
+	TObjectPtr<UWidgetAnimation> Anim_GlowPulse;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> GlowMID;
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> SourceInventory;

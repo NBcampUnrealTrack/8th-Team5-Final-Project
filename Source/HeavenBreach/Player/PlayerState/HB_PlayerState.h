@@ -48,6 +48,9 @@ struct HEAVENBREACH_API FHBUpgradeCandidate
 	int32 NextLevel = 0;
 };
 
+class UInventoryComponent;
+class UEquipmentComponent;
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerLevelChanged, int32, NewLevel);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPlayerExperienceChanged, int32, CurrentExperience, int32, ExperienceToNextLevel, float, ExperiencePercent);
@@ -238,8 +241,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stash")
 	UStashComponent* GetStash() const { return Stash; }
 
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	UInventoryComponent* GetInventory() const { return Inventory; }
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	UEquipmentComponent* GetEquipment() const { return Equipment; }
+
 private:
 	UPROPERTY()
 	TObjectPtr<UStashComponent> Stash;
+
+	UPROPERTY()
+	TObjectPtr<UInventoryComponent> Inventory;
+
+	UPROPERTY()
+	TObjectPtr<UEquipmentComponent> Equipment;
 #pragma endregion
 };

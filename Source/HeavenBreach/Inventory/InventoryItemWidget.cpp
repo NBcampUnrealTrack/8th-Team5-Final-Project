@@ -1,5 +1,4 @@
 #include "InventoryItemWidget.h"
-
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Image.h"
@@ -7,11 +6,12 @@
 #include "Components/TextBlock.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 
 void UInventoryItemWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
-
 	// A transparent, hit-testable root lets this widget receive input while the
 	// existing item border and icon continue to render underneath it.
 	if (WidgetTree != nullptr && WidgetTree->RootWidget == nullptr)
@@ -38,6 +38,71 @@ void UInventoryItemWidget::InitializeItem(
 	FItemViewData ViewData;
 	const bool bHasViewData = ResolveItemViewData(Item.ItemRow, ViewData);
 	UTexture2D* IconTexture = bHasViewData ? LoadItemIcon(ViewData.IconPath) : nullptr;
+	const EItemGrade Grade = bHasViewData ? ViewData.Grade : EItemGrade::Normal;
+	if (Image_ItemBackground != nullptr)
+	{
+		Image_ItemBackground->SetColorAndOpacity(FLinearColor::White);
+	}
+	if (Image_ItemGlow != nullptr)
+	{
+		if (GlowMID == nullptr)
+		{
+			if (UMaterialInterface* BaseMat = Cast<UMaterialInterface>(Image_ItemGlow->GetBrush().GetResourceObject()))
+			{
+				GlowMID = UMaterialInstanceDynamic::Create(BaseMat, this);
+				Image_ItemGlow->SetBrushFromMaterial(GlowMID);
+			}
+		}
+		if (GlowMID != nullptr)
+		{
+			FLinearColor GlowColor = FLinearColor::White;
+			float GlowIntensity = 0.0f;
+			switch (Grade)
+			{
+			case EItemGrade::Normal:
+				GlowIntensity = 0.0f;
+				break;
+			case EItemGrade::Rare:
+				GlowColor = FLinearColor(0.55f, 0.7f, 1.0f);
+				GlowIntensity = 0.6f;
+				break;
+			case EItemGrade::Epic:
+				GlowColor = FLinearColor(0.75f, 0.55f, 0.95f);
+				GlowIntensity = 0.85f;
+				break;
+			case EItemGrade::Legend:
+				GlowColor = FLinearColor(1.0f, 0.78f, 0.4f);
+				GlowIntensity = 1.0f;
+				break;
+			default:
+				break;
+			}
+			GlowMID->SetVectorParameterValue(TEXT("GlowColor"), GlowColor);
+			GlowMID->SetScalarParameterValue(TEXT("GlowIntensity"), GlowIntensity);
+			// 등급 높은 것만 반짝임 애니메이션 재생
+			if ((Grade == EItemGrade::Epic || Grade == EItemGrade::Legend) && Anim_GlowPulse != nullptr)
+			{
+				PlayAnimation(Anim_GlowPulse, 0.0f, 0, EUMGSequencePlayMode::PingPong);
+			}
+			else if (Anim_GlowPulse != nullptr)
+			{
+				StopAnimation(Anim_GlowPulse);
+			}
+		}
+	}
+	if (Image_ItemBackground != nullptr)
+	{
+		FLinearColor GradeColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		switch (Grade)
+		{
+		case EItemGrade::Normal: GradeColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f); break;
+		case EItemGrade::Rare:   GradeColor = FLinearColor(0.55f, 0.7f, 1.0f, 1.0f); break;
+		case EItemGrade::Epic:   GradeColor = FLinearColor(0.75f, 0.55f, 0.95f, 1.0f); break;
+		case EItemGrade::Legend: GradeColor = FLinearColor(1.0f, 0.78f, 0.4f, 1.0f); break;
+		default: break;
+		}
+		Image_ItemBackground->SetColorAndOpacity(GradeColor);
+	}
 
 	if (Image_ItemIcon != nullptr)
 	{
@@ -91,7 +156,6 @@ FReply UInventoryItemWidget::NativeOnMouseButtonDown(
 	{
 		return FReply::Unhandled();
 	}
-
 	GrabPixelOffset = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
 	bSplitRequested = InMouseEvent.IsControlDown() && Item.StackCount > 1;
 	return FReply::Handled().DetectDrag(TakeWidget(), EKeys::LeftMouseButton);
@@ -103,12 +167,10 @@ void UInventoryItemWidget::NativeOnDragDetected(
 	UDragDropOperation*& OutOperation)
 {
 	Super::NativeOnDragDetected(InGeometry, InMouseEvent, OutOperation);
-
 	if (SourceInventory == nullptr || CellSize <= 0.0f)
 	{
 		return;
 	}
-
 	// Use the pointer position at the moment the drag is detected. This keeps
 	// the decorator and drop calculation aligned after Slate's drag threshold.
 	GrabPixelOffset = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
@@ -122,7 +184,6 @@ void UInventoryItemWidget::NativeOnDragDetected(
 	{
 		return;
 	}
-
 	DragItemWidget->InitializeItem(SourceInventory, Item, ItemSize, CellSize);
 	DragItemWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
 	DragItemWidget->SetRenderOpacity(0.7f);
