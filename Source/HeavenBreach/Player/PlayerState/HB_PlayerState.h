@@ -11,6 +11,8 @@ class UHB_PlayerAttributeSet;
 class UStashComponent;
 class UInventoryComponent;
 class UEquipmentComponent;
+class UQuickSlotComponent;
+class UShopComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerLevelChanged, int32, NewLevel);
@@ -148,6 +150,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	UEquipmentComponent* GetEquipment() const { return Equipment; }
 
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	UQuickSlotComponent* GetQuickSlot() const { return QuickSlot; }
 private:
 	UPROPERTY()
 	TObjectPtr<UStashComponent> Stash;
@@ -157,5 +161,19 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UEquipmentComponent> Equipment;
+
+	UPROPERTY()
+	TObjectPtr<UQuickSlotComponent> QuickSlot;
+#pragma endregion
+
+#pragma region Shop
+public:
+	UFUNCTION(BlueprintPure, Category = "Shop")
+	UShopComponent* GetShop() const { return Shop; }
+
+private:
+	UPROPERTY()
+	TObjectPtr<UShopComponent> Shop;
+
 #pragma endregion
 };

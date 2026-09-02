@@ -8,6 +8,10 @@
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
 #include "EquipmentComponent.h"
+#include "Inventory/QuickSlotComponent.h"
+#include "Shop/ShopComponent.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Engine/DataTable.h"
 
 AHB_PlayerState::AHB_PlayerState()
 {
@@ -32,6 +36,26 @@ AHB_PlayerState::AHB_PlayerState()
 #pragma region Inventory
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
+	QuickSlot = CreateDefaultSubobject<UQuickSlotComponent>(TEXT("QuickSlot"));
+#pragma endregion
+
+#pragma region Shop
+	Shop = CreateDefaultSubobject<UShopComponent>(TEXT("Shop"));
+
+	static ConstructorHelpers::FObjectFinder<UDataTable> ShopTableFinder(TEXT("/Game/Shop/DT_ShopList.DT_ShopList"));
+	if (ShopTableFinder.Succeeded())
+	{
+		Shop->SetShopInventoryTable(ShopTableFinder.Object);
+	}
+
+	static ConstructorHelpers::FObjectFinder<UDataTable> ItemTableFinder(TEXT("/Game/Items/DataTables/DT_Item.DT_Item"));
+	if (ItemTableFinder.Succeeded())
+	{
+		FDataTableRowHandle GoldRow;
+		GoldRow.DataTable = ItemTableFinder.Object;
+		GoldRow.RowName = TEXT("ITM_002");
+		Shop->SetGoldItemRow(GoldRow);
+	}
 #pragma endregion
 }
 

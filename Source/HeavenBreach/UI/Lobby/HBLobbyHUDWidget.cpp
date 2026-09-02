@@ -22,16 +22,16 @@ void UHBLobbyHUDWidget::NativeConstruct()
 		Button_ChoiceJob->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleChoiceJobClicked);
 	}
 
-	if (Button_MakeItem)
-	{
-		MakeItemButtonStyle = Button_MakeItem->GetStyle();
-		Button_MakeItem->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleMakeItemClicked);
-	}
-
 	if (Button_Storage)
 	{
 		StorageButtonStyle = Button_Storage->GetStyle();
 		Button_Storage->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleStorageClicked);
+	}
+
+	if (Button_Shop)
+	{
+		ShopButtonStyle = Button_Shop->GetStyle();
+		Button_Shop->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleShopClicked);
 	}
 
 	SelectMenu(EHBLobbyHUDMenu::Lobby);
@@ -49,14 +49,14 @@ void UHBLobbyHUDWidget::NativeDestruct()
 		Button_ChoiceJob->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleChoiceJobClicked);
 	}
 
-	if (Button_MakeItem)
-	{
-		Button_MakeItem->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleMakeItemClicked);
-	}
-
 	if (Button_Storage)
 	{
 		Button_Storage->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleStorageClicked);
+	}
+
+	if (Button_Shop)
+	{
+		Button_Shop->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleShopClicked);
 	}
 
 	Super::NativeDestruct();
@@ -72,14 +72,14 @@ void UHBLobbyHUDWidget::HandleChoiceJobClicked()
 	SelectMenu(EHBLobbyHUDMenu::ChoiceJob);
 }
 
-void UHBLobbyHUDWidget::HandleMakeItemClicked()
-{
-	SelectMenu(EHBLobbyHUDMenu::MakeItem);
-}
-
 void UHBLobbyHUDWidget::HandleStorageClicked()
 {
 	SelectMenu(EHBLobbyHUDMenu::Storage);
+}
+
+void UHBLobbyHUDWidget::HandleShopClicked()
+{
+	SelectMenu(EHBLobbyHUDMenu::Shop);
 }
 
 void UHBLobbyHUDWidget::SelectMenu(EHBLobbyHUDMenu NewMenu)
@@ -110,14 +110,14 @@ void UHBLobbyHUDWidget::UpdateButtonStyles()
 		Button_ChoiceJob->SetStyle(ChoiceJobButtonStyle);
 	}
 
-	if (Button_MakeItem)
-	{
-		Button_MakeItem->SetStyle(MakeItemButtonStyle);
-	}
-
 	if (Button_Storage)
 	{
 		Button_Storage->SetStyle(StorageButtonStyle);
+	}
+
+	if (Button_Shop)
+	{
+		Button_Shop->SetStyle(ShopButtonStyle);
 	}
 
 	switch (SelectedMenu)
@@ -128,11 +128,11 @@ void UHBLobbyHUDWidget::UpdateButtonStyles()
 	case EHBLobbyHUDMenu::ChoiceJob:
 		ApplySelectedStyle(Button_ChoiceJob, ChoiceJobButtonStyle);
 		break;
-	case EHBLobbyHUDMenu::MakeItem:
-		ApplySelectedStyle(Button_MakeItem, MakeItemButtonStyle);
-		break;
 	case EHBLobbyHUDMenu::Storage:
 		ApplySelectedStyle(Button_Storage, StorageButtonStyle);
+		break;
+	case EHBLobbyHUDMenu::Shop:
+		ApplySelectedStyle(Button_Shop, ShopButtonStyle);
 		break;
 	default:
 		break;
@@ -159,10 +159,10 @@ UWidget* UHBLobbyHUDWidget::GetContentWidget(EHBLobbyHUDMenu Menu) const
 		return Widget_Lobby;
 	case EHBLobbyHUDMenu::ChoiceJob:
 		return Widget_ChoiceJob;
-	case EHBLobbyHUDMenu::MakeItem:
-		return Widget_MakeItem;
 	case EHBLobbyHUDMenu::Storage:
 		return Widget_Storage;
+	case EHBLobbyHUDMenu::Shop:
+		return Widget_Shop;
 	default:
 		return nullptr;
 	}
