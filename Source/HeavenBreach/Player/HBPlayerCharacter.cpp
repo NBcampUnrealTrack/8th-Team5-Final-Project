@@ -84,9 +84,6 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
-	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
-	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
-	QuickSlot = CreateDefaultSubobject<UQuickSlotComponent>(TEXT("QuickSlot"));
 	FirstPersonCamera->SetupAttachment(GetMesh(), FirstPersonCameraSocketName);
 	FirstPersonCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
 	FirstPersonCamera->SetAbsolute(false, true, true);
@@ -129,18 +126,8 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 void AHBPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
-	if (Inventory)
-	{
-		Inventory->OnItemUsed.AddDynamic(this, &AHBPlayerCharacter::HandleItemUsed);
-	}
 	
-	if (Equipment)
-	{
-		Equipment->OnEquipmentChanged.AddDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
-	}
-	
-	RefreshEquippedVisuals();
+	BindToPlayerStateComponents();
 
 	#pragma region TemporaryEquipmentVisualTest
 	ApplyTemporaryEquipmentVisualTest();
@@ -304,6 +291,8 @@ void AHBPlayerCharacter::PossessedBy(AController* NewController)
 		OnAbilitySystemInitialized(ASC);
 		ApplyJobAppearance();
 	}
+
+	BindToPlayerStateComponents();
 }
 
 void AHBPlayerCharacter::OnRep_PlayerState()
@@ -324,7 +313,33 @@ void AHBPlayerCharacter::OnRep_PlayerState()
 			BP_OnPlayerStateReady();
 		}
 	}
+
+	BindToPlayerStateComponents();
 }
+
+void AHBPlayerCharacter::BindToPlayerStateComponents()
+{
+	if (bPlayerStateComponentsBound)
+	{
+		return;
+	}
+
+	UInventoryComponent* Inv = GetInventory();
+	UEquipmentComponent* Equip = GetEquipment();
+	if (!Inv || !Equip)
+	{
+		return;
+	}
+
+	Inv->OnItemUsed.AddUniqueDynamic(this, &AHBPlayerCharacter::HandleItemUsed);
+	Equip->OnEquipmentChanged.AddUniqueDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
+	bPlayerStateComponentsBound = true;
+
+	RefreshEquippedVisuals();
+	BP_OnPlayerStateReady();
+}
+
+
 
 bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* InstigatorActor) const
 {
@@ -397,10 +412,10 @@ float AHBPlayerCharacter::GetAttackPower() const
 		}
 	}
 
-	if (Equipment)
+	if (GetEquipment())
 	{
 		FItemInstance WeaponItem;
-		if (Equipment->GetItemInSlot(EEquipSlotType::PrimaryWeapon,WeaponItem))
+		if (GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
 		{
 			if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetAttackPower")))
 			{
@@ -582,10 +597,10 @@ void AHBPlayerCharacter::ResetCombatInstinct()
 
 float AHBPlayerCharacter::GetAttackRange() const
 {
-	if (Equipment)
+	if (GetEquipment())
 	{
 		FItemInstance WeaponItem;
-		if (Equipment->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
+		if (GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
 		{
 			if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetAttackRange")))
 			{
@@ -598,10 +613,10 @@ float AHBPlayerCharacter::GetAttackRange() const
 
 float AHBPlayerCharacter::GetBlockDamageReduction() const
 {
-	if (Equipment && Equipment->IsSlotOccupied(EEquipSlotType::SecondaryEquip))
+	if (GetEquipment() && GetEquipment()->IsSlotOccupied(EEquipSlotType::SecondaryEquip))
 	{
 		FItemInstance ShieldItem;
-		if (Equipment->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+		if (GetEquipment()->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
 		{
 			if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("GetBlockDamageReduction")))
 			{
@@ -615,10 +630,10 @@ float AHBPlayerCharacter::GetBlockDamageReduction() const
 
 float AHBPlayerCharacter::GetBlockAngle() const
 {
-	if (Equipment && Equipment->IsSlotOccupied(EEquipSlotType::SecondaryEquip))
+	if (GetEquipment() && GetEquipment()->IsSlotOccupied(EEquipSlotType::SecondaryEquip))
 	{
 		FItemInstance ShieldItem;
-		if (Equipment->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+		if (GetEquipment()->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
 		{
 			if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("GetBlockAngle")))
 			{
@@ -967,13 +982,13 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 
 void AHBPlayerCharacter::RefreshWeaponVisual()
 {
-	if (!Equipment || !WeaponMeshComp)
+	if (!GetEquipment() || !WeaponMeshComp)
 	{
 		return;
 	}
 	
 	FItemInstance WeaponItem;
-	if (Equipment->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
+	if (GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
 	{
 		if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("RefreshWeaponVisual")))
 		{
@@ -990,13 +1005,13 @@ void AHBPlayerCharacter::RefreshWeaponVisual()
 
 void AHBPlayerCharacter::RefreshShieldVisual()
 {
-	if (!Equipment || !ShieldMeshComp)
+	if (!GetEquipment() || !ShieldMeshComp)
 	{
 		return;
 	}
 	
 	FItemInstance ShieldItem;
-	if (Equipment->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+	if (GetEquipment()->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
 	{
 		if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("RefreshShieldVisual")))
 		{
@@ -1013,13 +1028,13 @@ void AHBPlayerCharacter::RefreshShieldVisual()
 
 void AHBPlayerCharacter::RefreshHelmetVisual()
 {
-	if (!Equipment || !HelmetMeshComp)
+	if (!GetEquipment() || !HelmetMeshComp)
 	{
 		return;
 	}
 	
 	FItemInstance HelmetItem;
-	if (Equipment->GetItemInSlot(EEquipSlotType::Helmet, HelmetItem))
+	if (GetEquipment()->GetItemInSlot(EEquipSlotType::Helmet, HelmetItem))
 	{
 		if (const FItemData* HelmetData = HelmetItem.ItemRow.GetRow<FItemData>(TEXT("RefreshHelmetVisual")))
 		{
@@ -1038,13 +1053,13 @@ void AHBPlayerCharacter::RefreshHelmetVisual()
 
 void AHBPlayerCharacter::RefreshChestVisual()
 {
-	if (!Equipment || !ChestMeshComp)
+	if (!GetEquipment() || !ChestMeshComp)
 	{
 		return;
 	}
 
 	FItemInstance ChestItem;
-	if (Equipment->GetItemInSlot(EEquipSlotType::Chest, ChestItem))
+	if (GetEquipment()->GetItemInSlot(EEquipSlotType::Chest, ChestItem))
 	{
 		if (const FItemData* ChestData = ChestItem.ItemRow.GetRow<FItemData>(TEXT("RefreshChestVisual")))
 		{
@@ -1061,12 +1076,12 @@ void AHBPlayerCharacter::RefreshChestVisual()
 
 void AHBPlayerCharacter::RefreshLegsVisual()
 {
-	if (!Equipment || !LegsMeshComp)
+	if (!GetEquipment() || !LegsMeshComp)
 	{
 		return;
 	}
 	FItemInstance LegsItem;
-	if (Equipment->GetItemInSlot(EEquipSlotType::Legs, LegsItem))
+	if (GetEquipment()->GetItemInSlot(EEquipSlotType::Legs, LegsItem))
 	{
 		if (const FItemData* LegsData = LegsItem.ItemRow.GetRow<FItemData>(TEXT("RefreshLegsVisual")))
 		{
@@ -1157,3 +1172,21 @@ void AHBPlayerCharacter::ApplyTemporaryEquipmentVisualTest()
 	}
 }
 #pragma endregion
+
+UInventoryComponent* AHBPlayerCharacter::GetInventory() const
+{
+	const AHB_PlayerState* PS = GetPlayerState<AHB_PlayerState>();
+	return PS ? PS->GetInventory() : nullptr;
+}
+
+UEquipmentComponent* AHBPlayerCharacter::GetEquipment() const
+{
+	const AHB_PlayerState* PS = GetPlayerState<AHB_PlayerState>();
+	return PS ? PS->GetEquipment() : nullptr;
+}
+
+UQuickSlotComponent* AHBPlayerCharacter::GetQuickSlot() const
+{
+	const AHB_PlayerState* PS = GetPlayerState<AHB_PlayerState>();
+	return PS ? PS->GetQuickSlot() : nullptr;
+}
