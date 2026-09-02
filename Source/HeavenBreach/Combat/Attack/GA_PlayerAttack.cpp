@@ -151,20 +151,6 @@ void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit,
 		Damage = AttackerPlayer->ModifyOutgoingDamage(Target, Damage);
 	}
 	
-	if (AHBPlayerCharacter* TargetPlayer = Cast<AHBPlayerCharacter>(Target))
-	{
-		if (TargetASC && TargetASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
-		{
-			const FVector ToAttacker = (AttackerActor->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal();
-			const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(Target->GetActorForwardVector(), ToAttacker)));
-			
-			if (AngleDeg <= TargetPlayer->GetBlockAngle() * 0.5f)
-			{
-				Damage *= (1.f - TargetPlayer->GetBlockDamageReduction());
-			}
-		}
-	}
-	
 	IDamageableInterface::Execute_ApplyMeleeHit(Target,AttackerActor,Damage,Hit);
 
 	if (AttackerPlayer)

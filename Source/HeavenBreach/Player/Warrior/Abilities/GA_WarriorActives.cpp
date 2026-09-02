@@ -97,12 +97,19 @@ void UGA_WarriorChargeSlash::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
 	if (!Player) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
-	Player->LaunchCharacter(Player->GetActorForwardVector() * DashStrength, true, false);
-	if (AActor* Target = FindTarget(Player, Player->GetAttackRange() + 100.f))
+	const int32 UpgradeLevel = Player->GetSkillUpgradeLevel(TEXT("Warrior.ChargeSlash"));
+	const float UpgradedDamageMultiplier =
+		UpgradeLevel >= 3 ? 1.8f : UpgradeLevel >= 1 ? 1.4f : DamageMultiplier;
+	const float UpgradedDashStrength = UpgradeLevel >= 2 ? DashStrength * 1.2f : DashStrength;
+	const float UpgradedHitRadius = UpgradeLevel >= 2 ? 120.f : 80.f;
+	const float UpgradedCooldown = UpgradeLevel >= 3 ? 4.5f : Cooldown;
+	Player->LaunchCharacter(Player->GetActorForwardVector() * UpgradedDashStrength, true, false);
+	if (AActor* Target = FindTarget(Player, Player->GetAttackRange() + 100.f, UpgradedHitRadius))
 	{
-		ApplyWarriorHit(Player, Target, Player->GetAttackPower() * DamageMultiplier);
+		ApplyWarriorHit(Player, Target, Player->GetAttackPower() * UpgradedDamageMultiplier);
+		// Future Lv.2/Lv.3 hook: replace FindTarget with a multi-target sweep and add knockback here.
 	}
-	ApplyCooldownAndEnd(Cooldown, WarriorTag::TAG_Cooldown_ChargeSlash);
+	ApplyCooldownAndEnd(UpgradedCooldown, WarriorTag::TAG_Cooldown_ChargeSlash);
 }
 
 UGA_WarriorCombatRoll::UGA_WarriorCombatRoll() = default;
@@ -114,9 +121,18 @@ void UGA_WarriorCombatRoll::ActivateAbility(const FGameplayAbilitySpecHandle Han
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	if (ACharacter* Character = Cast<ACharacter>(ActorInfo->AvatarActor.Get()))
 	{
+		const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(Character);
+		const int32 UpgradeLevel = Player
+			? Player->GetSkillUpgradeLevel(TEXT("Warrior.CombatRoll"))
+			: 0;
 		FVector Direction = Character->GetLastMovementInputVector().GetSafeNormal();
 		if (Direction.IsNearlyZero()) Direction = Character->GetActorForwardVector();
-		Character->LaunchCharacter(Direction * RollStrength, true, false);
+		const float UpgradedRollStrength = UpgradeLevel >= 1 ? RollStrength * 1.2f : RollStrength;
+		Character->LaunchCharacter(Direction * UpgradedRollStrength, true, false);
+		const float UpgradedCooldown = UpgradeLevel >= 3 ? 2.5f : UpgradeLevel >= 2 ? 2.75f : Cooldown;
+		// Future Lv.2/Lv.3 hook: grant invulnerability and a short movement-speed effect here.
+		ApplyCooldownAndEnd(UpgradedCooldown, WarriorTag::TAG_Cooldown_CombatRoll);
+		return;
 	}
 	ApplyCooldownAndEnd(Cooldown, WarriorTag::TAG_Cooldown_CombatRoll);
 }
@@ -130,13 +146,22 @@ void UGA_WarriorExecute::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
 	AActor* Target = Player ? FindTarget(Player, Player->GetAttackRange()) : nullptr;
+	const int32 UpgradeLevel = Player
+		? Player->GetSkillUpgradeLevel(TEXT("Warrior.Execute"))
+		: 0;
+	const float UpgradedHealthRatio = UpgradeLevel >= 3 ? 0.4f : UpgradeLevel >= 1 ? 0.35f : ExecuteHealthRatio;
+	const float UpgradedDamageMultiplier = UpgradeLevel >= 2 ? 3.f : DamageMultiplier;
 	float Ratio = 1.f;
-	if (!Player || !Target || !GetHealthRatio(Target, Ratio) || Ratio > ExecuteHealthRatio)
+	if (!Player || !Target || !GetHealthRatio(Target, Ratio) || Ratio > UpgradedHealthRatio)
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return;
 	}
-	const bool bKilled = ApplyWarriorHit(Player, Target, Player->GetAttackPower() * DamageMultiplier);
-	if (bKilled) EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+	const bool bKilled = ApplyWarriorHit(Player, Target, Player->GetAttackPower() * UpgradedDamageMultiplier);
+	if (bKilled)
+	{
+		// Future Lv.3 hook: restore 10% max HP here.
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+	}
 	else ApplyCooldownAndEnd(Cooldown, WarriorTag::TAG_Cooldown_Execute);
 }
 
@@ -148,13 +173,21 @@ void UGA_WarriorChainPull::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	if (IsOnCooldown(ActorInfo, WarriorTag::TAG_Cooldown_ChainPull)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	AActor* Avatar = ActorInfo->AvatarActor.Get();
-	ACharacter* Target = Cast<ACharacter>(FindTarget(Avatar, Range));
+	const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(Avatar);
+	const int32 UpgradeLevel = Player
+		? Player->GetSkillUpgradeLevel(TEXT("Warrior.ChainPull"))
+		: 0;
+	const float UpgradedRange = UpgradeLevel >= 1 ? 900.f : Range;
+	const float UpgradedPullStrength = UpgradeLevel >= 2 ? 1400.f : PullStrength;
+	const float UpgradedCooldown = UpgradeLevel >= 3 ? 8.f : Cooldown;
+	ACharacter* Target = Cast<ACharacter>(FindTarget(Avatar, UpgradedRange));
 	if (Target)
 	{
 		const FVector PullDirection = (Avatar->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal();
-		Target->LaunchCharacter(PullDirection * PullStrength, true, true);
+		Target->LaunchCharacter(PullDirection * UpgradedPullStrength, true, true);
+		// Future Lv.2/Lv.3 hook: apply 0.8x damage and a 1.5-second root here.
 	}
-	ApplyCooldownAndEnd(Cooldown, WarriorTag::TAG_Cooldown_ChainPull);
+	ApplyCooldownAndEnd(UpgradedCooldown, WarriorTag::TAG_Cooldown_ChainPull);
 }
 
 UGA_WarriorBloodThirst::UGA_WarriorBloodThirst()
@@ -175,8 +208,15 @@ void UGA_WarriorBloodThirst::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	if (ActorInfo->IsNetAuthority())
 	{
-		HBWarriorEffects::ApplyTaggedDuration(ASC, Duration, WarriorTag::TAG_State_BloodThirst);
-		HBWarriorEffects::TryApplyCooldown(ASC, WarriorTag::TAG_Cooldown_BloodThirst, Cooldown);
+		const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
+		const int32 UpgradeLevel = Player
+			? Player->GetSkillUpgradeLevel(TEXT("Warrior.BloodThirst"))
+			: 0;
+		const float UpgradedDuration = UpgradeLevel >= 2 ? 7.f : Duration;
+		const float UpgradedCooldown = UpgradeLevel >= 3 ? 13.f : Cooldown;
+		HBWarriorEffects::ApplyTaggedDuration(ASC, UpgradedDuration, WarriorTag::TAG_State_BloodThirst);
+		HBWarriorEffects::TryApplyCooldown(ASC, WarriorTag::TAG_Cooldown_BloodThirst, UpgradedCooldown);
+		// Future Lv.3 hook: extend the active effect on kill, capped at 10 seconds.
 	}
 	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 }

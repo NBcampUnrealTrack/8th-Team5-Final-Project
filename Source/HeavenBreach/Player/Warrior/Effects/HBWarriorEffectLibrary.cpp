@@ -3,6 +3,7 @@
 #include "AbilitySystemComponent.h"
 #include "GameplayEffect.h"
 #include "Player/Warrior/Effects/HBWarriorGameplayEffects.h"
+#include "Core/Tag/Warrior/HB_WarriorTag.h"
 
 FActiveGameplayEffectHandle HBWarriorEffects::ApplyEffect(
 	UAbilitySystemComponent* ASC, const TSubclassOf<UGameplayEffect> EffectClass)
@@ -26,6 +27,23 @@ FActiveGameplayEffectHandle HBWarriorEffects::ApplyTaggedDuration(
 	FGameplayEffectSpec Spec(GetDefault<UGE_WarriorTaggedDuration>(), ASC->MakeEffectContext(), 1.f);
 	Spec.SetDuration(Duration, true);
 	Spec.DynamicGrantedTags.AddTag(GrantedTag);
+	return ASC->ApplyGameplayEffectSpecToSelf(Spec);
+}
+
+FActiveGameplayEffectHandle HBWarriorEffects::ApplyBattleCryBuff(
+	UAbilitySystemComponent* ASC, const float Duration, const float AttackMultiplier,
+	const float MoveSpeedBonus, const float DefenseBonus)
+{
+	if (!ASC || Duration <= 0.f)
+	{
+		return FActiveGameplayEffectHandle();
+	}
+
+	FGameplayEffectSpec Spec(GetDefault<UGE_WarriorBattleCryBuff>(), ASC->MakeEffectContext(), 1.f);
+	Spec.SetDuration(Duration, true);
+	Spec.SetSetByCallerMagnitude(WarriorTag::TAG_Data_BattleCry_AttackMultiplier, AttackMultiplier);
+	Spec.SetSetByCallerMagnitude(WarriorTag::TAG_Data_BattleCry_MoveSpeedBonus, MoveSpeedBonus);
+	Spec.SetSetByCallerMagnitude(WarriorTag::TAG_Data_BattleCry_DefenseBonus, DefenseBonus);
 	return ASC->ApplyGameplayEffectSpecToSelf(Spec);
 }
 

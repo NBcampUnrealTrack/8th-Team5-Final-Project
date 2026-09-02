@@ -9,11 +9,51 @@
 
 class UHB_PlayerAttributeSet;
 class UStashComponent;
+class UTexture2D;
+
+UENUM(BlueprintType)
+enum class EHBUpgradeCandidateType : uint8
+{
+	ActiveSkill,
+	NewPassive
+};
+
+USTRUCT(BlueprintType)
+struct HEAVENBREACH_API FHBUpgradeCandidate
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	FName CandidateId;
+
+	UPROPERTY(BlueprintReadOnly)
+	EHBUpgradeCandidateType Type = EHBUpgradeCandidateType::ActiveSkill;
+
+	UPROPERTY(BlueprintReadOnly)
+	FName TargetSkillId;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText DisplayName;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText Description;
+
+	UPROPERTY(BlueprintReadOnly)
+	TSoftObjectPtr<UTexture2D> Icon;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 CurrentLevel = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 NextLevel = 0;
+};
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerLevelChanged, int32, NewLevel);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPlayerExperienceChanged, int32, CurrentExperience, int32, ExperienceToNextLevel, float, ExperiencePercent);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTeamIdChanged, int32, NewTeamId);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSkillUpgradesChanged);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnUpgradeCandidatesChanged);
 
 UCLASS()
 class HEAVENBREACH_API AHB_PlayerState : public APlayerState,public IAbilitySystemInterface
@@ -54,6 +94,32 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Progression|Match")
 	FOnPlayerExperienceChanged OnPlayerExperienceChanged;
 
+	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
+	int32 GetSkillUpgradeLevel(FName SkillId) const;
+
+	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
+	bool CanUpgradeSkill(FName SkillId) const;
+
+	/** Spends one pending level-up choice to upgrade an equipped Q/E skill. */
+	UFUNCTION(BlueprintCallable, Category = "Progression|Skills")
+	void RequestUpgradeSkill(FName SkillId);
+
+	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
+	int32 GetPendingUpgradeChoices() const { return PendingUpgradeChoices; }
+
+	UPROPERTY(BlueprintAssignable, Category = "Progression|Skills")
+	FOnSkillUpgradesChanged OnSkillUpgradesChanged;
+
+	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
+	TArray<FHBUpgradeCandidate> GetCurrentUpgradeCandidates() const { return CurrentUpgradeCandidates; }
+
+	/** Selects one of the candidate IDs currently offered by the server. */
+	UFUNCTION(BlueprintCallable, Category = "Progression|Skills")
+	void RequestSelectUpgrade(FName CandidateId);
+
+	UPROPERTY(BlueprintAssignable, Category = "Progression|Skills")
+	FOnUpgradeCandidatesChanged OnUpgradeCandidatesChanged;
+
 private:
 	UPROPERTY(ReplicatedUsing = OnRep_PlayerLevel)
 	int32 PlayerLevel = 1;
@@ -69,6 +135,38 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Progression|Match", meta = (ClampMin = "0"))
 	int32 ExperienceIncreasePerLevel = 50;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Progression|Skills", meta = (ClampMin = "1"))
+	int32 MaxSkillUpgradeLevel = 3;
+
+	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
+	int32 SkillQUpgradeLevel = 0;
+
+	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
+	int32 SkillEUpgradeLevel = 0;
+
+	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
+	int32 PendingUpgradeChoices = 0;
+
+	UPROPERTY(ReplicatedUsing = OnRep_UpgradeCandidates)
+	TArray<FHBUpgradeCandidate> CurrentUpgradeCandidates;
+
+	UFUNCTION(Server, Reliable)
+	void ServerRequestUpgradeSkill(FName SkillId);
+
+	void ApplySkillUpgrade(FName SkillId);
+	void GenerateUpgradeCandidates();
+
+	UFUNCTION(Server, Reliable)
+	void ServerRequestSelectUpgrade(FName CandidateId);
+
+	void ApplyUpgradeCandidate(FName CandidateId);
+
+	UFUNCTION()
+	void OnRep_SkillUpgrades();
+
+	UFUNCTION()
+	void OnRep_UpgradeCandidates();
 
 	UFUNCTION()
 	void OnRep_PlayerLevel();

@@ -14,6 +14,10 @@ namespace HBWarriorEffects
 	FActiveGameplayEffectHandle ApplyTaggedDuration(
 		UAbilitySystemComponent* ASC, float Duration, FGameplayTag GrantedTag);
 
+	FActiveGameplayEffectHandle ApplyBattleCryBuff(
+		UAbilitySystemComponent* ASC, float Duration, float AttackMultiplier,
+		float MoveSpeedBonus, float DefenseBonus);
+
 	bool TryApplyCooldown(UAbilitySystemComponent* ASC, FGameplayTag CooldownTag, float Duration);
 	bool IsCooldownActive(const UAbilitySystemComponent* ASC, FGameplayTag CooldownTag);
 	float GetCooldownRemaining(const UAbilitySystemComponent* ASC, FGameplayTag CooldownTag);

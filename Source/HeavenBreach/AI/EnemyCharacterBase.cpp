@@ -12,6 +12,8 @@
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "AI/AlertComponent.h"
 #include "AI/LootComponent.h"
+#include "AI/DataRow/EnemyArchetypeData.h"
+#include "Combat/Damage/HBDamageCalculation.h"
 #include "Net/UnrealNetwork.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
@@ -100,17 +102,26 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 	// 이놈은 진짜로 날공격하는 올바른대상이맞음
 	LastDamageInstigator = InstigatorActor;
 
-	// 피격 부위에 따른 데미지 배율
-	float PartMult = 1.f;
+	// BP에서 지정한 부위 배율을 우선 사용하고, 별도 지정이 없는 머리는 기본 2배다.
+	float PartMult = HBDamage::IsHeadshot(Hit) ? 2.f : 1.f;
 	if (const float* Found = BoneDamageMultipliers.Find(Hit.BoneName))
 	{
 		PartMult = *Found;
 	}
 
-	UE_LOG(LogEnemyAI, Warning, TEXT("[Hit] Bone=%s  Comp=%s  Dmg=%.0f"),*Hit.BoneName.ToString(), *GetNameSafe(Hit.GetComponent()), RawDamage);
+	const float TargetDefense = ArchetypeData
+		? ArchetypeData->GetStats().Defense
+		: 0.f;
+	const float FinalDamage = HBDamage::CalculateFinalDamage(
+		RawDamage, TargetDefense, PartMult);
+
+	UE_LOG(LogEnemyAI, Warning,
+		TEXT("[Hit] Bone=%s Comp=%s Raw=%.2f Defense=%.2f HitMult=%.2f Final=%.2f"),
+		*Hit.BoneName.ToString(), *GetNameSafe(Hit.GetComponent()),
+		RawDamage, TargetDefense, PartMult, FinalDamage);
 
 	// GE 애셋의 Modifier 가 이태그로 값을 받는다.
-	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage * PartMult);
+	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -FinalDamage);
 
 	AbilitySystemComp->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 

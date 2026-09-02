@@ -69,12 +69,21 @@ public:
 	UFUNCTION(BlueprintPure, Category="Player|Loadout")
 	TArray<FName> GetSelectedPassiveSkillIds() const { return SelectedPassiveSkillIds; }
 
+	/** Server-only progression hook. Grants a passive without replacing the equipped Q/E skills. */
+	bool AddPassiveSkillFromUpgrade(FName PassiveSkillId);
+
 	/** UI-ready GAS cooldown query using the same stable Skill ID stored by the loadout. */
 	UFUNCTION(BlueprintPure, Category="Player|Abilities")
 	float GetSkillCooldownRemaining(FName SkillId) const;
 
 	UFUNCTION(BlueprintPure, Category="Player|Abilities")
 	bool IsSkillOnCooldown(FName SkillId) const;
+
+	UFUNCTION(BlueprintPure, Category="Player|Abilities")
+	int32 GetSkillUpgradeLevel(FName SkillId) const;
+
+	/** Resets the mana regeneration delay after an action consumes mana. Server authoritative. */
+	void NotifyManaActivity();
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UInventoryComponent* GetInventory() const { return Inventory; }
@@ -112,6 +121,10 @@ protected:
 		UAbilitySystemComponent* AbilitySystem,
 		TSubclassOf<UGameplayAbility> AbilityClass);
 	void ApplyLoadout(FName SkillQId, FName SkillEId, TArray<FName> PassiveSkillIds);
+	void TryActivateJobSkill(FName SkillId);
+
+	UFUNCTION(Server, Reliable)
+	void ServerTryActivateJobSkill(FName SkillId);
 
 	UFUNCTION(Server, Reliable)
 	void ServerApplyLoadout(FName SkillQId, FName SkillEId, const TArray<FName>& PassiveSkillIds);
@@ -234,6 +247,27 @@ private:
 	double LastDamageReceivedTime = -1000.0;
 	FActiveGameplayEffectHandle KillingMomentumEffectHandle;
 	FTimerHandle CombatInstinctTimer;
+
+	void UpdateManaResource();
+	void StopManaActionsAtZero();
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float ManaRegenDelay = 3.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float ManaRegenPerSecond = 10.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float SprintManaCostPerSecond = 8.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float BlockManaCostPerSecond = 6.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
+	float ManaResourceTickInterval = 0.25f;
+
+	FTimerHandle ManaResourceTimer;
+	double LastManaActivityTime = 0.0;
 #pragma endregion 
 	
 #pragma region Movement
