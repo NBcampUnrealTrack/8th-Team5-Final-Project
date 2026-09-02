@@ -19,6 +19,9 @@
 #include "Player/HBPlayerController.h"
 #include "ShopComponent.h"
 #include "Inventory/QuickSlotComponent.h"
+#include "Widgets/Images/SImage.h"
+#include "Widgets/Layout/SBox.h"
+#include "Engine/GameViewportClient.h"
 
 UInventoryWidget::UInventoryWidget()
 {
@@ -593,6 +596,14 @@ int32 UInventoryWidget::GetMaxScrollRow() const
 
 bool UInventoryWidget::NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
+	if (DragVisualRoot.IsValid())
+	{
+		if (UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation))
+		{
+			const FVector2D MousePos = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
+			DragVisualRoot->SetRenderTransform(FSlateRenderTransform(MousePos - Operation->GrabPixelOffset));
+		}
+	}
 	return UpdatePlacementPreview(InDragDropEvent, InOperation)
 		|| Super::NativeOnDragOver(InGeometry, InDragDropEvent, InOperation);
 }
@@ -601,6 +612,19 @@ void UInventoryWidget::NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, 
 {
 	ClearPlacementPreview();
 	Super::NativeOnDragLeave(InDragDropEvent, InOperation);
+}
+void UInventoryWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	ClearPlacementPreview();
+	if (DragVisualRoot.IsValid())
+	{
+		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+		{
+			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
+		}
+		DragVisualRoot.Reset();
+	}
+	Super::NativeOnDragCancelled(InDragDropEvent, InOperation);
 }
 
 bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
@@ -953,25 +977,49 @@ void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 	}
 	const FIntPoint ItemSize = GetOccupiedSize(Entry.Item, ViewData);
 	const FVector2D VisualSize(ItemSize.X * CellSize, ItemSize.Y * CellSize);
-	UImage* DragVisual = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
+	const FVector2D ItemOrigin(Entry.Position.X * CellSize, (Entry.Position.Y - ScrollOffsetRow) * CellSize);
+	const FVector2D PixelOffset = PressedLocalPosition - ItemOrigin;
+	if (DragVisualRoot.IsValid())
+	{
+		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+		{
+			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
+		}
+		DragVisualRoot.Reset();
+	}
 	if (UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath))
 	{
-		DragVisual->SetBrushFromTexture(IconTexture, false);
+		DragVisualBrush.SetResourceObject(IconTexture);
+		DragVisualBrush.ImageSize = VisualSize;
+		DragVisualBrush.DrawAs = ESlateBrushDrawType::Image;
 	}
-	DragVisual->SetDesiredSizeOverride(VisualSize);
-	DragVisual->SetOpacity(0.7f);
-	const FVector2D ItemOrigin(Entry.Position.X * CellSize,(Entry.Position.Y - ScrollOffsetRow) * CellSize);
-	const FVector2D PixelOffset = PressedLocalPosition - ItemOrigin;
+	TSharedRef<SBox> NewDragBox =
+		SNew(SBox)
+		.Visibility(EVisibility::HitTestInvisible)
+		.HAlign(HAlign_Left)
+		.VAlign(VAlign_Top)
+		.WidthOverride(VisualSize.X)
+		.HeightOverride(VisualSize.Y)
+		[
+			SNew(SImage)
+				.Visibility(EVisibility::HitTestInvisible)
+				.Image(&DragVisualBrush)
+				.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f))
+		];
+	DragVisualRoot = NewDragBox;
+	// 뷰포트에 올리기 전에 이미 마우스 위치로 배치해서, 첫 프레임에 좌측상단에
+	// 나타났다가 점프하는 현상 자체를 없앤다.
+	const FVector2D MousePos = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
+	NewDragBox->SetRenderTransform(FSlateRenderTransform(MousePos - PixelOffset));
+	if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+	{
+		GameViewport->AddViewportWidgetContent(NewDragBox, 1000);
+	}
 	UInventoryDragDropOperation* Operation = NewObject<UInventoryDragDropOperation>(this);
 	Operation->InstanceId = Entry.Item.InstanceId;
 	Operation->GrabOffset = PressedCell - Entry.Position;
 	Operation->GrabPixelOffset = PixelOffset;
 	Operation->SourceInventory = BoundInventory;
-	Operation->DefaultDragVisual = DragVisual;
-	Operation->Pivot = EDragPivot::TopLeft;
-	Operation->Offset = FVector2D(
-		-PixelOffset.X / VisualSize.X,
-		-PixelOffset.Y / VisualSize.Y);
 	Operation->bSplitRequested = bPressedWithCtrl && Entry.Item.StackCount > 1;
 	OutOperation = Operation;
 }
@@ -997,6 +1045,14 @@ void UInventoryWidget::RefocusAfterDrop()
 bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
 	ClearPlacementPreview();
+	if (DragVisualRoot.IsValid())
+	{
+		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+		{
+			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
+		}
+		DragVisualRoot.Reset();
+	}
 	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
 	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
 	{
