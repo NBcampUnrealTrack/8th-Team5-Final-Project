@@ -12,6 +12,7 @@
 #include "Inventory/QuickSlotComponent.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "CommonActivatableWidget.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Core/Tag/UI/HB_UITag.h"
 #include "UI/HB_UILayout.h"
 #include "UI/HUD/HB_HUDLayer.h"
@@ -28,6 +29,11 @@ void AHBPlayerController::BeginPlay()
 
 	if (IsLocalPlayerController())
 	{
+		if (PlayerCameraManager)
+		{
+			PlayerCameraManager->ViewPitchMax = 60.0f;
+		}
+
 		if (UEnhancedInputLocalPlayerSubsystem* InputSubsystem =
 			ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 		{

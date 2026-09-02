@@ -5,6 +5,7 @@
 #include "UI/Skill/HB_SkillCardWidget.h"
 #include "UI/Skill/HB_SkillData.h"
 #include "Components/ScrollBox.h"
+#include "Components/ScrollBoxSlot.h"
 
 UHB_SkillMainWidget::UHB_SkillMainWidget()
 {
@@ -70,7 +71,11 @@ void UHB_SkillMainWidget::PopulateSkillList(bool bIsPassive)
                 NewCard->InitCard(*SkillData, bIsAlreadySelected);
                 NewCard->OnCardClickedDelegate.AddDynamic(this, &UHB_SkillMainWidget::OnSkillCardClicked);
 
-                SkillListScrollBox->AddChild(NewCard);
+                if (UScrollBoxSlot* ScrollSlot = Cast<UScrollBoxSlot>(SkillListScrollBox->AddChild(NewCard)))
+                {
+
+                    ScrollSlot->SetPadding(CardPadding);
+                }
             }
         }
     }

@@ -21,6 +21,10 @@ class HEAVENBREACH_API UShopComponent : public UActorComponent
 public:
 	UShopComponent();
 
+	void SetShopInventoryTable(UDataTable* InTable) { ShopInventoryTable = InTable; }
+
+	void SetGoldItemRow(const FDataTableRowHandle& InRow) { GoldItemRow = InRow; }
+
 	UPROPERTY(BlueprintAssignable, Category = "Shop")
 	FOnBasketChanged OnBasketChanged;
 
@@ -68,6 +72,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Shop")
 	bool IsInBasket(FGuid InInstanceId) const;
+
 
 protected:
 	virtual void BeginPlay() override;
