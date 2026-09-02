@@ -94,7 +94,8 @@ struct FItemInstance
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	bool bRotated = false;
-
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	bool bIsFavorite = false;
 	bool IsValid() const;
 
 	bool operator==(const FItemInstance& Other) const
