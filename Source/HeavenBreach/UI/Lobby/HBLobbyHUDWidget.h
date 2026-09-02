@@ -16,8 +16,8 @@ enum class EHBLobbyHUDMenu : uint8
 {
 	Lobby,
 	ChoiceJob,
-	MakeItem,
-	Storage
+	Storage,
+	Shop
 };
 
 UCLASS()
@@ -37,10 +37,10 @@ protected:
 	TObjectPtr<UButton> Button_ChoiceJob;
 
 	UPROPERTY(meta = (BindWidget))
-	TObjectPtr<UButton> Button_MakeItem;
+	TObjectPtr<UButton> Button_Storage;
 
 	UPROPERTY(meta = (BindWidget))
-	TObjectPtr<UButton> Button_Storage;
+	TObjectPtr<UButton> Button_Shop;
 #pragma endregion
 
 #pragma region LobbyContent
@@ -54,10 +54,10 @@ protected:
 	TObjectPtr<UWidget> Widget_ChoiceJob;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
-	TObjectPtr<UWidget> Widget_MakeItem;
+	TObjectPtr<UWidget> Widget_Storage;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
-	TObjectPtr<UWidget> Widget_Storage;
+	TObjectPtr<UWidget> Widget_Shop;
 #pragma endregion
 
 	UPROPERTY(BlueprintReadOnly, Category = "Lobby HUD")
@@ -74,10 +74,10 @@ private:
 	void HandleChoiceJobClicked();
 
 	UFUNCTION()
-	void HandleMakeItemClicked();
+	void HandleStorageClicked();
 
 	UFUNCTION()
-	void HandleStorageClicked();
+	void HandleShopClicked();
 
 	void SelectMenu(EHBLobbyHUDMenu NewMenu);
 	void UpdateButtonStyles();
@@ -86,6 +86,6 @@ private:
 
 	FButtonStyle LobbyButtonStyle;
 	FButtonStyle ChoiceJobButtonStyle;
-	FButtonStyle MakeItemButtonStyle;
 	FButtonStyle StorageButtonStyle;
+	FButtonStyle ShopButtonStyle;
 };

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 #include "HBLobbyPlayerState.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
@@ -15,7 +16,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
  * 
  */
 UCLASS()
-class HEAVENBREACH_API AHBLobbyPlayerState : public APlayerState
+class HEAVENBREACH_API AHBLobbyPlayerState : public AHB_PlayerState
 {
 	GENERATED_BODY()
 	

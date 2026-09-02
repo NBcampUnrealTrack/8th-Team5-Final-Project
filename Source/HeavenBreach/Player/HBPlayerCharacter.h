@@ -86,10 +86,13 @@ public:
 	void NotifyManaActivity();
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
-	UInventoryComponent* GetInventory() const { return Inventory; }
+	UInventoryComponent* GetInventory() const;
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
-	UEquipmentComponent* GetEquipment() const { return Equipment; }
+	UEquipmentComponent* GetEquipment() const;
+
+	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
+	UQuickSlotComponent* GetQuickSlot() const;
 
 #pragma region Interaction
 public:
@@ -149,15 +152,6 @@ protected:
 	/** Socket whose animated position is followed by the first-person camera. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Camera")
 	FName FirstPersonCameraSocketName = TEXT("FirstPersonCameraSocket");
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
-	TObjectPtr<UInventoryComponent> Inventory;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
-	TObjectPtr<UEquipmentComponent> Equipment;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	TObjectPtr<UQuickSlotComponent> QuickSlot;
 	
 #pragma region ASC
 public:
@@ -170,11 +164,15 @@ public:
 protected:
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
+	void BindToPlayerStateComponents();
 private:
 	UPROPERTY()
 	TObjectPtr<AHB_PlayerState> HB_PlayerState;
 
 	bool bJobInitialized = false;
+
+	bool bPlayerStateComponentsBound = false;
+
 #pragma endregion 
 	
 #pragma region DamageInterface
