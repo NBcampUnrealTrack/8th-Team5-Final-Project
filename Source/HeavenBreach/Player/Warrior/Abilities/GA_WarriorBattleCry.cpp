@@ -5,6 +5,7 @@
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
 #include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
 #include "Player/Warrior/Effects/HBWarriorGameplayEffects.h"
+#include "Player/HBPlayerCharacter.h"
 
 UGA_WarriorBattleCry::UGA_WarriorBattleCry()
 {
@@ -32,8 +33,17 @@ void UGA_WarriorBattleCry::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 
 	if (ActorInfo->IsNetAuthority())
 	{
+		const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
+		const int32 UpgradeLevel = Player
+			? Player->GetSkillUpgradeLevel(TEXT("Warrior.BattleCry"))
+			: 0;
+		const float Duration = UpgradeLevel >= 1 ? 7.f : 5.f;
+		const float AttackMultiplier = UpgradeLevel >= 2 ? 1.3f : 1.2f;
+		const float DefenseBonus = UpgradeLevel >= 3 ? 20.f : 0.f;
 		HBWarriorEffects::TryApplyCooldown(ASC, WarriorTag::TAG_Cooldown_BattleCry, CooldownDuration);
-		HBWarriorEffects::ApplyEffect(ASC, UGE_WarriorBattleCryBuff::StaticClass());
+		HBWarriorEffects::ApplyBattleCryBuff(
+			ASC, Duration, AttackMultiplier, 0.2f, DefenseBonus);
+		// Future Lv.3 hook: find nearby teammates and apply a reduced version of this buff.
 	}
 	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 }

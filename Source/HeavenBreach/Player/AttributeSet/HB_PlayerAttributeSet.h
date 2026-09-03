@@ -33,8 +33,6 @@ public:
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_AttackSpeed);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_Defense);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_MoveSpeedMultiplier);
-	ATTRIBUTE_ACCESSORS(ThisClass,Player_Focus);
-	ATTRIBUTE_ACCESSORS(ThisClass,Player_MaxFocus);
 	
 protected:
 	UPROPERTY(ReplicatedUsing= OnRep_HP, BlueprintReadOnly,Category="Attribute|Combat")
@@ -62,11 +60,6 @@ protected:
 	UPROPERTY(ReplicatedUsing=OnRep_MoveSpeedMultiplier, BlueprintReadOnly, Category="Attribute|Movement")
 	FGameplayAttributeData Player_MoveSpeedMultiplier;
 
-	UPROPERTY(ReplicatedUsing=OnRep_Focus, BlueprintReadOnly, Category="Attribute|Resource")
-	FGameplayAttributeData Player_Focus;
-
-	UPROPERTY(ReplicatedUsing=OnRep_MaxFocus, BlueprintReadOnly, Category="Attribute|Resource")
-	FGameplayAttributeData Player_MaxFocus;
 	
 	UFUNCTION()
 	void OnRep_HP(const FGameplayAttributeData& OldValue);
@@ -84,10 +77,6 @@ protected:
 	void OnRep_Defense(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_MoveSpeedMultiplier(const FGameplayAttributeData& OldValue);
-	UFUNCTION()
-	void OnRep_Focus(const FGameplayAttributeData& OldValue);
-	UFUNCTION()
-	void OnRep_MaxFocus(const FGameplayAttributeData& OldValue);
 #pragma endregion 
 	
 

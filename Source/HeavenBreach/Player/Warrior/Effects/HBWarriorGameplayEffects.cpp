@@ -1,6 +1,7 @@
 #include "Player/Warrior/Effects/HBWarriorGameplayEffects.h"
 
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
+#include "Core/Tag/Warrior/HB_WarriorTag.h"
 
 namespace
 {
@@ -11,6 +12,17 @@ namespace
 		Modifier.Attribute = Attribute;
 		Modifier.ModifierOp = Operation;
 		Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(Magnitude));
+	}
+
+	void AddSetByCallerModifier(UGameplayEffect& Effect, const FGameplayAttribute& Attribute,
+		const EGameplayModOp::Type Operation, const FGameplayTag DataTag)
+	{
+		FSetByCallerFloat SetByCaller;
+		SetByCaller.DataTag = DataTag;
+		FGameplayModifierInfo& Modifier = Effect.Modifiers.AddDefaulted_GetRef();
+		Modifier.Attribute = Attribute;
+		Modifier.ModifierOp = Operation;
+		Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(SetByCaller);
 	}
 }
 
@@ -24,10 +36,12 @@ UGE_WarriorBattleCryBuff::UGE_WarriorBattleCryBuff()
 {
 	DurationPolicy = EGameplayEffectDurationType::HasDuration;
 	DurationMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(5.f));
-	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_AttackPowerAttribute(),
-		EGameplayModOp::Multiplicitive, 1.2f);
-	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_MoveSpeedMultiplierAttribute(),
-		EGameplayModOp::Additive, 1.f);
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_AttackPowerAttribute(),
+		EGameplayModOp::Multiplicitive, WarriorTag::TAG_Data_BattleCry_AttackMultiplier);
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_MoveSpeedMultiplierAttribute(),
+		EGameplayModOp::Additive, WarriorTag::TAG_Data_BattleCry_MoveSpeedBonus);
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_DefenseAttribute(),
+		EGameplayModOp::Additive, WarriorTag::TAG_Data_BattleCry_DefenseBonus);
 }
 
 UGE_WarriorCombatInstinctStack::UGE_WarriorCombatInstinctStack()

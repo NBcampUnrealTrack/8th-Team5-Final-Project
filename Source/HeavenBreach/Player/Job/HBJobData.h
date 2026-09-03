@@ -35,6 +35,10 @@ struct HEAVENBREACH_API FHBJobSkillData
 	/** UI display value. The real cooldown is still enforced by the ability. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill", meta=(ClampMin="0.0"))
 	float DisplayCooldown = 0.f;
+
+	/** Mana consumed when this skill is successfully activated. Basic attacks remain free. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill", meta=(ClampMin="0.0"))
+	float ManaCost = 0.f;
 };
 
 UCLASS(BlueprintType)

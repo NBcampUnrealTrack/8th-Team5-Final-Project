@@ -18,4 +18,7 @@ namespace WarriorTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_BattleCry);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_ChainPull);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_BloodThirst);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_BattleCry_AttackMultiplier);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_BattleCry_MoveSpeedBonus);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_BattleCry_DefenseBonus);
 }
