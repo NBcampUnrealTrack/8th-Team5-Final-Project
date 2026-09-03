@@ -142,6 +142,7 @@ private:
 		ENetworkFailure::Type InFailureType,
 		const FString& InErrorString
 		);
+	bool TravelToJoinedDedicatedServer(FName InSessionName);
 	void StartMatchServerPolling();
 	void StopMatchServerPolling();
 	void PollMatchServerSettings();

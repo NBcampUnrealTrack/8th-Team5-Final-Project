@@ -16,7 +16,12 @@
 
 namespace HBOnline
 {
+	// PartyLobbySessionName is retained for compatibility with the old public
+	// API, while normal clients now join the VM-owned dedicated session below.
 	const FName PartyLobbySessionName(TEXT("HBPartyLobbySession"));
+	const FName DedicatedServerSessionName(TEXT("HBDedicatedServerSession"));
+	const FName ProjectKey(TEXT("HB_PROJECT"));
+	const TCHAR* ProjectValue = TEXT("HeavenBreach");
 	
 	const FName MatchServerKey(TEXT("HB_MATCH_SERVER"));
 	const FName MatchReadyKey(TEXT("HB_MATCH_READY"));
@@ -147,10 +152,13 @@ bool UHBOnlineSessionSubsystem::RequestFindAndJoinLobby()
 	}
 
 	if (SessionInterface.IsValid() &&
-		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
+		SessionInterface->GetNamedSession(HBOnline::DedicatedServerSessionName) != nullptr)
 	{
-		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
-		return true;
+		// A successful named session can survive a return to the title. Reuse its
+		// Steam-resolved address instead of creating a client-hosted lobby.
+		return TravelToJoinedDedicatedServer(
+			HBOnline::DedicatedServerSessionName
+			);
 	}
 
 	bJoinFirstLobbyAfterFind = true;
@@ -276,18 +284,20 @@ bool UHBOnlineSessionSubsystem::FindLobbies()
 	LobbySearch->MaxSearchResults = 50;
 	LobbySearch->bIsLanQuery = false;
 
-	// Steam Lobby 방식만 검색
+	// The VM is the only host. Exclude peer-hosted Steam lobbies so every
+	// physical player follows exactly the same client path.
 	LobbySearch->QuerySettings.Set(
-		SEARCH_LOBBIES,
+		SEARCH_DEDICATED_ONLY,
 		true,
 		EOnlineComparisonOp::Equals
 	);
 	
 	
-	// Spacewar(AppID 480)의 다른 Lobby와 구분
+	// AppID 480 is shared by many test projects, so require the project marker
+	// advertised by AHBGameSession before attempting a join.
 	LobbySearch->QuerySettings.Set(
-		FName(TEXT("HB_LOBBY")),
-		FString(TEXT("1")),
+		HBOnline::ProjectKey,
+		FString(HBOnline::ProjectValue),
 		EOnlineComparisonOp::Equals
 	);
 	
@@ -350,10 +360,11 @@ bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 			));
 	}
 
-	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
+	if (SessionInterface->GetNamedSession(HBOnline::DedicatedServerSessionName) != nullptr)
 	{
-		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
-		return true;
+		return TravelToJoinedDedicatedServer(
+			HBOnline::DedicatedServerSessionName
+			);
 	}
 
 	SetLobbyOperationState(EHBLobbyOperationState::Joining);
@@ -370,9 +381,9 @@ bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 	const bool bRequestStarted =
 		SessionInterface->JoinSession(
 			0,
-			HBOnline::PartyLobbySessionName,
+			HBOnline::DedicatedServerSessionName,
 			LobbySearch->SearchResults[InSearchResultIndex]
-		);
+			);
 
 	if (!bRequestStarted)
 	{
@@ -405,7 +416,14 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 		return;
 	}
 	
-	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) == nullptr)
+	// Prefer the new VM session, but retain the legacy lobby fallback so this
+	// API does not strand sessions created by older callers.
+	const FName SessionToDestroy =
+		SessionInterface->GetNamedSession(HBOnline::DedicatedServerSessionName) != nullptr
+			? HBOnline::DedicatedServerSessionName
+			: HBOnline::PartyLobbySessionName;
+
+	if (SessionInterface->GetNamedSession(SessionToDestroy) == nullptr)
 	{
 		UE_LOG(
 			LogTemp,
@@ -426,7 +444,7 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 		SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(LeaveCompleteDelegate);
 	
 	const bool bRequestStarted = 
-		SessionInterface->DestroySession(HBOnline::PartyLobbySessionName);
+		SessionInterface->DestroySession(SessionToDestroy);
 	
 	if (!bRequestStarted)
 	{
@@ -1029,7 +1047,7 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 
 	if (LobbySearch->SearchResults.IsEmpty())
 	{
-		FailLobbyOperation(TEXT("No matching Steam lobby found"));
+		FailLobbyOperation(TEXT("No matching HeavenBreach Steam dedicated server found"));
 		return;
 	}
 
@@ -1063,7 +1081,13 @@ void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(
 	if (bSuccess)
 	{
 		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
-		StartMatchServerPolling();
+
+		// Steam owns endpoint resolution. This avoids trusting a hardcoded VM IP
+		// and supports whichever transport SteamNetDriver selected.
+		if (!TravelToJoinedDedicatedServer(InSessionName))
+		{
+			return;
+		}
 	}
 	else
 	{
@@ -1092,6 +1116,61 @@ void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(
 			Message
 		);
 	}
+}
+
+bool UHBOnlineSessionSubsystem::TravelToJoinedDedicatedServer(
+	FName InSessionName)
+{
+	if (!SessionInterface.IsValid())
+	{
+		return FailLobbyOperation(
+			TEXT("Travel failed: SessionInterface invalid")
+			);
+	}
+
+	FString ConnectString;
+	if (!SessionInterface->GetResolvedConnectString(
+		InSessionName,
+		ConnectString) || ConnectString.IsEmpty())
+	{
+		return FailLobbyOperation(FString::Printf(
+			TEXT("Travel failed: Steam could not resolve session %s"),
+			*InSessionName.ToString()
+			));
+	}
+
+	UWorld* World = GetWorld();
+	APlayerController* PlayerController = World != nullptr
+		? World->GetFirstPlayerController()
+		: nullptr;
+
+	if (!IsValid(PlayerController) || !PlayerController->IsLocalController())
+	{
+		return FailLobbyOperation(
+			TEXT("Travel failed: Local PlayerController unavailable")
+			);
+	}
+
+	// Title UI uses UI-only input. Clear that persistent viewport state before
+	// network travel so gameplay input works immediately in the server lobby.
+	PlayerController->SetInputMode(FInputModeGameOnly());
+	PlayerController->SetShowMouseCursor(false);
+	bMatchTravelRequested = true;
+	SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("Online | Dedicated Server | ClientTravel via resolved Steam session: %s"),
+		*InSessionName.ToString()
+		);
+
+	PlayerController->ClientTravel(
+		ConnectString,
+		ETravelType::TRAVEL_Absolute
+		);
+
+	return true;
 }
 
 void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bool bWasSuccessful)
