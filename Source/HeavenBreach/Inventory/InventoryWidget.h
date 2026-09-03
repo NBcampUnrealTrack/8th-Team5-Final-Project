@@ -153,6 +153,10 @@ private:
 	FIntPoint PressedCell = FIntPoint::ZeroValue;
 	FVector2D PressedLocalPosition = FVector2D::ZeroVector;
 	bool bPressedWithCtrl = false;
+	// 우클릭이 실제로 유효한 아이템 칸에서 시작됐는지 추적. 이게 없으면 인벤토리 바깥이나
+	// 빈 칸에서 우클릭해도 이전에 눌렀던 PressedCell/bPressedWithCtrl 값이 그대로 남아있어서,
+	// Ctrl 없이 아무데나 우클릭해도 예전 아이템의 컨텍스트 메뉴가 다시 뜨는 버그가 있었음.
+	bool bHasValidPress = false;
 
 	void ShowSplitPopupForDrop(FGuid InInstanceId, FIntPoint InTargetCell, FVector2D InScreenPosition);
 
