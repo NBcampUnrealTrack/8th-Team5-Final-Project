@@ -238,7 +238,26 @@ void UAlertComponent::ValidTargets()
 	// 뒤에서부터 도는 이유는 중간을 지워도 인덱스가 안 밀리기 때문이다.
 	for (int32 i = SensedTargets.Num() - 1; i >= 0; --i)
 	{
-		if (!IsTargetAlive(SensedTargets[i].Get()))
+		AActor* SensedActor = SensedTargets[i].Get();
+
+		// SensedActor가 nullptr이거나 사망태그를 가졋다면 죽음 
+		bool bIsDead = true;
+
+		if (SensedActor)
+		{
+			// ASC를 가져와서 사망 태그가 있는지 검사
+			if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(SensedActor))
+			{
+				bIsDead = ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
+			}
+			else
+			{
+				// ASC가 없는 오브젝트라면 유효한지만 확인
+				bIsDead = !IsTargetAlive(SensedActor);
+			}
+		}
+
+		if (bIsDead)
 		{
 			SensedTargets.RemoveAt(i);
 		}
