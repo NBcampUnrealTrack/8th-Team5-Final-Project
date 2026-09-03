@@ -54,6 +54,7 @@ class UQuickSlotComponent;
 class UShopComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMPChanged, float, CurrentMP, float, MaxMP);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerLevelChanged, int32, NewLevel);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPlayerExperienceChanged, int32, CurrentExperience, int32, ExperienceToNextLevel, float, ExperiencePercent);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTeamIdChanged, int32, NewTeamId);
@@ -232,9 +233,14 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "GAS|Attributes")
 	FOnHPChanged OnHPChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "GAS|Attributes")
+	FOnMPChanged OnMPChanged;
+
 protected:
 	void OnHealthChanged(const struct FOnAttributeChangeData& Data);
 	void OnMaxHealthChanged(const struct FOnAttributeChangeData& Data);
+	void OnManaChanged(const struct FOnAttributeChangeData& Data);
+	void OnMaxManaChanged(const struct FOnAttributeChangeData& Data);
 
 #pragma endregion
 
