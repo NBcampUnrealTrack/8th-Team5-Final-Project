@@ -130,6 +130,19 @@ void AHBPlayerCharacter::BeginPlay()
 	
 	BindToPlayerStateComponents();
 
+	if (HasAuthority() && GetWorld())
+	{
+		LastManaActivityTime = GetWorld()->GetTimeSeconds();
+
+		GetWorldTimerManager().SetTimer(
+			ManaResourceTimer,
+			this,
+			&AHBPlayerCharacter::UpdateManaResource,
+			ManaResourceTickInterval,
+			true
+		);
+	}
+
 	#pragma region TemporaryEquipmentVisualTest
 	ApplyTemporaryEquipmentVisualTest();
 	#pragma endregion
