@@ -16,7 +16,6 @@
 #include "Engine/DataTable.h"
 #include "Core/DataManagement/LoadoutStorage.h"
 #include "Core/DataManagement/LoadoutStorageSubsystem.h"
-#include "Inventory/QuickSlotComponent.h"
 #include "TimerManager.h"
 
 namespace
@@ -65,6 +64,7 @@ namespace
 			FText::AsNumber(NextLevel));
 	}
 }
+
 
 AHB_PlayerState::AHB_PlayerState()
 {
@@ -298,6 +298,7 @@ void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AHB_PlayerState, SkillEUpgradeLevel);
 	DOREPLIFETIME(AHB_PlayerState, PendingUpgradeChoices);
 	DOREPLIFETIME(AHB_PlayerState, CurrentUpgradeCandidates);
+
 }
 
 void AHB_PlayerState::RequestSaveLoadout()

@@ -10,6 +10,13 @@
 class UHB_PlayerAttributeSet;
 class UStashComponent;
 class UTexture2D;
+class UInventoryComponent;
+class UEquipmentComponent;
+class UQuickSlotComponent;
+class UShopComponent;
+class ILoadoutStorage;
+
+struct FPlayerLoadout;
 
 UENUM(BlueprintType)
 enum class EHBUpgradeCandidateType : uint8
@@ -47,14 +54,6 @@ struct HEAVENBREACH_API FHBUpgradeCandidate
 	UPROPERTY(BlueprintReadOnly)
 	int32 NextLevel = 0;
 };
-
-class UInventoryComponent;
-class UEquipmentComponent;
-class UQuickSlotComponent;
-class UShopComponent;
-class ILoadoutStorage;
-
-struct FPlayerLoadout;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMPChanged, float, CurrentMP, float, MaxMP);
