@@ -10,6 +10,8 @@ public class HeavenBreach : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[] {
 			"Core",
+			// Stash account resolution calls FUniqueNetIdWrapper APIs implemented by CoreOnline.
+			"CoreOnline",
 			"CoreUObject",
 			"Engine",
 			"InputCore",

@@ -25,6 +25,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Title|UI")
 	TSubclassOf<UHBGameStartMenuWidget> GameStartMenuClass;
 	
+	/** Legacy editor value retained so existing Blueprint assets do not need to be resaved. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Title|Travel")
 	FName LobbyLevelName = TEXT("/Game/Levels/Lobby/L_Lobby");
 	

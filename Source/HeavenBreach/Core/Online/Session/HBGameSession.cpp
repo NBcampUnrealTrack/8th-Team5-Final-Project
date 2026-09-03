@@ -6,21 +6,26 @@
 #include "OnlineSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "OnlineSessionSettings.h"
+#include "Engine/World.h"
 
 namespace HBSession
 {
-	const FName MatchSessionName(TEXT("HBMatchSession"));
 	const FName ProjectKey(TEXT("HB_PROJECT"));
+	const FName MapNameKey(TEXT("HB_MAP"));
+	const TCHAR* ProjectValue = TEXT("HeavenBreach");
 }
 
 void AHBGameSession::RegisterServer()
 {
-	Super::RegisterServer();
-	
 	if (!IsRunningDedicatedServer())
 	{
+		Super::RegisterServer();
 		return;
 	}
+
+	// A dedicated process advertises one authoritative session. Reusing the
+	// inherited GameSession name also lets a new GameMode keep the same Steam
+	// session after ServerTravel instead of creating a competing duplicate.
 	
 	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
 	if (OnlineSubsystem == nullptr)
@@ -39,9 +44,20 @@ void AHBGameSession::RegisterServer()
 	{
 		UE_LOG(LogTemp,
 			Error,
-			TEXT("Online | Dedicated Server | Match Session already exists")
+			TEXT("Online | Dedicated Server | SessionInterface unavailable")
 			);
 		
+		return;
+	}
+
+	if (SessionInterface->GetNamedSession(SessionName) != nullptr)
+	{
+		UE_LOG(
+			LogTemp,
+			Log,
+			TEXT("Online | Dedicated Server | Reusing session after travel: %s"),
+			*SessionName.ToString()
+			);
 		return;
 	}
 	
@@ -64,9 +80,20 @@ void AHBGameSession::RegisterServer()
 	
 	Settings.Set(
 		HBSession::ProjectKey,
-		FString(TEXT("HeavenBreach")),
+		FString(HBSession::ProjectValue),
 		EOnlineDataAdvertisementType::ViaOnlineServiceAndPing
 		);
+
+	// Expose the current map in Steam's server metadata for diagnostics and
+	// future server-browser filtering without changing any map asset.
+	if (const UWorld* World = GetWorld())
+	{
+		Settings.Set(
+			HBSession::MapNameKey,
+			World->GetMapName(),
+			EOnlineDataAdvertisementType::ViaOnlineServiceAndPing
+			);
+	}
 	
 	const FOnCreateSessionCompleteDelegate Delegate = 
 		FOnCreateSessionCompleteDelegate::CreateUObject(
@@ -80,7 +107,7 @@ void AHBGameSession::RegisterServer()
 	const bool bRequestStarted = 
 		SessionInterface->CreateSession(
 			0,
-			HBSession::MatchSessionName,
+			SessionName,
 			Settings
 			);
 	
@@ -102,7 +129,8 @@ void AHBGameSession::RegisterServer()
 	UE_LOG(
 		LogTemp,
 		Log,
-		TEXT("Online | Dedicated Server | CreateSession requested")
+		TEXT("Online | Dedicated Server | CreateSession requested: %s"),
+		*SessionName.ToString()
 		);
 }
 
@@ -130,7 +158,7 @@ void AHBGameSession::HandleCreateSessionComplete(FName InSessionName, bool bWasS
 		LogTemp,
 		Log, 
 		TEXT("Online | Dedicated Server | Session: %s | Created: true"),
-		*SessionName.ToString()
+		*InSessionName.ToString()
 		);
 	}
 	else
@@ -139,7 +167,7 @@ void AHBGameSession::HandleCreateSessionComplete(FName InSessionName, bool bWasS
 		LogTemp,
 		Error, 
 		TEXT("Online | Dedicated Server | Session: %s | Created: false"),
-		*SessionName.ToString()
+		*InSessionName.ToString()
 		);
 	}
 }
