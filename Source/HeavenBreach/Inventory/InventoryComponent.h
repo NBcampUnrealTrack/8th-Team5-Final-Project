@@ -67,6 +67,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool UseItem(FGuid InInstanceId);
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool ToggleFavorite(FGuid InInstanceId);
 
 	bool TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
 
@@ -128,6 +130,8 @@ public:
 
 	UFUNCTION(Server, Reliable)
 	void Server_UseItem(FGuid InInstanceId);
+	UFUNCTION(Server, Reliable)
+	void Server_ToggleFavorite(FGuid InInstanceId);
 
 	UFUNCTION(Server, Reliable)
 	void Server_SplitStack(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition);

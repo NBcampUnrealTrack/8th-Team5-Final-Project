@@ -1,4 +1,4 @@
-#include "InventoryWidget.h"
+ï»¿#include "InventoryWidget.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/CanvasPanel.h"
@@ -12,6 +12,7 @@
 #include "EquipmentComponent.h"
 #include "EquipmentWidget.h"
 #include "Item/ItemActionMenuWidget.h"
+#include "Item/Item.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Item/UItemSplitPopupWidget.h"
 #include "Item/ItemInfoPopupWidget.h"
@@ -26,11 +27,11 @@
 
 UInventoryWidget::UInventoryWidget()
 {
-	// È°¼º »óÅÂ¿¡¼­ °ÔÀÓ ÀÔ·ÂÀ» Â÷´ÜÇÏ°í Ä¿¼­¸¦ ¶ç¿î´Ù.
-	// µå·¡±×&µå·Ó ¶§¹®¿¡ ¸¶¿ì½º´Â Ä¸Ã³ÇÏÁö ¾Ê´Â´Ù.
+	// í™œì„± ìƒíƒœì—ì„œ ê²Œì„ ì…ë ¥ì„ ì°¨ë‹¨í•˜ê³  ì»¤ì„œë¥¼ ë„ìš´ë‹¤.
+	// ë“œë˜ê·¸&ë“œë¡­ ë•Œë¬¸ì— ë§ˆìš°ìŠ¤ëŠ” ìº¡ì²˜í•˜ì§€ ì•ŠëŠ”ë‹¤.
 	InputMode = EHBWidgetInputMode::Menu;
 
-	// ESC ·Î ÀÚ±â ÀÚ½ÅÀ» ´İ´Â´Ù. ½ºÅÃÀÌ ¾Æ·¡ À§Á¬À» ÀÚµ¿ ÀçÈ°¼ºÇÑ´Ù.
+	// ESC ë¡œ ìê¸° ìì‹ ì„ ë‹«ëŠ”ë‹¤. ìŠ¤íƒì´ ì•„ë˜ ìœ„ì ¯ì„ ìë™ ì¬í™œì„±í•œë‹¤.
 	bIsBackHandler = true;
 }
 
@@ -710,7 +711,7 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 	}
 	const bool bCanUse = ViewData.IsConsumable();
 	const bool bCanSplit = Item.StackCount > 1;
-	ActiveContextMenu->SetupForItem(bCanUse, bCanSplit);
+	ActiveContextMenu->SetupForItem(bCanUse, bCanSplit, Item.bIsFavorite);
 	const FGuid InstanceId = Item.InstanceId;
 	ActiveContextMenu->OnUseRequested.AddLambda([this, InstanceId]()
 		{
@@ -760,6 +761,13 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 				BoundInventory->Server_DropItem(InstanceId);
 			}
 		});
+	ActiveContextMenu->OnFavoriteRequested.AddLambda([this, InstanceId]()
+		{
+			if (BoundInventory != nullptr)
+			{
+				BoundInventory->Server_ToggleFavorite(InstanceId);
+			}
+		});
 	ActiveContextMenu->OnInfoRequested.AddLambda([this, Item, ViewData]()
 		{
 			if (ItemInfoPopupClass == nullptr)
@@ -777,9 +785,52 @@ bool UInventoryWidget::HandleContextMenu(FIntPoint InCell)
 				return;
 			}
 			UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
+			FString StatText;
+			if (const UDataTable* ItemDataTable = Item.ItemRow.DataTable)
+			{
+				const UScriptStruct* RowStruct = ItemDataTable->GetRowStruct();
+				if (RowStruct == FWeaponData::StaticStruct())
+				{
+					if (const FWeaponData* WeaponRow = ItemDataTable->FindRow<FWeaponData>(Item.ItemRow.RowName, TEXT("ItemInfoPopup")))
+					{
+						const FText WeaponStatFormat = FText::FromString(TEXT("ê³µê²©ë ¥: {0}\nì‚¬ê±°ë¦¬: {1}\nê³µê²© ì†ë„: {2}ì´ˆ"));
+						StatText = FText::Format(WeaponStatFormat,
+							FText::AsNumber(WeaponRow->AttackPower),
+							FText::AsNumber(WeaponRow->AttackRange),
+							FText::AsNumber(WeaponRow->AttackInterval)).ToString();
+					}
+				}
+				else if (RowStruct == FShieldData::StaticStruct())
+				{
+					if (const FShieldData* ShieldRow = ItemDataTable->FindRow<FShieldData>(Item.ItemRow.RowName, TEXT("ItemInfoPopup")))
+					{
+						const FText ShieldStatFormat = FText::FromString(TEXT("í”¼í•´ ê°ì†Œ: {0}%\në°©ì–´ ë²”ìœ„: {1}ë„"));
+						StatText = FText::Format(ShieldStatFormat,
+							FText::AsNumber(ShieldRow->DamageReduction),
+							FText::AsNumber(ShieldRow->BlockAngle)).ToString();
+					}
+				}
+				else if (RowStruct == FItemData::StaticStruct())
+				{
+					if (const FItemData* GeneralRow = ItemDataTable->FindRow<FItemData>(Item.ItemRow.RowName, TEXT("ItemInfoPopup")))
+					{
+						if (!GeneralRow->BonusStatType.IsEmpty())
+						{
+							const FText BonusStatFormat = FText::FromString(TEXT("{0}: {1}"));
+							StatText = FText::Format(BonusStatFormat,
+								FText::FromString(GeneralRow->BonusStatType),
+								FText::AsNumber(GeneralRow->BonusStatValue)).ToString();
+						}
+					}
+				}
+			}
+			UE_LOG(LogTemp, Warning, TEXT("[ItemInfo] RowName=%s DataTable=%s StatText='%s'"),
+				*Item.ItemRow.RowName.ToString(),
+				Item.ItemRow.DataTable ? *Item.ItemRow.DataTable->GetName() : TEXT("null"),
+				* StatText);
 			ActiveInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, TEXT(""),
 				ViewData.bIsRelic, ViewData.BenefitDescription, ViewData.RiskDescription,
-				ViewData.SellValue, IconTexture);
+				ViewData.SellValue, IconTexture, StatText);
 			ActiveInfoPopup->AddToViewport(100);
 			ActiveInfoPopup->SetKeyboardFocus();
 			const FVector2D InfoViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
@@ -1015,8 +1066,8 @@ void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 				.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f))
 		];
 	DragVisualRoot = NewDragBox;
-	// ºäÆ÷Æ®¿¡ ¿Ã¸®±â Àü¿¡ ÀÌ¹Ì ¸¶¿ì½º À§Ä¡·Î ¹èÄ¡ÇØ¼­, Ã¹ ÇÁ·¹ÀÓ¿¡ ÁÂÃø»ó´Ü¿¡
-	// ³ªÅ¸³µ´Ù°¡ Á¡ÇÁÇÏ´Â Çö»ó ÀÚÃ¼¸¦ ¾ø¾Ø´Ù.
+	// ë·°í¬íŠ¸ì— ì˜¬ë¦¬ê¸° ì „ì— ì´ë¯¸ ë§ˆìš°ìŠ¤ ìœ„ì¹˜ë¡œ ë°°ì¹˜í•´ì„œ, ì²« í”„ë ˆì„ì— ì¢Œì¸¡ìƒë‹¨ì—
+	// ë‚˜íƒ€ë‚¬ë‹¤ê°€ ì í”„í•˜ëŠ” í˜„ìƒ ìì²´ë¥¼ ì—†ì•¤ë‹¤.
 	const FVector2D MousePos = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
 	NewDragBox->SetRenderTransform(FSlateRenderTransform(MousePos - PixelOffset));
 	if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
@@ -1040,8 +1091,8 @@ void UInventoryWidget::RefocusAfterDrop()
 		return;
 	}
 
-	// SetInputMode¸¦ Á÷Á¢ ºÎ¸£¸é CommonUI°¡ Àû¿ëÇØµĞ InputConfig¸¦ µ¤¾î½á¼­
-	// ½ºÅÃ »óÅÂ¿Í ÀÔ·Â ¸ğµå°¡ ¾î±ß³­´Ù. Æ÷Ä¿½º¸¸ µÇµ¹¸°´Ù.
+	// SetInputModeë¥¼ ì§ì ‘ ë¶€ë¥´ë©´ CommonUIê°€ ì ìš©í•´ë‘” InputConfigë¥¼ ë®ì–´ì¨ì„œ
+	// ìŠ¤íƒ ìƒíƒœì™€ ì…ë ¥ ëª¨ë“œê°€ ì–´ê¸‹ë‚œë‹¤. í¬ì»¤ìŠ¤ë§Œ ë˜ëŒë¦°ë‹¤.
 	TSharedRef<SWidget> WidgetToFocus = (LinkedContainer != nullptr && ParentContainerWidget != nullptr)
 		? ParentContainerWidget->TakeWidget()
 		: TakeWidget();

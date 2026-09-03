@@ -16,4 +16,7 @@ namespace WarriorTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Cooldown_BattleCry, "Cooldown.Warrior.BattleCry");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Cooldown_ChainPull, "Cooldown.Warrior.ChainPull");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Cooldown_BloodThirst, "Cooldown.Warrior.BloodThirst");
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Data_BattleCry_AttackMultiplier, "Data.Warrior.BattleCry.AttackMultiplier");
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Data_BattleCry_MoveSpeedBonus, "Data.Warrior.BattleCry.MoveSpeedBonus");
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Data_BattleCry_DefenseBonus, "Data.Warrior.BattleCry.DefenseBonus");
 }

@@ -20,7 +20,7 @@ public:
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 	void SetupInfo(const FString& InDisplayName, EItemGrade InGrade, const FString& InDescription,
 		bool bInIsRelic, const FString& InBenefitDescription, const FString& InRiskDescription,
-		int32 InSellValue, UTexture2D* InIcon);
+		int32 InSellValue, UTexture2D* InIcon, const FString& InStatText = FString());
 
 protected:
 	UPROPERTY(meta = (BindWidget))
@@ -45,4 +45,7 @@ protected:
 
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UTextBlock> RiskText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> StatText;
 };
