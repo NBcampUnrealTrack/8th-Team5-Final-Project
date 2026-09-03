@@ -41,7 +41,7 @@ void UInventoryItemWidget::InitializeItem(
 	const EItemGrade Grade = bHasViewData ? ViewData.Grade : EItemGrade::Normal;
 	if (Image_ItemBackground != nullptr)
 	{
-		Image_ItemBackground->SetColorAndOpacity(FLinearColor::White);
+		Image_ItemBackground->SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f, 0.5f));
 	}
 
 	if (Image_ItemBackground != nullptr)

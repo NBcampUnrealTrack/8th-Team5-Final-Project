@@ -159,6 +159,10 @@ void AItemBase::InitializeFromDataTable()
 
 bool AItemBase::TryPickUp(AActor* Picker)
 {
+	if (!HasAuthority())
+	{
+		return false;
+	}
 	if (!Picker)
 	{
 		return false;
@@ -216,11 +220,8 @@ bool AItemBase::TryPickUp(AActor* Picker)
 void AItemBase::NotifyActorBeginOverlap(AActor* OtherActor)
 {
 	Super::NotifyActorBeginOverlap(OtherActor);
-	if (!HasAuthority())
-	{
-		return;
-	}
-	TryPickUp(OtherActor);
+	// 더 이상 오버랩만으로 자동 습득하지 않음 - F키 상호작용으로만 습득 가능.
+	// InteractionSphere는 여전히 "지금 오버랩 중인 아이템 조회"용으로 쓰임.
 }
 
 bool AItemBase::CanInteract_Implementation(AActor* Interactor) const
