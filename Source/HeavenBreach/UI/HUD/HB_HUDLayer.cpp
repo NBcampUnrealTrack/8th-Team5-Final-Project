@@ -214,7 +214,12 @@ bool UHB_HUDLayer::TryBindPlayerState()
 			PS->OnHPChanged.RemoveAll(this);
 			PS->OnHPChanged.AddDynamic(this, &UHB_HUDLayer::UpdateHPBar);
 
+			PS->OnMPChanged.RemoveAll(this);
+			PS->OnMPChanged.AddDynamic(this, &UHB_HUDLayer::UpdateMPBar);
+
+			// 델리게이트는 "바뀔 때"만 오므로 접속 직후 현재 값을 한 번 직접 넣는다
 			UpdateHPBar(AttribSet->GetPlayer_HP(), AttribSet->GetPlayer_MaxHP());
+			UpdateMPBar(AttribSet->GetPlayer_Mana(), AttribSet->GetPlayer_MaxMana());
 			bPSBound = true;
 		}
 	}
@@ -315,7 +320,7 @@ void UHB_HUDLayer::UpdateMPBar(float CurrentMP, float MaxMP)
 		return;
 	}
 
-	TargetPercent = FMath::Clamp(CurrentMP / MaxMP, 0.0f, 1.0f);
+	MPTargetPercent = FMath::Clamp(CurrentMP / MaxMP, 0.0f, 1.0f);
 
 	if (!bIsMPInitialized)
 	{
