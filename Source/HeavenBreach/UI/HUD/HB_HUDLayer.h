@@ -8,6 +8,7 @@
 class UImage;
 class UMaterialInstanceDynamic;
 class UEquipmentComponent;
+class UQuickSlotComponent;
 class UHB_HitEffectWidget;
 class UTextBlock;
 class UTextureRenderTarget2D;
@@ -37,6 +38,8 @@ public:
 
 	UFUNCTION()
 	void UpdateEquipmentSlots();
+	UFUNCTION()
+	void UpdateQuickSlots();
 
 	/**
 	 * 레벨 표시 갱신.
@@ -108,7 +111,16 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_EquipSubWeapon;
-
+	/** 퀵슬롯 3번(포션). QuickSlotComponent 슬롯 인덱스 2에 대응 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_Potion_1;
+	/** 퀵슬롯 4번(포션). QuickSlotComponent 슬롯 인덱스 3에 대응 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_Potion_2;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Potion_1_Num;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Potion_2_Num;
 	/** 경험치 바. Percent 스칼라 파라미터를 가진 머티리얼이 지정돼 있어야 채워진다 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_Experience;
@@ -163,11 +175,14 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UEquipmentComponent> CachedEquipComp;
-
 	bool bIsEquipBound = false;
-
 	FSlateBrush DefaultWeaponBrush;
 	FSlateBrush DefaultSubWeaponBrush;
+	UPROPERTY()
+	TObjectPtr<UQuickSlotComponent> CachedQuickSlotComp;
+	bool bIsQuickSlotBound = false;
+	FSlateBrush DefaultPotion1Brush;
+	FSlateBrush DefaultPotion2Brush;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> ExpBarDynamicMaterial;

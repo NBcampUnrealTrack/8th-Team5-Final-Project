@@ -3,6 +3,8 @@
 #include "Net/UnrealNetwork.h"
 #include "EquipmentComponent.h"
 #include "Item/ItemBase.h"
+#include "GameFramework/PlayerState.h"
+#include "GameFramework/Pawn.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -740,16 +742,25 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	{
 		return false;
 	}
-
+	// Inventory 컴포넌트는 PlayerState에 붙어있는데, PlayerState는 실제로 필드를 돌아다니는
+	// 액터가 아니라서 GetOwner()의 위치는 항상 고정된 값이 나옴. 실제 캐릭터(Pawn) 위치를
+	// 써야 플레이어가 서 있는 곳에 정확히 떨어짐.
+	AActor* SpawnBasisActor = OwnerActor;
+	if (const APlayerState* OwnerPlayerState = Cast<APlayerState>(OwnerActor))
+	{
+		if (APawn* OwnerPawn = OwnerPlayerState->GetPawn())
+		{
+			SpawnBasisActor = OwnerPawn;
+		}
+	}
 	TSubclassOf<AItemBase> ClassToSpawn = AItemBase::StaticClass();
 	if (DropItemClass != nullptr)
 	{
 		ClassToSpawn = DropItemClass;
 	}
-
-	const FVector ForwardOffset = OwnerActor->GetActorForwardVector() * 200.f;
+	const FVector ForwardOffset = SpawnBasisActor->GetActorForwardVector() * 200.f;
 	const FVector UpOffset = FVector(0.f, 0.f, 50.f);
-	const FVector SpawnLocation = OwnerActor->GetActorLocation() + ForwardOffset + UpOffset;
+	const FVector SpawnLocation = SpawnBasisActor->GetActorLocation() + ForwardOffset + UpOffset;
 	const FTransform SpawnTransform(FRotator::ZeroRotator, SpawnLocation);
 
 	AItemBase* NewItemActor = World->SpawnActorDeferred<AItemBase>(ClassToSpawn, SpawnTransform);

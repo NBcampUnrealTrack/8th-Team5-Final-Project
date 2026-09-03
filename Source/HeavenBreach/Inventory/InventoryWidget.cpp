@@ -138,12 +138,24 @@ void UInventoryWidget::NativeDestruct()
 	{
 		BoundInventory->OnInventoryChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
 	}
-
 	if (LinkedShop != nullptr)
 	{
 		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
 	}
-
+	// 드래그 중에 인벤토리 창이 닫히면(Tab 키 등) NativeOnDrop/NativeOnDragCancelled가 호출되지
+	// 않아 뷰포트에 직접 올려둔 드래그 아이콘(DragVisualRoot)이 화면에 계속 남는 버그 수정.
+	if (DragVisualRoot.IsValid())
+	{
+		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+		{
+			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
+		}
+		DragVisualRoot.Reset();
+	}
+	if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
+	{
+		FSlateApplication::Get().CancelDragDrop();
+	}
 	Super::NativeDestruct();
 }
 
@@ -901,14 +913,17 @@ FReply UInventoryWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, co
 	FIntPoint Cell;
 	if (!ScreenToCell(InMouseEvent.GetScreenSpacePosition(), Cell))
 	{
+		bHasValidPress = false;
 		return FReply::Unhandled();
 	}
 	if (BoundInventory->GetEntryIndexAt(Cell) == INDEX_NONE)
 	{
+		bHasValidPress = false;
 		return FReply::Unhandled();
 	}
 	PressedCell = Cell;
 	bPressedWithCtrl = InMouseEvent.IsControlDown();
+	bHasValidPress = true;
 	ScreenToLocal(InMouseEvent.GetScreenSpacePosition(), PressedLocalPosition);
 	PressedScreenPosition = InMouseEvent.GetScreenSpacePosition();
 	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
@@ -924,6 +939,12 @@ FReply UInventoryWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, cons
 	{
 		return FReply::Unhandled();
 	}
+	// 우클릭이 유효한 아이템 칸에서 시작된 게 아니면(인벤토리 바깥, 빈 칸 등) 무시.
+	if (!bHasValidPress)
+	{
+		return FReply::Unhandled();
+	}
+	bHasValidPress = false;
 	if (bPressedWithCtrl)
 	{
 		return HandleContextMenu(PressedCell) ? FReply::Handled() : FReply::Unhandled();
