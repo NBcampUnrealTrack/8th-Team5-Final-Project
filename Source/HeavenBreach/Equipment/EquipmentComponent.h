@@ -45,6 +45,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Equipment|Debug")
 	void DebugPrintSlots() const;
 
+	void ApplyLoadedSlots(const TArray<FItemInstance>& InSlots);
+
 protected:
 	virtual void BeginPlay() override;
 

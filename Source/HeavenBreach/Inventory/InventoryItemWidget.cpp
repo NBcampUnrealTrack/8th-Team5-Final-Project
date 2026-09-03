@@ -43,65 +43,45 @@ void UInventoryItemWidget::InitializeItem(
 	{
 		Image_ItemBackground->SetColorAndOpacity(FLinearColor::White);
 	}
-	if (Image_ItemGlow != nullptr)
+
+	if (Image_ItemBackground != nullptr)
 	{
-		if (GlowMID == nullptr)
+		if (BackgroundMID == nullptr)
 		{
-			if (UMaterialInterface* BaseMat = Cast<UMaterialInterface>(Image_ItemGlow->GetBrush().GetResourceObject()))
+			if (UMaterialInterface* BaseMat = Cast<UMaterialInterface>(Image_ItemBackground->GetBrush().GetResourceObject()))
 			{
-				GlowMID = UMaterialInstanceDynamic::Create(BaseMat, this);
-				Image_ItemGlow->SetBrushFromMaterial(GlowMID);
+				BackgroundMID = UMaterialInstanceDynamic::Create(BaseMat, this);
+				Image_ItemBackground->SetBrushFromMaterial(BackgroundMID);
 			}
 		}
-		if (GlowMID != nullptr)
+		if (BackgroundMID != nullptr)
 		{
-			FLinearColor GlowColor = FLinearColor::White;
-			float GlowIntensity = 0.0f;
+			FLinearColor TopColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+			FLinearColor BottomColor = FLinearColor(0.55f, 0.55f, 0.55f, 1.0f);
 			switch (Grade)
 			{
 			case EItemGrade::Normal:
-				GlowIntensity = 0.0f;
+				TopColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+				BottomColor = FLinearColor(0.55f, 0.55f, 0.55f, 1.0f);
 				break;
 			case EItemGrade::Rare:
-				GlowColor = FLinearColor(0.55f, 0.7f, 1.0f);
-				GlowIntensity = 0.6f;
+				TopColor = FLinearColor(0.55f, 0.7f, 1.0f, 1.0f);
+				BottomColor = FLinearColor(0.15f, 0.22f, 0.4f, 1.0f);
 				break;
 			case EItemGrade::Epic:
-				GlowColor = FLinearColor(0.75f, 0.55f, 0.95f);
-				GlowIntensity = 0.85f;
+				TopColor = FLinearColor(0.32f, 0.06f, 0.48f, 1.0f);
+				BottomColor = FLinearColor(0.10f, 0.02f, 0.16f, 1.0f);
 				break;
 			case EItemGrade::Legend:
-				GlowColor = FLinearColor(1.0f, 0.78f, 0.4f);
-				GlowIntensity = 1.0f;
+				TopColor = FLinearColor(1.0f, 0.78f, 0.4f, 1.0f);
+				BottomColor = FLinearColor(0.45f, 0.32f, 0.12f, 1.0f);
 				break;
 			default:
 				break;
 			}
-			GlowMID->SetVectorParameterValue(TEXT("GlowColor"), GlowColor);
-			GlowMID->SetScalarParameterValue(TEXT("GlowIntensity"), GlowIntensity);
-			// 등급 높은 것만 반짝임 애니메이션 재생
-			if ((Grade == EItemGrade::Epic || Grade == EItemGrade::Legend) && Anim_GlowPulse != nullptr)
-			{
-				PlayAnimation(Anim_GlowPulse, 0.0f, 0, EUMGSequencePlayMode::PingPong);
-			}
-			else if (Anim_GlowPulse != nullptr)
-			{
-				StopAnimation(Anim_GlowPulse);
-			}
+			BackgroundMID->SetVectorParameterValue(TEXT("TopColor"), TopColor);
+			BackgroundMID->SetVectorParameterValue(TEXT("BottomColor"), BottomColor);
 		}
-	}
-	if (Image_ItemBackground != nullptr)
-	{
-		FLinearColor GradeColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
-		switch (Grade)
-		{
-		case EItemGrade::Normal: GradeColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f); break;
-		case EItemGrade::Rare:   GradeColor = FLinearColor(0.55f, 0.7f, 1.0f, 1.0f); break;
-		case EItemGrade::Epic:   GradeColor = FLinearColor(0.75f, 0.55f, 0.95f, 1.0f); break;
-		case EItemGrade::Legend: GradeColor = FLinearColor(1.0f, 0.78f, 0.4f, 1.0f); break;
-		default: break;
-		}
-		Image_ItemBackground->SetColorAndOpacity(GradeColor);
 	}
 
 	if (Image_ItemIcon != nullptr)
@@ -144,7 +124,26 @@ void UInventoryItemWidget::InitializeItem(
 			Text_StackCount->SetVisibility(ESlateVisibility::Hidden);
 		}
 	}
-
+	if (Image_FavoriteStar != nullptr)
+	{
+		Image_FavoriteStar->SetVisibility(Item.bIsFavorite
+			? ESlateVisibility::HitTestInvisible
+			: ESlateVisibility::Hidden);
+	}
+	if (Border_ItemFrame != nullptr)
+	{
+		Border_ItemFrame->SetVisibility(Item.bIsFavorite
+			? ESlateVisibility::HitTestInvisible
+			: ESlateVisibility::Hidden);
+	}
+	if (Item.bIsFavorite && Anim_FavoritePulse != nullptr)
+	{
+		PlayAnimation(Anim_FavoritePulse, 0.0f, 0, EUMGSequencePlayMode::PingPong);
+	}
+	else if (Anim_FavoritePulse != nullptr)
+	{
+		StopAnimation(Anim_FavoritePulse);
+	}
 	SetVisibility(ESlateVisibility::Visible);
 }
 

@@ -14,6 +14,9 @@
 #include "Shop/ShopComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/DataTable.h"
+#include "Core/DataManagement/LoadoutStorage.h"
+#include "Core/DataManagement/LoadoutStorageSubsystem.h"
+#include "TimerManager.h"
 
 namespace
 {
@@ -61,6 +64,7 @@ namespace
 			FText::AsNumber(NextLevel));
 	}
 }
+
 
 AHB_PlayerState::AHB_PlayerState()
 {
@@ -124,6 +128,12 @@ void AHB_PlayerState::BeginPlay()
 
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute())
 			.AddUObject(this, &AHB_PlayerState::OnMaxHealthChanged);
+
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute())
+			.AddUObject(this, &AHB_PlayerState::OnManaChanged);
+
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute())
+			.AddUObject(this, &AHB_PlayerState::OnMaxManaChanged);
 	}
 
 	if (HasAuthority() && Stash)
@@ -134,8 +144,14 @@ void AHB_PlayerState::BeginPlay()
 			{
 				Stash->SetStorage(StorageSubsystem->GetStorage());
 				Stash->LoadStash(TEXT("TestAccount"));
+				Stash->OnStashLoadCompleted.AddUniqueDynamic(this, &AHB_PlayerState::HandleStashLoadCompleted);
 			}
 		}
+	}
+
+	if (HasAuthority())
+	{
+		LoadLoadout();
 	}
 }
 
@@ -155,6 +171,117 @@ void AHB_PlayerState::OnMaxHealthChanged(const FOnAttributeChangeData& Data)
 	}
 }
 
+void AHB_PlayerState::OnManaChanged(const FOnAttributeChangeData& Data)
+{
+	if (OnMPChanged.IsBound() && AttributeSet)
+	{
+		OnMPChanged.Broadcast(Data.NewValue, AttributeSet->GetPlayer_MaxMana());
+	}
+}
+
+void AHB_PlayerState::OnMaxManaChanged(const FOnAttributeChangeData& Data)
+{
+	if (OnMPChanged.IsBound() && AttributeSet)
+	{
+		OnMPChanged.Broadcast(AttributeSet->GetPlayer_Mana(), Data.NewValue);
+	}
+}
+
+void AHB_PlayerState::SaveLoadout()
+{
+	if (!HasAuthority() || !LoadoutStorage.IsValid())
+	{
+		return;
+	}
+
+	FPlayerLoadout Loadout;
+
+	if (Inventory)
+	{
+		Loadout.InventoryEntries = Inventory->GetEntries();
+	}
+
+	if (Equipment)
+	{
+		Loadout.EquipmentSlots = Equipment->GetSlots();
+	}
+
+	if (QuickSlot)
+	{
+		Loadout.QuickSlots = QuickSlot->GetSlots();
+	}
+
+	LoadoutStorage->SaveLoadoutAsync(LoadoutAccountId, Loadout, FOnLoadoutSaved());
+}
+
+void AHB_PlayerState::LoadLoadout()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	UGameInstance* GameInstance = GetGameInstance();
+	if (!GameInstance)
+	{
+		return;
+	}
+
+	ULoadoutStorageSubsystem* StorageSubsystem = GameInstance->GetSubsystem<ULoadoutStorageSubsystem>();
+	if (!StorageSubsystem)
+	{
+		return;
+	}
+
+	LoadoutStorage = StorageSubsystem->GetStorage();
+	if (!LoadoutStorage.IsValid())
+	{
+		return;
+	}
+
+	LoadoutAccountId = TEXT("TestAccount");
+
+	FOnLoadoutLoaded Callback;
+	Callback.BindUObject(this, &AHB_PlayerState::HandleLoadoutLoaded);
+	LoadoutStorage->LoadLoadoutAsync(LoadoutAccountId, Callback);
+}
+
+void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& InLoadout)
+{
+	if (!bSuccess || !HasAuthority())
+	{
+		return;
+	}
+
+	if (Inventory)
+	{
+		Inventory->ClearAll();
+
+		for (const FInventoryEntry& Entry : InLoadout.InventoryEntries)
+		{
+			Inventory->TryAddItemAt(Entry.Item, Entry.Position);
+		}
+
+		Inventory->OnInventoryChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
+	}
+
+	if (Equipment)
+	{
+		Equipment->ApplyLoadedSlots(InLoadout.EquipmentSlots);
+
+		Equipment->OnEquipmentChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
+	}
+
+	if (QuickSlot)
+	{
+		QuickSlot->ApplyLoadedSlots(InLoadout.QuickSlots);
+
+		QuickSlot->OnQuickSlotChanged.AddUObject(this, &AHB_PlayerState::HandleQuickSlotChanged);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Loadout: applied inv=%d"), InLoadout.InventoryEntries.Num());
+}
+
 void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -165,6 +292,63 @@ void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AHB_PlayerState, SkillEUpgradeLevel);
 	DOREPLIFETIME(AHB_PlayerState, PendingUpgradeChoices);
 	DOREPLIFETIME(AHB_PlayerState, CurrentUpgradeCandidates);
+
+}
+
+void AHB_PlayerState::RequestSaveLoadout()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	World->GetTimerManager().ClearTimer(LoadoutSaveTimer);
+	World->GetTimerManager().SetTimer(
+		LoadoutSaveTimer, this, &AHB_PlayerState::SaveLoadout, 0.6f, false);
+}
+
+void AHB_PlayerState::HandleQuickSlotChanged()
+{
+	RequestSaveLoadout();
+}
+
+void AHB_PlayerState::HandleStashLoadCompleted(bool bSuccess)
+{
+	if (!bSuccess || !HasAuthority() || !bGrantTestGold || !Stash)
+	{
+		return;
+	}
+
+	UShopComponent* ShopComp = Shop;
+	if (!ShopComp)
+	{
+		return;
+	}
+
+	const FDataTableRowHandle GoldRow = ShopComp->GetGoldItemRow();
+	if (GoldRow.IsNull())
+	{
+		return;
+	}
+
+	const int32 CurrentGold = Stash->GetTotalGold(GoldRow.RowName);
+	if (CurrentGold >= TestGoldMinimum)
+	{
+		return;
+	}
+
+	const int32 GrantAmount = TestGoldMinimum - CurrentGold;
+	if (Stash->AddGold(GoldRow, GrantAmount))
+	{
+		Stash->SaveStash();
+		UE_LOG(LogTemp, Log, TEXT("Stash: granted test gold %d (was %d)"), GrantAmount, CurrentGold);
+	}
 }
 
 void AHB_PlayerState::AddExperience(const int32 Amount)

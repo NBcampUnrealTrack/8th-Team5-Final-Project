@@ -58,12 +58,13 @@ private:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UBorder> Border_ItemFrame;
-
-	UPROPERTY(Transient, meta = (BindWidgetAnim))
-	TObjectPtr<UWidgetAnimation> Anim_GlowPulse;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UImage> Image_FavoriteStar;
+	UPROPERTY(Transient, meta = (BindWidgetAnimOptional))
+	TObjectPtr<UWidgetAnimation> Anim_FavoritePulse;
 
 	UPROPERTY()
-	TObjectPtr<UMaterialInstanceDynamic> GlowMID;
+	TObjectPtr<UMaterialInstanceDynamic> BackgroundMID;
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> SourceInventory;
