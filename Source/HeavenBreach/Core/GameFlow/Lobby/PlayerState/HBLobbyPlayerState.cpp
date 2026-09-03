@@ -8,6 +8,7 @@
 AHBLobbyPlayerState::AHBLobbyPlayerState()
 {
 	bIsReady = false;
+	bStartConfirmed = false;
 }
 
 void AHBLobbyPlayerState::SetReady(bool bNewReady)
@@ -33,6 +34,21 @@ void AHBLobbyPlayerState::SetReady(bool bNewReady)
 	);
 	
 	OnReadyStateChanged.Broadcast(bIsReady);
+	ForceNetUpdate();
+}
+
+void AHBLobbyPlayerState::SetStartConfirmed(bool bNewStartConfirmed)
+{
+	if (!HasAuthority() || bStartConfirmed == bNewStartConfirmed)
+	{
+		return;
+	}
+
+	// The dedicated server owns this flag; clients can only request their own
+	// confirmation through their PlayerController RPC.
+	bStartConfirmed = bNewStartConfirmed;
+	OnStartConfirmationChanged.Broadcast(bStartConfirmed);
+	ForceNetUpdate();
 }
 
 void AHBLobbyPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -40,9 +56,15 @@ void AHBLobbyPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
 	DOREPLIFETIME(AHBLobbyPlayerState, bIsReady);
+	DOREPLIFETIME(AHBLobbyPlayerState, bStartConfirmed);
 }
 
 void AHBLobbyPlayerState::OnRep_IsReady()
 {
 	OnReadyStateChanged.Broadcast(bIsReady);
+}
+
+void AHBLobbyPlayerState::OnRep_StartConfirmed()
+{
+	OnStartConfirmationChanged.Broadcast(bStartConfirmed);
 }

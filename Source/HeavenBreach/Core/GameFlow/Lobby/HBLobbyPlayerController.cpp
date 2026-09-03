@@ -8,16 +8,6 @@
 #include "UI/Lobby/HBLobbyHUDWidget.h"
 #include "HBLobbyGameMode.h"
 #include "HBLobbyGameState.h"
-#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
-#include "Misc/CommandLine.h"
-#include "Misc/Parse.h"
-
-namespace HBLobbyTemporary
-{
-	const TCHAR* RoleCommandLineKey = TEXT("HBTempLobbyRole=");
-	const TCHAR* HostRole = TEXT("Host");
-	const TCHAR* ClientRole = TEXT("Client");
-}
 
 void AHBLobbyPlayerController::SetReady(bool bNewReady)
 {
@@ -26,75 +16,15 @@ void AHBLobbyPlayerController::SetReady(bool bNewReady)
 		return;
 	}
 
-	if (!bNewReady)
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Lobby | Temporary ready flow ignores unready requests")
-			);
-
-		return;
-	}
-
-	UGameInstance* GameInstance = GetGameInstance();
-	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = GameInstance != nullptr
-		? GameInstance->GetSubsystem<UHBOnlineSessionSubsystem>()
-		: nullptr;
-
-	if (OnlineSessionSubsystem == nullptr)
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Lobby | Ready failed: OnlineSessionSubsystem unavailable")
-			);
-
-		return;
-	}
-
-	FString TemporaryRole;
-	if (!GetTemporaryLobbyRole(TemporaryRole))
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Lobby | Ready failed: Use -HBTempLobbyRole=Host or Client")
-			);
-
-		return;
-	}
-
-	if (TemporaryRole.Equals(
-		HBLobbyTemporary::HostRole,
-		ESearchCase::IgnoreCase))
-	{
-		OnlineSessionSubsystem->RequestCreateLobby(TemporaryLobbyMaxPlayers);
-		return;
-	}
-
-	OnlineSessionSubsystem->RequestFindAndJoinLobby();
+	// All machines are clients in the VM topology.  Only the authoritative
+	// dedicated server is allowed to change the replicated ready state.
+	ServerSetReady(bNewReady);
 }
 
 void AHBLobbyPlayerController::RequestStartGame()
 {
 	if (!IsLocalController())
 	{
-		return;
-	}
-
-	FString TemporaryRole;
-	if (!GetTemporaryLobbyRole(TemporaryRole) ||
-		!TemporaryRole.Equals(
-			HBLobbyTemporary::HostRole,
-			ESearchCase::IgnoreCase))
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Lobby | Match start rejected: Temporary role is not Host")
-			);
-
 		return;
 	}
 
@@ -109,21 +39,6 @@ bool AHBLobbyPlayerController::RequestStartDedicatedMatch()
 			LogTemp,
 			Warning,
 			TEXT("Lobby | Match start rejected: Controller is not local")
-			);
-
-		return false;
-	}
-
-	FString TemporaryRole;
-	if (!GetTemporaryLobbyRole(TemporaryRole) ||
-		!TemporaryRole.Equals(
-			HBLobbyTemporary::HostRole,
-			ESearchCase::IgnoreCase))
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Lobby | Match start rejected: Temporary role is not Host")
 			);
 
 		return false;
@@ -145,33 +60,11 @@ bool AHBLobbyPlayerController::RequestStartDedicatedMatch()
 		return false;
 	}
 
-	UGameInstance* GameInstance = GetGameInstance();
-	if (GameInstance == nullptr)
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Lobby | Match start failed: GameInstance unavailable")
-			);
-
-		return false;
-	}
-
-	UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
-		GameInstance->GetSubsystem<UHBOnlineSessionSubsystem>();
-
-	if (OnlineSessionSubsystem == nullptr)
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Lobby | Match start failed: OnlineSessionSubsystem unavailable")
-			);
-
-		return false;
-	}
-
-	return OnlineSessionSubsystem->RequestStartMatch();
+	// This is a per-player confirmation, not a host command.  The server RPC
+	// identifies the sender from its owning controller and never trusts a
+	// client-supplied player or Steam ID.
+	ServerRequestStartGame();
+	return true;
 }
 
 void AHBLobbyPlayerController::BeginPlay()
@@ -183,23 +76,6 @@ void AHBLobbyPlayerController::BeginPlay()
 		return;
 	}
 
-	if (UGameInstance* GameInstance = GetGameInstance())
-	{
-		if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
-			GameInstance->GetSubsystem<UHBOnlineSessionSubsystem>())
-		{
-			OnlineSessionSubsystem->OnLobbyOperationStateChanged.AddUniqueDynamic(
-				this,
-				&AHBLobbyPlayerController::HandleLobbyOperationStateChanged
-				);
-
-			HandleLobbyOperationStateChanged(
-				OnlineSessionSubsystem->GetLobbyOperationState(),
-				OnlineSessionSubsystem->GetLastLobbyOperationError()
-				);
-		}
-	}
-	
 	LobbyWidget = CreateWidget<UHBLobbyHUDWidget>(
 		this,
 		LobbyWidgetClass
@@ -219,96 +95,22 @@ void AHBLobbyPlayerController::BeginPlay()
 	SetShowMouseCursor(true);
 }
 
-void AHBLobbyPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-	if (UGameInstance* GameInstance = GetGameInstance())
-	{
-		if (UHBOnlineSessionSubsystem* OnlineSessionSubsystem =
-			GameInstance->GetSubsystem<UHBOnlineSessionSubsystem>())
-		{
-			OnlineSessionSubsystem->OnLobbyOperationStateChanged.RemoveDynamic(
-				this,
-				&AHBLobbyPlayerController::HandleLobbyOperationStateChanged
-				);
-		}
-	}
-
-	Super::EndPlay(EndPlayReason);
-}
-
-void AHBLobbyPlayerController::HandleLobbyOperationStateChanged(
-	EHBLobbyOperationState State,
-	const FString& ErrorMessage)
-{
-	UpdateTemporaryStartPermission(State);
-
-	if (State == EHBLobbyOperationState::Failed)
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Lobby | Temporary session flow failed: %s"),
-			*ErrorMessage
-			);
-	}
-}
-
-bool AHBLobbyPlayerController::GetTemporaryLobbyRole(FString& OutRole) const
-{
-	OutRole.Reset();
-
-	if (!FParse::Value(
-		FCommandLine::Get(),
-		HBLobbyTemporary::RoleCommandLineKey,
-		OutRole))
-	{
-		return false;
-	}
-
-	OutRole.TrimStartAndEndInline();
-
-	return OutRole.Equals(
-			HBLobbyTemporary::HostRole,
-			ESearchCase::IgnoreCase) ||
-		OutRole.Equals(
-			HBLobbyTemporary::ClientRole,
-			ESearchCase::IgnoreCase);
-}
-
-void AHBLobbyPlayerController::UpdateTemporaryStartPermission(
-	EHBLobbyOperationState State)
-{
-	AHBLobbyGameState* LobbyGameState = GetWorld() != nullptr
-		? GetWorld()->GetGameState<AHBLobbyGameState>()
-		: nullptr;
-
-	if (!IsValid(LobbyGameState))
-	{
-		return;
-	}
-
-	FString TemporaryRole;
-	const bool bCanStartAsTemporaryHost =
-		GetTemporaryLobbyRole(TemporaryRole) &&
-		TemporaryRole.Equals(
-			HBLobbyTemporary::HostRole,
-			ESearchCase::IgnoreCase) &&
-		State == EHBLobbyOperationState::InLobby;
-
-	LobbyGameState->SetCanStartMatch(bCanStartAsTemporaryHost);
-}
-
 void AHBLobbyPlayerController::ServerRequestStartGame_Implementation()
 {
-	AHBLobbyGameMode* LobbyGameMode =
-	GetWorld()->GetAuthGameMode<AHBLobbyGameMode>();
+	AHBLobbyGameMode* LobbyGameMode = GetWorld() != nullptr
+		? GetWorld()->GetAuthGameMode<AHBLobbyGameMode>()
+		: nullptr;
 
 	if (!IsValid(LobbyGameMode))
 	{
 		return;
 	}
 
-	LobbyGameMode->TryStartGame();
+	// The controller's own PlayerState is the server-side identity of the
+	// caller, so a client cannot confirm on behalf of another player.
+	LobbyGameMode->ConfirmStart(
+		GetPlayerState<AHBLobbyPlayerState>()
+		);
 }
 
 void AHBLobbyPlayerController::ServerSetReady_Implementation(bool bNewReady)
@@ -320,11 +122,18 @@ void AHBLobbyPlayerController::ServerSetReady_Implementation(bool bNewReady)
 		return;
 	}
 	
+	const bool bReadyStateChanged =
+		LobbyPlayerState->IsReady() != bNewReady;
+
 	LobbyPlayerState->SetReady(bNewReady);
 	
-	AHBLobbyGameMode* LobbyGameMode = GetWorld()->GetAuthGameMode<AHBLobbyGameMode>();
-	if (IsValid(LobbyGameMode))
+	AHBLobbyGameMode* LobbyGameMode = GetWorld() != nullptr
+		? GetWorld()->GetAuthGameMode<AHBLobbyGameMode>()
+		: nullptr;
+
+	if (IsValid(LobbyGameMode) && bReadyStateChanged)
 	{
-		LobbyGameMode->EvaluateCanStartMatch();
+		// Any ready-list change invalidates votes cast for the previous group.
+		LobbyGameMode->HandleReadyStateChanged();
 	}
 }

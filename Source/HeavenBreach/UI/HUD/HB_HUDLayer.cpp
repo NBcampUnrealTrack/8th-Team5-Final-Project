@@ -7,6 +7,8 @@
 #include "TimerManager.h"
 #include "Engine/World.h"
 #include "EquipmentComponent.h"
+#include "Inventory/QuickSlotComponent.h"
+#include "Inventory/InventoryComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/TextBlock.h"
@@ -45,7 +47,14 @@ void UHB_HUDLayer::NativeConstruct()
 	{
 		DefaultSubWeaponBrush = IMG_EquipSubWeapon->GetBrush();
 	}
-
+	if (IMG_Potion_1)
+	{
+		DefaultPotion1Brush = IMG_Potion_1->GetBrush();
+	}
+	if (IMG_Potion_2)
+	{
+		DefaultPotion2Brush = IMG_Potion_2->GetBrush();
+	}
 	// 머티리얼이 지정돼 있지 않으면 nullptr 이 돌아온다. 그 경우 갱신만 건너뛴다
 	if (IMG_Experience)
 	{
@@ -214,7 +223,12 @@ bool UHB_HUDLayer::TryBindPlayerState()
 			PS->OnHPChanged.RemoveAll(this);
 			PS->OnHPChanged.AddDynamic(this, &UHB_HUDLayer::UpdateHPBar);
 
+			PS->OnMPChanged.RemoveAll(this);
+			PS->OnMPChanged.AddDynamic(this, &UHB_HUDLayer::UpdateMPBar);
+
+			// 델리게이트는 "바뀔 때"만 오므로 접속 직후 현재 값을 한 번 직접 넣는다
 			UpdateHPBar(AttribSet->GetPlayer_HP(), AttribSet->GetPlayer_MaxHP());
+			UpdateMPBar(AttribSet->GetPlayer_Mana(), AttribSet->GetPlayer_MaxMana());
 			bPSBound = true;
 		}
 	}
@@ -238,8 +252,24 @@ bool UHB_HUDLayer::TryBindPlayerState()
 		}
 	}
 
-	// PlayerState와 EquipmentComponent 둘 다 준비되어야 재시도 타이머가 종료됩니다.
-	return bPSBound && bIsEquipBound;
+	// 3. QuickSlotComponent 바인딩 (아직 바인딩되지 않은 경우에만 시도)
+	if (!bIsQuickSlotBound)
+	{
+		if (APlayerController* OwningController = GetOwningPlayer())
+		{
+			AHB_PlayerState* HBPlayerState = OwningController->GetPlayerState<AHB_PlayerState>();
+			if (UQuickSlotComponent* QuickSlotComp = HBPlayerState ? HBPlayerState->GetQuickSlot() : nullptr)
+			{
+				CachedQuickSlotComp = QuickSlotComp;
+				CachedQuickSlotComp->OnQuickSlotChanged.RemoveAll(this);
+				CachedQuickSlotComp->OnQuickSlotChanged.AddUObject(this, &UHB_HUDLayer::UpdateQuickSlots);
+				UpdateQuickSlots();
+				bIsQuickSlotBound = true;
+			}
+		}
+	}
+	// PlayerState, EquipmentComponent, QuickSlotComponent 모두 준비되어야 재시도 타이머가 종료됩니다.
+	return bPSBound && bIsEquipBound && bIsQuickSlotBound;
 }
 
 void UHB_HUDLayer::UpdateEquipmentSlots()
@@ -286,7 +316,69 @@ void UHB_HUDLayer::UpdateEquipmentSlots()
 	UpdateSlotImage(EEquipSlotType::PrimaryWeapon, IMG_EquipWeapon, DefaultWeaponBrush);
 	UpdateSlotImage(EEquipSlotType::SecondaryEquip, IMG_EquipSubWeapon, DefaultSubWeaponBrush);
 }
-
+void UHB_HUDLayer::UpdateQuickSlots()
+{
+	if (!CachedQuickSlotComp)
+	{
+		return;
+	}
+	APlayerController* OwningController = GetOwningPlayer();
+	AHB_PlayerState* HBPlayerState = OwningController ? OwningController->GetPlayerState<AHB_PlayerState>() : nullptr;
+	UInventoryComponent* Inventory = HBPlayerState ? HBPlayerState->GetInventory() : nullptr;
+	auto UpdateSlotImage = [this, Inventory](int32 SlotIndex, UImage* TargetImage, UTextBlock* CountText, const FSlateBrush& DefaultBrush)
+		{
+			if (!TargetImage)
+			{
+				return;
+			}
+			const FGuid InstanceId = CachedQuickSlotComp->GetSlotInstanceId(SlotIndex);
+			if (Inventory && InstanceId.IsValid())
+			{
+				const int32 EntryIndex = Inventory->FindEntryIndexById(InstanceId);
+				if (Inventory->GetEntries().IsValidIndex(EntryIndex))
+				{
+					const FItemInstance& SlotItem = Inventory->GetEntries()[EntryIndex].Item;
+					FItemViewData ViewData;
+					if (ResolveItemViewData(SlotItem.ItemRow, ViewData))
+					{
+						UTexture2D* IconTexture = ViewData.Icon;
+						if (!IconTexture && !ViewData.IconPath.IsEmpty())
+						{
+							IconTexture = LoadItemIcon(ViewData.IconPath);
+						}
+						if (IconTexture)
+						{
+							TargetImage->SetBrushFromTexture(IconTexture);
+							TargetImage->SetColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 1.f));
+							if (CountText)
+							{
+								if (SlotItem.StackCount > 1)
+								{
+									CountText->SetText(FText::AsNumber(SlotItem.StackCount));
+									CountText->SetVisibility(ESlateVisibility::HitTestInvisible);
+								}
+								else
+								{
+									CountText->SetVisibility(ESlateVisibility::Collapsed);
+								}
+							}
+							return;
+						}
+					}
+				}
+			}
+			// 슬롯이 비었거나 인벤토리에서 아이템을 찾지 못하면 기본 브러시로 복원
+			TargetImage->SetBrush(DefaultBrush);
+			TargetImage->SetColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 1.f));
+			if (CountText)
+			{
+				CountText->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		};
+	// Potion_1 = 퀵슬롯 3번 = QuickSlotComponent 인덱스 2, Potion_2 = 퀵슬롯 4번 = 인덱스 3
+	UpdateSlotImage(2, IMG_Potion_1, Txt_Potion_1_Num, DefaultPotion1Brush);
+	UpdateSlotImage(3, IMG_Potion_2, Txt_Potion_2_Num, DefaultPotion2Brush);
+}
 void UHB_HUDLayer::UpdateHPBar(float CurrentHP, float MaxHP)
 {
 	if (MaxHP <= 0.0f)
@@ -315,7 +407,7 @@ void UHB_HUDLayer::UpdateMPBar(float CurrentMP, float MaxMP)
 		return;
 	}
 
-	TargetPercent = FMath::Clamp(CurrentMP / MaxMP, 0.0f, 1.0f);
+	MPTargetPercent = FMath::Clamp(CurrentMP / MaxMP, 0.0f, 1.0f);
 
 	if (!bIsMPInitialized)
 	{

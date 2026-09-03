@@ -70,6 +70,12 @@ AHB_PlayerState::AHB_PlayerState()
 {
 #pragma region NetworkSettings
 	bReplicates = true;
+
+	// APlayerState 의 엔진 기본값은 1Hz 다 (AActor 는 100). 이름/점수처럼 자주 바뀌지 않는
+	// 데이터를 전제한 값인데, 우리는 여기에 AttributeSet(HP/마나)을 얹어놨다.
+	// 그대로 두면 전투 자원이 최대 1초 늦게 도착해서, 달리기 소모처럼 연속적인 변화가
+	// 화면에 거의 반영되지 않는다.
+	SetNetUpdateFrequency(30.0f);
 #pragma endregion 
 	
 #pragma region AbilitySystemComponent

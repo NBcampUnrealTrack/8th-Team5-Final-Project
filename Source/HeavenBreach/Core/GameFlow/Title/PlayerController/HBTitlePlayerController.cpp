@@ -3,8 +3,8 @@
 
 #include "Core/GameFlow/Title/PlayerController/HBTitlePlayerController.h"
 
+#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "UI/Title/HBGameStartMenuWidget.h"
-#include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 
 void AHBTitlePlayerController::ConnectToLobby()
@@ -14,18 +14,25 @@ void AHBTitlePlayerController::ConnectToLobby()
 		return;
 	}
 	
-	if (LobbyLevelName.IsNone())
+	UGameInstance* GameInstance = GetGameInstance();
+	UHBOnlineSessionSubsystem* OnlineSessionSubsystem = GameInstance != nullptr
+		? GameInstance->GetSubsystem<UHBOnlineSessionSubsystem>()
+		: nullptr;
+
+	if (OnlineSessionSubsystem == nullptr)
 	{
-		UE_LOG(LogTemp, Error,
-			TEXT("Title | LobbyLevelName is empty"));
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Title | Dedicated server search failed: OnlineSessionSubsystem unavailable")
+			);
 		return;
 	}
-	
-	UE_LOG(LogTemp, Log,
-		TEXT("Title | Open Lobby Level: %s"),
-		*LobbyLevelName.ToString());
-	
-	UGameplayStatics::OpenLevel(this, LobbyLevelName);
+
+	// The title button never opens a local lobby map.  Every player executes
+	// this same Steam search/join flow and the resolved VM server connection
+	// performs the travel after JoinSession succeeds.
+	OnlineSessionSubsystem->RequestFindAndJoinLobby();
 }
 
 void AHBTitlePlayerController::ExitGame()

@@ -43,6 +43,11 @@ protected:
 	FIntPoint StashGridSize = FIntPoint(10, 35);
 
 private:
+	void TryLoadPendingStash();
+	bool ResolveServerAccountId(
+		const FString& RequestedAccountId,
+		FString& OutAccountId
+		) const;
 	void HandleLoadCompleted(bool bSuccess, const TArray<FInventoryEntry>& InEntries);
 
 	TSharedPtr<IStashStorage> Storage;
@@ -50,7 +55,12 @@ private:
 	UPROPERTY()
 	FString AccountId;
 
+	/** Keeps the existing LoadStash API while waiting for PlayerState's server-assigned Steam identity. */
+	FString PendingRequestedAccountId;
+	int32 IdentityRetryCount = 0;
+
 	bool bIsLoaded = false;
 
 	FTimerHandle StashSaveTimer;
+	FTimerHandle StashIdentityRetryTimer;
 };
