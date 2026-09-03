@@ -127,19 +127,6 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 void AHBPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
-	if (HasAuthority() && GetWorld())
-	{
-		LastManaActivityTime = GetWorld()->GetTimeSeconds();
-		GetWorldTimerManager().SetTimer(
-			ManaResourceTimer, this, &AHBPlayerCharacter::UpdateManaResource,
-			ManaResourceTickInterval, true);
-	}
-
-	if (Inventory)
-	{
-		Inventory->OnItemUsed.AddDynamic(this, &AHBPlayerCharacter::HandleItemUsed);
-	}
 	
 	BindToPlayerStateComponents();
 
