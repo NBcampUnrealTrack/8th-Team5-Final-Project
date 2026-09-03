@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "AbilitySystemInterface.h"
 #include "GameFramework/PlayerState.h"
-
+#include "Shop/ShopComponent.h"
 #include "HB_PlayerState.generated.h"
 
 
@@ -52,6 +52,9 @@ class UInventoryComponent;
 class UEquipmentComponent;
 class UQuickSlotComponent;
 class UShopComponent;
+class ILoadoutStorage;
+
+struct FPlayerLoadout;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMPChanged, float, CurrentMP, float, MaxMP);
@@ -73,6 +76,25 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+private:
+	UFUNCTION()
+	void RequestSaveLoadout();
+
+	void HandleQuickSlotChanged();
+
+	FTimerHandle LoadoutSaveTimer;
+
+	// °ñµå Å×½ºÆ®
+	UFUNCTION()
+	void HandleStashLoadCompleted(bool bSuccess);
+
+	UPROPERTY(EditDefaultsOnly, Category = "Debug")
+	bool bGrantTestGold = true;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Debug")
+	int32 TestGoldMinimum = 5000;
+	// °ñµå Å×½ºÆ®
 
 #pragma region MatchProgression
 public:
@@ -257,6 +279,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	UQuickSlotComponent* GetQuickSlot() const { return QuickSlot; }
+
+	UFUNCTION(BlueprintCallable, Category = "Loadout")
+	void SaveLoadout();
 private:
 	UPROPERTY()
 	TObjectPtr<UStashComponent> Stash;
@@ -269,6 +294,12 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UQuickSlotComponent> QuickSlot;
+
+	void LoadLoadout();
+	void HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& InLoadout);
+
+	TSharedPtr<ILoadoutStorage> LoadoutStorage;
+	FString LoadoutAccountId;
 #pragma endregion
 
 #pragma region Shop
@@ -281,4 +312,6 @@ private:
 	TObjectPtr<UShopComponent> Shop;
 
 #pragma endregion
+
+
 };

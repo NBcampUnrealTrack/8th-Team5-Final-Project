@@ -222,9 +222,10 @@ bool UHB_HUDLayer::TryBindPlayerState()
 	// 2. EquipmentComponent 바인딩 (아직 바인딩되지 않은 경우에만 시도)
 	if (!bIsEquipBound)
 	{
-		if (APawn* Pawn = GetOwningPlayerPawn())
+		if (APlayerController* OwningController = GetOwningPlayer())
 		{
-			if (UEquipmentComponent* EquipComp = Pawn->FindComponentByClass<UEquipmentComponent>())
+			AHB_PlayerState* HBPlayerState = OwningController->GetPlayerState<AHB_PlayerState>();
+			if (UEquipmentComponent* EquipComp = HBPlayerState ? HBPlayerState->GetEquipment() : nullptr)
 			{
 				CachedEquipComp = EquipComp;
 

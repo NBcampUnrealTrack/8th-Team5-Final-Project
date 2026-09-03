@@ -311,3 +311,19 @@ void UEquipmentComponent::DebugPrintSlots() const
 		UE_LOG(LogTemp, Log, TEXT("%s: %s"), *SlotName, *ViewData.DisplayName);
 	}
 }
+
+void UEquipmentComponent::ApplyLoadedSlots(const TArray<FItemInstance>& InSlots)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	const int32 Count = FMath::Min(Slots.Num(), InSlots.Num());
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		Slots[Index] = InSlots[Index];
+	}
+
+	OnRep_Slots();
+}

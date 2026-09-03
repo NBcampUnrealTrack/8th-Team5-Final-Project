@@ -23,6 +23,7 @@
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBox.h"
 #include "Engine/GameViewportClient.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 
 UInventoryWidget::UInventoryWidget()
 {
@@ -967,6 +968,7 @@ bool UInventoryWidget::HandleQuickSlotRegister(int32 InSlotIndex)
 	}
 
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+
 	FItemViewData ViewData;
 	const bool bResolved = ResolveItemViewData(Item.ItemRow, ViewData);
 	if (!bResolved || !ViewData.IsConsumable())
@@ -974,13 +976,19 @@ bool UInventoryWidget::HandleQuickSlotRegister(int32 InSlotIndex)
 		return false;
 	}
 
-	APawn* OwningPawn = GetOwningPlayerPawn();
-	if (OwningPawn == nullptr)
+	APlayerController* OwningController = GetOwningPlayer();
+	if (OwningController == nullptr)
 	{
 		return false;
 	}
 
-	UQuickSlotComponent* QuickSlotComp = OwningPawn->FindComponentByClass<UQuickSlotComponent>();
+	AHB_PlayerState* HBPlayerState = OwningController->GetPlayerState<AHB_PlayerState>();
+	if (HBPlayerState == nullptr)
+	{
+		return false;
+	}
+
+	UQuickSlotComponent* QuickSlotComp = HBPlayerState->GetQuickSlot();
 	if (QuickSlotComp == nullptr)
 	{
 		return false;

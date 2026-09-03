@@ -2,6 +2,7 @@
 #include "Inventory/InventoryComponent.h"
 #include "Inventory/InventoryTypes.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 
 UQuickSlotComponent::UQuickSlotComponent()
 {
@@ -22,12 +23,13 @@ void UQuickSlotComponent::BeginPlay()
 
 UInventoryComponent* UQuickSlotComponent::GetOwnerInventory() const
 {
-	AActor* OwnerActor = GetOwner();
-	if (OwnerActor == nullptr)
+	if (AHB_PlayerState* HBPlayerState = Cast<AHB_PlayerState>(GetOwner()))
 	{
-		return nullptr;
+		return HBPlayerState->GetInventory();
 	}
-	return OwnerActor->FindComponentByClass<UInventoryComponent>();
+
+	AActor* OwnerActor = GetOwner();
+	return OwnerActor ? OwnerActor->FindComponentByClass<UInventoryComponent>() : nullptr;
 }
 
 bool UQuickSlotComponent::SetSlot(int32 InSlotIndex, FGuid InInstanceId)
@@ -151,4 +153,20 @@ void UQuickSlotComponent::GetLifetimeReplicatedProps(TArray<class FLifetimePrope
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UQuickSlotComponent, Slots);
+}
+
+void UQuickSlotComponent::ApplyLoadedSlots(const TArray<FGuid>& InSlots)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	const int32 Count = FMath::Min(Slots.Num(), InSlots.Num());
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		Slots[Index] = InSlots[Index];
+	}
+
+	OnRep_Slots();
 }

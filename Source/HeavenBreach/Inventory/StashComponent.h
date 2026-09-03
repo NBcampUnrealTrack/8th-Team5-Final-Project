@@ -33,6 +33,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stash")
 	bool IsLoaded() const { return bIsLoaded; }
 
+	UFUNCTION()
+	void HandleStashChanged();
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -49,4 +52,5 @@ private:
 
 	bool bIsLoaded = false;
 
+	FTimerHandle StashSaveTimer;
 };
