@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Item/Item.h"
 #include "Interaction/InteractableInterface.h"
 #include "BoxActor.generated.h"
 
@@ -27,6 +28,21 @@ enum class EBoxGrade : uint8
 	Rare		UMETA(DisplayName = "희귀"),
 	Epic		UMETA(DisplayName = "영웅"),
 	Celestial	UMETA(DisplayName = "천상")
+};
+
+USTRUCT(BlueprintType)
+struct FBoxGradeLootData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = 0))
+	int32 MinDraws = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = 0))
+	int32 MaxDraws = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TMap<EItemGrade, float> ItemGradeWeights;
 };
 
 UCLASS(Blueprintable)
@@ -67,19 +83,22 @@ protected:
 	FText InteractPrompt = FText::FromString(TEXT("상자 열기 [F]"));
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
-	TObjectPtr<UDataTable> BoxLootTable;
+	TObjectPtr<UDataTable> ItemDataTable;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
-	TObjectPtr<UDataTable> ItemDataTable;
+	TObjectPtr<UDataTable> WeaponDataTable;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
+	TObjectPtr<UDataTable> ShieldDataTable;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
+	TObjectPtr<UDataTable> BoxGradeLootTable;
 
 	UPROPERTY(EditAnywhere, ReplicatedUsing = OnRep_Grade, BlueprintReadOnly, Category = "Box|Grade")
 	EBoxGrade Grade = EBoxGrade::Common;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Grade")
 	bool bRandomGrade = false;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Grade")
-	TMap<EBoxGrade, FName> GradeBoxIDs;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Grade")
 	TMap<EBoxGrade, float> GradeSpawnWeights;
@@ -120,5 +139,5 @@ public:
 
 private:
 
-	FName EffectiveBoxID;
+	static FName GradeToRowName(EBoxGrade InGrade);
 };
