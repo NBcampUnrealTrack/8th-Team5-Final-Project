@@ -10,6 +10,7 @@
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
 #include "Combat/Block/GA_PlayerBlock.h"
+#include "Combat/Damage/HBDamageCalculation.h"
 #include "Player/Abilities/GA_ClassBasicAttacks.h"
 #include "Components/CapsuleComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
@@ -213,6 +214,12 @@ void AHBPlayerCharacter::StartBlocking()
 {
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
 	{
+		if (ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) <= 0.f)
+		{
+			return;
+		}
+
+		StopSprint();
 		ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(StateTag::TAG_State_Blocking));
 	}
 }
@@ -248,16 +255,7 @@ void AHBPlayerCharacter::ToggleBlocking()
 
 void AHBPlayerCharacter::ActivateSkill1()
 {
-	const FHBJobSkillData* Skill = JobData ? JobData->FindActiveSkill(SelectedSkillQId) : nullptr;
-	if (!Skill || !Skill->AbilityClass)
-	{
-		return;
-	}
-
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
-	{
-		ASC->TryActivateAbilityByClass(Skill->AbilityClass);
-	}
+	TryActivateJobSkill(SelectedSkillQId);
 }
 
 UAbilitySystemComponent* AHBPlayerCharacter::GetAbilitySystemComponent() const
@@ -355,15 +353,38 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	{
 		return;
 	}
+	float AdditionalMultiplier = 1.f;
 	if (ASC->HasMatchingGameplayTag(MageTag::TAG_State_MagicShield))
 	{
 		if (UHB_PlayerAttributeSet* Attributes = HB_PlayerState ? HB_PlayerState->GetPlayerAttributeSet() : nullptr)
 		{
 			const float ManaSpent = FMath::Min(10.f, Attributes->GetPlayer_Mana());
 			Attributes->SetPlayer_Mana(Attributes->GetPlayer_Mana() - ManaSpent);
-			if (ManaSpent > 0.f) RawDamage *= 0.6f;
+			if (ManaSpent > 0.f) NotifyManaActivity();
+			if (ManaSpent > 0.f) AdditionalMultiplier *= 0.6f;
 		}
 	}
+
+	float BlockMultiplier = 1.f;
+	if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking) && InstigatorActor)
+	{
+		const FVector ToAttacker =
+			(InstigatorActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+		const float FacingDot = FMath::Clamp(
+			FVector::DotProduct(GetActorForwardVector(), ToAttacker), -1.f, 1.f);
+		const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FacingDot));
+		if (AngleDeg <= GetBlockAngle() * 0.5f)
+		{
+			BlockMultiplier = 1.f - FMath::Clamp(GetBlockDamageReduction(), 0.f, 1.f);
+		}
+	}
+
+	const UHB_PlayerAttributeSet* Attributes =
+		HB_PlayerState ? HB_PlayerState->GetPlayerAttributeSet() : nullptr;
+	const float TargetDefense = Attributes ? Attributes->GetPlayer_Defense() : 0.f;
+	const float HitMultiplier = HBDamage::IsHeadshot(Hit) ? 2.f : 1.f;
+	const float FinalDamage = HBDamage::CalculateFinalDamage(
+		RawDamage, TargetDefense, HitMultiplier, BlockMultiplier, AdditionalMultiplier);
 
 	LastDamageInstigator = InstigatorActor;
 	LastDamageReceivedTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
@@ -372,13 +393,14 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	if (Spec.IsValid())
 	{
 		const float HPBefore = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute());
-		Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -RawDamage);
+		Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -FinalDamage);
 		const FActiveGameplayEffectHandle AppliedHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 		const float HPAfter = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute());
 
 		UE_LOG(LogTemp, Warning,
-			TEXT("PlayerDamage | Target=%s RawDamage=%.2f HPBefore=%.2f HPAfter=%.2f Applied=%s"),
-			*GetNameSafe(this), RawDamage, HPBefore, HPAfter,
+			TEXT("PlayerDamage | Target=%s Raw=%.2f Defense=%.2f HeadMult=%.2f BlockMult=%.2f Final=%.2f HPBefore=%.2f HPAfter=%.2f Applied=%s"),
+			*GetNameSafe(this), RawDamage, TargetDefense, HitMultiplier, BlockMultiplier,
+			FinalDamage, HPBefore, HPAfter,
 			AppliedHandle.WasSuccessfullyApplied() ? TEXT("true") : TEXT("false"));
 	}
 	else
@@ -441,16 +463,55 @@ float AHBPlayerCharacter::GetAttackPower() const
 
 void AHBPlayerCharacter::ActivateSkill2()
 {
-	const FHBJobSkillData* Skill = JobData ? JobData->FindActiveSkill(SelectedSkillEId) : nullptr;
-	if (!Skill || !Skill->AbilityClass)
+	TryActivateJobSkill(SelectedSkillEId);
+}
+
+void AHBPlayerCharacter::TryActivateJobSkill(const FName SkillId)
+{
+	if (SkillId.IsNone())
 	{
 		return;
 	}
 
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	if (!HasAuthority())
 	{
-		ASC->TryActivateAbilityByClass(Skill->AbilityClass);
+		ServerTryActivateJobSkill(SkillId);
+		return;
 	}
+
+	if (SkillId != SelectedSkillQId && SkillId != SelectedSkillEId)
+	{
+		return;
+	}
+
+	const FHBJobSkillData* Skill = JobData ? JobData->FindActiveSkill(SkillId) : nullptr;
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!Skill || !Skill->AbilityClass || !ASC)
+	{
+		return;
+	}
+
+	const float ManaCost = FMath::Max(0.f, Skill->ManaCost);
+	const float CurrentMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
+	if (CurrentMana + KINDA_SMALL_NUMBER < ManaCost)
+	{
+		return;
+	}
+
+	if (ASC->TryActivateAbilityByClass(Skill->AbilityClass))
+	{
+		if (ManaCost > 0.f)
+		{
+			ASC->ApplyModToAttribute(
+				UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -ManaCost);
+		}
+		NotifyManaActivity();
+	}
+}
+
+void AHBPlayerCharacter::ServerTryActivateJobSkill_Implementation(const FName SkillId)
+{
+	TryActivateJobSkill(SkillId);
 }
 
 float AHBPlayerCharacter::ModifyOutgoingDamage(AActor* Target, float Damage)
@@ -533,15 +594,12 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 	{
 		return;
 	}
-	if (ASC->HasMatchingGameplayTag(ArcherTag::TAG_Passive_EagleEye))
-	{
-		Attributes->SetPlayer_Focus(FMath::Min(Attributes->GetPlayer_Focus() + 10.f, Attributes->GetPlayer_MaxFocus()));
-	}
-
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_State_BloodThirst))
 	{
+		const int32 UpgradeLevel = GetSkillUpgradeLevel(TEXT("Warrior.BloodThirst"));
+		const float LifeStealRatio = UpgradeLevel >= 3 ? 0.3f : UpgradeLevel >= 1 ? 0.25f : 0.2f;
 		Attributes->SetPlayer_HP(FMath::Min(
-			Attributes->GetPlayer_HP() + Damage * 0.2f,
+			Attributes->GetPlayer_HP() + Damage * LifeStealRatio,
 			Attributes->GetPlayer_MaxHP()));
 	}
 
@@ -587,6 +645,11 @@ float AHBPlayerCharacter::GetSkillCooldownRemaining(const FName SkillId) const
 bool AHBPlayerCharacter::IsSkillOnCooldown(const FName SkillId) const
 {
 	return HBWarriorEffects::IsCooldownActive(GetAbilitySystemComponent(), GetSkillCooldownTag(SkillId));
+}
+
+int32 AHBPlayerCharacter::GetSkillUpgradeLevel(const FName SkillId) const
+{
+	return HB_PlayerState ? HB_PlayerState->GetSkillUpgradeLevel(SkillId) : 0;
 }
 
 void AHBPlayerCharacter::ResetCombatInstinct()
@@ -884,6 +947,25 @@ void AHBPlayerCharacter::ApplyLoadout(
 	}
 }
 
+bool AHBPlayerCharacter::AddPassiveSkillFromUpgrade(const FName PassiveSkillId)
+{
+	UAbilitySystemComponent* AbilitySystem = GetAbilitySystemComponent();
+	const FHBJobSkillData* Skill = JobData ? JobData->FindPassiveSkill(PassiveSkillId) : nullptr;
+	if (!HasAuthority() || !AbilitySystem || !Skill || !Skill->AbilityClass
+		|| SelectedPassiveSkillIds.Contains(PassiveSkillId))
+	{
+		return false;
+	}
+
+	const FGameplayAbilitySpecHandle Handle = AbilitySystem->GiveAbility(
+		FGameplayAbilitySpec(Skill->AbilityClass, 1, INDEX_NONE, this));
+	LoadoutAbilityHandles.Add(Handle);
+	SelectedPassiveSkillIds.Add(PassiveSkillId);
+	AbilitySystem->TryActivateAbility(Handle);
+	ForceNetUpdate();
+	return true;
+}
+
 FGameplayAbilitySpecHandle AHBPlayerCharacter::GrantAbilityIfMissing(
 	UAbilitySystemComponent* AbilitySystem,
 	TSubclassOf<UGameplayAbility> AbilityClass)
@@ -903,6 +985,15 @@ FGameplayAbilitySpecHandle AHBPlayerCharacter::GrantAbilityIfMissing(
 
 void AHBPlayerCharacter::StartSprint()
 {
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC
+		|| ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead)
+		|| ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking)
+		|| ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) <= 0.f)
+	{
+		return;
+	}
+
 	bIsSprinting = true;
 	RefreshMovementSpeed();
 	
@@ -930,8 +1021,90 @@ void AHBPlayerCharacter::OnRep_IsSprinting()
 
 void AHBPlayerCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
 {
-	bIsSprinting = bNewSprinting;
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	bIsSprinting = bNewSprinting && ASC
+		&& !ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead)
+		&& !ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking)
+		&& ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) > 0.f;
+	if (bIsSprinting)
+	{
+		NotifyManaActivity();
+	}
 	RefreshMovementSpeed();
+}
+
+void AHBPlayerCharacter::NotifyManaActivity()
+{
+	if (HasAuthority() && GetWorld())
+	{
+		LastManaActivityTime = GetWorld()->GetTimeSeconds();
+	}
+}
+
+void AHBPlayerCharacter::UpdateManaResource()
+{
+	if (!HasAuthority() || !GetWorld())
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		return;
+	}
+
+	const bool bBlocking = ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking);
+	const bool bUsingContinuousMana = bIsSprinting || bBlocking;
+	const float CurrentMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
+
+	if (bUsingContinuousMana)
+	{
+		NotifyManaActivity();
+		const float CostPerSecond =
+			(bIsSprinting ? SprintManaCostPerSecond : 0.f)
+			+ (bBlocking ? BlockManaCostPerSecond : 0.f);
+		const float ManaCost = FMath::Min(CurrentMana, CostPerSecond * ManaResourceTickInterval);
+		if (ManaCost > 0.f)
+		{
+			ASC->ApplyModToAttribute(
+				UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -ManaCost);
+		}
+		if (CurrentMana <= ManaCost + KINDA_SMALL_NUMBER)
+		{
+			StopManaActionsAtZero();
+		}
+		return;
+	}
+
+	if (GetWorld()->GetTimeSeconds() - LastManaActivityTime < ManaRegenDelay)
+	{
+		return;
+	}
+
+	const float MaxMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute());
+	const float ManaToRestore = FMath::Min(MaxMana - CurrentMana, ManaRegenPerSecond * ManaResourceTickInterval);
+	if (ManaToRestore > 0.f)
+	{
+		ASC->ApplyModToAttribute(
+			UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, ManaToRestore);
+	}
+}
+
+void AHBPlayerCharacter::StopManaActionsAtZero()
+{
+	if (bIsSprinting)
+	{
+		bIsSprinting = false;
+		RefreshMovementSpeed();
+		ForceNetUpdate();
+	}
+
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+		ASC && ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
+	{
+		StopBlocking();
+	}
 }
 
 void AHBPlayerCharacter::SetMovementSpeedMultiplier(const float NewMultiplier)

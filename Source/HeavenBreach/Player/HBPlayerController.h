@@ -32,6 +32,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	UHB_UILayout* GetUILayout() const { return UILayout; }
 
+	UFUNCTION(BlueprintPure, Category = "Player|UI")
+	UHB_HUDLayer* GetHUDLayer() const { return HUDLayer; }
+
 	// 상자 / 시체 등 외부 인벤토리를 Menu 레이어에 띄운다.
 	// InteractionComponent 의 OnRequestOpenContainer 를 받은 쪽에서 호출한다.
 	UFUNCTION(BlueprintCallable, Category = "Player|UI")

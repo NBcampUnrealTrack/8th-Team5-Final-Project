@@ -2,6 +2,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/SphereComponent.h"
 #include "Inventory/InventoryComponent.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 
 AItemBase::AItemBase()
 {
@@ -129,7 +130,16 @@ bool AItemBase::TryPickUp(AActor* Picker)
 		return false;
 	}
 
-	UInventoryComponent* Inventory = Picker->FindComponentByClass<UInventoryComponent>();
+	UInventoryComponent* Inventory = nullptr;
+
+	if (const APawn* PickerPawn = Cast<APawn>(Picker))
+	{
+		if (AHB_PlayerState* HBPlayerState = PickerPawn->GetPlayerState<AHB_PlayerState>())
+		{
+			Inventory = HBPlayerState->GetInventory();
+		}
+	}
+
 	if (!Inventory)
 	{
 		return false;
