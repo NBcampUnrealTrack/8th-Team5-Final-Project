@@ -9,7 +9,8 @@
 #include "Player/HBPlayerCharacter.h"
 #include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
 
-#define HB_BEGIN_MAGE(Tag, Cooldown, Cost) AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()); if (!Player || !BeginAbilityWithCooldown(Handle, ActorInfo, ActivationInfo, Tag, Cooldown, Cost)) return
+// Active-skill mana is charged from FHBJobSkillData by AHBPlayerCharacter.
+#define HB_BEGIN_MAGE(Tag, Cooldown, Cost) AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()); if (!Player || !BeginAbilityWithCooldown(Handle, ActorInfo, ActivationInfo, Tag, Cooldown, 0.f)) return
 #define HB_END_MAGE() FinishAbility(Handle, ActorInfo, ActivationInfo)
 
 void UGA_MageMagicBolt::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData*)
