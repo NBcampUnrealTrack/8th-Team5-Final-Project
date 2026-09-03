@@ -13,4 +13,5 @@ namespace StateTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Aiming, "State.Aiming", "조준 중. 이 구간에만 타겟을 따라 회전한다");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_SuperArmor, "State.SuperArmor", "경직으로 끊기지 않는 구간");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_AfterDelay, "State.AfterDelay", "공격후 가만히 있을 후딜레이");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Grabbed, "State.Grabbed", "그랩 상태");
 }
