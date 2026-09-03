@@ -71,7 +71,7 @@ FReply UItemInfoPopupWidget::NativeOnKeyDown(const FGeometry& InGeometry, const 
 
 void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade InGrade, const FString& InDescription,
 	bool bInIsRelic, const FString& InBenefitDescription, const FString& InRiskDescription,
-	int32 InSellValue, UTexture2D* InIcon)
+	int32 InSellValue, UTexture2D* InIcon, const FString& InStatText)
 {
 	const FLinearColor GradeColor = GetGradeColor(InGrade);
 
@@ -143,5 +143,10 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
 		{
 			RiskText->SetVisibility(ESlateVisibility::Collapsed);
 		}
+	}
+	if (StatText != nullptr)
+	{
+		StatText->SetText(FText::FromString(InStatText));
+		StatText->SetVisibility(InStatText.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	}
 }

@@ -452,6 +452,21 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 	return true;
 }
 
+bool UInventoryComponent::ToggleFavorite(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+	Entries[EntryIndex].Item.bIsFavorite = !Entries[EntryIndex].Item.bIsFavorite;
+	OnInventoryChanged.Broadcast();
+	return true;
+}
 bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -971,6 +986,10 @@ void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponen
 void UInventoryComponent::Server_UseItem_Implementation(FGuid InInstanceId)
 {
 	UseItem(InInstanceId);
+}
+void UInventoryComponent::Server_ToggleFavorite_Implementation(FGuid InInstanceId)
+{
+	ToggleFavorite(InInstanceId);
 }
 
 void UInventoryComponent::Server_SplitStack_Implementation(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition)
