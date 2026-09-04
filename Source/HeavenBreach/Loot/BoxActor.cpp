@@ -11,6 +11,39 @@
 #include "GameFramework/Pawn.h"
 #include "Interaction/InteractionComponent.h"
 
+namespace
+{
+	struct FLootCandidate
+	{
+		UDataTable* Table = nullptr;
+		FName RowName = NAME_None;
+	};
+
+	template<typename TRow>
+	void CollectByGrade(UDataTable* Table, TMap<EItemGrade, TArray<FLootCandidate>>& Out)
+	{
+		if (Table == nullptr)
+		{
+			return;
+		}
+
+		TArray<TRow*> Rows;
+		Table->GetAllRows<TRow>(TEXT("BoxActor::CollectByGrade"), Rows);
+		const TArray<FName> Names = Table->GetRowNames();
+
+		for (int32 i = 0; i < Rows.Num() && i < Names.Num(); ++i)
+		{
+			if (Rows[i])
+			{
+				FLootCandidate Candidate;
+				Candidate.Table = Table;
+				Candidate.RowName = Names[i];
+				Out.FindOrAdd(Rows[i]->Grade).Add(Candidate);
+			}
+		}
+	}
+}
+
 ABoxActor::ABoxActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -30,11 +63,6 @@ ABoxActor::ABoxActor()
 	InteractionVolume->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 
 	BoxInventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("BoxInventory"));
-
-	GradeBoxIDs.Add(EBoxGrade::Common, FName(TEXT("BOX_001")));
-	GradeBoxIDs.Add(EBoxGrade::Rare, FName(TEXT("BOX_002")));
-	GradeBoxIDs.Add(EBoxGrade::Epic, FName(TEXT("BOX_003")));
-	GradeBoxIDs.Add(EBoxGrade::Celestial, FName(TEXT("BOX_004")));
 
 	GradeSpawnWeights.Add(EBoxGrade::Common, 60.0f);
 	GradeSpawnWeights.Add(EBoxGrade::Rare, 25.0f);
@@ -109,6 +137,18 @@ void ABoxActor::OnRep_Grade()
 	RefreshGrade();
 }
 
+FName ABoxActor::GradeToRowName(EBoxGrade InGrade)
+{
+	switch (InGrade)
+	{
+	case EBoxGrade::Common:		return FName(TEXT("Common"));
+	case EBoxGrade::Rare:		return FName(TEXT("Rare"));
+	case EBoxGrade::Epic:		return FName(TEXT("Epic"));
+	case EBoxGrade::Celestial:	return FName(TEXT("Celestial"));
+	default:					return FName(TEXT("Common"));
+	}
+}
+
 void ABoxActor::RollGradeIfNeeded()
 {
 	if (!bRandomGrade || GradeSpawnWeights.Num() == 0)
@@ -141,57 +181,79 @@ void ABoxActor::RollGradeIfNeeded()
 
 void ABoxActor::RefreshGrade()
 {
-	if (const FName* Found = GradeBoxIDs.Find(Grade))
-	{
-		EffectiveBoxID = *Found;
-	}
-	else
-	{
-		EffectiveBoxID = NAME_None;
-	}
-
 	BP_OnGradeChanged(Grade);
 }
 
 void ABoxActor::GenerateLoot()
 {
-	if (BoxInventory == nullptr || BoxLootTable == nullptr || ItemDataTable == nullptr)
+	if (BoxInventory == nullptr || BoxGradeLootTable == nullptr)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: BoxInventory/BoxLootTable/ItemDataTable 미설정: %s"), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: BoxInventory/BoxGradeLootTable 미설정: %s"), *GetName());
 		return;
 	}
 
-	if (EffectiveBoxID.IsNone())
+	const FBoxGradeLootData* Cfg = BoxGradeLootTable->FindRow<FBoxGradeLootData>(GradeToRowName(Grade), TEXT("BoxActor::GenerateLoot"));
+	if (Cfg == nullptr)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 등급에 매핑된 BoxID 없음(GradeBoxIDs 확인): %s"), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 등급 설정 행 없음 '%s': %s"), *GradeToRowName(Grade).ToString(), *GetName());
 		return;
 	}
 
-	const FString FilterID = EffectiveBoxID.ToString();
+	TMap<EItemGrade, TArray<FLootCandidate>> ItemsByGrade;
+	CollectByGrade<FItemData>(ItemDataTable, ItemsByGrade);
+	CollectByGrade<FWeaponData>(WeaponDataTable, ItemsByGrade);
+	CollectByGrade<FShieldData>(ShieldDataTable, ItemsByGrade);
 
-	TArray<FBoxLootData*> AllRows;
-	BoxLootTable->GetAllRows<FBoxLootData>(TEXT("BoxActor::GenerateLoot"), AllRows);
-
-	TArray<FBoxLootData*> Eligible;
-	for (FBoxLootData* Row : AllRows)
+	if (ItemsByGrade.Num() == 0)
 	{
-		if (Row && Row->BoxID == FilterID)
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 아이템 소스 테이블 없음(Item/Weapon/Shield): %s"), *GetName());
+		return;
+	}
+
+	TArray<TPair<EItemGrade, float>> Weights;
+	float TotalWeight = 0.0f;
+	for (const TPair<EItemGrade, float>& W : Cfg->ItemGradeWeights)
+	{
+		if (W.Value > 0.0f && ItemsByGrade.Contains(W.Key))
 		{
-			Eligible.Add(Row);
+			Weights.Add(W);
+			TotalWeight += W.Value;
 		}
 	}
 
-	if (Eligible.Num() == 0)
+	if (Weights.Num() == 0 || TotalWeight <= 0.0f)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: BoxID '%s' 드랍 행 없음: %s"), *FilterID, *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 뽑을 수 있는 아이템 등급 없음: %s"), *GetName());
 		return;
 	}
 
-	auto AddOne = [this](const FBoxLootData& Row) -> bool
+	auto PickGrade = [&Weights, TotalWeight]() -> EItemGrade
 	{
+		float Roll = FMath::FRand() * TotalWeight;
+		for (const TPair<EItemGrade, float>& W : Weights)
+		{
+			Roll -= W.Value;
+			if (Roll <= 0.0f)
+			{
+				return W.Key;
+			}
+		}
+		return Weights.Last().Key;
+	};
+
+	auto AddOneOfGrade = [this, &ItemsByGrade](EItemGrade InGrade) -> bool
+	{
+		const TArray<FLootCandidate>* Pool = ItemsByGrade.Find(InGrade);
+		if (Pool == nullptr || Pool->Num() == 0)
+		{
+			return false;
+		}
+
+		const FLootCandidate& Candidate = (*Pool)[FMath::RandRange(0, Pool->Num() - 1)];
+
 		FItemInstance Item;
-		Item.ItemRow.DataTable = ItemDataTable;
-		Item.ItemRow.RowName = FName(*Row.ItemID);
+		Item.ItemRow.DataTable = Candidate.Table;
+		Item.ItemRow.RowName = Candidate.RowName;
 		Item.InstanceId = FGuid::NewGuid();
 		Item.StackCount = 1;
 
@@ -200,40 +262,28 @@ void ABoxActor::GenerateLoot()
 		return Remainder == 0;
 	};
 
+	const int32 MinDraws = FMath::Max(1, Cfg->MinDraws);
+	const int32 MaxDraws = FMath::Max(MinDraws, Cfg->MaxDraws);
+	const int32 Draws = FMath::RandRange(MinDraws, MaxDraws);
+
 	int32 AddedCount = 0;
-
-	for (const FBoxLootData* Row : Eligible)
+	for (int32 d = 0; d < Draws; ++d)
 	{
-		if (FMath::FRand() <= Row->DropChance)
-		{
-			const int32 Count = FMath::RandRange(1, FMath::Max(1, Row->MaxItemCount));
-			for (int32 i = 0; i < Count; ++i)
-			{
-				if (AddOne(*Row))
-				{
-					++AddedCount;
-				}
-			}
-		}
-	}
-
-	if (AddedCount == 0)
-	{
-		const FBoxLootData* Best = Eligible[0];
-		for (const FBoxLootData* Row : Eligible)
-		{
-			if (Row->DropChance > Best->DropChance)
-			{
-				Best = Row;
-			}
-		}
-		if (AddOne(*Best))
+		if (AddOneOfGrade(PickGrade()))
 		{
 			++AddedCount;
 		}
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[BoxActor] GenerateLoot: '%s' 상자에 아이템 %d개 생성"), *FilterID, AddedCount);
+	if (AddedCount == 0)
+	{
+		if (AddOneOfGrade(PickGrade()))
+		{
+			++AddedCount;
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[BoxActor] GenerateLoot: 등급 '%s' 상자에 아이템 %d개 생성"), *GradeToRowName(Grade).ToString(), AddedCount);
 }
 
 void ABoxActor::OpenContainerUI(AActor* Interactor)

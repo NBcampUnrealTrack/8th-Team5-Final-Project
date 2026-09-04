@@ -5,8 +5,11 @@
 #include "InteractableInterface.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
+#include "Input/CommonUIActionRouterBase.h"
 
 UInteractionComponent::UInteractionComponent()
 {
@@ -35,6 +38,16 @@ void UInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 void UInteractionComponent::UpdateFocus()
 {
+	// 인벤토리 / 상자 / 상점이 열려 있는 동안에는 탐색을 멈추고 포커스를 놓는다.
+	// 포커스를 nullptr 로 밀면 OnFocusChanged 를 타고 프롬프트 위젯이 스스로 숨는다.
+	// (프롬프트는 AddToViewport 로 붙어 있어 UI 레이어에 가려지지 않으므로,
+	//  여기서 끄지 않으면 상자 화면 위에 "F 상자 오픈"이 계속 남는다)
+	if (IsInputOwnedByMenu())
+	{
+		SetFocusedInteractable(nullptr);
+		return;
+	}
+
 	FVector ViewLocation;
 	FVector ViewDirection;
 	if (!GetViewPoint(ViewLocation, ViewDirection))
@@ -150,6 +163,32 @@ bool UInteractionComponent::GetViewPoint(FVector& OutLocation, FVector& OutDirec
 	OutLocation = Pawn->GetActorLocation();
 	OutDirection = Pawn->GetActorForwardVector();
 	return true;
+}
+
+bool UInteractionComponent::IsInputOwnedByMenu() const
+{
+	if (!bSuppressWhileMenuInput)
+	{
+		return false;
+	}
+
+	const APawn* Pawn = GetOwnerPawn();
+	const APlayerController* PC = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
+	if (PC == nullptr)
+	{
+		return false;
+	}
+
+	const UCommonUIActionRouterBase* ActionRouter =
+		ULocalPlayer::GetSubsystemFromController<UCommonUIActionRouterBase>(PC);
+	if (ActionRouter == nullptr)
+	{
+		return false;
+	}
+
+	// Menu = UI가 입력을 독점한 상태(인벤토리 / 상자 / 상점).
+	// All(GameAndMenu)은 게임 입력이 살아 있는 상태이므로 상호작용을 막지 않는다.
+	return ActionRouter->GetActiveInputMode() == ECommonInputMode::Menu;
 }
 
 APawn* UInteractionComponent::GetOwnerPawn() const
