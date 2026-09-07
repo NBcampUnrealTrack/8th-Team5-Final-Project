@@ -139,9 +139,9 @@ void AHBLobbyPlayerController::RefreshLobbyDebug()
 	FString Roster;
 	int32 ReadyCount = 0;
 	int32 ConfirmedCount = 0;
-	for (const APlayerState* Player : State->PlayerArray)
+	for (const APlayerState* ListedPlayerState : State->PlayerArray)
 	{
-		const AHBLobbyPlayerState* LobbyPlayer = Cast<AHBLobbyPlayerState>(Player);
+		const AHBLobbyPlayerState* LobbyPlayer = Cast<AHBLobbyPlayerState>(ListedPlayerState);
 		if (!IsValid(LobbyPlayer))
 		{
 			continue;
