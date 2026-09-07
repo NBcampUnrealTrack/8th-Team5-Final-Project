@@ -12,6 +12,7 @@ class UQuickSlotComponent;
 class UHB_HitEffectWidget;
 class UTextBlock;
 class UTextureRenderTarget2D;
+class UInventoryWidget;
 
 /**
  * 인게임 HUD 루트. UI.Layer.Game 스택에 항상 활성 상태로 올라간다.
@@ -27,6 +28,18 @@ class HEAVENBREACH_API UHB_HUDLayer : public UHB_ActivatableWidget
 
 public:
 	UHB_HUDLayer();
+
+	UFUNCTION(BlueprintCallable, Category = "UI|Inventory")
+	void ToggleInventory();
+
+	UFUNCTION(BlueprintCallable, Category = "UI|Inventory")
+	void OpenInventory();
+
+	UFUNCTION(BlueprintCallable, Category = "UI|Inventory")
+	void CloseInventory();
+
+	UFUNCTION(BlueprintPure, Category = "UI|Inventory")
+	bool IsInventoryOpen() const;
 
 	/**
 	 * PlayerState의 HP 변경 델리게이트에 연결한다.
@@ -143,6 +156,10 @@ protected:
 	 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UHB_HitEffectWidget> WBP_PlayerBloodSplatter;
+
+	/** Player inventory embedded in WBP_MainHUD. Hidden while gameplay is active. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UInventoryWidget> WBP_Inventory;
 
 private:
 	UPROPERTY()

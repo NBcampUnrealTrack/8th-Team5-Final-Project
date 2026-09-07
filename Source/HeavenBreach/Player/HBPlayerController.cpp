@@ -506,17 +506,17 @@ void AHBPlayerController::StopBlock()
 
 void AHBPlayerController::ToggleInventory()
 {
-	if (InventoryUI)
+	if (HUDLayer)
 	{
-		InventoryUI->ToggleInventory();
+		HUDLayer->ToggleInventory();
 	}
 }
 
 void AHBPlayerController::RequestCloseInventory()
 {
-	if (InventoryUI)
+	if (HUDLayer)
 	{
-		InventoryUI->CloseInventory();
+		HUDLayer->CloseInventory();
 	}
 }
 

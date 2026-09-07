@@ -9,8 +9,10 @@
 #include "EquipmentComponent.h"
 #include "Inventory/QuickSlotComponent.h"
 #include "Inventory/InventoryComponent.h"
+#include "Inventory/InventoryWidget.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "Player/HBPlayerCharacter.h"
 #include "Components/TextBlock.h"
 #include "UI/HUD/HB_HitEffectWidget.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -25,9 +27,80 @@ UHB_HUDLayer::UHB_HUDLayer()
 	InputMode = EHBWidgetInputMode::GameOnly;
 }
 
+void UHB_HUDLayer::ToggleInventory()
+{
+	if (IsInventoryOpen())
+	{
+		CloseInventory();
+	}
+	else
+	{
+		OpenInventory();
+	}
+}
+
+void UHB_HUDLayer::OpenInventory()
+{
+	if (WBP_Inventory == nullptr || IsInventoryOpen())
+	{
+		return;
+	}
+
+	APlayerController* OwningController = GetOwningPlayer();
+	AHBPlayerCharacter* PlayerCharacter = OwningController
+		? Cast<AHBPlayerCharacter>(OwningController->GetPawn())
+		: nullptr;
+	if (OwningController == nullptr || !OwningController->IsLocalController() || PlayerCharacter == nullptr)
+	{
+		return;
+	}
+
+	// This widget persists inside the HUD, so reconnect it to the current pawn whenever it opens.
+	WBP_Inventory->BindToInventory(PlayerCharacter->GetInventory());
+	WBP_Inventory->BindToEquipment(PlayerCharacter->GetEquipment());
+	WBP_Inventory->SetLinkedEquipment(PlayerCharacter->GetEquipment());
+	WBP_Inventory->SetLinkedContainer(nullptr);
+	WBP_Inventory->RefreshGrid();
+	WBP_Inventory->SetVisibility(ESlateVisibility::Visible);
+
+	FInputModeUIOnly UIOnlyInputMode;
+	UIOnlyInputMode.SetWidgetToFocus(WBP_Inventory->TakeWidget());
+	OwningController->SetInputMode(UIOnlyInputMode);
+	OwningController->bShowMouseCursor = true;
+	WBP_Inventory->SetKeyboardFocus();
+}
+
+void UHB_HUDLayer::CloseInventory()
+{
+	if (WBP_Inventory == nullptr || !IsInventoryOpen())
+	{
+		return;
+	}
+
+	WBP_Inventory->PrepareForHide();
+	WBP_Inventory->SetVisibility(ESlateVisibility::Collapsed);
+
+	if (APlayerController* OwningController = GetOwningPlayer())
+	{
+		OwningController->SetInputMode(FInputModeGameOnly());
+		OwningController->bShowMouseCursor = false;
+	}
+}
+
+bool UHB_HUDLayer::IsInventoryOpen() const
+{
+	return WBP_Inventory != nullptr
+		&& WBP_Inventory->GetVisibility() != ESlateVisibility::Collapsed;
+}
+
 void UHB_HUDLayer::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	if (WBP_Inventory)
+	{
+		WBP_Inventory->SetVisibility(ESlateVisibility::Collapsed);
+	}
 
 	if (IMG_HP_Bar_Fill)
 	{
