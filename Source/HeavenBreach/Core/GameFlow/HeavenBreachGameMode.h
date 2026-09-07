@@ -43,7 +43,8 @@ public:
 	void TravelPlayerToPostMatchMap(APlayerState* PlayerState);
 
 protected:
-	virtual void PostLogin(APlayerController* NewPlayer) override;
+	// Shared entry point for new connections and players arriving via seamless travel.
+	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 
 	virtual bool ReadyToStartMatch_Implementation() override;

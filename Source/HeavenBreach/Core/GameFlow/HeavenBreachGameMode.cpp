@@ -182,9 +182,11 @@ void AHeavenBreachGameMode::TravelPlayerToPostMatchMap(APlayerState* PlayerState
 		);
 }
 
-void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
+void AHeavenBreachGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
 {
-	Super::PostLogin(NewPlayer);
+	// Both PostLogin and seamless player migration reach this hook. Let the
+	// engine restart players joining an active match before updating our roster.
+	Super::HandleStartingNewPlayer_Implementation(NewPlayer);
 	
 	if (!HasAuthority())
 	{
@@ -194,7 +196,7 @@ void AHeavenBreachGameMode::PostLogin(APlayerController* NewPlayer)
 	UE_LOG(
 		LogTemp,
 		Warning,
-		TEXT("HeavenBreach | Player Connected | ConnectedPlayers: %d / %d"),
+		TEXT("HeavenBreach | Player initialized | ConnectedPlayers: %d / %d"),
 		GetConnectedPlayerCount(),
 		MinimumPlayersToStart
 		);
@@ -284,12 +286,17 @@ void AHeavenBreachGameMode::TryStartExtractionMatch()
 		return;
 	}
 	
+	UE_LOG(LogTemp, Log,
+		TEXT("HeavenBreachGM | Starting match | InitializedPlayers: %d | Required: %d"),
+		GetConnectedPlayerCount(), RequiredPlayerCount);
 	StartMatch();
 }
 
 void AHeavenBreachGameMode::HandleMatchIsWaitingToStart()
 {
 	Super::HandleMatchIsWaitingToStart();
+	// Also cover players initialized before the world entered WaitingToStart.
+	TryStartExtractionMatch();
 }
 
 void AHeavenBreachGameMode::HandleMatchHasStarted()
