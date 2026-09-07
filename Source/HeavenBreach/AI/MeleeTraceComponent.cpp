@@ -14,6 +14,8 @@
 #include "AI/EnemyCharacterBase.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "Combat/GameplayCue/HitCuePlay.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Player/HBPlayerCharacter.h"
 
 // Sets default values for this component's properties
 UMeleeTraceComponent::UMeleeTraceComponent()
@@ -22,18 +24,41 @@ UMeleeTraceComponent::UMeleeTraceComponent()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = false;
 
-	// ...
+	SetIsReplicatedByDefault(true);
 }
 
-void UMeleeTraceComponent::BeginTrace(const TArray<FName>& InSockets, TSubclassOf<UGameplayEffect> InDamageEffect, float InRadius, float InDamageMultiplier)
+void UMeleeTraceComponent::BeginTrace(const TArray<FName>& InSockets, TSubclassOf<UGameplayEffect> InDamageEffect, float InRadius, float InDamageMultiplier, bool bInUseHitStop, float InHitStopDuration, float InHitStopPlayRate)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority()) return;
+
+	float Pos = -1.f;
+	UAnimMontage* CurMontage = nullptr;
+	void* InstPtr = nullptr;
+
+	if (UAnimInstance* Anim = CachedMesh->GetAnimInstance())
+	{
+		CurMontage = Anim->GetCurrentActiveMontage();
+		if (CurMontage)
+		{
+			Pos = Anim->Montage_GetPosition(CurMontage);
+		}
+		InstPtr = Anim->GetActiveMontageInstance();
+	}
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Trace] Begin  Pos=%.3f  Inst=%p"), Pos, InstPtr);
 
 	ActiveSockets = InSockets;
 	TraceRadius = InRadius;
 	ActiveDamageEffect = InDamageEffect;
 	DamageMultiplier = InDamageMultiplier;
+	bUseHitStop = bInUseHitStop;
+
+	HitStopDuration = InHitStopDuration > 0.f ? InHitStopDuration : 0.4;
+	HitStopPlayRate = InHitStopPlayRate > 0.f ? InHitStopPlayRate : 0.05;
+
+	// 실제 사용될 소켓
+	ActiveSocketSource = ResolveSocketSource();
 
 	// 현재 소유자의 팀소속확인
 	OwnerTeamTag.Reset();
@@ -52,15 +77,21 @@ void UMeleeTraceComponent::BeginTrace(const TArray<FName>& InSockets, TSubclassO
 	// 이전 공격의 기록이 남으면 안 된다.
 	HitActors.Empty();
 	bTracing = true;
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Trace] %s Begin"), *GetNameSafe(Owner));
 }
 
 void UMeleeTraceComponent::UpdateTrace()
 {
 	AActor* Owner = GetOwner();
 
-	if (!Owner || !Owner->HasAuthority() || !bTracing) 
+	// 히트 스톱중에는 판정중지
+	if (!Owner || !Owner->HasAuthority() || !bTracing || bHitStopActive)
 		return;
-	if (!CachedMesh || ActiveSockets.Num() < 2) 
+
+	// 소켓을 가진 컴포넌트. 없으면 작동불가.
+	USceneComponent* SocketSource = ActiveSocketSource.Get();
+	if (!SocketSource || ActiveSockets.Num() < 2)
 		return;
 
 	TArray<AActor*> ActorsToIgnore;
@@ -74,9 +105,9 @@ void UMeleeTraceComponent::UpdateTrace()
 		const FName& StartSocket = ActiveSockets[i - 1];
 		const FName& EndSocket = ActiveSockets[i];
 
-		if (!CachedMesh->DoesSocketExist(StartSocket) || !CachedMesh->DoesSocketExist(EndSocket))
+		// 소켓이 없으면 무시함
+		if (!SocketSource->DoesSocketExist(StartSocket) || !SocketSource->DoesSocketExist(EndSocket))
 		{
-			// 소켓이 없으면 해당 소켓은 무시함
 			UE_LOG(LogEnemyAI, Warning, TEXT("[HIT] 소켓 없음: %s 또는 %s"), *StartSocket.ToString(), *EndSocket.ToString());
 			continue;
 		}
@@ -85,9 +116,9 @@ void UMeleeTraceComponent::UpdateTrace()
 
 		// SphereTrace로 검사
 		UKismetSystemLibrary::SphereTraceMulti(
-			CachedMesh,                                          // World Context
-			CachedMesh->GetSocketLocation(StartSocket),
-			CachedMesh->GetSocketLocation(EndSocket),
+			SocketSource,                                          // World Context
+			SocketSource->GetSocketLocation(StartSocket),
+			SocketSource->GetSocketLocation(EndSocket),
 			TraceRadius,
 			UEngineTypes::ConvertToTraceType(TraceChannel),
 			false,                                             // bTraceComplex
@@ -123,6 +154,17 @@ void UMeleeTraceComponent::UpdateTrace()
 			HitActors.Add(Target);
 
 			ApplyDamage(Target, Hit);
+
+			// 적중은 한번에 하나씩. 히트스탑이 끝나고나서 진행되어야함.
+			if (bUseHitStop)
+			{
+				TriggerHitStop();
+				return;
+			}
+			else
+			{
+				UE_LOG(LogEnemyAI, Warning, TEXT("[HitStop] bUseHitStop 꺼져있음"));
+			}
 		}
 
 	}
@@ -132,12 +174,46 @@ void UMeleeTraceComponent::EndTrace()
 {
 	bTracing = false;
 	ActiveSockets.Reset();
+	ActiveSocketSource.Reset();
 	ActiveDamageEffect = nullptr;
+
+	// 스윙이 끝났는데 느린 상태로 굳으면 안 된다.
+	if (bHitStopActive)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(HitStopTimer);
+		}
+		EndHitStop();
+	}
+	bUseHitStop = false;
 
 	// 지워야 다음 공격에서 같은 대상을 다시 때릴 수 있다.
 	HitActors.Empty();
 }
 
+void UMeleeTraceComponent::ClientHitStop_Implementation(float Duration, float PlayRate)
+{
+	UWorld* World = GetWorld();
+	if (!CachedMesh || !World) return;
+
+	UAnimInstance* AnimInstance = CachedMesh->GetAnimInstance();
+	if (!AnimInstance) return;
+
+	UAnimMontage* Montage = AnimInstance->GetCurrentActiveMontage();
+	if (!Montage) return;
+
+	// 여기서 ASC 를 쓰면 서버로 RPC 가 되돌아가 서버 값을 덮는다. 직접 건다.
+	SavedPlayRate = AnimInstance->Montage_GetPlayRate(Montage);
+	HitStopMontage = Montage;
+	bHitStopActive = true;
+
+	AnimInstance->Montage_SetPlayRate(Montage, PlayRate);
+	World->GetTimerManager().SetTimer(HitStopTimer, this, &UMeleeTraceComponent::EndHitStop, Duration, false);
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[HitStop] 클라 적용 %s  %.2f -> %.2f"),
+		*GetNameSafe(Montage), SavedPlayRate, PlayRate);
+}
 
 // Called when the game starts
 void UMeleeTraceComponent::BeginPlay()
@@ -156,38 +232,17 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 {
 	AActor* Owner = GetOwner();
 
-	//UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
-	//
-	//// 대상에게 ASC 가 없으면 데미지를 못 준다. 판정이 나갔다는 것만 남긴다.
-	//if (!TargetASC)
-	//{
-	//	UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (ASC 없음)"),*GetNameSafe(Owner), *GetNameSafe(Target));
-	//	return;
-	//}
-	//
-	//UAbilitySystemComponent* SourceASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner);
-	//
-	//// 자신에게 ASC 가 없으면 데미지를 못 준다. 판정이 나갔다는 것만 남긴다.
-	//if (!SourceASC || !ActiveDamageEffect)
-	//{
-	//	UE_LOG(LogEnemyAI, Warning, TEXT("[HIT] %s DamageEffect 또는 ASC 없음"), *GetNameSafe(Owner));
-	//	return;
-	//}
-	//
-	//// 내 ASC 로 스펙을 만들고 대상에게 적용한다.
-	//FGameplayEffectContextHandle Context = SourceASC->MakeEffectContext();
-	//Context.AddSourceObject(Owner);
-	//Context.AddHitResult(Hit);
-	//
-	//FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(ActiveDamageEffect, 1.f, Context);
-	//if (!Spec.IsValid()) return;
-	//
-	//SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
-	//
-	//UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s"), *GetNameSafe(Owner), *GetNameSafe(Target));
+	// 플레이어는 무기 공격력과 버프까지 반영된 자기 함수를 쓴다.
+	// 적에는 그 계산이 없어서 어트리뷰트를 직접 읽는다.
+	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(Owner);
 
 	float AttackPower = 0.f;
-	if (UAbilitySystemComponent* OwnerASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+	if (Player)
+	{
+		// 플레이어의 공격력 가져옴
+		AttackPower = Player->GetAttackPower();
+	}
+	else if (UAbilitySystemComponent* OwnerASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
 	{
 		bool bFound = false;
 		AttackPower = OwnerASC->GetGameplayAttributeValue(UEnemyAttributeSetBase::GetAttackPowerAttribute(), bFound);
@@ -207,8 +262,14 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 		return;
 	}
 
-	// 데미지값 연산
+	// 데미지값 배율합해서 연산
 	float FinalDamage = AttackPower * DamageMultiplier;
+
+	// 플레이어 패시브 보정 (연속공격 / 약점간파 / 복수 / 매의눈...)
+	if (Player)
+	{
+		FinalDamage = Player->ModifyOutgoingDamage(Target, FinalDamage);
+	}
 
 	// 수치만 넘긴다. GE 를 만드는 건 맞는 쪽의 몫.
 	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, FinalDamage, Hit);
@@ -216,5 +277,128 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 	// 타격시 연출
 	HitCuePlay::PlayImpact(Owner, Target, Hit, FinalDamage);
 
-	UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (%.0f)"), *GetNameSafe(Owner), *GetNameSafe(Target), AttackPower);
+	// 플레이어가 흡혈이나 사망 판정, 보수를 여기서해야한다...
+	if (Player)
+	{
+		const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+		const bool bKilled = TargetASC && TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
+		Player->NotifyDamageDealt(Target, FinalDamage, bKilled);
+	}
+
+	UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (%.0f)"), *GetNameSafe(Owner), *GetNameSafe(Target), FinalDamage);
+}
+
+USceneComponent* UMeleeTraceComponent::ResolveSocketSource() const
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || ActiveSockets.Num() < 2 || WeaponComponentTag.IsNone())
+	{
+		return CachedMesh;
+	}
+
+	// 무기를 본다.
+	TArray<UActorComponent*> Found = Owner->GetComponentsByTag(USceneComponent::StaticClass(), WeaponComponentTag);
+
+	for (UActorComponent* Component : Found)
+	{
+		USceneComponent* Scene = Cast<USceneComponent>(Component);
+		if (!Scene)
+		{
+			continue;
+		}
+
+		// 소켓이 전부 있어야 그 무기로 판정한다. 하나라도 없으면 캐릭터 메쉬로 간다.
+		bool bHasAll = true;
+		for (const FName& SocketName : ActiveSockets)
+		{
+			if (!Scene->DoesSocketExist(SocketName))
+			{
+				bHasAll = false;
+				break;
+			}
+		}
+
+		if (bHasAll)
+		{
+			return Scene;
+		}
+	}
+
+	// 여까지오면 캐릭터 메쉬로 본다.
+	return CachedMesh;
+}
+
+void UMeleeTraceComponent::TriggerHitStop()
+{
+	UWorld* World = GetWorld();
+	if (!CachedMesh || !World)
+	{
+		UE_LOG(LogEnemyAI, Warning, TEXT("[HitStop] 메쉬 또는 월드 없음"));
+		return;
+	}
+
+	UAnimInstance* AnimInstance = CachedMesh->GetAnimInstance();
+	if (!AnimInstance)
+	{
+		UE_LOG(LogEnemyAI, Warning, TEXT("[HitStop] AnimInstance 없음"));
+		return;
+	}
+
+	UAnimMontage* Montage = AnimInstance->GetCurrentActiveMontage();
+	if (!Montage)
+	{
+		UE_LOG(LogEnemyAI, Warning, TEXT("[HitStop] 재생 중인 몽타주 없음"));
+		return;
+	}
+
+	// 복구할 속도를 기억한다. 기존 속도를 유지시켜야 한다.
+	SavedPlayRate = AnimInstance->Montage_GetPlayRate(Montage);
+	HitStopMontage = Montage;
+	bHitStopActive = true;
+	// 히트스탑이 끝나는것 타이머 설정.
+	World->GetTimerManager().SetTimer(HitStopTimer, this, &UMeleeTraceComponent::EndHitStop, HitStopDuration, false);
+
+	// AnimInstance->Montage_SetPlayRate안하는이유 : 서버-클라동기화이슈. ASC에 더 좋은거잇으니 그거씀
+	if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner()))
+	{
+		ASC->CurrentMontageSetPlayRate(HitStopPlayRate);
+	}
+
+	// ASC 는 소유자에게 안 보낸다. 소유자는 몽타주를 예측 중이라 서버가 덮으면 화면이 튄다. 그래서 때린 사람에게만 따로 보낸다.
+	APawn* Pawn = Cast<APawn>(GetOwner());
+	if (Pawn && !Pawn->IsLocallyControlled())
+	{
+		ClientHitStop(HitStopDuration, HitStopPlayRate);
+	}
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[HitStop] 적용 %s  %.2f -> %.2f  %.3fs  Owner=%s"),
+		*GetNameSafe(Montage), SavedPlayRate, HitStopPlayRate, HitStopDuration, *GetNameSafe(GetOwner()));
+}
+
+void UMeleeTraceComponent::EndHitStop()
+{
+	bHitStopActive = false;
+
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		// 서버 + 구경하는 클라
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner()))
+		{
+			ASC->CurrentMontageSetPlayRate(SavedPlayRate);
+		}
+	}
+	else if (CachedMesh)
+	{
+		// 때린 클라는 자기 것만 되돌린다. 타이머가 각자 돌아서 패킷 유실 걱정이 없다.
+		if (UAnimInstance* AnimInstance = CachedMesh->GetAnimInstance())
+		{
+			if (UAnimMontage* Montage = HitStopMontage.Get())
+			{
+				AnimInstance->Montage_SetPlayRate(Montage, SavedPlayRate);
+			}
+		}
+	}
+
+
+	HitStopMontage.Reset();
 }
