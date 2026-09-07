@@ -10,6 +10,8 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "AI/Enum/EAlertState.h"
 #include "AI/MeleeTraceComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 
 void UANS_MeleeHitDetect::NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference)
 {
@@ -39,10 +41,25 @@ void UANS_MeleeHitDetect::NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSeq
 	}
 
 	// 소켓과 GE, 트레이스 크기와 데미지배율 삽입
-	TraceComp->BeginTrace(TraceSockets, DamageEffect, TraceRadius, DamageMultiplier);
+	TraceComp->BeginTrace(TraceSockets, DamageEffect, TraceRadius, DamageMultiplier, bUseHitStop, HitStopDuration, HitStopPlayRate);
 
 	// 시작하자마자 바로 트레이스. 너무짧아서 Tick이 호출되지 않는것을 방지.
 	TraceComp->UpdateTrace();
+
+	float Pos = -1.f;
+	UAnimMontage* CurMontage = nullptr;
+	if (UAnimInstance* Anim = MeshComp->GetAnimInstance())
+	{
+		CurMontage = Anim->GetCurrentActiveMontage();
+		if (CurMontage)
+		{
+			Pos = Anim->Montage_GetPosition(CurMontage);
+		}
+	}
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Trace] Begin  T=%.3f  Pos=%.3f  Montage=%s"),
+		GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f,
+		Pos,
+		*GetNameSafe(CurMontage));
 }
 
 void UANS_MeleeHitDetect::NotifyTick(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float FrameDeltaTime, const FAnimNotifyEventReference& EventReference)
@@ -79,4 +96,6 @@ void UANS_MeleeHitDetect::NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSeque
 	{
 		TraceComp->EndTrace();
 	}
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Trace] %s End"), *GetNameSafe(Owner));
 }

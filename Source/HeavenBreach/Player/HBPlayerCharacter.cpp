@@ -37,6 +37,8 @@
 #include "DrawDebugHelpers.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "Core/Tag/Event/HB_EventTag.h"
+#include "Core/Tag/Item/HB_ItemTag.h"
+#include "AI/MeleeTraceComponent.h"
 
 namespace
 {
@@ -95,10 +97,12 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	WeaponMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMeshComp"));
 	WeaponMeshComp->SetupAttachment(GetMesh(),WeaponSocketName);
 	WeaponMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponMeshComp->ComponentTags.Add(TEXT("Weapon"));
 	
 	ShieldMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShieldMeshComp"));
 	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
 	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponMeshComp->ComponentTags.Add(TEXT("Shield"));
 	
 	#pragma region ModularEquipmentMesh
 	HelmetMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HelmetMeshComp"));
@@ -122,6 +126,8 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	ShoesMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	#pragma endregion
 #pragma endregion
+
+	MeleeTraceComp = CreateDefaultSubobject<UMeleeTraceComponent>(TEXT("MeleeTraceComp"));
 }
 
 void AHBPlayerCharacter::BeginPlay()
@@ -132,6 +138,8 @@ void AHBPlayerCharacter::BeginPlay()
 
 	if (HasAuthority() && GetWorld())
 	{
+		GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+
 		LastManaActivityTime = GetWorld()->GetTimeSeconds();
 
 		GetWorldTimerManager().SetTimer(
@@ -177,50 +185,93 @@ void AHBPlayerCharacter::MoveRight(const float Value)
 
 void AHBPlayerCharacter::Attack()
 {
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	//if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	//{
+	//	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead)
+	//		|| ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
+	//	{
+	//		return;
+	//	}
+	//
+	//	if (bDrawBasicAttackDebug && GetWorld())
+	//	{
+	//		float DebugRange = GetAttackRange();
+	//		float DebugRadius = 50.f;
+	//		FColor DebugColor = FColor::Red;
+	//		if (JobData && JobData->JobId == TEXT("Archer"))
+	//		{
+	//			DebugRange = 1800.f;
+	//			DebugRadius = 35.f;
+	//			DebugColor = FColor::Green;
+	//		}
+	//		else if (JobData && JobData->JobId == TEXT("Mage"))
+	//		{
+	//			DebugRange = 1500.f;
+	//			DebugRadius = 55.f;
+	//			DebugColor = FColor::Blue;
+	//		}
+	//
+	//		const FVector DebugStart = GetPawnViewLocation();
+	//		const FVector DebugEnd = DebugStart + GetBaseAimRotation().Vector() * DebugRange;
+	//		DrawDebugLine(GetWorld(), DebugStart, DebugEnd, DebugColor, false, BasicAttackDebugDuration, 0, 3.f);
+	//		DrawDebugSphere(GetWorld(), DebugEnd, DebugRadius, 12, DebugColor, false, BasicAttackDebugDuration, 0, 2.f);
+	//	}
+	//
+	//	if (JobData && JobData->JobId == TEXT("Archer"))
+	//	{
+	//		ASC->TryActivateAbilityByClass(UGA_ArcherBasicAttack::StaticClass());
+	//		return;
+	//	}
+	//	if (JobData && JobData->JobId == TEXT("Mage"))
+	//	{
+	//		ASC->TryActivateAbilityByClass(UGA_MageBasicAttack::StaticClass());
+	//		return;
+	//	}
+	//	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(StateTag::TAG_State_Attacking));
+	//}
+
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC) 
+		return;
+
+	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead) || ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking)) 
+		return;
+
+	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
+
+	// 달리기/방어와 같은 규칙. 마나가 부족하면 몽타주도 안 나간다.
+	if (!HasEnoughMana(ModifyManaCost(WeaponTag, AttackManaCost))) 
+		return;
+
+	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag));
+}
+
+FGameplayTag AHBPlayerCharacter::GetEquippedWeaponTag() const
+{
+	FItemInstance WeaponItem;
+
+	// 무기를 들고있다는게 전제조건. 없다면 맨손
+	if (GetEquipment() && GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
 	{
-		if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead)
-			|| ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
+		if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetEquippedWeaponTag")))
 		{
-			return;
-		}
+			// DT_Item 의 WeaponType을 태그로 간다.
+			// 예시) Weapon.Sword
+			const FName TagName(*FString::Printf(TEXT("Weapon.%s"), *WeaponData->WeaponType));
 
-		if (bDrawBasicAttackDebug && GetWorld())
-		{
-			float DebugRange = GetAttackRange();
-			float DebugRadius = 50.f;
-			FColor DebugColor = FColor::Red;
-			if (JobData && JobData->JobId == TEXT("Archer"))
+			// 해당 이름의 태그가 있는지 검색
+			const FGameplayTag WeaponTag = FGameplayTag::RequestGameplayTag(TagName, false);
+			if (WeaponTag.IsValid())
 			{
-				DebugRange = 1800.f;
-				DebugRadius = 35.f;
-				DebugColor = FColor::Green;
-			}
-			else if (JobData && JobData->JobId == TEXT("Mage"))
-			{
-				DebugRange = 1500.f;
-				DebugRadius = 55.f;
-				DebugColor = FColor::Blue;
+				return WeaponTag;
 			}
 
-			const FVector DebugStart = GetPawnViewLocation();
-			const FVector DebugEnd = DebugStart + GetBaseAimRotation().Vector() * DebugRange;
-			DrawDebugLine(GetWorld(), DebugStart, DebugEnd, DebugColor, false, BasicAttackDebugDuration, 0, 3.f);
-			DrawDebugSphere(GetWorld(), DebugEnd, DebugRadius, 12, DebugColor, false, BasicAttackDebugDuration, 0, 2.f);
+			UE_LOG(LogTemp, Warning, TEXT("[Attack] 등록되지 않은 무기 태그: %s"), *TagName.ToString());
 		}
-
-		if (JobData && JobData->JobId == TEXT("Archer"))
-		{
-			ASC->TryActivateAbilityByClass(UGA_ArcherBasicAttack::StaticClass());
-			return;
-		}
-		if (JobData && JobData->JobId == TEXT("Mage"))
-		{
-			ASC->TryActivateAbilityByClass(UGA_MageBasicAttack::StaticClass());
-			return;
-		}
-		ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(StateTag::TAG_State_Attacking));
 	}
+
+	// 없다면 디폴트로 언암드 태그반환
+	return ItemTag::TAG_Weapon_Unarmed;
 }
 
 void AHBPlayerCharacter::StartBlocking()
@@ -288,7 +339,7 @@ void AHBPlayerCharacter::PossessedBy(AController* NewController)
 		ASC->InitAbilityActorInfo(HB_PlayerState, this);
 		if (HasAuthority())
 		{
-			ASC->AddLooseGameplayTag(TeamTag::TAG_Team_Player);
+			//ASC->AddLooseGameplayTag(TeamTag::TAG_Team_Player);
 			
 			for (const TSubclassOf<UGameplayAbility>& AbilityClass : DefaultAbilities)
 			{
@@ -648,6 +699,45 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 	{
 		Attributes->SetPlayer_Mana(FMath::Min(Attributes->GetPlayer_Mana() + 15.f, Attributes->GetPlayer_MaxMana()));
 	}
+}
+
+float AHBPlayerCharacter::ModifyManaCost(FGameplayTag SourceTag, float Cost) const
+{
+	if (Cost <= 0.f) return 0.f;
+
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC) return Cost;
+
+	// 감소는 곱연산으로 쌓는다. 합연산이면 여러 개 겹칠 때 음수가 된다.
+	float Multiplier = 1.f;
+
+	// 패시브, 증강을 여기에 추가한다.
+	// GetSkillUpgradeLevel(SkillId) 를 읽어 레벨별 배율을 주는 것도 여기.
+
+	return FMath::Max(0.f, Cost * Multiplier);
+}
+
+bool AHBPlayerCharacter::HasEnoughMana(float Cost) const
+{
+	if (Cost <= 0.f) return true;
+
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	return ASC && ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) >= Cost;
+}
+
+void AHBPlayerCharacter::ConsumeMana(float Cost)
+{
+	if (!HasAuthority() || Cost <= 0.f) 
+		return;
+
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC) 
+		return;
+
+	ASC->ApplyModToAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -Cost);
+
+	// 빼먹으면 공격을 난사해도 3초 뒤부터 마나가 차오른다. 달리기/방어와 같은 규칙.
+	NotifyManaActivity();
 }
 
 float AHBPlayerCharacter::GetSkillCooldownRemaining(const FName SkillId) const
@@ -1074,9 +1164,8 @@ void AHBPlayerCharacter::UpdateManaResource()
 	if (bUsingContinuousMana)
 	{
 		NotifyManaActivity();
-		const float CostPerSecond =
-			(bIsSprinting ? SprintManaCostPerSecond : 0.f)
-			+ (bBlocking ? BlockManaCostPerSecond : 0.f);
+		const float CostPerSecond = (bIsSprinting ? ModifyManaCost(FGameplayTag(), SprintManaCostPerSecond) : 0.f) 
+									+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond) : 0.f);
 		const float ManaCost = FMath::Min(CurrentMana, CostPerSecond * ManaResourceTickInterval);
 		if (ManaCost > 0.f)
 		{
