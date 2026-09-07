@@ -29,6 +29,7 @@ public:
 	
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	
 	UFUNCTION(Server, Reliable)
 	void ServerSetReady(bool bNewReady);
@@ -40,6 +41,18 @@ protected:
 	TSubclassOf<UHBLobbyHUDWidget> LobbyWidgetClass;
 	
 private:
+	// Client-side diagnostics use replicated state; no extra server RPCs.
+	struct FLobbyDebugPlayer
+	{
+		FString Name;
+		bool bReady = false;
+	};
+	void RefreshLobbyDebug();
+	void ShowLobbyDebugEvent(const FString& Message);
+	FTimerHandle LobbyDebugTimer;
+	TMap<uint32, FLobbyDebugPlayer> LobbyDebugPlayers;
+	bool bLobbyDebugInitialized = false;
+
 	UPROPERTY()
 	TObjectPtr<UHBLobbyHUDWidget> LobbyWidget;
 };
