@@ -132,6 +132,45 @@ bool UInventoryWidget::IsScrollable() const
 	return GetMaxScrollRow() > 0;
 }
 
+void UInventoryWidget::PrepareForHide()
+{
+	ClearHoveredCell();
+	ClearPlacementPreview();
+
+	if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
+	{
+		FSlateApplication::Get().CancelDragDrop();
+	}
+
+	if (DragVisualRoot.IsValid())
+	{
+		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
+		{
+			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
+		}
+		DragVisualRoot.Reset();
+	}
+
+	if (ActiveContextMenu)
+	{
+		ActiveContextMenu->RemoveFromParent();
+		ActiveContextMenu = nullptr;
+	}
+	if (ActiveSplitPopup)
+	{
+		ActiveSplitPopup->RemoveFromParent();
+		ActiveSplitPopup = nullptr;
+	}
+	if (ActiveInfoPopup)
+	{
+		ActiveInfoPopup->RemoveFromParent();
+		ActiveInfoPopup = nullptr;
+	}
+
+	bHasValidPress = false;
+	bPressedWithCtrl = false;
+}
+
 void UInventoryWidget::NativeDestruct()
 {
 	if (BoundInventory != nullptr)
@@ -167,7 +206,7 @@ void UInventoryWidget::NativeConstruct()
 
 FReply UInventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
-	if (InKeyEvent.GetKey() == EKeys::Tab)
+	if (InKeyEvent.GetKey() == EKeys::Tab || InKeyEvent.GetKey() == EKeys::Escape)
 	{
 		if (LinkedContainer == nullptr)
 		{
