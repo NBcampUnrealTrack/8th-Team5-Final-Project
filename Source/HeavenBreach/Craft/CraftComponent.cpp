@@ -99,14 +99,6 @@ void UCraftComponent::PlaceToFirstEmptySlot(FGuid InInstanceId)
 
 void UCraftComponent::OnRep_Slots()
 {
-
-	for (int32 i = 0; i < Slots.Num(); ++i)
-	{
-		UE_LOG(LogTemp, Log, TEXT("Craft: slot[%d] = %s"),
-			i,
-			Slots[i].IsValid() ? *Slots[i].ItemRow.RowName.ToString() : TEXT("empty"));
-	}
-
 	OnCraftSlotsChanged.Broadcast();
 }
 
