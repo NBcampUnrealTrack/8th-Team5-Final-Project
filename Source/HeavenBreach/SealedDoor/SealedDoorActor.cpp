@@ -489,15 +489,18 @@ void ASealedDoorActor::SpawnEntries(const TArray<FSealedRoomSpawnEntry>& InEntri
 
 		const int32 MinCount = FMath::Min(Entry.MinCount, Entry.MaxCount);
 		const int32 MaxCount = FMath::Max(Entry.MinCount, Entry.MaxCount);
-		const int32 Count = FMath::RandRange(MinCount, MaxCount);
-
-		if (Count <= 0)
+		// MaxCount 가 0 이면 이 항목은 절대 스폰되지 않는다 — 설정 실수로 본다.
+		// 반면 MinCount 가 0 이고 MaxCount 가 1 이상인 것은 "가끔 등장" 을 의도한 정상 설정이므로,
+		// 이번 추첨에서 0 이 나왔다고 경고하지 않는다.
+		if (MaxCount <= 0)
 		{
 			UE_LOG(LogTemp, Warning,
-				TEXT("[SealedDoor] %s: '%s' 의 스폰 개수가 0 입니다 (MinCount %d / MaxCount %d)."),
-				*GetName(), *Entry.ActorClass.ToString(), Entry.MinCount, Entry.MaxCount);
+				TEXT("[SealedDoor] %s: '%s' 는 MaxCount 가 0 이라 절대 스폰되지 않습니다."),
+				*GetName(), *Entry.ActorClass.ToString());
 			continue;
 		}
+
+		const int32 Count = FMath::RandRange(MinCount, MaxCount);
 
 		for (int32 i = 0; i < Count; ++i)
 		{
