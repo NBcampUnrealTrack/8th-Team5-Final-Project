@@ -42,6 +42,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "SealedDoor")
 	ESealedRoomResult GetRoomResult() const { return RoomResult; }
 
+	/**
+	 * 디버그: 문을 다시 봉인 상태로 되돌린다. 스폰했던 내용물을 전부 제거하고
+	 * 재추첨·재스폰이 가능한 상태로 만든다. PIE 를 껐다 켜지 않고 반복 실험하기 위한 것으로,
+	 * 게임플레이 규칙(한 번 열린 문은 닫히지 않는다)과 무관한 에디터 전용 도구다.
+	 * 액터를 선택하면 디테일 패널에 버튼이 뜬다.
+	 */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "SealedDoor|Debug", meta = (DisplayName = "Debug: 다시 봉인"))
+	void DebugReseal();
+
+	/**
+	 * 디버그: 열쇠 소비 없이 즉시 개방한다. 열쇠 아이템이 준비되기 전에
+	 * 스폰·연출·복제를 검증하기 위한 것이다.
+	 */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "SealedDoor|Debug", meta = (DisplayName = "Debug: 강제 개방"))
+	void DebugForceOpen();
+
 protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
@@ -87,6 +103,25 @@ protected:
 	/** 서버 전용. 내용물 재생성을 막는다 */
 	bool bRoomGenerated = false;
 
+	/**
+	 * 디버그: 방 결과를 강제한다. Undetermined 면 정상 추첨한다.
+	 * 일반 봉인문은 50:50 이라 몇 번 열어보는 것만으로는 "안 나온다"와 "아직 안 걸렸다"를
+	 * 구분할 수 없다. 한쪽 경로만 반복 검증할 때 쓴다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SealedDoor|Debug")
+	ESealedRoomResult DebugForcedResult = ESealedRoomResult::Undetermined;
+
+	/** 디버그: 켜면 열쇠 검사·소비를 건너뛰고 개방한다 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SealedDoor|Debug")
+	bool bDebugSkipKeyCheck = false;
+
+	/**
+	 * 서버 전용. 이 문이 스폰한 액터들. DebugReseal 이 정리 대상으로 쓴다.
+	 * 게임플레이에서는 읽지 않는다.
+	 */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "SealedDoor|Debug")
+	TArray<TObjectPtr<AActor>> SpawnedActors;
+
 	UFUNCTION()
 	void OnRep_DoorState();
 
@@ -121,6 +156,12 @@ protected:
 
 	/** 문짝 콜리전 해제 + 봉인 문양 숨김. 서버·클라이언트 양쪽에서 호출된다 */
 	void ApplyOpenedVisual();
+
+	/** ApplyOpenedVisual 의 역방향. DebugReseal 전용 */
+	void ApplySealedVisual();
+
+	/** 서버 전용. 결과 확정 → 스폰 → 상태 전환 → 복제. 정상 개방과 디버그 개방이 공유한다 */
+	void OpenDoor();
 
 	/** 서버 전용. 개방 시점에 방 결과를 추첨한다 */
 	void RollRoomResult();

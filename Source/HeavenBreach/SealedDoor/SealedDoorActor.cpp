@@ -12,6 +12,19 @@
 #include "Net/UnrealNetwork.h"
 #include "Player/HBPlayerCharacter.h"
 
+namespace
+{
+	const TCHAR* RoomResultToText(ESealedRoomResult InResult)
+	{
+		switch (InResult)
+		{
+		case ESealedRoomResult::MonsterRoom:	return TEXT("몬스터 방");
+		case ESealedRoomResult::RewardRoom:		return TEXT("보상방");
+		default:								return TEXT("미결정");
+		}
+	}
+}
+
 ASealedDoorActor::ASealedDoorActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -70,24 +83,47 @@ void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
 		return;
 	}
 
-	UInventoryComponent* Inventory = GetInteractorInventory(Interactor);
-
-	FGuid KeyInstanceId;
-	if (!FindMatchingKey(Inventory, GradeData->RequiredKeyRowName, KeyInstanceId))
+	if (bDebugSkipKeyCheck)
 	{
-		// 열쇠 없음 / 등급 불일치. 프롬프트가 이미 안내하고 있으므로 별도 알림을 보내지 않는다.
-		// 단, 필요한 열쇠 이름조차 표시하지 못하는 상태(DT_Item 행 미존재 등)라면
-		// 여기서 한 번 로그를 남겨 설정 누락을 알아챌 수 있게 한다.
-		if (GetRequiredKeyDisplayName().IsEmpty())
+		UE_LOG(LogTemp, Warning,
+			TEXT("[SealedDoor] %s: bDebugSkipKeyCheck 가 켜져 있어 열쇠 없이 개방합니다."),
+			*GetName());
+	}
+	else
+	{
+		UInventoryComponent* Inventory = GetInteractorInventory(Interactor);
+
+		FGuid KeyInstanceId;
+		if (!FindMatchingKey(Inventory, GradeData->RequiredKeyRowName, KeyInstanceId))
 		{
-			UE_LOG(LogTemp, Warning,
-				TEXT("[SealedDoor] %s: 필요한 열쇠(%s)의 표시 이름을 찾지 못했습니다. ItemDataTable 설정을 확인하세요."),
-				*GetName(), *GradeData->RequiredKeyRowName.ToString());
+			// 열쇠 없음 / 등급 불일치. 프롬프트가 이미 안내하고 있으므로 별도 알림을 보내지 않는다.
+			// 단, 필요한 열쇠 이름조차 표시하지 못하는 상태(DT_Item 행 미존재 등)라면
+			// 여기서 한 번 로그를 남겨 설정 누락을 알아챌 수 있게 한다.
+			if (GetRequiredKeyDisplayName().IsEmpty())
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("[SealedDoor] %s: 필요한 열쇠(%s)의 표시 이름을 찾지 못했습니다. ItemDataTable 설정을 확인하세요."),
+					*GetName(), *GradeData->RequiredKeyRowName.ToString());
+			}
+			return;
 		}
-		return;
+
+		if (!Inventory->RemoveStackCount(KeyInstanceId, 1))
+		{
+			// 방금 찾은 항목이므로 정상적으로는 도달하지 않는다. 여기 걸리면 인벤토리 불변식이 깨진 것이다.
+			UE_LOG(LogTemp, Warning,
+				TEXT("[SealedDoor] %s: 열쇠를 찾았지만 소비에 실패했습니다."),
+				*GetName());
+			return;
+		}
 	}
 
-	if (!Inventory->RemoveStackCount(KeyInstanceId, 1))
+	OpenDoor();
+}
+
+void ASealedDoorActor::OpenDoor()
+{
+	if (!HasAuthority())
 	{
 		return;
 	}
@@ -106,6 +142,56 @@ void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
 
 	// 서버에서는 RepNotify 가 자동 호출되지 않는다 (ABoxActor 와 동일한 처리)
 	OnRep_DoorState();
+}
+
+void ASealedDoorActor::DebugForceOpen()
+{
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SealedDoor] %s: DebugForceOpen 은 서버에서만 동작합니다."), *GetName());
+		return;
+	}
+
+	if (DoorState != ESealedDoorState::Sealed)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[SealedDoor] %s: 이미 열려 있습니다. 다시 열려면 DebugReseal 을 먼저 실행하세요."),
+			*GetName());
+		return;
+	}
+
+	OpenDoor();
+}
+
+void ASealedDoorActor::DebugReseal()
+{
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SealedDoor] %s: DebugReseal 은 서버에서만 동작합니다."), *GetName());
+		return;
+	}
+
+	int32 DestroyedCount = 0;
+	for (AActor* Spawned : SpawnedActors)
+	{
+		if (IsValid(Spawned))
+		{
+			Spawned->Destroy();
+			++DestroyedCount;
+		}
+	}
+	SpawnedActors.Reset();
+
+	bRoomGenerated = false;
+	RoomResult = ESealedRoomResult::Undetermined;
+	OpenedServerTime = 0.0f;
+	DoorState = ESealedDoorState::Sealed;
+
+	ApplySealedVisual();
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[SealedDoor] %s: 디버그 재봉인 완료. 스폰 액터 %d개 제거."),
+		*GetName(), DestroyedCount);
 }
 
 FText ASealedDoorActor::GetInteractPrompt_Implementation() const
@@ -154,7 +240,13 @@ FText ASealedDoorActor::GetInteractPrompt_Implementation() const
 
 void ASealedDoorActor::OnRep_DoorState()
 {
-	if (DoorState == ESealedDoorState::Opened)
+	if (DoorState != ESealedDoorState::Opened)
+	{
+		// 정상 게임플레이에서는 Opened 에서 Sealed 로 돌아가지 않는다. DebugReseal 전용 경로다.
+		ApplySealedVisual();
+		return;
+	}
+
 	{
 		// 상태 훅: 열려 있는 동안 항상 호출된다. 뒤늦게 relevant 해진 클라이언트도
 		// 반드시 열린 시각적 상태를 봐야 하므로 조건 없이 호출한다.
@@ -260,8 +352,31 @@ void ASealedDoorActor::ApplyOpenedVisual()
 	}
 }
 
+void ASealedDoorActor::ApplySealedVisual()
+{
+	if (DoorMesh)
+	{
+		DoorMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		DoorMesh->SetRelativeRotation(FRotator::ZeroRotator);
+	}
+
+	if (SealDecal)
+	{
+		SealDecal->SetVisibility(true);
+	}
+}
+
 void ASealedDoorActor::RollRoomResult()
 {
+	if (DebugForcedResult != ESealedRoomResult::Undetermined)
+	{
+		RoomResult = DebugForcedResult;
+		UE_LOG(LogTemp, Warning,
+			TEXT("[SealedDoor] %s: DebugForcedResult 로 방 결과를 강제합니다 (%s)."),
+			*GetName(), RoomResultToText(RoomResult));
+		return;
+	}
+
 	const FSealedDoorGradeData* GradeData = FindGradeData();
 	if (GradeData == nullptr)
 	{
@@ -314,12 +429,32 @@ void ASealedDoorActor::GenerateRoom()
 		AvailablePoints.Swap(i, FMath::RandRange(0, i));
 	}
 
+	const FString RowName = SealedDoorGradeToRowName(Grade).ToString();
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[SealedDoor] %s: 방 결과 = %s, 등급 행 '%s', 사용 가능 스폰 포인트 %d개"),
+		*GetName(), RoomResultToText(RoomResult), *RowName, AvailablePoints.Num());
+
 	if (RoomResult == ESealedRoomResult::MonsterRoom)
 	{
+		if (GradeData->MonsterRoomSpawns.Num() == 0)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[SealedDoor] %s: 방 결과가 몬스터 방인데 '%s' 행의 MonsterRoomSpawns 가 비어 있습니다."),
+				*GetName(), *RowName);
+		}
+
 		SpawnEntries(GradeData->MonsterRoomSpawns, AvailablePoints);
 	}
 	else
 	{
+		if (GradeData->RewardRoomSpawns.Num() == 0 && GradeData->GuardSpawns.Num() == 0)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[SealedDoor] %s: 방 결과가 보상방인데 '%s' 행의 RewardRoomSpawns 와 GuardSpawns 가 모두 비어 있습니다."),
+				*GetName(), *RowName);
+		}
+
 		SpawnEntries(GradeData->RewardRoomSpawns, AvailablePoints);
 		SpawnEntries(GradeData->GuardSpawns, AvailablePoints);
 	}
@@ -337,6 +472,9 @@ void ASealedDoorActor::SpawnEntries(const TArray<FSealedRoomSpawnEntry>& InEntri
 	{
 		if (Entry.ActorClass.IsNull())
 		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[SealedDoor] %s: 스폰 목록에 ActorClass 가 비어 있는 항목이 있어 건너뜁니다."),
+				*GetName());
 			continue;
 		}
 
@@ -352,6 +490,14 @@ void ASealedDoorActor::SpawnEntries(const TArray<FSealedRoomSpawnEntry>& InEntri
 		const int32 MinCount = FMath::Min(Entry.MinCount, Entry.MaxCount);
 		const int32 MaxCount = FMath::Max(Entry.MinCount, Entry.MaxCount);
 		const int32 Count = FMath::RandRange(MinCount, MaxCount);
+
+		if (Count <= 0)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[SealedDoor] %s: '%s' 의 스폰 개수가 0 입니다 (MinCount %d / MaxCount %d)."),
+				*GetName(), *Entry.ActorClass.ToString(), Entry.MinCount, Entry.MaxCount);
+			continue;
+		}
 
 		for (int32 i = 0; i < Count; ++i)
 		{
@@ -369,11 +515,25 @@ void ASealedDoorActor::SpawnEntries(const TArray<FSealedRoomSpawnEntry>& InEntri
 			SpawnParams.Owner = this;
 			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-			World->SpawnActor<AActor>(
+			AActor* Spawned = World->SpawnActor<AActor>(
 				SpawnClass,
 				Point->GetActorLocation(),
 				Point->GetActorRotation(),
 				SpawnParams);
+
+			if (Spawned == nullptr)
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("[SealedDoor] %s: %s 스폰에 실패했습니다."),
+					*GetName(), *SpawnClass->GetName());
+				continue;
+			}
+
+			SpawnedActors.Add(Spawned);
+
+			UE_LOG(LogTemp, Log,
+				TEXT("[SealedDoor] %s: %s 를 %s 위치에 스폰했습니다."),
+				*GetName(), *Spawned->GetName(), *Point->GetName());
 		}
 	}
 }
