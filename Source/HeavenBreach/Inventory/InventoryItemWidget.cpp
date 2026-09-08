@@ -58,29 +58,45 @@ void UInventoryItemWidget::InitializeItem(
 		{
 			FLinearColor TopColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
 			FLinearColor BottomColor = FLinearColor(0.55f, 0.55f, 0.55f, 1.0f);
+			float ShineIntensity = 0.0f;
 			switch (Grade)
 			{
 			case EItemGrade::Normal:
 				TopColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
 				BottomColor = FLinearColor(0.55f, 0.55f, 0.55f, 1.0f);
+				ShineIntensity = 0.0f;
 				break;
 			case EItemGrade::Rare:
 				TopColor = FLinearColor(0.55f, 0.7f, 1.0f, 1.0f);
 				BottomColor = FLinearColor(0.15f, 0.22f, 0.4f, 1.0f);
+				ShineIntensity = 0.12f;
 				break;
 			case EItemGrade::Epic:
 				TopColor = FLinearColor(0.32f, 0.06f, 0.48f, 1.0f);
 				BottomColor = FLinearColor(0.10f, 0.02f, 0.16f, 1.0f);
+				ShineIntensity = 0.18f;
 				break;
 			case EItemGrade::Legend:
 				TopColor = FLinearColor(1.0f, 0.78f, 0.4f, 1.0f);
 				BottomColor = FLinearColor(0.45f, 0.32f, 0.12f, 1.0f);
+				ShineIntensity = 0.28f;
+				break;
+			case EItemGrade::Relic:
+				TopColor = FLinearColor(1.0f, 0.55f, 0.1f, 1.0f);
+				BottomColor = FLinearColor(0.5f, 0.22f, 0.04f, 1.0f);
+				ShineIntensity = 0.38f;
+				break;
+			case EItemGrade::Ancient:
+				TopColor = FLinearColor(1.0f, 0.97f, 0.88f, 1.0f);
+				BottomColor = FLinearColor(0.78f, 0.72f, 0.5f, 1.0f);
+				ShineIntensity = 0.5f;
 				break;
 			default:
 				break;
 			}
 			BackgroundMID->SetVectorParameterValue(TEXT("TopColor"), TopColor);
 			BackgroundMID->SetVectorParameterValue(TEXT("BottomColor"), BottomColor);
+			BackgroundMID->SetScalarParameterValue(TEXT("ShineIntensity"), ShineIntensity);
 		}
 	}
 

@@ -139,18 +139,9 @@ void UInventoryWidget::PrepareForHide()
 
 	if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
 	{
+		// CancelDragDrop()이 Operation의 OnDragCancelled를 호출해서 드래그 아이콘도 같이 정리된다.
 		FSlateApplication::Get().CancelDragDrop();
 	}
-
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
-
 	if (ActiveContextMenu)
 	{
 		ActiveContextMenu->RemoveFromParent();
@@ -181,16 +172,8 @@ void UInventoryWidget::NativeDestruct()
 	{
 		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
 	}
-	// 드래그 중에 인벤토리 창이 닫히면(Tab 키 등) NativeOnDrop/NativeOnDragCancelled가 호출되지
-	// 않아 뷰포트에 직접 올려둔 드래그 아이콘(DragVisualRoot)이 화면에 계속 남는 버그 수정.
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
+	// 드래그 중에 인벤토리 창이 닫히면(Tab 키 등) CancelDragDrop()이 Operation의
+	// OnDragCancelled를 호출해서 뷰포트에 올려둔 드래그 아이콘도 같이 정리된다.
 	if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
 	{
 		FSlateApplication::Get().CancelDragDrop();
@@ -649,14 +632,8 @@ int32 UInventoryWidget::GetMaxScrollRow() const
 
 bool UInventoryWidget::NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
-	if (DragVisualRoot.IsValid())
-	{
-		if (UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation))
-		{
-			const FVector2D MousePos = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
-			DragVisualRoot->SetRenderTransform(FSlateRenderTransform(MousePos - Operation->GrabPixelOffset));
-		}
-	}
+	// 드래그 아이콘 위치 갱신은 Operation의 OnDragged 이벤트가 매 프레임 알아서 처리한다
+	// (패널 안/밖 상관없이 계속 따라다닌다).
 	return UpdatePlacementPreview(InDragDropEvent, InOperation)
 		|| Super::NativeOnDragOver(InGeometry, InDragDropEvent, InOperation);
 }
@@ -669,14 +646,7 @@ void UInventoryWidget::NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, 
 void UInventoryWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
 	ClearPlacementPreview();
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
+	// 드래그 아이콘 정리는 Operation의 OnDragCancelled 이벤트가 알아서 정확히 한 번 처리한다.
 	Super::NativeOnDragCancelled(InDragDropEvent, InOperation);
 }
 
@@ -1098,48 +1068,20 @@ void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 	const FVector2D VisualSize(ItemSize.X * CellSize, ItemSize.Y * CellSize);
 	const FVector2D ItemOrigin(Entry.Position.X * CellSize, (Entry.Position.Y - ScrollOffsetRow) * CellSize);
 	const FVector2D PixelOffset = PressedLocalPosition - ItemOrigin;
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
-	if (UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath))
-	{
-		DragVisualBrush.SetResourceObject(IconTexture);
-		DragVisualBrush.ImageSize = VisualSize;
-		DragVisualBrush.DrawAs = ESlateBrushDrawType::Image;
-	}
-	TSharedRef<SBox> NewDragBox =
-		SNew(SBox)
-		.Visibility(EVisibility::HitTestInvisible)
-		.HAlign(HAlign_Left)
-		.VAlign(VAlign_Top)
-		.WidthOverride(VisualSize.X)
-		.HeightOverride(VisualSize.Y)
-		[
-			SNew(SImage)
-				.Visibility(EVisibility::HitTestInvisible)
-				.Image(&DragVisualBrush)
-				.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f))
-		];
-	DragVisualRoot = NewDragBox;
-	// 뷰포트에 올리기 전에 이미 마우스 위치로 배치해서, 첫 프레임에 좌측상단에
-	// 나타났다가 점프하는 현상 자체를 없앤다.
-	const FVector2D MousePos = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
-	NewDragBox->SetRenderTransform(FSlateRenderTransform(MousePos - PixelOffset));
-	if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-	{
-		GameViewport->AddViewportWidgetContent(NewDragBox, 1000);
-	}
+	UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
+
 	UInventoryDragDropOperation* Operation = NewObject<UInventoryDragDropOperation>(this);
 	Operation->InstanceId = Entry.Item.InstanceId;
 	Operation->GrabOffset = PressedCell - Entry.Position;
 	Operation->GrabPixelOffset = PixelOffset;
 	Operation->SourceInventory = BoundInventory;
 	Operation->bSplitRequested = bPressedWithCtrl && Entry.Item.StackCount > 1;
+
+	// 드래그 아이콘은 이 Operation이 직접 뷰포트에 붙여서 스스로 관리한다.
+	// (UInventoryWidget 인스턴스가 아니라 Operation이 소유하므로,
+	//  인벤토리 칸/패널 밖으로 나가도, 패널을 넘나들어도 계속 잘 따라다니고
+	//  드롭/취소 시 정확히 한 번 정리된다.)
+	Operation->CreateVisual(this, IconTexture, VisualSize);
 	OutOperation = Operation;
 }
 
@@ -1164,14 +1106,7 @@ void UInventoryWidget::RefocusAfterDrop()
 bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
 	ClearPlacementPreview();
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
+	// 드래그 아이콘 정리는 Operation의 OnDrop 이벤트가 알아서 정확히 한 번 처리한다.
 	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
 	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
 	{
