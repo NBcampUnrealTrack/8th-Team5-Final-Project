@@ -53,7 +53,19 @@ struct FSealedRoomSpawnEntry
 	int32 MaxCount = 1;
 };
 
-/** DT_SealedDoorGrade 의 행. 행 이름은 SealedDoorGradeToRowName() 이 돌려주는 값과 일치해야 한다. */
+/**
+ * DT_SealedDoorGrade 의 행. 행 이름은 SealedDoorGradeToRowName() 이 돌려주는 값과 일치해야 한다.
+ *
+ * [스폰 배치 규칙 — 데이터 작성 전에 반드시 확인]
+ * - 몬스터 방(MonsterRoom) 결과에서는 MonsterRoomSpawns 만 스폰된다.
+ * - 보상방(RewardRoom) 결과에서는 RewardRoomSpawns 와 GuardSpawns 가 함께 스폰된다.
+ * - 이 스폰들은 모두 문 액터 인스턴스의 SpawnPoints 배열 하나를 공유해서 소비한다.
+ *   포인트는 쓰일 때마다 줄어들고, 풀이 바닥나면 남은 스폰 요청은 조용히 버려진다
+ *   (경고 로그만 남고 문은 정상적으로 열린다). 따라서 SpawnPoints 개수는
+ *   "어느 한 결과가 요구할 수 있는 최대 총량" 이상이어야 한다 —
+ *   RewardRoom 은 RewardRoomSpawns + GuardSpawns 의 최대 합, MonsterRoom 은
+ *   MonsterRoomSpawns 의 최대 합을 기준으로 잡는다.
+ */
 USTRUCT(BlueprintType)
 struct FSealedDoorGradeData : public FTableRowBase
 {
@@ -67,15 +79,19 @@ struct FSealedDoorGradeData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor", meta = (ClampMin = 0, ClampMax = 1))
 	float MonsterRoomChance = 0.0f;
 
-	/** 몬스터 방 결과일 때 배치 */
+	/** 몬스터 방 결과일 때 배치. 문 인스턴스의 SpawnPoints 풀을 RewardRoomSpawns/GuardSpawns 와 공유한다 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
 	TArray<FSealedRoomSpawnEntry> MonsterRoomSpawns;
 
-	/** 보상방 결과일 때 배치. BoxActor BP 를 넣으면 내용물은 DT_BoxGradeLoot 이 처리한다 */
+	/**
+	 * 보상방 결과일 때 배치. BoxActor BP 를 넣으면 내용물은 DT_BoxGradeLoot 이 처리한다.
+	 * 같은 결과에서 GuardSpawns 와 SpawnPoints 풀을 함께 소비하므로,
+	 * 두 배열의 최대 합이 SpawnPoints 개수를 넘지 않도록 데이터를 잡아야 한다.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
 	TArray<FSealedRoomSpawnEntry> RewardRoomSpawns;
 
-	/** 보상방 결과에 함께 배치할 호위 적. 희귀 이상에서 사용 */
+	/** 보상방 결과에 함께 배치할 호위 적. 희귀 이상에서 사용. RewardRoomSpawns 와 SpawnPoints 풀을 공유한다 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
 	TArray<FSealedRoomSpawnEntry> GuardSpawns;
 

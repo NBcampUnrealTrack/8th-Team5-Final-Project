@@ -4,6 +4,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
+#include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerController.h"
 #include "Inventory/InventoryComponent.h"
 #include "Inventory/InventoryTypes.h"
@@ -37,6 +38,7 @@ void ASealedDoorActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(ASealedDoorActor, Grade);
 	DOREPLIFETIME(ASealedDoorActor, DoorState);
 	DOREPLIFETIME(ASealedDoorActor, RoomResult);
+	DOREPLIFETIME(ASealedDoorActor, OpenedServerTime);
 }
 
 bool ASealedDoorActor::CanInteract_Implementation(AActor* Interactor) const
@@ -74,6 +76,14 @@ void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
 	if (!FindMatchingKey(Inventory, GradeData->RequiredKeyRowName, KeyInstanceId))
 	{
 		// 열쇠 없음 / 등급 불일치. 프롬프트가 이미 안내하고 있으므로 별도 알림을 보내지 않는다.
+		// 단, 필요한 열쇠 이름조차 표시하지 못하는 상태(DT_Item 행 미존재 등)라면
+		// 여기서 한 번 로그를 남겨 설정 누락을 알아챌 수 있게 한다.
+		if (GetRequiredKeyDisplayName().IsEmpty())
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[SealedDoor] %s: 필요한 열쇠(%s)의 표시 이름을 찾지 못했습니다. ItemDataTable 설정을 확인하세요."),
+				*GetName(), *GradeData->RequiredKeyRowName.ToString());
+		}
 		return;
 	}
 
@@ -84,6 +94,13 @@ void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
 
 	RollRoomResult();
 	GenerateRoom();
+
+	// GameState 를 못 가져오면 OpenedServerTime 은 기본값(0)에 남는다 —
+	// WasRecentlyOpened() 가 false 를 돌려주므로 원샷 연출이 재생되지 않는 안전한 방향이다.
+	if (const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr)
+	{
+		OpenedServerTime = GameState->GetServerWorldTimeSeconds();
+	}
 
 	DoorState = ESealedDoorState::Opened;
 
@@ -122,20 +139,50 @@ FText ASealedDoorActor::GetInteractPrompt_Implementation() const
 			GradeData->DoorDisplayName);
 	}
 
+	const FText KeyDisplayName = GetRequiredKeyDisplayName();
+	if (KeyDisplayName.IsEmpty())
+	{
+		// DT_Item 행이 아직 없는 등 이름을 못 찾은 경우. 매 프레임 호출되는 함수이므로
+		// 여기서 로그를 남기지 않는다 — 대신 Interact_Implementation 쪽에서 한 번만 남긴다.
+		return NSLOCTEXT("SealedDoor", "NeedKeyPromptFallback", "봉인 열쇠 필요");
+	}
+
 	return FText::Format(
 		NSLOCTEXT("SealedDoor", "NeedKeyPrompt", "{0} 필요"),
-		GetRequiredKeyDisplayName());
+		KeyDisplayName);
 }
 
 void ASealedDoorActor::OnRep_DoorState()
 {
 	if (DoorState == ESealedDoorState::Opened)
 	{
+		// 상태 훅: 열려 있는 동안 항상 호출된다. 뒤늦게 relevant 해진 클라이언트도
+		// 반드시 열린 시각적 상태를 봐야 하므로 조건 없이 호출한다.
 		ApplyOpenedVisual();
-
-		BP_OnSealBroken(Grade);
 		BP_OnDoorOpened(Grade);
+
+		// 원샷 훅: "방금" 열렸을 때만 호출한다. 그렇지 않으면 넷 컬링에서 벗어나 있던
+		// 클라이언트나 늦게 접속한 플레이어가, 실제로는 한참 전에 열린 문에 대해
+		// 봉인 파괴 연출과(PvP 위치 신호인) 개방 사운드를 재생하게 된다.
+		if (WasRecentlyOpened())
+		{
+			BP_OnSealBroken(Grade);
+		}
 	}
+}
+
+bool ASealedDoorActor::WasRecentlyOpened() const
+{
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+	if (GameState == nullptr)
+	{
+		return false;
+	}
+
+	// 클라이언트의 서버 시각 추정에는 약간의 오차가 있을 수 있으므로 절댓값으로 비교한다.
+	const float Age = GameState->GetServerWorldTimeSeconds() - OpenedServerTime;
+	return FMath::Abs(Age) <= RecentlyOpenedWindowSeconds;
 }
 
 const FSealedDoorGradeData* ASealedDoorActor::FindGradeData() const

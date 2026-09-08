@@ -64,6 +64,15 @@ protected:
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SealedDoor")
 	ESealedRoomResult RoomResult = ESealedRoomResult::Undetermined;
 
+	/**
+	 * 문이 열린 서버 시각(AGameStateBase::GetServerWorldTimeSeconds() 기준).
+	 * DoorState 와 같은 리플리케이션 묶음에 실려 전달되도록 Interact_Implementation 에서
+	 * DoorState 대입 직전에 설정한다. OnRep_DoorState 가 "방금 열림"과 "이미 열려 있던 문이
+	 * 지금 막 relevant 해짐"을 구분하는 데 쓰인다.
+	 */
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SealedDoor")
+	float OpenedServerTime = 0.0f;
+
 	/** 방 안에 배치한 ATargetPoint 들. 서버에서만 쓰므로 복제하지 않는다 */
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "SealedDoor|Room")
 	TArray<TObjectPtr<AActor>> SpawnPoints;
@@ -81,9 +90,20 @@ protected:
 	UFUNCTION()
 	void OnRep_DoorState();
 
+	/**
+	 * 원샷 연출 훅. 문이 "방금" 열렸을 때만 호출된다 (뒤늦게 relevant 해진 클라이언트나
+	 * 늦게 접속한 플레이어에게는 호출되지 않는다). 봉인 파괴 VFX, 개방 사운드처럼 한 번만
+	 * 재생해야 하는 연출은 반드시 여기에 넣는다 — 기획서상 개방 사운드는 PvP 위치 신호이므로,
+	 * 이미 열린 지 오래된 문에서 재생되면 안 된다.
+	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "SealedDoor", meta = (DisplayName = "On Seal Broken"))
 	void BP_OnSealBroken(ESealedDoorGrade InGrade);
 
+	/**
+	 * 상태 훅. 문이 열려 있는 동안(막 열렸을 때는 물론, 이미 열려 있던 문이 나중에
+	 * relevant 해졌을 때도) 매번 호출된다. 멱등해야 한다 — 교체된 머티리얼, 열린 상태
+	 * 프롭 배치처럼 "계속 유지되는" 시각 요소는 여기에 넣는다.
+	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "SealedDoor", meta = (DisplayName = "On Door Opened"))
 	void BP_OnDoorOpened(ESealedDoorGrade InGrade);
 
@@ -110,4 +130,13 @@ protected:
 
 	/** 스폰 목록을 소비한다. 포인트가 모자라면 남은 스폰을 버린다 */
 	void SpawnEntries(const TArray<FSealedRoomSpawnEntry>& InEntries, TArray<AActor*>& InOutAvailablePoints);
+
+	/** OnRep_DoorState 에서 원샷 연출(BP_OnSealBroken) 재생 여부를 판단하는 시간 창 (초) */
+	static constexpr float RecentlyOpenedWindowSeconds = 2.0f;
+
+	/**
+	 * 문이 "방금" 열렸는지 판정한다. OpenedServerTime 이 현재 서버 시각과
+	 * RecentlyOpenedWindowSeconds 이내로 가까우면 true. GameState 를 가져올 수 없으면 false.
+	 */
+	bool WasRecentlyOpened() const;
 };
