@@ -18,6 +18,7 @@
 #include "UI/HUD/HB_HUDLayer.h"
 #include "UI/HB_ContainerScreen.h"
 #include "Player/PlayerState/HB_PlayerState.h"
+#include "UI/Skill/HB_SkillAugment.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -230,6 +231,12 @@ void AHBPlayerController::SetupInputComponent()
 		{
 			EnhancedInputComponent->BindAction(
 				Skill2Action, ETriggerEvent::Started, this, &AHBPlayerController::ActivateSkill2);
+		}
+
+		if (SkillAugmentAction)
+		{
+			EnhancedInputComponent->BindAction(
+				SkillAugmentAction, ETriggerEvent::Started, this, &AHBPlayerController::ToggleSkillAugment);
 		}
 
 	}
@@ -606,5 +613,27 @@ void AHBPlayerController::UseQuickSlot4()
 		{
 			QuickSlotComp->Server_UseSlot(3);
 		}
+	}
+}
+
+void AHBPlayerController::ToggleSkillAugment()
+{
+	UE_LOG(LogTemp, Warning, TEXT("ToggleSkillAugment called"));
+	if (SkillAugmentScreen != nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Already open -> closing"));
+		SkillAugmentScreen->DeactivateWidget();
+		SkillAugmentScreen = nullptr;
+		return;
+	}
+
+	SkillAugmentScreen = UHB_SkillAugment::OpenOn(this, SkillAugmentScreenClass);
+	UE_LOG(LogTemp, Warning, TEXT("OpenOn result: %s"), SkillAugmentScreen ? TEXT("valid") : TEXT("null"));
+	if (SkillAugmentScreen != nullptr)
+	{
+		SkillAugmentScreen->OnDeactivated().AddWeakLambda(this, [this]()
+			{
+				SkillAugmentScreen = nullptr;
+			});
 	}
 }
