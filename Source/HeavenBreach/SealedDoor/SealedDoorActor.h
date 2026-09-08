@@ -81,13 +81,16 @@ protected:
 	ESealedRoomResult RoomResult = ESealedRoomResult::Undetermined;
 
 	/**
-	 * 문이 열린 서버 시각(AGameStateBase::GetServerWorldTimeSeconds() 기준).
-	 * DoorState 와 같은 리플리케이션 묶음에 실려 전달되도록 Interact_Implementation 에서
-	 * DoorState 대입 직전에 설정한다. OnRep_DoorState 가 "방금 열림"과 "이미 열려 있던 문이
-	 * 지금 막 relevant 해짐"을 구분하는 데 쓰인다.
+	 * 봉인 해제 연출이 시작된 서버 시각(AGameStateBase::GetServerWorldTimeSeconds() 기준).
+	 * DoorState 와 같은 리플리케이션 묶음에 실려 전달되도록 상태 대입 직전에 설정한다.
+	 * OnRep_DoorState 가 "방금 시작됨"과 "이미 진행/완료된 문이 지금 막 relevant 해짐"을
+	 * 구분하는 데 쓰인다.
 	 */
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SealedDoor")
-	float OpenedServerTime = 0.0f;
+	float SequenceStartServerTime = 0.0f;
+
+	/** 서버 전용. 봉인 해제 연출 종료 타이머 */
+	FTimerHandle OpenTimerHandle;
 
 	/** 방 안에 배치한 ATargetPoint 들. 서버에서만 쓰므로 복제하지 않는다 */
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "SealedDoor|Room")
@@ -126,13 +129,16 @@ protected:
 	void OnRep_DoorState();
 
 	/**
-	 * 원샷 연출 훅. 문이 "방금" 열렸을 때만 호출된다 (뒤늦게 relevant 해진 클라이언트나
-	 * 늦게 접속한 플레이어에게는 호출되지 않는다). 봉인 파괴 VFX, 개방 사운드처럼 한 번만
-	 * 재생해야 하는 연출은 반드시 여기에 넣는다 — 기획서상 개방 사운드는 PvP 위치 신호이므로,
-	 * 이미 열린 지 오래된 문에서 재생되면 안 된다.
+	 * 원샷 연출 훅. 봉인 해제 연출이 "방금" 시작됐을 때만 호출된다 (뒤늦게 relevant 해진
+	 * 클라이언트나 늦게 접속한 플레이어에게는 호출되지 않는다). 기획서 8장의 시퀀스 —
+	 * 봉인 문양 활성화, 열쇠 사용 연출, 문양 분해, 봉인 빛 소멸, 개방 효과음 — 이 자리다.
+	 * 개방 사운드는 기획서상 PvP 위치 신호이므로, 이미 열린 지 오래된 문에서 재생되면 안 된다.
+	 *
+	 * InDurationSeconds 는 연출에 주어진 시간이다. 이 시간이 지나면 문이 열리므로,
+	 * 몽타주·타임라인 길이를 여기에 맞춘다.
 	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "SealedDoor", meta = (DisplayName = "On Seal Broken"))
-	void BP_OnSealBroken(ESealedDoorGrade InGrade);
+	void BP_OnSealBroken(ESealedDoorGrade InGrade, float InDurationSeconds);
 
 	/**
 	 * 상태 훅. 문이 열려 있는 동안(막 열렸을 때는 물론, 이미 열려 있던 문이 나중에
@@ -160,8 +166,15 @@ protected:
 	/** ApplyOpenedVisual 의 역방향. DebugReseal 전용 */
 	void ApplySealedVisual();
 
-	/** 서버 전용. 결과 확정 → 스폰 → 상태 전환 → 복제. 정상 개방과 디버그 개방이 공유한다 */
-	void OpenDoor();
+	/**
+	 * 서버 전용. 봉인 해제 연출을 시작한다 — Opening 상태로 전환하고 등급별 개방 시간만큼
+	 * 타이머를 건다. 시간이 0 이하면 곧바로 FinishOpening 을 호출한다.
+	 * 정상 개방과 디버그 개방이 공유한다.
+	 */
+	void BeginOpening();
+
+	/** 서버 전용. 연출이 끝난 시점. 결과 확정 → 스폰 → Opened 전환 → 복제 */
+	void FinishOpening();
 
 	/** 서버 전용. 개방 시점에 방 결과를 추첨한다 */
 	void RollRoomResult();
@@ -173,11 +186,11 @@ protected:
 	void SpawnEntries(const TArray<FSealedRoomSpawnEntry>& InEntries, TArray<AActor*>& InOutAvailablePoints);
 
 	/** OnRep_DoorState 에서 원샷 연출(BP_OnSealBroken) 재생 여부를 판단하는 시간 창 (초) */
-	static constexpr float RecentlyOpenedWindowSeconds = 2.0f;
+	static constexpr float RecentlyStartedWindowSeconds = 2.0f;
 
 	/**
-	 * 문이 "방금" 열렸는지 판정한다. OpenedServerTime 이 현재 서버 시각과
-	 * RecentlyOpenedWindowSeconds 이내로 가까우면 true. GameState 를 가져올 수 없으면 false.
+	 * 봉인 해제 연출이 "방금" 시작됐는지 판정한다. SequenceStartServerTime 이 현재 서버 시각과
+	 * RecentlyStartedWindowSeconds 이내로 가까우면 true. GameState 를 가져올 수 없으면 false.
 	 */
-	bool WasRecentlyOpened() const;
+	bool WasRecentlyStarted() const;
 };

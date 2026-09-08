@@ -51,7 +51,7 @@ void ASealedDoorActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(ASealedDoorActor, Grade);
 	DOREPLIFETIME(ASealedDoorActor, DoorState);
 	DOREPLIFETIME(ASealedDoorActor, RoomResult);
-	DOREPLIFETIME(ASealedDoorActor, OpenedServerTime);
+	DOREPLIFETIME(ASealedDoorActor, SequenceStartServerTime);
 }
 
 bool ASealedDoorActor::CanInteract_Implementation(AActor* Interactor) const
@@ -118,29 +118,64 @@ void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
 		}
 	}
 
-	OpenDoor();
+	BeginOpening();
 }
 
-void ASealedDoorActor::OpenDoor()
+void ASealedDoorActor::BeginOpening()
 {
 	if (!HasAuthority())
 	{
 		return;
 	}
 
+	// GameState 를 못 가져오면 SequenceStartServerTime 은 기본값(0)에 남는다 —
+	// WasRecentlyStarted() 가 false 를 돌려주므로 원샷 연출이 재생되지 않는 안전한 방향이다.
+	if (const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr)
+	{
+		SequenceStartServerTime = GameState->GetServerWorldTimeSeconds();
+	}
+
+	const FSealedDoorGradeData* GradeData = FindGradeData();
+	const float Duration = GradeData ? GradeData->OpenDurationSeconds : 0.0f;
+
+	if (Duration <= 0.0f)
+	{
+		// 연출 시간이 없으면 상태를 거치지 않고 곧바로 연다.
+		FinishOpening();
+		return;
+	}
+
+	DoorState = ESealedDoorState::Opening;
+
+	// 서버에서는 RepNotify 가 자동 호출되지 않는다 (ABoxActor 와 동일한 처리)
+	OnRep_DoorState();
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[SealedDoor] %s: 봉인 해제 연출 시작 (%.1f초)"),
+		*GetName(), Duration);
+
+	GetWorldTimerManager().SetTimer(
+		OpenTimerHandle,
+		this,
+		&ASealedDoorActor::FinishOpening,
+		Duration,
+		false);
+}
+
+void ASealedDoorActor::FinishOpening()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(OpenTimerHandle);
+
 	RollRoomResult();
 	GenerateRoom();
 
-	// GameState 를 못 가져오면 OpenedServerTime 은 기본값(0)에 남는다 —
-	// WasRecentlyOpened() 가 false 를 돌려주므로 원샷 연출이 재생되지 않는 안전한 방향이다.
-	if (const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr)
-	{
-		OpenedServerTime = GameState->GetServerWorldTimeSeconds();
-	}
-
 	DoorState = ESealedDoorState::Opened;
 
-	// 서버에서는 RepNotify 가 자동 호출되지 않는다 (ABoxActor 와 동일한 처리)
 	OnRep_DoorState();
 }
 
@@ -155,12 +190,12 @@ void ASealedDoorActor::DebugForceOpen()
 	if (DoorState != ESealedDoorState::Sealed)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[SealedDoor] %s: 이미 열려 있습니다. 다시 열려면 DebugReseal 을 먼저 실행하세요."),
+			TEXT("[SealedDoor] %s: 이미 열렸거나 개방 중입니다. 다시 열려면 DebugReseal 을 먼저 실행하세요."),
 			*GetName());
 		return;
 	}
 
-	OpenDoor();
+	BeginOpening();
 }
 
 void ASealedDoorActor::DebugReseal()
@@ -170,6 +205,8 @@ void ASealedDoorActor::DebugReseal()
 		UE_LOG(LogTemp, Warning, TEXT("[SealedDoor] %s: DebugReseal 은 서버에서만 동작합니다."), *GetName());
 		return;
 	}
+
+	GetWorldTimerManager().ClearTimer(OpenTimerHandle);
 
 	int32 DestroyedCount = 0;
 	for (AActor* Spawned : SpawnedActors)
@@ -184,7 +221,7 @@ void ASealedDoorActor::DebugReseal()
 
 	bRoomGenerated = false;
 	RoomResult = ESealedRoomResult::Undetermined;
-	OpenedServerTime = 0.0f;
+	SequenceStartServerTime = 0.0f;
 	DoorState = ESealedDoorState::Sealed;
 
 	ApplySealedVisual();
@@ -240,30 +277,36 @@ FText ASealedDoorActor::GetInteractPrompt_Implementation() const
 
 void ASealedDoorActor::OnRep_DoorState()
 {
-	if (DoorState != ESealedDoorState::Opened)
+	switch (DoorState)
 	{
-		// 정상 게임플레이에서는 Opened 에서 Sealed 로 돌아가지 않는다. DebugReseal 전용 경로다.
+	case ESealedDoorState::Sealed:
+		// 정상 게임플레이에서는 Sealed 로 돌아가지 않는다. DebugReseal 전용 경로다.
 		ApplySealedVisual();
-		return;
+		break;
+
+	case ESealedDoorState::Opening:
+	{
+		// 원샷 훅: 연출이 "방금" 시작됐을 때만 호출한다. 그렇지 않으면 넷 컬링에서 벗어나
+		// 있던 클라이언트나 늦게 접속한 플레이어가, 실제로는 한참 전에 시작된 문에 대해
+		// 봉인 파괴 연출과(PvP 위치 신호인) 개방 사운드를 재생하게 된다.
+		if (WasRecentlyStarted())
+		{
+			const FSealedDoorGradeData* GradeData = FindGradeData();
+			BP_OnSealBroken(Grade, GradeData ? GradeData->OpenDurationSeconds : 0.0f);
+		}
+		break;
 	}
 
-	{
+	case ESealedDoorState::Opened:
 		// 상태 훅: 열려 있는 동안 항상 호출된다. 뒤늦게 relevant 해진 클라이언트도
 		// 반드시 열린 시각적 상태를 봐야 하므로 조건 없이 호출한다.
 		ApplyOpenedVisual();
 		BP_OnDoorOpened(Grade);
-
-		// 원샷 훅: "방금" 열렸을 때만 호출한다. 그렇지 않으면 넷 컬링에서 벗어나 있던
-		// 클라이언트나 늦게 접속한 플레이어가, 실제로는 한참 전에 열린 문에 대해
-		// 봉인 파괴 연출과(PvP 위치 신호인) 개방 사운드를 재생하게 된다.
-		if (WasRecentlyOpened())
-		{
-			BP_OnSealBroken(Grade);
-		}
+		break;
 	}
 }
 
-bool ASealedDoorActor::WasRecentlyOpened() const
+bool ASealedDoorActor::WasRecentlyStarted() const
 {
 	const UWorld* World = GetWorld();
 	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
@@ -273,8 +316,8 @@ bool ASealedDoorActor::WasRecentlyOpened() const
 	}
 
 	// 클라이언트의 서버 시각 추정에는 약간의 오차가 있을 수 있으므로 절댓값으로 비교한다.
-	const float Age = GameState->GetServerWorldTimeSeconds() - OpenedServerTime;
-	return FMath::Abs(Age) <= RecentlyOpenedWindowSeconds;
+	const float Age = GameState->GetServerWorldTimeSeconds() - SequenceStartServerTime;
+	return FMath::Abs(Age) <= RecentlyStartedWindowSeconds;
 }
 
 const FSealedDoorGradeData* ASealedDoorActor::FindGradeData() const

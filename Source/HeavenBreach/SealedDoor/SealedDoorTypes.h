@@ -25,6 +25,8 @@ UENUM(BlueprintType)
 enum class ESealedDoorState : uint8
 {
 	Sealed	UMETA(DisplayName = "봉인됨"),
+	/** 열쇠를 소비하고 봉인 해제 연출이 진행 중인 상태. 이 동안에는 상호작용할 수 없다. */
+	Opening	UMETA(DisplayName = "개방 중"),
 	Opened	UMETA(DisplayName = "개방됨")
 };
 
@@ -98,6 +100,15 @@ struct FSealedDoorGradeData : public FTableRowBase
 	/** 프롬프트에 쓰는 문 이름. 예: "희귀 봉인문" */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
 	FText DoorDisplayName;
+
+	/**
+	 * 봉인 해제 연출 시간(초). 열쇠를 소비한 뒤 이 시간이 지나야 문이 실제로 열리고
+	 * 내용물이 배치된다. 그동안 플레이어는 무방비 상태이므로, 상위 등급일수록 길게 잡아
+	 * 기획서 8장(등급이 높을수록 연출 강도 상승)과 22장(개방음을 이용한 PvP 유도)을 함께 만족시킨다.
+	 * 0 이하면 즉시 개방한다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor", meta = (ClampMin = 0, Units = "s"))
+	float OpenDurationSeconds = 2.0f;
 };
 
 /** ESealedDoorGrade -> DT_SealedDoorGrade 행 이름 */
