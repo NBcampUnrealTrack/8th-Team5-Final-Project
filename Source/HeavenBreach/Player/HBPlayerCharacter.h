@@ -94,6 +94,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UQuickSlotComponent* GetQuickSlot() const;
 
+	// 장착 무기의 WeaponType을 태그로 변환한다. 올바르지 않거나 타입이 없으면 Weapon.Unarmed.
+	UFUNCTION(BlueprintPure, Category = "Player|Combat")
+	FGameplayTag GetEquippedWeaponTag() const;
+
 #pragma region Interaction
 public:
 	virtual void PawnClientRestart() override;
@@ -199,8 +203,19 @@ public:
 	UFUNCTION(BlueprintPure, Category="Player|Combat")
 	float GetBlockAngle() const;
 
+	// 데미지 처리. 패시브나 액티브등 데미지보너스 포함
 	float ModifyOutgoingDamage(AActor* Target, float Damage);
+	// 
 	void NotifyDamageDealt(AActor* Target, float Damage, bool bTargetKilled);
+	// 마나 비용의 유일한 통로. 패시브,증강의 소비 감소를 여기 한 곳에서만 처리한다.
+	float ModifyManaCost(FGameplayTag SourceTag, float Cost) const;
+
+	// 비용만큼 마나가 있는가. 클라도 읽어서 즉시 막는다.
+	bool HasEnoughMana(float Cost) const;
+	float GetAttackManaCost() const { return AttackManaCost; }
+
+	// 실제 차감. 서버에서만 유효하다.
+	void ConsumeMana(float Cost);
 	
 protected:
 	/****GA***/
@@ -263,6 +278,9 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
 	float ManaResourceTickInterval = 0.25f;
+	// 공격 1회당 마나.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin = "0.0"))
+	float AttackManaCost = 10.f;
 
 	FTimerHandle ManaResourceTimer;
 	double LastManaActivityTime = 0.0;
@@ -314,6 +332,9 @@ protected:
 	
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Combat")
+	TObjectPtr<class UMeleeTraceComponent> MeleeTraceComp;
 	
 	#pragma region ModularEquipmentMesh
 	// Modular equipment meshes copy the character mesh pose instead of attaching to a socket.

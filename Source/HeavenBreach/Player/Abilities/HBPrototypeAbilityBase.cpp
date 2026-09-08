@@ -22,16 +22,25 @@ bool UHBPrototypeAbilityBase::BeginAbilityWithCooldown(
 {
 	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
 	if (!ASC || HBWarriorEffects::IsCooldownActive(ASC, CooldownTag)) return false;
-	if (ManaCost > 0.f)
+
+	// 스킬을 하나하나 고치지 않도록 여기서 통과시킨다.
+	// CooldownTag 가 이미 스킬을 식별하므로 그대로 SourceTag 로 쓴다.
+	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
+	const float FinalCost = Player ? Player->ModifyManaCost(CooldownTag, ManaCost) : ManaCost;
+
+	if (FinalCost > 0.f)
 	{
 		const float Mana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
-		if (Mana < ManaCost) return false;
+		if (Mana < FinalCost) 
+			return false;
 	}
-	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) return false;
-	if (ManaCost > 0.f)
+
+	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) 
+		return false;
+
+	if (FinalCost > 0.f)
 	{
-		ASC->ApplyModToAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(),
-			EGameplayModOp::Additive, -ManaCost);
+		ASC->ApplyModToAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -FinalCost);
 	}
 	HBWarriorEffects::TryApplyCooldown(ASC, CooldownTag, CooldownDuration);
 	return true;
@@ -127,7 +136,9 @@ void UHBPrototypeAbilityBase::AddMana(const FGameplayAbilityActorInfo* ActorInfo
 	if (UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr)
 	{
 		const float Mana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
-		ASC->SetNumericAttributeBase(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(),
-			FMath::Clamp(Mana + Amount, 0.f, 100.f));
+
+		const float MaxMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute());
+
+		ASC->SetNumericAttributeBase(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), FMath::Clamp(Mana + Amount, 0.f, MaxMana));
 	}
 }
