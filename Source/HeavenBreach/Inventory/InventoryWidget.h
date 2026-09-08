@@ -17,6 +17,7 @@ class UInventoryItemWidget;
 class UShopComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInventoryItemActivated, FGuid, InstanceId);
 
 /**
  * 인벤토리 화면.
@@ -118,6 +119,9 @@ protected:
 
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnScrollChanged OnScrollChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Inventory")
+	FOnInventoryItemActivated OnItemActivated;
 
 private:
 	void BuildBackground();

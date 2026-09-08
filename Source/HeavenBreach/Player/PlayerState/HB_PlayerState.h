@@ -15,6 +15,7 @@ class UEquipmentComponent;
 class UQuickSlotComponent;
 class UShopComponent;
 class ILoadoutStorage;
+class UCraftComponent;
 
 struct FPlayerLoadout;
 
@@ -312,5 +313,12 @@ private:
 
 #pragma endregion
 
+#pragma region Craft
+public:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Craft")
+	TObjectPtr<UCraftComponent> Craft;
 
+	UFUNCTION(BlueprintPure, Category = "Craft")
+	UCraftComponent* GetCraft() const { return Craft; }
+#pragma endregion
 };
