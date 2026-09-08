@@ -101,4 +101,13 @@ protected:
 
 	/** 문짝 콜리전 해제 + 봉인 문양 숨김. 서버·클라이언트 양쪽에서 호출된다 */
 	void ApplyOpenedVisual();
+
+	/** 서버 전용. 개방 시점에 방 결과를 추첨한다 */
+	void RollRoomResult();
+
+	/** 서버 전용. 추첨된 결과에 따라 내용물을 배치한다. 한 번만 실행된다 */
+	void GenerateRoom();
+
+	/** 스폰 목록을 소비한다. 포인트가 모자라면 남은 스폰을 버린다 */
+	void SpawnEntries(const TArray<FSealedRoomSpawnEntry>& InEntries, TArray<AActor*>& InOutAvailablePoints);
 };

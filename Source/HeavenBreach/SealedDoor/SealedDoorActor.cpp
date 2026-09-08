@@ -82,6 +82,9 @@ void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
 		return;
 	}
 
+	RollRoomResult();
+	GenerateRoom();
+
 	DoorState = ESealedDoorState::Opened;
 
 	// 서버에서는 RepNotify 가 자동 호출되지 않는다 (ABoxActor 와 동일한 처리)
@@ -207,5 +210,123 @@ void ASealedDoorActor::ApplyOpenedVisual()
 	if (SealDecal)
 	{
 		SealDecal->SetVisibility(false);
+	}
+}
+
+void ASealedDoorActor::RollRoomResult()
+{
+	const FSealedDoorGradeData* GradeData = FindGradeData();
+	if (GradeData == nullptr)
+	{
+		RoomResult = ESealedRoomResult::RewardRoom;
+		return;
+	}
+
+	// 개방 시점에 추첨한다. 미리 정해두면 클라이언트가 문을 열기 전에 알 수 있고,
+	// 몬스터를 미리 스폰하면 열지도 않은 방의 AI 가 계속 돈다.
+	RoomResult = (FMath::FRand() < GradeData->MonsterRoomChance)
+		? ESealedRoomResult::MonsterRoom
+		: ESealedRoomResult::RewardRoom;
+}
+
+void ASealedDoorActor::GenerateRoom()
+{
+	// 기획서 21장: 세션 내 재생성 없음
+	if (bRoomGenerated)
+	{
+		return;
+	}
+	bRoomGenerated = true;
+
+	const FSealedDoorGradeData* GradeData = FindGradeData();
+	if (GradeData == nullptr)
+	{
+		return;
+	}
+
+	TArray<AActor*> AvailablePoints;
+	for (const TObjectPtr<AActor>& Point : SpawnPoints)
+	{
+		if (Point != nullptr)
+		{
+			AvailablePoints.Add(Point);
+		}
+	}
+
+	if (AvailablePoints.Num() == 0)
+	{
+		// 배치 실수가 문을 잠가버리지 않도록, 경고만 남기고 문은 정상 개방한다.
+		UE_LOG(LogTemp, Warning,
+			TEXT("[SealedDoor] %s: SpawnPoints 가 비어 있어 내용물을 배치하지 않습니다."),
+			*GetName());
+		return;
+	}
+
+	for (int32 i = AvailablePoints.Num() - 1; i > 0; --i)
+	{
+		AvailablePoints.Swap(i, FMath::RandRange(0, i));
+	}
+
+	if (RoomResult == ESealedRoomResult::MonsterRoom)
+	{
+		SpawnEntries(GradeData->MonsterRoomSpawns, AvailablePoints);
+	}
+	else
+	{
+		SpawnEntries(GradeData->RewardRoomSpawns, AvailablePoints);
+		SpawnEntries(GradeData->GuardSpawns, AvailablePoints);
+	}
+}
+
+void ASealedDoorActor::SpawnEntries(const TArray<FSealedRoomSpawnEntry>& InEntries, TArray<AActor*>& InOutAvailablePoints)
+{
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		return;
+	}
+
+	for (const FSealedRoomSpawnEntry& Entry : InEntries)
+	{
+		if (Entry.ActorClass.IsNull())
+		{
+			continue;
+		}
+
+		UClass* SpawnClass = Entry.ActorClass.LoadSynchronous();
+		if (SpawnClass == nullptr)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[SealedDoor] %s: 스폰 클래스 로드에 실패했습니다. (%s)"),
+				*GetName(), *Entry.ActorClass.ToString());
+			continue;
+		}
+
+		const int32 MinCount = FMath::Min(Entry.MinCount, Entry.MaxCount);
+		const int32 MaxCount = FMath::Max(Entry.MinCount, Entry.MaxCount);
+		const int32 Count = FMath::RandRange(MinCount, MaxCount);
+
+		for (int32 i = 0; i < Count; ++i)
+		{
+			if (InOutAvailablePoints.Num() == 0)
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("[SealedDoor] %s: 스폰 포인트가 부족해 남은 스폰을 건너뜁니다."),
+					*GetName());
+				return;
+			}
+
+			const AActor* Point = InOutAvailablePoints.Pop();
+
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.Owner = this;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+			World->SpawnActor<AActor>(
+				SpawnClass,
+				Point->GetActorLocation(),
+				Point->GetActorRotation(),
+				SpawnParams);
+		}
 	}
 }
