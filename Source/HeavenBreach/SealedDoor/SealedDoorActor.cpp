@@ -46,6 +46,48 @@ bool ASealedDoorActor::CanInteract_Implementation(AActor* Interactor) const
 	return Interactor != nullptr && DoorState == ESealedDoorState::Sealed;
 }
 
+void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
+{
+	// UInteractionComponent::Server_Interact 가 거리를 재검증한 뒤 서버에서 호출한다.
+	if (!HasAuthority() || Interactor == nullptr)
+	{
+		return;
+	}
+
+	if (DoorState != ESealedDoorState::Sealed)
+	{
+		return;
+	}
+
+	const FSealedDoorGradeData* GradeData = FindGradeData();
+	if (GradeData == nullptr)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[SealedDoor] %s: DT_SealedDoorGrade 에서 등급 행을 찾지 못했습니다."),
+			*GetName());
+		return;
+	}
+
+	UInventoryComponent* Inventory = GetInteractorInventory(Interactor);
+
+	FGuid KeyInstanceId;
+	if (!FindMatchingKey(Inventory, GradeData->RequiredKeyRowName, KeyInstanceId))
+	{
+		// 열쇠 없음 / 등급 불일치. 프롬프트가 이미 안내하고 있으므로 별도 알림을 보내지 않는다.
+		return;
+	}
+
+	if (!Inventory->RemoveStackCount(KeyInstanceId, 1))
+	{
+		return;
+	}
+
+	DoorState = ESealedDoorState::Opened;
+
+	// 서버에서는 RepNotify 가 자동 호출되지 않는다 (ABoxActor 와 동일한 처리)
+	OnRep_DoorState();
+}
+
 FText ASealedDoorActor::GetInteractPrompt_Implementation() const
 {
 	if (DoorState != ESealedDoorState::Sealed)
