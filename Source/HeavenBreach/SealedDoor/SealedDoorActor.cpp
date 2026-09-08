@@ -58,7 +58,12 @@ bool ASealedDoorActor::CanInteract_Implementation(AActor* Interactor) const
 {
 	// 열린 문은 상호작용 대상이 아니다. 열쇠 유무는 여기서 보지 않는다 —
 	// 열쇠가 없어도 프롬프트가 떠야 어떤 열쇠가 필요한지 알 수 있기 때문.
-	return Interactor != nullptr && DoorState == ESealedDoorState::Sealed;
+	//
+	// Opening 도 true 를 돌려줘야 한다. UInteractionComponent 가 홀드 도중 매 틱
+	// 이 함수로 대상 유효성을 확인하기 때문에, 여기서 false 를 주면 봉인 해제가
+	// 시작하자마자 스스로 끊긴다. 진행 중임은 프롬프트를 비워서 알린다.
+	return Interactor != nullptr
+		&& (DoorState == ESealedDoorState::Sealed || DoorState == ESealedDoorState::Opening);
 }
 
 void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
@@ -69,7 +74,8 @@ void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
 		return;
 	}
 
-	if (DoorState != ESealedDoorState::Sealed)
+	// 홀드가 끝난 시점에는 Opening 이고, 홀드 시간이 0 인 등급이면 Sealed 인 채로 바로 들어온다.
+	if (DoorState == ESealedDoorState::Opened)
 	{
 		return;
 	}
@@ -118,15 +124,24 @@ void ASealedDoorActor::Interact_Implementation(AActor* Interactor)
 		}
 	}
 
-	BeginOpening();
+	FinishOpening();
 }
 
-void ASealedDoorActor::BeginOpening()
+float ASealedDoorActor::GetInteractHoldSeconds_Implementation() const
 {
-	if (!HasAuthority())
+	const FSealedDoorGradeData* GradeData = FindGradeData();
+	return GradeData ? GradeData->OpenDurationSeconds : 0.0f;
+}
+
+void ASealedDoorActor::OnHoldBegin_Implementation(AActor* Interactor)
+{
+	// 이미 다른 플레이어가 봉인을 해제하는 중이면 상태를 건드리지 않는다.
+	if (!HasAuthority() || DoorState != ESealedDoorState::Sealed)
 	{
 		return;
 	}
+
+	HoldingInteractor = Interactor;
 
 	// GameState 를 못 가져오면 SequenceStartServerTime 은 기본값(0)에 남는다 —
 	// WasRecentlyStarted() 가 false 를 돌려주므로 원샷 연출이 재생되지 않는 안전한 방향이다.
@@ -135,31 +150,39 @@ void ASealedDoorActor::BeginOpening()
 		SequenceStartServerTime = GameState->GetServerWorldTimeSeconds();
 	}
 
-	const FSealedDoorGradeData* GradeData = FindGradeData();
-	const float Duration = GradeData ? GradeData->OpenDurationSeconds : 0.0f;
-
-	if (Duration <= 0.0f)
-	{
-		// 연출 시간이 없으면 상태를 거치지 않고 곧바로 연다.
-		FinishOpening();
-		return;
-	}
-
 	DoorState = ESealedDoorState::Opening;
 
 	// 서버에서는 RepNotify 가 자동 호출되지 않는다 (ABoxActor 와 동일한 처리)
 	OnRep_DoorState();
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[SealedDoor] %s: 봉인 해제 연출 시작 (%.1f초)"),
-		*GetName(), Duration);
+		TEXT("[SealedDoor] %s: 봉인 해제 시작 (%.1f초 유지 필요)"),
+		*GetName(), GetInteractHoldSeconds_Implementation());
+}
 
-	GetWorldTimerManager().SetTimer(
-		OpenTimerHandle,
-		this,
-		&ASealedDoorActor::FinishOpening,
-		Duration,
-		false);
+void ASealedDoorActor::OnHoldCancel_Implementation(AActor* Interactor)
+{
+	if (!HasAuthority() || DoorState != ESealedDoorState::Opening)
+	{
+		return;
+	}
+
+	// 연출을 시작한 당사자가 놓았을 때만 되돌린다. 옆 사람이 잠깐 눌렀다 놓는 것으로
+	// 진행 중인 봉인 해제가 끊기면 안 된다.
+	if (HoldingInteractor != Interactor)
+	{
+		return;
+	}
+
+	HoldingInteractor = nullptr;
+
+	// 열쇠는 완료 시점(Interact)에 소비하므로 여기서 되돌릴 것이 없다.
+	DoorState = ESealedDoorState::Sealed;
+	SequenceStartServerTime = 0.0f;
+
+	OnRep_DoorState();
+
+	UE_LOG(LogTemp, Log, TEXT("[SealedDoor] %s: 봉인 해제 중단됨"), *GetName());
 }
 
 void ASealedDoorActor::FinishOpening()
@@ -169,7 +192,7 @@ void ASealedDoorActor::FinishOpening()
 		return;
 	}
 
-	GetWorldTimerManager().ClearTimer(OpenTimerHandle);
+	HoldingInteractor = nullptr;
 
 	RollRoomResult();
 	GenerateRoom();
@@ -190,12 +213,12 @@ void ASealedDoorActor::DebugForceOpen()
 	if (DoorState != ESealedDoorState::Sealed)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[SealedDoor] %s: 이미 열렸거나 개방 중입니다. 다시 열려면 DebugReseal 을 먼저 실행하세요."),
+			TEXT("[SealedDoor] %s: 이미 열렸거나 봉인 해제 중입니다. 다시 열려면 DebugReseal 을 먼저 실행하세요."),
 			*GetName());
 		return;
 	}
 
-	BeginOpening();
+	FinishOpening();
 }
 
 void ASealedDoorActor::DebugReseal()
@@ -206,7 +229,7 @@ void ASealedDoorActor::DebugReseal()
 		return;
 	}
 
-	GetWorldTimerManager().ClearTimer(OpenTimerHandle);
+	HoldingInteractor = nullptr;
 
 	int32 DestroyedCount = 0;
 	for (AActor* Spawned : SpawnedActors)
@@ -258,7 +281,7 @@ FText ASealedDoorActor::GetInteractPrompt_Implementation() const
 	if (Inventory != nullptr && FindMatchingKey(Inventory, GradeData->RequiredKeyRowName, UnusedId))
 	{
 		return FText::Format(
-			NSLOCTEXT("SealedDoor", "OpenPrompt", "{0} 개방 [F]"),
+			NSLOCTEXT("SealedDoor", "OpenPrompt", "{0} 개방 [F 길게]"),
 			GradeData->DoorDisplayName);
 	}
 

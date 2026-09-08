@@ -33,6 +33,15 @@ public:
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual FText GetInteractPrompt_Implementation() const override;
 
+	/** 등급별 봉인 해제 시간. 이 시간 동안 상호작용 키를 누르고 있어야 문이 열린다 */
+	virtual float GetInteractHoldSeconds_Implementation() const override;
+
+	/** 누르기 시작 — Opening 으로 전환해 다른 플레이어에게도 봉인 해제 중임을 보인다 */
+	virtual void OnHoldBegin_Implementation(AActor* Interactor) override;
+
+	/** 중간에 놓음 — Sealed 로 되돌린다. 열쇠는 아직 소비하지 않았으므로 손실이 없다 */
+	virtual void OnHoldCancel_Implementation(AActor* Interactor) override;
+
 	UFUNCTION(BlueprintPure, Category = "SealedDoor")
 	ESealedDoorGrade GetGrade() const { return Grade; }
 
@@ -89,8 +98,6 @@ protected:
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SealedDoor")
 	float SequenceStartServerTime = 0.0f;
 
-	/** 서버 전용. 봉인 해제 연출 종료 타이머 */
-	FTimerHandle OpenTimerHandle;
 
 	/** 방 안에 배치한 ATargetPoint 들. 서버에서만 쓰므로 복제하지 않는다 */
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "SealedDoor|Room")
@@ -105,6 +112,13 @@ protected:
 
 	/** 서버 전용. 내용물 재생성을 막는다 */
 	bool bRoomGenerated = false;
+
+	/**
+	 * 서버 전용. 지금 이 문을 누르고 있는 플레이어.
+	 * 다른 플레이어가 같은 문에 홀드를 걸었다 놓아도 진행 중인 연출이 끊기지 않게 한다.
+	 */
+	UPROPERTY()
+	TObjectPtr<AActor> HoldingInteractor;
 
 	/**
 	 * 디버그: 방 결과를 강제한다. Undetermined 면 정상 추첨한다.
@@ -166,14 +180,7 @@ protected:
 	/** ApplyOpenedVisual 의 역방향. DebugReseal 전용 */
 	void ApplySealedVisual();
 
-	/**
-	 * 서버 전용. 봉인 해제 연출을 시작한다 — Opening 상태로 전환하고 등급별 개방 시간만큼
-	 * 타이머를 건다. 시간이 0 이하면 곧바로 FinishOpening 을 호출한다.
-	 * 정상 개방과 디버그 개방이 공유한다.
-	 */
-	void BeginOpening();
-
-	/** 서버 전용. 연출이 끝난 시점. 결과 확정 → 스폰 → Opened 전환 → 복제 */
+	/** 서버 전용. 결과 확정 → 스폰 → Opened 전환 → 복제. 정상 개방과 디버그 개방이 공유한다 */
 	void FinishOpening();
 
 	/** 서버 전용. 개방 시점에 방 결과를 추첨한다 */
