@@ -28,7 +28,9 @@ enum class EItemGrade : uint8
 	Normal,
 	Rare,
 	Epic,
-	Legend
+	Legend,
+	Relic,
+	Ancient
 };
 
 USTRUCT(BlueprintType)
