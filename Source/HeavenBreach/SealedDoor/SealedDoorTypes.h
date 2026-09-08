@@ -1,0 +1,88 @@
+// Copyright HeavenBreach Team5. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/DataTable.h"
+#include "SealedDoorTypes.generated.h"
+
+/**
+ * 봉인문·열쇠 등급.
+ *
+ * EBoxGrade / EItemGrade 와 값 순서를 일부러 맞춰두었다.
+ * 상자 등급과 개념이 달라 재사용하지 않지만, 나중에 인덱스로 대응시킬 일이 생겨도 어긋나지 않게 하기 위함.
+ */
+UENUM(BlueprintType)
+enum class ESealedDoorGrade : uint8
+{
+	Common		UMETA(DisplayName = "일반"),
+	Rare		UMETA(DisplayName = "희귀"),
+	Epic		UMETA(DisplayName = "영웅"),
+	Celestial	UMETA(DisplayName = "천상")
+};
+
+UENUM(BlueprintType)
+enum class ESealedDoorState : uint8
+{
+	Sealed	UMETA(DisplayName = "봉인됨"),
+	Opened	UMETA(DisplayName = "개방됨")
+};
+
+/** 문을 열기 전에는 항상 Undetermined 여야 한다. 클라이언트가 내부를 미리 알 수 없어야 하기 때문. */
+UENUM(BlueprintType)
+enum class ESealedRoomResult : uint8
+{
+	Undetermined	UMETA(DisplayName = "미결정"),
+	MonsterRoom		UMETA(DisplayName = "몬스터 방"),
+	RewardRoom		UMETA(DisplayName = "보상방")
+};
+
+USTRUCT(BlueprintType)
+struct FSealedRoomSpawnEntry
+{
+	GENERATED_BODY()
+
+	/** 스폰할 몬스터 BP 또는 BoxActor BP */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
+	TSoftClassPtr<AActor> ActorClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor", meta = (ClampMin = 0))
+	int32 MinCount = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor", meta = (ClampMin = 0))
+	int32 MaxCount = 1;
+};
+
+/** DT_SealedDoorGrade 의 행. 행 이름은 SealedDoorGradeToRowName() 이 돌려주는 값과 일치해야 한다. */
+USTRUCT(BlueprintType)
+struct FSealedDoorGradeData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** 이 등급 문을 여는 데 필요한 열쇠. DT_Item 의 행 이름 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
+	FName RequiredKeyRowName;
+
+	/** 몬스터 방이 나올 확률. 일반=0.5, 희귀 이상=0 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor", meta = (ClampMin = 0, ClampMax = 1))
+	float MonsterRoomChance = 0.0f;
+
+	/** 몬스터 방 결과일 때 배치 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
+	TArray<FSealedRoomSpawnEntry> MonsterRoomSpawns;
+
+	/** 보상방 결과일 때 배치. BoxActor BP 를 넣으면 내용물은 DT_BoxGradeLoot 이 처리한다 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
+	TArray<FSealedRoomSpawnEntry> RewardRoomSpawns;
+
+	/** 보상방 결과에 함께 배치할 호위 적. 희귀 이상에서 사용 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
+	TArray<FSealedRoomSpawnEntry> GuardSpawns;
+
+	/** 프롬프트에 쓰는 문 이름. 예: "희귀 봉인문" */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor")
+	FText DoorDisplayName;
+};
+
+/** ESealedDoorGrade -> DT_SealedDoorGrade 행 이름 */
+HEAVENBREACH_API FName SealedDoorGradeToRowName(ESealedDoorGrade InGrade);
