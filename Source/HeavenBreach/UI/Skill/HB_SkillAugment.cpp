@@ -47,6 +47,21 @@ FReply UHB_SkillAugment::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
     return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
+void UHB_SkillAugment::OnAugmentCardClicked(FName ClickedAugmentId)
+{
+    if (!AugmentDataTable) return;
+
+    FAugmentCardData* SelectedAugment = AugmentDataTable->FindRow<FAugmentCardData>(ClickedAugmentId, TEXT("AugmentContext"));
+    if (!SelectedAugment) return;
+
+    // TODO: 실제 증강 효과 적용 (스킬 컴포넌트/AttributeSet에 SelectedAugment 반영)
+
+    if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+    {
+        PC->ToggleSkillAugment(); // 선택 완료 -> 화면 닫기
+    }
+}
+
 void UHB_SkillAugment::GenerateRandomAugments(FName EquippedSlotQ, FName EquippedSlotE, TArray<FName> EquippedPassives)
 {
     if (!AugmentDataTable || !CardContainer || !AugmentCardClass) return;
@@ -100,8 +115,8 @@ void UHB_SkillAugment::GenerateRandomAugments(FName EquippedSlotQ, FName Equippe
         UHB_AugmentCard* NewCard = CreateWidget<UHB_AugmentCard>(GetWorld(), AugmentCardClass);
         if (NewCard)
         {
-            // 카드 초기화 (CommonUI 버튼 클릭 이벤트 바인딩 포함)
             NewCard->InitCard(*SelectedData);
+            NewCard->OnAugmentCardClickedDelegate.AddDynamic(this, &UHB_SkillAugment::OnAugmentCardClicked); // 이 줄 추가
             CardContainer->AddChild(NewCard);
         }
     }

@@ -10,6 +10,8 @@
 /**
  * 
  */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAugmentCardClicked, FName, ClickedAugmentId);
+
 UCLASS()
 class HEAVENBREACH_API UHB_AugmentCard : public UCommonButtonBase
 {
@@ -18,8 +20,12 @@ class HEAVENBREACH_API UHB_AugmentCard : public UCommonButtonBase
 public:
     void InitCard(const FAugmentCardData& InData);
 
+    UPROPERTY(BlueprintAssignable, Category = "Augment Card|Events")
+    FOnAugmentCardClicked OnAugmentCardClickedDelegate;
+
 protected:
     virtual void NativeOnInitialized() override;
+    virtual void NativeOnClicked() override;
 
     UPROPERTY(meta = (BindWidgetOptional))
     class UTextBlock* TitleText;

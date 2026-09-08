@@ -43,5 +43,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly)
 	class UDataTable* AugmentDataTable;
+
+private:
+	UFUNCTION()
+	void OnAugmentCardClicked(FName ClickedAugmentId);
 	
 };

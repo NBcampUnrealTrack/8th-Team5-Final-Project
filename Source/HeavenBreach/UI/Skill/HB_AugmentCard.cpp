@@ -10,6 +10,16 @@ void UHB_AugmentCard::NativeOnInitialized()
     Super::NativeOnInitialized();
 }
 
+void UHB_AugmentCard::NativeOnClicked()
+{
+    Super::NativeOnClicked();
+
+    if (OnAugmentCardClickedDelegate.IsBound())
+    {
+        OnAugmentCardClickedDelegate.Broadcast(CachedAugmentData.AugmentId);
+    }
+}
+
 void UHB_AugmentCard::InitCard(const FAugmentCardData& InData)
 {
     CachedAugmentData = InData;
