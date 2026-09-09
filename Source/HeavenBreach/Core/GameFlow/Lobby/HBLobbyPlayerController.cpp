@@ -67,6 +67,18 @@ bool AHBLobbyPlayerController::RequestStartDedicatedMatch()
 	return true;
 }
 
+void AHBLobbyPlayerController::SelectJob(FName JobId)
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	// Same reasoning as SetReady: only the dedicated server may write the
+	// replicated selection, so the client just forwards the request.
+	ServerSelectJob(JobId);
+}
+
 void AHBLobbyPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
@@ -116,17 +128,17 @@ void AHBLobbyPlayerController::ServerRequestStartGame_Implementation()
 void AHBLobbyPlayerController::ServerSetReady_Implementation(bool bNewReady)
 {
 	AHBLobbyPlayerState* LobbyPlayerState = GetPlayerState<AHBLobbyPlayerState>();
-	
+
 	if (!IsValid(LobbyPlayerState))
 	{
 		return;
 	}
-	
+
 	const bool bReadyStateChanged =
 		LobbyPlayerState->IsReady() != bNewReady;
 
 	LobbyPlayerState->SetReady(bNewReady);
-	
+
 	AHBLobbyGameMode* LobbyGameMode = GetWorld() != nullptr
 		? GetWorld()->GetAuthGameMode<AHBLobbyGameMode>()
 		: nullptr;
@@ -136,4 +148,18 @@ void AHBLobbyPlayerController::ServerSetReady_Implementation(bool bNewReady)
 		// Any ready-list change invalidates votes cast for the previous group.
 		LobbyGameMode->HandleReadyStateChanged();
 	}
+}
+
+void AHBLobbyPlayerController::ServerSelectJob_Implementation(FName JobId)
+{
+	AHBLobbyPlayerState* LobbyPlayerState = GetPlayerState<AHBLobbyPlayerState>();
+
+	if (!IsValid(LobbyPlayerState))
+	{
+		return;
+	}
+
+	// TODO: once a JobId -> UHBJobData registry exists, reject unknown JobIds here
+	// instead of trusting the client-sent FName.
+	LobbyPlayerState->SetSelectedJobId(JobId);
 }

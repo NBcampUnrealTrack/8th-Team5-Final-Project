@@ -18,29 +18,43 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	bool,
 	bNewStartConfirmed
 	);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FOnSelectedJobChanged,
+	FName,
+	NewSelectedJobId
+	);
 /**
- * 
+ *
  */
 UCLASS()
 class HEAVENBREACH_API AHBLobbyPlayerState : public AHB_PlayerState
 {
 	GENERATED_BODY()
-	
+
 public:
 	AHBLobbyPlayerState();
-	
+
 	bool IsReady() const { return bIsReady; }
 	bool IsStartConfirmed() const { return bStartConfirmed; }
-	
+	FName GetSelectedJobId() const { return SelectedJobId; }
+	bool HasSelectedJob() const { return !SelectedJobId.IsNone(); }
+
 	void SetReady(bool bNewReady);
 	void SetStartConfirmed(bool bNewStartConfirmed);
-	
+
+	/** Server-authoritative. The JobId is still re-validated against UHBJobData when the match spawns the character. */
+	void SetSelectedJobId(FName NewJobId);
+
 	UPROPERTY(BlueprintAssignable, Category = "Lobby|Ready")
 	FOnReadyStateChanged OnReadyStateChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Lobby|Start")
 	FOnStartConfirmationChanged OnStartConfirmationChanged;
-	
+
+	UPROPERTY(BlueprintAssignable, Category = "Lobby|Job")
+	FOnSelectedJobChanged OnSelectedJobChanged;
+
 protected:
 	UPROPERTY(
 		ReplicatedUsing = OnRep_IsReady,
@@ -54,12 +68,22 @@ protected:
 		BlueprintReadOnly,
 		Category = "Lobby|Start")
 	bool bStartConfirmed = false;
-	
+
+	/** Matches UHBJobData::JobId (e.g. "Warrior", "Mage", "Archer"). NAME_None means not chosen yet. */
+	UPROPERTY(
+		ReplicatedUsing = OnRep_SelectedJobId,
+		BlueprintReadOnly,
+		Category = "Lobby|Job")
+	FName SelectedJobId = NAME_None;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	
+
 	UFUNCTION()
 	void OnRep_IsReady();
 
 	UFUNCTION()
 	void OnRep_StartConfirmed();
+
+	UFUNCTION()
+	void OnRep_SelectedJobId();
 };
