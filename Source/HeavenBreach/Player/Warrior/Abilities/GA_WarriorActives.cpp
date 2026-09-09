@@ -9,7 +9,7 @@
 #include "GameFramework/Character.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
-#include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
+#include "Combat/Effect/HBEffectLibrary.h"
 
 namespace
 {
@@ -71,7 +71,7 @@ UGA_WarriorTimedAbility::UGA_WarriorTimedAbility()
 bool UGA_WarriorTimedAbility::IsOnCooldown(
 	const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTag CooldownTag) const
 {
-	return !ActorInfo || HBWarriorEffects::IsCooldownActive(
+	return !ActorInfo || HBEffects::IsCooldownActive(
 		ActorInfo->AbilitySystemComponent.Get(), CooldownTag);
 }
 
@@ -81,7 +81,7 @@ void UGA_WarriorTimedAbility::ApplyCooldownAndEnd(
 	if (const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
 		ActorInfo && ActorInfo->IsNetAuthority())
 	{
-		HBWarriorEffects::TryApplyCooldown(
+		HBEffects::TryApplyCooldown(
 			ActorInfo->AbilitySystemComponent.Get(), CooldownTag, Duration);
 	}
 	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(),
@@ -201,7 +201,7 @@ void UGA_WarriorBloodThirst::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 	const FGameplayEventData* TriggerEventData)
 {
 	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
-	if (!ASC || HBWarriorEffects::IsCooldownActive(ASC, WarriorTag::TAG_Cooldown_BloodThirst))
+	if (!ASC || HBEffects::IsCooldownActive(ASC, WarriorTag::TAG_Cooldown_BloodThirst))
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return;
 	}
@@ -214,8 +214,8 @@ void UGA_WarriorBloodThirst::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 			: 0;
 		const float UpgradedDuration = UpgradeLevel >= 2 ? 7.f : Duration;
 		const float UpgradedCooldown = UpgradeLevel >= 3 ? 13.f : Cooldown;
-		HBWarriorEffects::ApplyTaggedDuration(ASC, UpgradedDuration, WarriorTag::TAG_State_BloodThirst);
-		HBWarriorEffects::TryApplyCooldown(ASC, WarriorTag::TAG_Cooldown_BloodThirst, UpgradedCooldown);
+		HBEffects::ApplyTaggedDuration(ASC, UpgradedDuration, WarriorTag::TAG_State_BloodThirst);
+		HBEffects::TryApplyCooldown(ASC, WarriorTag::TAG_Cooldown_BloodThirst, UpgradedCooldown);
 		// Future Lv.3 hook: extend the active effect on kill, capped at 10 seconds.
 	}
 	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);

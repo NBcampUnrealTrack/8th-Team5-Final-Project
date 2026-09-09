@@ -7,7 +7,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/Archer/Effects/HBArcherGameplayEffects.h"
 #include "Player/HBPlayerCharacter.h"
-#include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
+#include "Combat/Effect/HBEffectLibrary.h"
 #include "TimerManager.h"
 
 #define HB_BEGIN_ARCHER(Tag, Seconds) \
@@ -31,7 +31,7 @@ void UGA_ArcherSwiftMovement::ActivateAbility(const FGameplayAbilitySpecHandle H
 	const FGameplayEventData*)
 {
 	HB_BEGIN_ARCHER(ArcherTag::TAG_Cooldown_SwiftMovement, 8.f)
-	HBWarriorEffects::ApplyEffect(ActorInfo->AbilitySystemComponent.Get(), UGE_ArcherSwiftMovement::StaticClass());
+	HBEffects::ApplyEffect(ActorInfo->AbilitySystemComponent.Get(), UGE_ArcherSwiftMovement::StaticClass());
 	FinishAbility(Handle, ActorInfo, ActivationInfo);
 }
 
@@ -83,7 +83,7 @@ void UGA_ArcherTrackingMark::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 	HB_BEGIN_ARCHER(ArcherTag::TAG_Cooldown_TrackingMark, 10.f)
 	if (AActor* Target = FindLineTarget(Player, 1500.f))
 		if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target))
-			HBWarriorEffects::ApplyTaggedDuration(TargetASC, 8.f, ArcherTag::TAG_State_Tracked);
+			HBEffects::ApplyTaggedDuration(TargetASC, 8.f, ArcherTag::TAG_State_Tracked);
 	FinishAbility(Handle, ActorInfo, ActivationInfo);
 }
 
@@ -104,7 +104,7 @@ void UGA_ArcherRapidFire::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	const FGameplayEventData*)
 {
 	HB_BEGIN_ARCHER(ArcherTag::TAG_Cooldown_RapidFire, 12.f)
-	HBWarriorEffects::ApplyEffect(ActorInfo->AbilitySystemComponent.Get(), UGE_ArcherRapidFire::StaticClass());
+	HBEffects::ApplyEffect(ActorInfo->AbilitySystemComponent.Get(), UGE_ArcherRapidFire::StaticClass());
 	FinishAbility(Handle, ActorInfo, ActivationInfo);
 }
 
@@ -117,7 +117,7 @@ void UGA_ArcherSmokeArrow::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	const FVector Center = Primary ? Primary->GetActorLocation() : Player->GetActorLocation() + Player->GetActorForwardVector() * 650.f;
 	for (AActor* Target : FindTargetsInRadius(Player, Center, 350.f))
 		if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target))
-			HBWarriorEffects::ApplyTaggedDuration(TargetASC, 5.f, ArcherTag::TAG_State_Smoked);
+			HBEffects::ApplyTaggedDuration(TargetASC, 5.f, ArcherTag::TAG_State_Smoked);
 	FinishAbility(Handle, ActorInfo, ActivationInfo);
 }
 #undef HB_BEGIN_ARCHER
