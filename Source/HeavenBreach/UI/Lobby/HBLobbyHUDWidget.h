@@ -17,7 +17,8 @@ enum class EHBLobbyHUDMenu : uint8
 	Lobby,
 	ChoiceJob,
 	Storage,
-	Shop
+	Shop,
+	Craft
 };
 
 UCLASS()
@@ -41,6 +42,9 @@ protected:
 
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UButton> Button_Shop;
+
+	UPROPERTY(meta = (BindWidget))
+	TObjectPtr<UButton> Button_Craft;
 #pragma endregion
 
 #pragma region LobbyContent
@@ -58,6 +62,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UWidget> Widget_Shop;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> Widget_Craft;
 #pragma endregion
 
 	UPROPERTY(BlueprintReadOnly, Category = "Lobby HUD")
@@ -79,6 +86,9 @@ private:
 	UFUNCTION()
 	void HandleShopClicked();
 
+	UFUNCTION()
+	void HandleCraftClicked();
+
 	void SelectMenu(EHBLobbyHUDMenu NewMenu);
 	void UpdateButtonStyles();
 	void ApplySelectedStyle(UButton* Button, const FButtonStyle& DefaultStyle) const;
@@ -88,4 +98,5 @@ private:
 	FButtonStyle ChoiceJobButtonStyle;
 	FButtonStyle StorageButtonStyle;
 	FButtonStyle ShopButtonStyle;
+	FButtonStyle CraftButtonStyle;
 };

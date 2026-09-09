@@ -129,6 +129,7 @@ protected:
 		TSubclassOf<UGameplayAbility> AbilityClass);
 	void ApplyLoadout(FName SkillQId, FName SkillEId, TArray<FName> PassiveSkillIds);
 	void TryActivateJobSkill(FName SkillId);
+	TArray<FName> ResolveStartingSkillIds() const;
 
 	UFUNCTION(Server, Reliable)
 	void ServerTryActivateJobSkill(FName SkillId);
@@ -210,9 +211,32 @@ public:
 	// 마나 비용의 유일한 통로. 패시브,증강의 소비 감소를 여기 한 곳에서만 처리한다.
 	float ModifyManaCost(FGameplayTag SourceTag, float Cost) const;
 
+	// 쿨타임 연산의 유일한 통로. 마나와 같은 모양이다.
+	float ModifyCooldown(FGameplayTag SourceTag, float Duration) const;
+
+	// 증강 보유 여부. 출혈, 방패 강타, 마나 0 처럼 켜고 끄는 것에 쓴다.
+	UFUNCTION(BlueprintPure, Category = "Augment")
+	bool HasAugment(FGameplayTag AugmentTag) const;
+
+	// 증강 배율. 미획득이면 1.0 이라 그대로 곱해도 안전하다.
+	UFUNCTION(BlueprintPure, Category = "Augment")
+	float GetAugmentValue(FGameplayTag AugmentTag) const;
+
 	// 비용만큼 마나가 있는가. 클라도 읽어서 즉시 막는다.
 	bool HasEnoughMana(float Cost) const;
 	float GetAttackManaCost() const { return AttackManaCost; }
+
+	// 스킬id로 해당 스킬의 남은 쿨타임 / 총 쿨타임.
+	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
+	float GetSkillCooldownPercent(FName SkillId) const;
+
+	// 증강,장비가 반영된 실제 마나 비용
+	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
+	float GetSkillManaCost(FName SkillId) const;
+
+	// 쿨타임 중이거나 마나가 부족하면 false
+	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
+	bool CanUseSkill(FName SkillId) const;
 
 	// 실제 차감. 서버에서만 유효하다.
 	void ConsumeMana(float Cost);
@@ -263,6 +287,8 @@ private:
 
 	void UpdateManaResource();
 	void StopManaActionsAtZero();
+	// SkillId로 쿨다운 GE 의 부여 태그 조회
+	const FGameplayTagContainer* GetSkillCooldownTags(FName SkillId) const;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
 	float ManaRegenDelay = 3.f;

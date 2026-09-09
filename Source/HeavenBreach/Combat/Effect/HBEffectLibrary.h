@@ -6,7 +6,7 @@
 class UAbilitySystemComponent;
 class UGameplayEffect;
 
-namespace HBWarriorEffects
+namespace HBEffects
 {
 	FActiveGameplayEffectHandle ApplyEffect(
 		UAbilitySystemComponent* ASC, TSubclassOf<UGameplayEffect> EffectClass);

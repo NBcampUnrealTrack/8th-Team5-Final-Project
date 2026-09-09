@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameplayEffect.h"
-#include "HBWarriorGameplayEffects.generated.h"
+#include "HBGameplayEffects.generated.h"
 
 /** Stable replicated definition used for cooldown/state tags with per-spec duration. */
 UCLASS()

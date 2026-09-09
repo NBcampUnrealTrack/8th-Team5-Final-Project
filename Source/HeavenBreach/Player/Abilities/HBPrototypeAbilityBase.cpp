@@ -7,7 +7,7 @@
 #include "Engine/OverlapResult.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
-#include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
+#include "Combat/Effect/HBEffectLibrary.h"
 
 UHBPrototypeAbilityBase::UHBPrototypeAbilityBase()
 {
@@ -21,7 +21,7 @@ bool UHBPrototypeAbilityBase::BeginAbilityWithCooldown(
 	const float CooldownDuration, const float ManaCost)
 {
 	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
-	if (!ASC || HBWarriorEffects::IsCooldownActive(ASC, CooldownTag)) return false;
+	if (!ASC || HBEffects::IsCooldownActive(ASC, CooldownTag)) return false;
 
 	// 스킬을 하나하나 고치지 않도록 여기서 통과시킨다.
 	// CooldownTag 가 이미 스킬을 식별하므로 그대로 SourceTag 로 쓴다.
@@ -42,7 +42,7 @@ bool UHBPrototypeAbilityBase::BeginAbilityWithCooldown(
 	{
 		ASC->ApplyModToAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -FinalCost);
 	}
-	HBWarriorEffects::TryApplyCooldown(ASC, CooldownTag, CooldownDuration);
+	HBEffects::TryApplyCooldown(ASC, CooldownTag, CooldownDuration);
 	return true;
 }
 
