@@ -384,15 +384,31 @@ bool UInventoryWidget::ScreenToCell(const FVector2D& InScreenPosition, FIntPoint
 	{
 		return false;
 	}
+
 	const FGeometry& CanvasGeometry = GridCanvas->GetCachedGeometry();
 	const FVector2D LocalPosition = CanvasGeometry.AbsoluteToLocal(InScreenPosition);
+
+	if (LocalPosition.X < 0.0f || LocalPosition.Y < 0.0f)
+	{
+		return false;
+	}
+
+	const int32 LocalRow = FMath::FloorToInt(LocalPosition.Y / CellSize);
+
+	if (LocalRow >= GetVisibleRowCount())
+	{
+		return false;
+	}
+
 	const FIntPoint Cell(
 		FMath::FloorToInt(LocalPosition.X / CellSize),
-		FMath::FloorToInt(LocalPosition.Y / CellSize) + ScrollOffsetRow);
+		LocalRow + ScrollOffsetRow);
+
 	if (!BoundInventory->IsValidCoord(Cell))
 	{
 		return false;
 	}
+
 	OutCell = Cell;
 	return true;
 }
