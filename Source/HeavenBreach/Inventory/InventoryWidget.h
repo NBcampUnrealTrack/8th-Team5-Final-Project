@@ -181,8 +181,6 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UItemInfoPopupWidget> ActiveInfoPopup;
-	FSlateBrush DragVisualBrush;
-	TSharedPtr<class SWidget> DragVisualRoot;
 	FVector2D PressedScreenPosition = FVector2D::ZeroVector;
 
 	UPROPERTY()

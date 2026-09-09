@@ -34,6 +34,18 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Trace")
 	float DamageMultiplier = 1.f;
 
+	// 히트스탑을 사용
+	UPROPERTY(EditAnywhere, Category = "Trace")
+	bool bUseHitStop = false;
+
+	// 히트 시 느려지는것 지속시간
+	UPROPERTY(EditAnywhere, Category = "Trace", meta = (EditCondition = "bUseHitStop", ClampMin = "0.0"))
+	float HitStopDuration = 0.4f;
+
+	// 히트 시 얼마나 느려질지
+	UPROPERTY(EditAnywhere, Category = "Trace", meta = (EditCondition = "bUseHitStop", ClampMin = "0.0", ClampMax = "1.0"))
+	float HitStopPlayRate = 0.05f;
+
 	// 데미지 적용 GE
 	// 트레이스에 충돌난 대상에게 적용
 	UPROPERTY(EditAnywhere, Category = "Damage")

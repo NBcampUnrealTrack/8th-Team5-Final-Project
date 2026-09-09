@@ -8,6 +8,10 @@
 #include "UI/Lobby/HBLobbyHUDWidget.h"
 #include "HBLobbyGameMode.h"
 #include "HBLobbyGameState.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 
 void AHBLobbyPlayerController::SetReady(bool bNewReady)
 {
@@ -76,6 +80,11 @@ void AHBLobbyPlayerController::BeginPlay()
 		return;
 	}
 
+#if !UE_BUILD_SHIPPING
+	GetWorldTimerManager().SetTimer(
+		LobbyDebugTimer, this, &AHBLobbyPlayerController::RefreshLobbyDebug, 0.25f, true);
+#endif
+
 	LobbyWidget = CreateWidget<UHBLobbyHUDWidget>(
 		this,
 		LobbyWidgetClass
@@ -92,7 +101,117 @@ void AHBLobbyPlayerController::BeginPlay()
 	//InputMode.SetWidgetToFocus(LobbyWidget->TakeWidget());
 	
 	SetInputMode(InputMode);
+	LobbyInputViewport = GetWorld()->GetGameViewport();
 	SetShowMouseCursor(true);
+}
+
+void AHBLobbyPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// Undo the viewport input block set by UIOnly. CommonUI's Game config does
+	// not clear it, and SetInputMode may no longer work on a swapped controller.
+	if (UGameViewportClient* Viewport = LobbyInputViewport.Get())
+	{
+		Viewport->SetIgnoreInput(false);
+		UE_LOG(LogTemp, Log, TEXT("Lobby | Exit cleanup | Viewport IgnoreInput: %s"),
+			Viewport->IgnoreInput() ? TEXT("True") : TEXT("False"));
+	}
+	LobbyInputViewport.Reset();
+
+	if (IsValid(LobbyWidget))
+	{
+		LobbyWidget->RemoveFromParent();
+		LobbyWidget = nullptr;
+	}
+
+	GetWorldTimerManager().ClearTimer(LobbyDebugTimer);
+	if (IsLocalController() && GEngine)
+	{
+		GEngine->RemoveOnScreenDebugMessage(uint64(GetUniqueID()) | (uint64(1) << 32));
+	}
+	LobbyDebugPlayers.Empty();
+	Super::EndPlay(EndPlayReason);
+}
+
+void AHBLobbyPlayerController::ShowLobbyDebugEvent(const FString& Message)
+{
+#if !UE_BUILD_SHIPPING
+	UE_LOG(LogTemp, Log, TEXT("Lobby | Client Debug | %s"), *Message);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(INDEX_NONE, 5.0f, FColor::Yellow, Message);
+	}
+#endif
+}
+
+void AHBLobbyPlayerController::RefreshLobbyDebug()
+{
+#if !UE_BUILD_SHIPPING
+	const AHBLobbyGameState* State = GetWorld()->GetGameState<AHBLobbyGameState>();
+	if (!IsLocalController() || !IsValid(State))
+	{
+		return;
+	}
+
+	TMap<uint32, FLobbyDebugPlayer> CurrentPlayers;
+	TArray<FString> Events;
+	FString Roster;
+	int32 ReadyCount = 0;
+	int32 ConfirmedCount = 0;
+	for (const APlayerState* ListedPlayerState : State->PlayerArray)
+	{
+		const AHBLobbyPlayerState* LobbyPlayer = Cast<AHBLobbyPlayerState>(ListedPlayerState);
+		if (!IsValid(LobbyPlayer))
+		{
+			continue;
+		}
+		FLobbyDebugPlayer Snapshot;
+		Snapshot.Name = LobbyPlayer->GetPlayerName();
+		if (Snapshot.Name.IsEmpty())
+		{
+			Snapshot.Name = TEXT("이름 수신 중");
+		}
+		Snapshot.bReady = LobbyPlayer->IsReady();
+		ReadyCount += Snapshot.bReady ? 1 : 0;
+		ConfirmedCount += LobbyPlayer->IsStartConfirmed() ? 1 : 0;
+		Roster += FString::Printf(TEXT("\n  %s [%s]"), *Snapshot.Name,
+			Snapshot.bReady ? TEXT("Ready") : TEXT("대기"));
+
+		const uint32 Key = LobbyPlayer->GetUniqueID();
+		const FLobbyDebugPlayer* Previous = LobbyDebugPlayers.Find(Key);
+		if (!Previous)
+		{
+			Events.Add(FString::Printf(TEXT("[Lobby] %s: %s"),
+				bLobbyDebugInitialized ? TEXT("입장") : TEXT("현재 플레이어"), *Snapshot.Name));
+		}
+		else if (Previous->bReady != Snapshot.bReady)
+		{
+			Events.Add(FString::Printf(TEXT("[Lobby] Ready 변경: %s -> %s"),
+				*Snapshot.Name, Snapshot.bReady ? TEXT("Ready") : TEXT("대기")));
+		}
+		CurrentPlayers.Add(Key, MoveTemp(Snapshot));
+	}
+	for (const auto& Previous : LobbyDebugPlayers)
+	{
+		if (!CurrentPlayers.Contains(Previous.Key))
+		{
+			Events.Add(FString::Printf(TEXT("[Lobby] 퇴장: %s"), *Previous.Value.Name));
+		}
+	}
+	const FString Counts = FString::Printf(
+		TEXT("현재 인원: %d명 | Ready: %d/%d명 | 시작 확인: %d/%d명"),
+		CurrentPlayers.Num(), ReadyCount, CurrentPlayers.Num(), ConfirmedCount, CurrentPlayers.Num());
+	for (const FString& Event : Events)
+	{
+		ShowLobbyDebugEvent(Event + TEXT("\n") + Counts);
+	}
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(uint64(GetUniqueID()) | (uint64(1) << 32),
+			0.5f, FColor::Cyan, TEXT("[Lobby Debug] ") + Counts + Roster);
+	}
+	bLobbyDebugInitialized |= !CurrentPlayers.IsEmpty();
+	LobbyDebugPlayers = MoveTemp(CurrentPlayers);
+#endif
 }
 
 void AHBLobbyPlayerController::ServerRequestStartGame_Implementation()
