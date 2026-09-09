@@ -12,6 +12,7 @@ class UInventoryComponent;
 class UInputAction;
 class UInputMappingContext;
 class UInventoryUIComponent;
+class UHB_SkillAugment;
 struct FInputActionValue;
 
 UCLASS(Blueprintable)
@@ -34,6 +35,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	UHB_HUDLayer* GetHUDLayer() const { return HUDLayer; }
+
+	UFUNCTION(BlueprintCallable, Category = "Player|UI")
+	void ToggleSkillAugment();
 
 	// 상자 / 시체 등 외부 인벤토리를 Menu 레이어에 띄운다.
 	// InteractionComponent 의 OnRequestOpenContainer 를 받은 쪽에서 호출한다.
@@ -94,6 +98,15 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	TObjectPtr<UInputAction> QuickSlot4Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
+	TObjectPtr<UInputAction> SkillAugmentAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
+	TSubclassOf<UHB_SkillAugment> SkillAugmentScreenClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHB_SkillAugment> SkillAugmentScreen;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UInventoryUIComponent> InventoryUI;

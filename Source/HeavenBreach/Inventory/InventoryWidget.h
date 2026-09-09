@@ -79,6 +79,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	bool IsScrollable() const;
+
+	/** Cleans transient drag and popup state before an embedded HUD inventory is hidden. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void PrepareForHide();
 protected:
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
@@ -177,8 +181,6 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UItemInfoPopupWidget> ActiveInfoPopup;
-	FSlateBrush DragVisualBrush;
-	TSharedPtr<class SWidget> DragVisualRoot;
 	FVector2D PressedScreenPosition = FVector2D::ZeroVector;
 
 	UPROPERTY()
