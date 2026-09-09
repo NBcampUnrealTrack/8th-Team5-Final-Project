@@ -41,6 +41,7 @@ public class HeavenBreach : ModuleRules
 			"HeavenBreach",
 			"HeavenBreach/Interaction",
 			"HeavenBreach/Loot",
+			"HeavenBreach/SealedDoor",
 			"HeavenBreach/Escape",
 			"HeavenBreach/Variant_Horror",
 			"HeavenBreach/Variant_Horror/UI",

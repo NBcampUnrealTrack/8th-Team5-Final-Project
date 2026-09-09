@@ -28,12 +28,33 @@ void UInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	const APawn* Pawn = GetOwnerPawn();
-	if (Pawn == nullptr || !Pawn->IsLocallyControlled())
+	if (Pawn == nullptr)
+	{
+		return;
+	}
+
+	// 서버는 홀드 중인 대상이 여전히 유효한 거리·상태인지 감시한다.
+	// 클라이언트가 키를 누른 채 걸어나가도 서버가 끊어야 하기 때문이다.
+	if (GetOwnerRole() == ROLE_Authority && ServerHeldTarget != nullptr)
+	{
+		if (!IsTargetInteractable(ServerHeldTarget))
+		{
+			CancelHoldOnServer();
+		}
+	}
+
+	if (!Pawn->IsLocallyControlled())
 	{
 		return;
 	}
 
 	UpdateFocus();
+
+	// 보고 있던 대상에서 시선이 벗어나면 홀드를 놓은 것으로 본다.
+	if (HeldTarget != nullptr && FocusedInteractable != HeldTarget)
+	{
+		EndHold();
+	}
 }
 
 void UInteractionComponent::UpdateFocus()
@@ -105,6 +126,160 @@ void UInteractionComponent::TryInteract()
 	}
 
 	Server_Interact(FocusedInteractable);
+}
+
+void UInteractionComponent::BeginHold()
+{
+	if (FocusedInteractable == nullptr || !FocusedInteractable->Implements<UInteractableInterface>())
+	{
+		return;
+	}
+
+	const float HoldSeconds = IInteractableInterface::Execute_GetInteractHoldSeconds(FocusedInteractable);
+
+	// 홀드가 필요 없는 대상은 기존 단발 경로 그대로. 상자·탈출 지점이 여기로 온다.
+	if (HoldSeconds <= 0.0f)
+	{
+		Server_Interact(FocusedInteractable);
+		return;
+	}
+
+	HeldTarget = FocusedInteractable;
+	HoldDuration = HoldSeconds;
+	HoldStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+
+	Server_BeginHold(FocusedInteractable);
+}
+
+void UInteractionComponent::EndHold()
+{
+	if (HeldTarget == nullptr)
+	{
+		return;
+	}
+
+	HeldTarget = nullptr;
+	HoldDuration = 0.0f;
+	HoldStartTime = 0.0f;
+
+	Server_EndHold();
+}
+
+float UInteractionComponent::GetHoldProgress() const
+{
+	if (HeldTarget == nullptr || HoldDuration <= 0.0f || GetWorld() == nullptr)
+	{
+		return 0.0f;
+	}
+
+	const float Elapsed = GetWorld()->GetTimeSeconds() - HoldStartTime;
+	return FMath::Clamp(Elapsed / HoldDuration, 0.0f, 1.0f);
+}
+
+bool UInteractionComponent::IsTargetInteractable(AActor* Target) const
+{
+	const APawn* Pawn = GetOwnerPawn();
+	if (Pawn == nullptr || Target == nullptr || !IsValid(Target))
+	{
+		return false;
+	}
+
+	const float MaxDistance = InteractionDistance + ServerDistanceTolerance;
+	if (FVector::DistSquared(Pawn->GetActorLocation(), Target->GetActorLocation()) > FMath::Square(MaxDistance))
+	{
+		return false;
+	}
+
+	return Target->Implements<UInteractableInterface>()
+		&& IInteractableInterface::Execute_CanInteract(Target, const_cast<APawn*>(Pawn));
+}
+
+bool UInteractionComponent::Server_BeginHold_Validate(AActor* Target)
+{
+	return true;
+}
+
+void UInteractionComponent::Server_BeginHold_Implementation(AActor* Target)
+{
+	// 이전 홀드가 남아 있으면 정리하고 시작한다.
+	if (ServerHeldTarget != nullptr)
+	{
+		CancelHoldOnServer();
+	}
+
+	if (!IsTargetInteractable(Target))
+	{
+		return;
+	}
+
+	APawn* Pawn = GetOwnerPawn();
+
+	const float HoldSeconds = IInteractableInterface::Execute_GetInteractHoldSeconds(Target);
+	if (HoldSeconds <= 0.0f)
+	{
+		// 클라이언트가 보낸 값이 아니라 서버가 다시 물어본 값이다. 0 이면 즉시 실행.
+		IInteractableInterface::Execute_Interact(Target, Pawn);
+		return;
+	}
+
+	ServerHeldTarget = Target;
+	IInteractableInterface::Execute_OnHoldBegin(Target, Pawn);
+
+	GetWorld()->GetTimerManager().SetTimer(
+		ServerHoldTimerHandle,
+		this,
+		&UInteractionComponent::CompleteHold,
+		HoldSeconds,
+		false);
+}
+
+void UInteractionComponent::Server_EndHold_Implementation()
+{
+	CancelHoldOnServer();
+}
+
+void UInteractionComponent::CompleteHold()
+{
+	AActor* Target = ServerHeldTarget;
+	ServerHeldTarget = nullptr;
+
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(ServerHoldTimerHandle);
+	}
+
+	// 시간이 다 찼어도 완료 시점에 다시 검증한다. 홀드 도중 상태가 바뀌었을 수 있다.
+	if (!IsTargetInteractable(Target))
+	{
+		if (Target && Target->Implements<UInteractableInterface>())
+		{
+			IInteractableInterface::Execute_OnHoldCancel(Target, GetOwnerPawn());
+		}
+		return;
+	}
+
+	IInteractableInterface::Execute_Interact(Target, GetOwnerPawn());
+}
+
+void UInteractionComponent::CancelHoldOnServer()
+{
+	if (ServerHeldTarget == nullptr)
+	{
+		return;
+	}
+
+	AActor* Target = ServerHeldTarget;
+	ServerHeldTarget = nullptr;
+
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(ServerHoldTimerHandle);
+	}
+
+	if (IsValid(Target) && Target->Implements<UInteractableInterface>())
+	{
+		IInteractableInterface::Execute_OnHoldCancel(Target, GetOwnerPawn());
+	}
 }
 
 bool UInteractionComponent::Server_Interact_Validate(AActor* Target)

@@ -25,8 +25,32 @@ public:
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
+	/**
+	 * 단발 상호작용. 홀드가 필요 없는 대상(홀드 시간 0)에 쓴다.
+	 * 플레이어 BP 에서 홀드 방식으로 전환했다면 BeginHold/EndHold 를 쓴다.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void TryInteract();
+
+	/**
+	 * 상호작용 키를 누른 순간 호출한다 (Enhanced Input 의 Started).
+	 *
+	 * 대상의 홀드 시간이 0 이하이면 그 자리에서 TryInteract 와 동일하게 동작하므로,
+	 * 상자처럼 즉시 반응해야 하는 대상도 이 하나로 처리된다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Interaction")
+	void BeginHold();
+
+	/** 상호작용 키를 뗀 순간 호출한다 (Enhanced Input 의 Completed / Canceled). */
+	UFUNCTION(BlueprintCallable, Category = "Interaction")
+	void EndHold();
+
+	/** 홀드 진행률 0~1. 진행 중이 아니면 0. 프로그레스 바용 */
+	UFUNCTION(BlueprintPure, Category = "Interaction")
+	float GetHoldProgress() const;
+
+	UFUNCTION(BlueprintPure, Category = "Interaction")
+	bool IsHolding() const { return HeldTarget != nullptr; }
 
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	AActor* GetFocusedInteractable() const { return FocusedInteractable; }
@@ -86,4 +110,33 @@ private:
 
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Interact(AActor* Target);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_BeginHold(AActor* Target);
+
+	UFUNCTION(Server, Reliable)
+	void Server_EndHold();
+
+	/** 서버 전용. 홀드 시간이 다 찼을 때 */
+	void CompleteHold();
+
+	/** 서버 전용. 홀드를 끊고 대상에 OnHoldCancel 을 알린다 */
+	void CancelHoldOnServer();
+
+	/** 대상이 여전히 상호작용 가능한 거리·상태인지. 홀드 시작과 진행 중 검증에 함께 쓴다 */
+	bool IsTargetInteractable(AActor* Target) const;
+
+	/** 로컬(클라이언트) 홀드 대상. UI 진행률 표시와 포커스 변화 시 취소 판정에 쓴다 */
+	UPROPERTY(BlueprintReadOnly, Category = "Interaction", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<AActor> HeldTarget;
+
+	/** 로컬 홀드 시작 시각과 총 소요 시간. 진행률 계산용 */
+	float HoldStartTime = 0.0f;
+	float HoldDuration = 0.0f;
+
+	/** 서버 홀드 대상. 클라이언트의 로컬 상태와 별개로 서버가 권한을 갖는다 */
+	UPROPERTY()
+	TObjectPtr<AActor> ServerHeldTarget;
+
+	FTimerHandle ServerHoldTimerHandle;
 };
