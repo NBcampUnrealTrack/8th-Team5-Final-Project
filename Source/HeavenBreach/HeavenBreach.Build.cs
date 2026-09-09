@@ -53,7 +53,8 @@ public class HeavenBreach : ModuleRules
             "HeavenBreach/Item",
             "HeavenBreach/Core/DataManagement",
             "HeavenBreach/Shop",
-            "HeavenBreach/UI"
+            "HeavenBreach/UI",
+            "HeavenBreach/Craft"
         });
 		
 		DynamicallyLoadedModuleNames.Add("OnlineSubsystemSteam");

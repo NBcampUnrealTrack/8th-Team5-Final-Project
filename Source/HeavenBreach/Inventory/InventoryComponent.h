@@ -53,6 +53,9 @@ public:
 
 	bool CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int32 InIgnoredIndex = INDEX_NONE) const;
 
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool CanFitItem(const FItemInstance& InItem) const;
+
 	bool FindFirstFreeSlot(FIntPoint InSize, FIntPoint& OutPosition, int32 InIgnoredIndex = INDEX_NONE) const;
 
 	bool TryAddItem(const FItemInstance& InItem, int32& OutRemainder);

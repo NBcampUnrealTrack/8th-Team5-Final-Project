@@ -17,6 +17,7 @@
 #include "Core/DataManagement/LoadoutStorage.h"
 #include "Core/DataManagement/LoadoutStorageSubsystem.h"
 #include "TimerManager.h"
+#include "CraftComponent.h"
 
 namespace
 {
@@ -77,13 +78,13 @@ AHB_PlayerState::AHB_PlayerState()
 	// 화면에 거의 반영되지 않는다.
 	SetNetUpdateFrequency(30.0f);
 #pragma endregion 
-	
+
 #pragma region AbilitySystemComponent
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
 #pragma endregion 
-	
+
 #pragma region AttributeSet
 	AttributeSet = CreateDefaultSubobject<UHB_PlayerAttributeSet>(TEXT("AttributeSet"));
 #pragma endregion
@@ -116,11 +117,36 @@ AHB_PlayerState::AHB_PlayerState()
 		Shop->SetGoldItemRow(GoldRow);
 	}
 #pragma endregion
-}
 
+#pragma region Craft
+	Craft = CreateDefaultSubobject<UCraftComponent>(TEXT("Craft"));
+	static ConstructorHelpers::FObjectFinder<UDataTable> CraftRecipeFinder(TEXT("/Game/Craft/DT_CraftRecipe.DT_CraftRecipe"));
+	if (CraftRecipeFinder.Succeeded())
+	{
+		Craft->SetRecipeTable(CraftRecipeFinder.Object);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Craft: recipe table not found"));
+	}
+	if (ItemTableFinder.Succeeded())
+	{
+		FDataTableRowHandle CraftGoldRow;
+		CraftGoldRow.DataTable = ItemTableFinder.Object;
+		CraftGoldRow.RowName = TEXT("ITM_002");
+		Craft->SetGoldItemRow(CraftGoldRow);
+	}
+#pragma endregion
+}
 void AHB_PlayerState::BeginPlay()
 {
 	Super::BeginPlay();
+
+
+	if (Craft != nullptr && Stash != nullptr)
+	{
+		Craft->SetTargetStash(Stash);
+	}
 
 	if (HasAuthority())
 	{
@@ -159,6 +185,7 @@ void AHB_PlayerState::BeginPlay()
 	{
 		LoadLoadout();
 	}
+
 }
 
 void AHB_PlayerState::OnHealthChanged(const FOnAttributeChangeData& Data)

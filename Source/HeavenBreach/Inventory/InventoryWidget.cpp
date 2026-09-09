@@ -663,6 +663,13 @@ bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 		return false;
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+
+	if (OnItemActivated.IsBound())
+	{
+		OnItemActivated.Broadcast(Item.InstanceId);
+		return true;
+	}
+
 	if (LinkedShop != nullptr)
 	{
 		return LinkedShop->AddToSellBasket(Item.InstanceId);
