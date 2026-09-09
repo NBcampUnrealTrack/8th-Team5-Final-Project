@@ -9,6 +9,7 @@
 #include "HBLobbyGameMode.h"
 #include "HBLobbyGameState.h"
 #include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -100,11 +101,28 @@ void AHBLobbyPlayerController::BeginPlay()
 	//InputMode.SetWidgetToFocus(LobbyWidget->TakeWidget());
 	
 	SetInputMode(InputMode);
+	LobbyInputViewport = GetWorld()->GetGameViewport();
 	SetShowMouseCursor(true);
 }
 
 void AHBLobbyPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// Undo the viewport input block set by UIOnly. CommonUI's Game config does
+	// not clear it, and SetInputMode may no longer work on a swapped controller.
+	if (UGameViewportClient* Viewport = LobbyInputViewport.Get())
+	{
+		Viewport->SetIgnoreInput(false);
+		UE_LOG(LogTemp, Log, TEXT("Lobby | Exit cleanup | Viewport IgnoreInput: %s"),
+			Viewport->IgnoreInput() ? TEXT("True") : TEXT("False"));
+	}
+	LobbyInputViewport.Reset();
+
+	if (IsValid(LobbyWidget))
+	{
+		LobbyWidget->RemoveFromParent();
+		LobbyWidget = nullptr;
+	}
+
 	GetWorldTimerManager().ClearTimer(LobbyDebugTimer);
 	if (IsLocalController() && GEngine)
 	{

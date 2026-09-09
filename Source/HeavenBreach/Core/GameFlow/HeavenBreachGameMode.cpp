@@ -203,7 +203,8 @@ void AHeavenBreachGameMode::HandleStartingNewPlayer_Implementation(APlayerContro
 
 	if (IsMatchInProgress())
 	{
-		if (IsValid(NewPlayer) && IsValid(NewPlayer->PlayerState))
+		if (IsValid(NewPlayer) && IsValid(NewPlayer->PlayerState)
+			&& !ActivePlayers.Contains(NewPlayer->PlayerState))
 		{
 			ActivePlayers.Add(NewPlayer->PlayerState);
 
@@ -218,8 +219,6 @@ void AHeavenBreachGameMode::HandleStartingNewPlayer_Implementation(APlayerContro
 
 		return;
 	}
-
-	TryStartExtractionMatch();
 }
 
 void AHeavenBreachGameMode::Logout(AController* Exiting)
@@ -253,7 +252,15 @@ void AHeavenBreachGameMode::Logout(AController* Exiting)
 
 bool AHeavenBreachGameMode::ReadyToStartMatch_Implementation()
 {
-	return false;
+	// GetNumPlayers() includes clients still travelling with their lobby state.
+	// Wait for migration to finish before taking the initial active-player roster.
+	// Keep this a predicate: AGameMode starts the match after the current state
+	// transition completes, or when an initialized player is ready to start.
+	return HasAuthority()
+		&& GetMatchState() == MatchState::WaitingToStart
+		&& bAutoStartMatch
+		&& NumTravellingPlayers == 0
+		&& NumPlayers >= FMath::Max(1, MinimumPlayersToStart);
 }
 
 bool AHeavenBreachGameMode::ReadyToEndMatch_Implementation()
@@ -263,44 +270,12 @@ bool AHeavenBreachGameMode::ReadyToEndMatch_Implementation()
 	return false;
 }
 
-void AHeavenBreachGameMode::TryStartExtractionMatch()
-{
-	if (!HasAuthority())
-	{
-		return;
-	}
-	
-	if (GetMatchState() != MatchState::WaitingToStart)
-	{
-		return;
-	}
-	
-	if (!bAutoStartMatch)
-	{
-		return;
-	}
-
-	const int32 RequiredPlayerCount = FMath::Max(1, MinimumPlayersToStart);
-	if (GetConnectedPlayerCount() < RequiredPlayerCount)
-	{
-		return;
-	}
-	
-	UE_LOG(LogTemp, Log,
-		TEXT("HeavenBreachGM | Starting match | InitializedPlayers: %d | Required: %d"),
-		GetConnectedPlayerCount(), RequiredPlayerCount);
-	StartMatch();
-}
-
-void AHeavenBreachGameMode::HandleMatchIsWaitingToStart()
-{
-	Super::HandleMatchIsWaitingToStart();
-	// Also cover players initialized before the world entered WaitingToStart.
-	TryStartExtractionMatch();
-}
-
 void AHeavenBreachGameMode::HandleMatchHasStarted()
 {
+	UE_LOG(LogTemp, Log,
+		TEXT("HeavenBreachGM | Starting match | InitializedPlayers: %d | Required: %d"),
+		NumPlayers, FMath::Max(1, MinimumPlayersToStart));
+
 	Super::HandleMatchHasStarted();
 	
 	InitializeActivePlayers();

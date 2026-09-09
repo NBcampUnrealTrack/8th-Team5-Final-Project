@@ -8,6 +8,7 @@
 
 class UHBLobbyHUDWidget;
 class UHBLobbyWidget;
+class UGameViewportClient;
 /**
  * 
  */
@@ -52,6 +53,9 @@ private:
 	FTimerHandle LobbyDebugTimer;
 	TMap<uint32, FLobbyDebugPlayer> LobbyDebugPlayers;
 	bool bLobbyDebugInitialized = false;
+
+	// The old controller can lose its LocalPlayer before EndPlay during a swap.
+	TWeakObjectPtr<UGameViewportClient> LobbyInputViewport;
 
 	UPROPERTY()
 	TObjectPtr<UHBLobbyHUDWidget> LobbyWidget;
