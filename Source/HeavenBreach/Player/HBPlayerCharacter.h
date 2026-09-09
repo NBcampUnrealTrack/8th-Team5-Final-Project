@@ -426,6 +426,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	TSoftObjectPtr<USkeletalMesh> TestShoesMesh;
 
+	// TODO: Remove the combined-mesh override after the Blender fitting test is complete.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	bool bUseCombinedPantsBootsTest = false;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest && bUseCombinedPantsBootsTest"))
+	TSoftObjectPtr<USkeletalMesh> TestCombinedPantsBootsMesh;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	TSoftObjectPtr<UStaticMesh> TestWeaponMesh;
 

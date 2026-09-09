@@ -1619,6 +1619,10 @@ void AHBPlayerCharacter::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 	SetUnderwearVisible(bUnderwearVisible);
+	#pragma region TemporaryEquipmentVisualTest
+	// TODO: Remove editor preview with the temporary equipment test after fitting is complete.
+	ApplyTemporaryEquipmentVisualTest();
+	#pragma endregion
 }
 
 void AHBPlayerCharacter::SetUnderwearVisible(const bool bVisible)
@@ -1699,14 +1703,22 @@ void AHBPlayerCharacter::ApplyTemporaryEquipmentVisualTest()
 		ChestMeshComp->SetSkeletalMesh(TestChestMesh.LoadSynchronous());
 	}
 
+	USkeletalMesh* CombinedMesh = bUseCombinedPantsBootsTest ? TestCombinedPantsBootsMesh.LoadSynchronous() : nullptr;
+	const bool bValidCombinedMesh = CombinedMesh && GetMesh()->GetSkeletalMeshAsset()
+		&& CombinedMesh->GetSkeleton() == GetMesh()->GetSkeletalMeshAsset()->GetSkeleton();
+	if (bUseCombinedPantsBootsTest && !bValidCombinedMesh)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Combined pants/boots test: missing mesh or skeleton mismatch on %s; using separate test meshes."), *GetName());
+	}
+
 	if (LegsMeshComp)
 	{
-		LegsMeshComp->SetSkeletalMesh(TestLegsMesh.LoadSynchronous());
+		LegsMeshComp->SetSkeletalMesh(bValidCombinedMesh ? CombinedMesh : TestLegsMesh.LoadSynchronous());
 	}
 
 	if (ShoesMeshComp)
 	{
-		ShoesMeshComp->SetSkeletalMesh(TestShoesMesh.LoadSynchronous());
+		ShoesMeshComp->SetSkeletalMesh(bValidCombinedMesh ? nullptr : TestShoesMesh.LoadSynchronous());
 	}
 
 	if (WeaponMeshComp)
