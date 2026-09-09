@@ -30,8 +30,8 @@
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/Job/HBJobData.h"
 #include "Player/Job/HBJobAttributeEffects.h"
-#include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
-#include "Player/Warrior/Effects/HBWarriorGameplayEffects.h"
+#include "Combat/Effect/HBEffectLibrary.h"
+#include "Combat/Effect/HBGameplayEffects.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "TimerManager.h"
 #include "DrawDebugHelpers.h"
@@ -39,38 +39,42 @@
 #include "Core/Tag/Event/HB_EventTag.h"
 #include "Core/Tag/Item/HB_ItemTag.h"
 #include "AI/MeleeTraceComponent.h"
+#include "Combat/Ability/HBPlayerActiveGABase.h"
+#include "Combat/Ability/HBPlayerPassiveGABase.h"
 
 namespace
 {
-	FGameplayTag GetSkillCooldownTag(const FName SkillId)
-	{
-		if (SkillId == TEXT("Warrior.ChargeSlash")) return WarriorTag::TAG_Cooldown_ChargeSlash;
-		if (SkillId == TEXT("Warrior.CombatRoll")) return WarriorTag::TAG_Cooldown_CombatRoll;
-		if (SkillId == TEXT("Warrior.Execute")) return WarriorTag::TAG_Cooldown_Execute;
-		if (SkillId == TEXT("Warrior.BattleCry")) return WarriorTag::TAG_Cooldown_BattleCry;
-		if (SkillId == TEXT("Warrior.ChainPull")) return WarriorTag::TAG_Cooldown_ChainPull;
-		if (SkillId == TEXT("Warrior.BloodThirst")) return WarriorTag::TAG_Cooldown_BloodThirst;
-		if (SkillId == TEXT("Archer.EvasiveShot")) return ArcherTag::TAG_Cooldown_EvasiveShot;
-		if (SkillId == TEXT("Archer.SwiftMovement")) return ArcherTag::TAG_Cooldown_SwiftMovement;
-		if (SkillId == TEXT("Archer.PiercingArrow")) return ArcherTag::TAG_Cooldown_PiercingArrow;
-		if (SkillId == TEXT("Archer.BindingTrap")) return ArcherTag::TAG_Cooldown_BindingTrap;
-		if (SkillId == TEXT("Archer.MultiShot")) return ArcherTag::TAG_Cooldown_MultiShot;
-		if (SkillId == TEXT("Archer.TrackingMark")) return ArcherTag::TAG_Cooldown_TrackingMark;
-		if (SkillId == TEXT("Archer.ExplosiveArrow")) return ArcherTag::TAG_Cooldown_ExplosiveArrow;
-		if (SkillId == TEXT("Archer.RapidFire")) return ArcherTag::TAG_Cooldown_RapidFire;
-		if (SkillId == TEXT("Archer.SmokeArrow")) return ArcherTag::TAG_Cooldown_SmokeArrow;
-		if (SkillId == TEXT("Mage.MagicBolt")) return MageTag::TAG_Cooldown_MagicBolt;
-		if (SkillId == TEXT("Mage.Teleport")) return MageTag::TAG_Cooldown_Teleport;
-		if (SkillId == TEXT("Mage.Fireball")) return MageTag::TAG_Cooldown_Fireball;
-		if (SkillId == TEXT("Mage.IceLance")) return MageTag::TAG_Cooldown_IceLance;
-		if (SkillId == TEXT("Mage.ChainLightning")) return MageTag::TAG_Cooldown_ChainLightning;
-		if (SkillId == TEXT("Mage.IceWall")) return MageTag::TAG_Cooldown_IceWall;
-		if (SkillId == TEXT("Mage.FireZone")) return MageTag::TAG_Cooldown_FireZone;
-		if (SkillId == TEXT("Mage.MagicShield")) return MageTag::TAG_Cooldown_MagicShield;
-		if (SkillId == TEXT("Mage.GravityField")) return MageTag::TAG_Cooldown_GravityField;
-		if (SkillId == TEXT("Mage.ManaExplosion")) return MageTag::TAG_Cooldown_ManaExplosion;
-		return FGameplayTag();
-	}
+	// GetSkillCooldownRemaining로직 변경으로 필요없어짐
+	// 이제 skillid가 곧 태그임
+	//FGameplayTag GetSkillCooldownTag(const FName SkillId)
+	//{
+	//	if (SkillId == TEXT("Warrior.ChargeSlash")) return WarriorTag::TAG_Cooldown_ChargeSlash;
+	//	if (SkillId == TEXT("Warrior.CombatRoll")) return WarriorTag::TAG_Cooldown_CombatRoll;
+	//	if (SkillId == TEXT("Warrior.Execute")) return WarriorTag::TAG_Cooldown_Execute;
+	//	if (SkillId == TEXT("Warrior.BattleCry")) return WarriorTag::TAG_Cooldown_BattleCry;
+	//	if (SkillId == TEXT("Warrior.ChainPull")) return WarriorTag::TAG_Cooldown_ChainPull;
+	//	if (SkillId == TEXT("Warrior.BloodThirst")) return WarriorTag::TAG_Cooldown_BloodThirst;
+	//	if (SkillId == TEXT("Archer.EvasiveShot")) return ArcherTag::TAG_Cooldown_EvasiveShot;
+	//	if (SkillId == TEXT("Archer.SwiftMovement")) return ArcherTag::TAG_Cooldown_SwiftMovement;
+	//	if (SkillId == TEXT("Archer.PiercingArrow")) return ArcherTag::TAG_Cooldown_PiercingArrow;
+	//	if (SkillId == TEXT("Archer.BindingTrap")) return ArcherTag::TAG_Cooldown_BindingTrap;
+	//	if (SkillId == TEXT("Archer.MultiShot")) return ArcherTag::TAG_Cooldown_MultiShot;
+	//	if (SkillId == TEXT("Archer.TrackingMark")) return ArcherTag::TAG_Cooldown_TrackingMark;
+	//	if (SkillId == TEXT("Archer.ExplosiveArrow")) return ArcherTag::TAG_Cooldown_ExplosiveArrow;
+	//	if (SkillId == TEXT("Archer.RapidFire")) return ArcherTag::TAG_Cooldown_RapidFire;
+	//	if (SkillId == TEXT("Archer.SmokeArrow")) return ArcherTag::TAG_Cooldown_SmokeArrow;
+	//	if (SkillId == TEXT("Mage.MagicBolt")) return MageTag::TAG_Cooldown_MagicBolt;
+	//	if (SkillId == TEXT("Mage.Teleport")) return MageTag::TAG_Cooldown_Teleport;
+	//	if (SkillId == TEXT("Mage.Fireball")) return MageTag::TAG_Cooldown_Fireball;
+	//	if (SkillId == TEXT("Mage.IceLance")) return MageTag::TAG_Cooldown_IceLance;
+	//	if (SkillId == TEXT("Mage.ChainLightning")) return MageTag::TAG_Cooldown_ChainLightning;
+	//	if (SkillId == TEXT("Mage.IceWall")) return MageTag::TAG_Cooldown_IceWall;
+	//	if (SkillId == TEXT("Mage.FireZone")) return MageTag::TAG_Cooldown_FireZone;
+	//	if (SkillId == TEXT("Mage.MagicShield")) return MageTag::TAG_Cooldown_MagicShield;
+	//	if (SkillId == TEXT("Mage.GravityField")) return MageTag::TAG_Cooldown_GravityField;
+	//	if (SkillId == TEXT("Mage.ManaExplosion")) return MageTag::TAG_Cooldown_ManaExplosion;
+	//	return FGameplayTag();
+	//}
 }
 
 AHBPlayerCharacter::AHBPlayerCharacter()
@@ -102,7 +106,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	ShieldMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShieldMeshComp"));
 	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
 	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	WeaponMeshComp->ComponentTags.Add(TEXT("Shield"));
+	ShieldMeshComp->ComponentTags.Add(TEXT("Shield"));
 	
 	#pragma region ModularEquipmentMesh
 	HelmetMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HelmetMeshComp"));
@@ -568,40 +572,68 @@ void AHBPlayerCharacter::TryActivateJobSkill(const FName SkillId)
 		return;
 	}
 
-	if (!HasAuthority())
-	{
-		ServerTryActivateJobSkill(SkillId);
-		return;
-	}
+	//if (!HasAuthority())
+	//{
+	//	ServerTryActivateJobSkill(SkillId);
+	//	return;
+	//}
 
 	if (SkillId != SelectedSkillQId && SkillId != SelectedSkillEId)
 	{
 		return;
 	}
 
+	//const FHBJobSkillData* Skill = JobData ? JobData->FindActiveSkill(SkillId) : nullptr;
+	//UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	//if (!Skill || !Skill->AbilityClass || !ASC)
+	//{
+	//	return;
+	//}
+	//
+	//const float ManaCost = FMath::Max(0.f, Skill->ManaCost);
+	//const float CurrentMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
+	//if (CurrentMana + KINDA_SMALL_NUMBER < ManaCost)
+	//{
+	//	return;
+	//}
+	//
+	//if (ASC->TryActivateAbilityByClass(Skill->AbilityClass))
+	//{
+	//	if (ManaCost > 0.f)
+	//	{
+	//		ASC->ApplyModToAttribute(
+	//			UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -ManaCost);
+	//	}
+	//	NotifyManaActivity();
+	//}
+
 	const FHBJobSkillData* Skill = JobData ? JobData->FindActiveSkill(SkillId) : nullptr;
+	if (!Skill || !Skill->AbilityClass)
+	{
+		return;
+	}
+
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
-	if (!Skill || !Skill->AbilityClass || !ASC)
+	if (!ASC)
 	{
 		return;
 	}
 
-	const float ManaCost = FMath::Max(0.f, Skill->ManaCost);
-	const float CurrentMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
-	if (CurrentMana + KINDA_SMALL_NUMBER < ManaCost)
+	// 마나와 쿨타임은 어빌리티의 CheckCost / ApplyCost 가 처리한다.
+	ASC->TryActivateAbilityByClass(Skill->AbilityClass);
+}
+
+TArray<FName> AHBPlayerCharacter::ResolveStartingSkillIds() const
+{
+	if (!JobData)
 	{
-		return;
+		return TArray<FName>();
 	}
 
-	if (ASC->TryActivateAbilityByClass(Skill->AbilityClass))
-	{
-		if (ManaCost > 0.f)
-		{
-			ASC->ApplyModToAttribute(
-				UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -ManaCost);
-		}
-		NotifyManaActivity();
-	}
+	// 1순위: 계정에 저장된 로드아웃.  미구현. 서버 권위로 만들어야 한다
+	// 2순위: 로비에서 고른 값.        미구현. PlayerState 를 거쳐 들어온다
+	// 3순위: DA 의 기본값.
+	return JobData->InitialSkillIds;
 }
 
 void AHBPlayerCharacter::ServerTryActivateJobSkill_Implementation(const FName SkillId)
@@ -700,7 +732,7 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_CombatInstinct))
 	{
-		HBWarriorEffects::ApplyEffect(ASC, UGE_WarriorCombatInstinctStack::StaticClass());
+		HBEffects::ApplyEffect(ASC, UGE_WarriorCombatInstinctStack::StaticClass());
 		GetWorldTimerManager().SetTimer(
 			CombatInstinctTimer, this, &AHBPlayerCharacter::ResetCombatInstinct, 4.f, false);
 	}
@@ -723,7 +755,7 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 		{
 			ASC->RemoveActiveGameplayEffect(KillingMomentumEffectHandle);
 		}
-		KillingMomentumEffectHandle = HBWarriorEffects::ApplyEffect(
+		KillingMomentumEffectHandle = HBEffects::ApplyEffect(
 			ASC, UGE_WarriorKillingMomentumBuff::StaticClass());
 	}
 	if (ASC->HasMatchingGameplayTag(MageTag::TAG_Passive_ManaAbsorption))
@@ -734,18 +766,76 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 
 float AHBPlayerCharacter::ModifyManaCost(FGameplayTag SourceTag, float Cost) const
 {
-	if (Cost <= 0.f) return 0.f;
-
+	if (Cost <= 0.f)
+	{
+		return 0.f;
+	}
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
-	if (!ASC) return Cost;
+	if (!ASC)
+	{
+		return Cost;
+	}
 
-	// 감소는 곱연산으로 쌓는다. 합연산이면 여러 개 겹칠 때 음수가 된다.
-	float Multiplier = 1.f;
+	// 장비,패시브,버프의 전역 보정은 전부 이 두 어트리뷰트에 모인다.
+	const float Flat = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaCostFlatAttribute());
+	const float Multiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaCostMultiplierAttribute());
 
-	// 패시브, 증강을 여기에 추가한다.
-	// GetSkillUpgradeLevel(SkillId) 를 읽어 레벨별 배율을 주는 것도 여기.
+	// 연산 순서는 이 한 곳에만 있다. 정액 먼저, 정률 나중.
+	// 반대로 하면 기본값이 작은 스킬에서 정액의 비중이 폭발한다.
+	const float Final = (Cost + Flat) * Multiplier;
 
-	return FMath::Max(0.f, Cost * Multiplier);
+	// 특정 스킬에만 걸리는 증강은 어트리뷰트로 표현할 수 없다. SourceTag로 여기서 건다.
+
+	// 마나소비는 최소0 이 정상이다
+	return FMath::Max(0.f, Final);
+}
+
+float AHBPlayerCharacter::ModifyCooldown(FGameplayTag SourceTag, float Duration) const
+{
+	if (Duration <= 0.f)
+	{
+		return 0.f;
+	}
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return Duration;
+	}
+
+	// 장비,패시브,버프의 전역 보정은 전부 이 두 어트리뷰트에 모인다.
+	const float Flat = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_CooldownFlatAttribute());
+	const float Multiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_CooldownMultiplierAttribute());
+
+	const float Final = (Duration + Flat) * Multiplier;
+
+	// 특정 스킬에만 걸리는 증강은 어트리뷰트로 표현할 수 없다. SourceTag로 여기서 건다.
+
+	// 쿨타임 감소는 최소0.1 이 정상이다
+	return FMath::Max(0.1f, Final);
+}
+
+bool AHBPlayerCharacter::HasAugment(FGameplayTag AugmentTag) const
+{
+	if (!AugmentTag.IsValid())
+	{
+		return false;
+	}
+
+	// TODO: PlayerState 의 TakenAugments 를 조회하도록 채운다.
+
+	return false;
+}
+
+float AHBPlayerCharacter::GetAugmentValue(FGameplayTag AugmentTag) const
+{
+	if (!AugmentTag.IsValid())
+	{
+		return 1.f;
+	}
+
+	// TODO: 증강 데이터의 Value 를 돌려주도록 채운다.
+
+	return 1.f;
 }
 
 bool AHBPlayerCharacter::HasEnoughMana(float Cost) const
@@ -771,14 +861,145 @@ void AHBPlayerCharacter::ConsumeMana(float Cost)
 	NotifyManaActivity();
 }
 
+const FGameplayTagContainer* AHBPlayerCharacter::GetSkillCooldownTags(const FName SkillId) const
+{
+	if (!JobData)
+	{
+		return nullptr;
+	}
+	// 스킬 전체를 뒤진다.
+	const FHBJobSkillData* Skill = JobData->FindSkillAnywhere(SkillId);
+	if (!Skill)
+	{
+		return nullptr;
+	}
+	if (!Skill->AbilityClass)
+	{
+		return nullptr;
+	}
+	const UGameplayAbility* AbilityCDO = Skill->AbilityClass.GetDefaultObject();
+	if (!AbilityCDO)
+	{
+		return nullptr;
+	}
+	// GA 의 CheckCooldown 이 읽는 것과 같은 값이다. 쿨다운 GE 애셋의 부여 태그가 유일한 진실.
+	const FGameplayTagContainer* CooldownTags = AbilityCDO->GetCooldownTags();
+	if (!CooldownTags)
+	{
+		return nullptr;
+	}
+	if (CooldownTags->IsEmpty())
+	{
+		return nullptr;
+	}
+	return CooldownTags;
+}
+
 float AHBPlayerCharacter::GetSkillCooldownRemaining(const FName SkillId) const
 {
-	return HBWarriorEffects::GetCooldownRemaining(GetAbilitySystemComponent(), GetSkillCooldownTag(SkillId));
+	const FGameplayTagContainer* CooldownTags = GetSkillCooldownTags(SkillId);
+	if (!CooldownTags)
+	{
+		return 0.f;
+	}
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return 0.f;
+	}
+
+	const FGameplayEffectQuery Query = FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(*CooldownTags);
+	const TArray<float> Remaining = ASC->GetActiveEffectsTimeRemaining(Query);
+
+	// 태그가 하나라도 남아 있으면 CheckCooldown 이 막는다. 그래서 가장 긴 것이 실제 시점이다.
+	float Longest = 0.f;
+	for (const float Time : Remaining)
+	{
+		if (Time > Longest)
+		{
+			Longest = Time;
+		}
+	}
+	return Longest;
+}
+
+float AHBPlayerCharacter::GetSkillCooldownPercent(const FName SkillId) const
+{
+	const FGameplayTagContainer* CooldownTags = GetSkillCooldownTags(SkillId);
+	if (!CooldownTags)
+	{
+		return 0.f;
+	}
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return 0.f;
+	}
+
+	// 총 시간을 다시 계산하지 않고 GE 에서 직접 꺼낸다.
+	// 쿨타임 도중에 장비를 바꿔도 게이지가 튀지 않는다.
+	const FGameplayEffectQuery Query = FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(*CooldownTags);
+	const TArray<TPair<float, float>> Pairs = ASC->GetActiveEffectsTimeRemainingAndDuration(Query);
+
+	float Remaining = 0.f;
+	float Duration = 0.f;
+	for (const TPair<float, float>& Pair : Pairs)
+	{
+		if (Pair.Key > Remaining)
+		{
+			Remaining = Pair.Key;
+			Duration = Pair.Value;
+		}
+	}
+	if (Duration <= 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Clamp(Remaining / Duration, 0.f, 1.f);
+}
+
+float AHBPlayerCharacter::GetSkillManaCost(const FName SkillId) const
+{
+	if (!JobData)
+	{
+		return 0.f;
+	}
+	const FHBJobSkillData* Skill = JobData->FindSkillAnywhere(SkillId);
+	if (!Skill)
+	{
+		return 0.f;
+	}
+	if (!Skill->AbilityClass)
+	{
+		return 0.f;
+	}
+	// 구 GA 는 이 베이스가 아니라 0 이 나온다. 액티브 교체가 끝나면 해결된다.
+	const UHBPlayerActiveGABase* ActiveCDO = Cast<UHBPlayerActiveGABase>(Skill->AbilityClass.GetDefaultObject());
+	if (!ActiveCDO)
+	{
+		return 0.f;
+	}
+
+	// 발동 때와 같은 깔때기를 태운다. 카드 숫자와 실제 차감이 어긋날 수 없다.
+	return ModifyManaCost(ActiveCDO->GetSourceTag(), ActiveCDO->GetBaseManaCost());
+}
+
+bool AHBPlayerCharacter::CanUseSkill(const FName SkillId) const
+{
+	if (SkillId.IsNone())
+	{
+		return false;
+	}
+	if (IsSkillOnCooldown(SkillId))
+	{
+		return false;
+	}
+	return HasEnoughMana(GetSkillManaCost(SkillId));
 }
 
 bool AHBPlayerCharacter::IsSkillOnCooldown(const FName SkillId) const
 {
-	return HBWarriorEffects::IsCooldownActive(GetAbilitySystemComponent(), GetSkillCooldownTag(SkillId));
+	return GetSkillCooldownRemaining(SkillId) > 0.f;
 }
 
 int32 AHBPlayerCharacter::GetSkillUpgradeLevel(const FName SkillId) const
@@ -974,30 +1195,46 @@ void AHBPlayerCharacter::InitializeJob(UAbilitySystemComponent* AbilitySystem)
 
 	// ActiveSkills/PassiveSkills are catalogs. Only entries listed in BasicSkills
 	// are equipped as the initial loadout.
+	// ActiveSkills / PassiveSkills 는 카탈로그다. 시작 로드아웃에 적힌 것만 장착된다.
 	SelectedSkillQId = NAME_None;
 	SelectedSkillEId = NAME_None;
 	SelectedPassiveSkillIds.Reset();
-	for (const FHBJobSkillData& BaseSkill : JobData->GetBasicSkillCatalog())
+	for (const FName SkillId : ResolveStartingSkillIds())
 	{
-		if (JobData->FindActiveSkill(BaseSkill.SkillId))
+		if (SkillId.IsNone())
 		{
-			if (SelectedSkillQId.IsNone()) SelectedSkillQId = BaseSkill.SkillId;
-			else if (SelectedSkillEId.IsNone()) SelectedSkillEId = BaseSkill.SkillId;
+			continue;
 		}
-		else if (JobData->FindPassiveSkill(BaseSkill.SkillId))
+		// 직업 데이터에서 스킬을 찾는다.
+		if (JobData->FindActiveSkill(SkillId))
 		{
-			SelectedPassiveSkillIds.AddUnique(BaseSkill.SkillId);
+			// 1번째는 q
+			if (SelectedSkillQId.IsNone())
+			{
+				SelectedSkillQId = SkillId;
+			}
+			// 2번짼 e
+			else if (SelectedSkillEId.IsNone())
+			{
+				SelectedSkillEId = SkillId;
+			}
+			// 그 외에는 넘어가기
+			continue;
 		}
-		else
+		if (JobData->FindPassiveSkill(SkillId))
 		{
-			// Compatibility for a mandatory utility ability that is not selectable.
-			GrantAbilityIfMissing(AbilitySystem, BaseSkill.AbilityClass);
+			SelectedPassiveSkillIds.AddUnique(SkillId);
+			continue;
 		}
+
+		// 오타를 런타임에 조용히 넘기지 않는다. 이번 Q 미발동이 정확히 이 구멍이었다.
+		UE_LOG(LogTemp, Error,
+			TEXT("[Job] 시작 스킬 '%s' 가 ActiveSkills/PassiveSkills 어디에도 없다."),
+			*SkillId.ToString());
 	}
 	ApplyLoadout(SelectedSkillQId, SelectedSkillEId, SelectedPassiveSkillIds);
 
-	GrantAbilityIfMissing(AbilitySystem,
-		JobData->UltimateSkill.AbilityClass ? JobData->UltimateSkill.AbilityClass : JobData->UltimateAbility);
+	GrantAbilityIfMissing(AbilitySystem, JobData->UltimateSkill.AbilityClass);
 }
 
 void AHBPlayerCharacter::ApplyJobAppearance()

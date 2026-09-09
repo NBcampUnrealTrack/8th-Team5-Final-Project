@@ -16,29 +16,24 @@ struct HEAVENBREACH_API FHBJobSkillData
 {
 	GENERATED_BODY()
 
-	/** Stable save/load key. Do not rename after release (example: Warrior.BattleCry). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill")
+	// 저장,조회 키. 해당 키는 함부러 바꾸지 말 것. 예시) Warrior.BattleCry
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Skill")
 	FName SkillId;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Skill")
 	FText DisplayName;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill", meta=(MultiLine="true"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Skill", meta = (MultiLine = "true"))
 	FText Description;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Skill")
 	TSoftObjectPtr<UTexture2D> Icon;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Skill")
 	TSubclassOf<UGameplayAbility> AbilityClass;
 
-	/** UI display value. The real cooldown is still enforced by the ability. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill", meta=(ClampMin="0.0"))
-	float DisplayCooldown = 0.f;
-
-	/** Mana consumed when this skill is successfully activated. Basic attacks remain free. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Skill", meta=(ClampMin="0.0"))
-	float ManaCost = 0.f;
+	// DisplayCooldown / ManaCost 를 두지 않는다.
+	// 실제 값은 GA 애셋의 Cooldown / ManaCost 이고, 증강이 붙으면 DA 값으로는 맞출 수 없다. 해당 UI는 AbilityClass 의 CDO 에서 읽는다.
 };
 
 UCLASS(BlueprintType)
@@ -47,17 +42,18 @@ class HEAVENBREACH_API UHBJobData : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
-	UFUNCTION(BlueprintPure, Category="Job|Skills")
-	TArray<FHBJobSkillData> GetBasicSkillCatalog() const;
 
 	UFUNCTION(BlueprintPure, Category="Job|Skills")
-	TArray<FHBJobSkillData> GetActiveSkillCatalog() const;
+	TArray<FHBJobSkillData> GetActiveSkillCatalog() const { return ActiveSkills; }
 
 	UFUNCTION(BlueprintPure, Category="Job|Skills")
-	TArray<FHBJobSkillData> GetPassiveSkillCatalog() const;
+	TArray<FHBJobSkillData> GetPassiveSkillCatalog() const { return PassiveSkills; }
 
 	const FHBJobSkillData* FindActiveSkill(FName SkillId) const;
 	const FHBJobSkillData* FindPassiveSkill(FName SkillId) const;
+
+	// 스킬의 종류를 모를 때. UI가 SkillId로 조회 할 용도.
+	const FHBJobSkillData* FindSkillAnywhere(FName SkillId) const;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job")
 	FName JobId;
@@ -81,29 +77,19 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|GAS")
 	TSubclassOf<UGameplayEffect> DefaultAttributesEffect;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Skills")
-	TArray<FHBJobSkillData> BasicSkills;
+	// 저장된 로드아웃도 로비 선택도 없을 때 쓰는 기본값. 앞에서부터 액티브는 Q, E 순서다.
+	// 여기 적은ID 는 ActiveSkills 나 PassiveSkills 에 같은 SkillId 로 있어야 한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Job|Skills")
+	TArray<FName> InitialSkillIds;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Skills")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Skills", meta = (TitleProperty = "SkillId"))
 	TArray<FHBJobSkillData> ActiveSkills;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Skills")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Skills", meta = (TitleProperty = "SkillId"))
 	TArray<FHBJobSkillData> PassiveSkills;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Skills")
 	FHBJobSkillData UltimateSkill;
 
-	/** Compatibility fields for the existing Warrior asset. Move these entries into the catalogs above. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Legacy", meta=(AdvancedDisplay))
-	TArray<TSubclassOf<UGameplayAbility>> BasicAbilities;
-
-	/** 배열 순서가 액티브 스킬 슬롯 순서이며 현재 첫 번째 항목이 Q입니다. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Legacy", meta=(AdvancedDisplay))
-	TArray<TSubclassOf<UGameplayAbility>> ActiveAbilities;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Legacy", meta=(AdvancedDisplay))
-	TArray<TSubclassOf<UGameplayAbility>> PassiveAbilities;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Job|Legacy", meta=(AdvancedDisplay))
-	TSubclassOf<UGameplayAbility> UltimateAbility;
+	// Legacy 배열 삭제됨. 쓸모가 적고 불편해...
 };

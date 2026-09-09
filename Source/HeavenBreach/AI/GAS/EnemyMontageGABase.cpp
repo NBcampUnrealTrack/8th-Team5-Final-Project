@@ -8,6 +8,7 @@
 #include "Animation/AnimMontage.h"
 #include "AbilitySystemComponent.h"
 #include "AI/GAS/EnemyAttributeSetBase.h"
+//#include "HBPlayerActiveGABase.h"
 
 UEnemyMontageGABase::UEnemyMontageGABase()
 {

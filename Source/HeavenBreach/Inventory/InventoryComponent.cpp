@@ -212,6 +212,61 @@ bool UInventoryComponent::CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int
 	return true;
 }
 
+bool UInventoryComponent::CanFitItem(const FItemInstance& InItem) const
+{
+	FItemViewData ViewData;
+
+	if (!ResolveItemViewData(InItem.ItemRow, ViewData))
+	{
+		return false;
+	}
+
+	int32 Remaining = InItem.StackCount;
+
+	if (ViewData.IsStackable())
+	{
+		for (const FInventoryEntry& Entry : Entries)
+		{
+			if (Remaining <= 0)
+			{
+				return true;
+			}
+
+			if (Entry.Item.ItemRow.RowName != InItem.ItemRow.RowName)
+			{
+				continue;
+			}
+
+			const int32 Space = ViewData.MaxStack - Entry.Item.StackCount;
+
+			if (Space > 0)
+			{
+				Remaining -= FMath::Min(Space, Remaining);
+			}
+		}
+	}
+
+	if (Remaining <= 0)
+	{
+		return true;
+	}
+
+	if (Remaining > ViewData.MaxStack)
+	{
+		return false;
+	}
+
+	FIntPoint Size;
+
+	if (!GetEntrySize(InItem, Size))
+	{
+		return false;
+	}
+
+	FIntPoint FreePosition;
+	return FindFirstFreeSlot(Size, FreePosition);
+}
+
 bool UInventoryComponent::FindFirstFreeSlot(FIntPoint InSize, FIntPoint& OutPosition, int32 InIgnoredIndex) const
 {
 	for (int32 Y = 0; Y < Height; ++Y)

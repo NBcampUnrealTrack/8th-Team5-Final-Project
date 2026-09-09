@@ -33,6 +33,10 @@ public:
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_AttackSpeed);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_Defense);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_MoveSpeedMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_ManaCostFlat);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_ManaCostMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_CooldownFlat);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_CooldownMultiplier);
 	
 protected:
 	UPROPERTY(ReplicatedUsing= OnRep_HP, BlueprintReadOnly,Category="Attribute|Combat")
@@ -60,6 +64,20 @@ protected:
 	UPROPERTY(ReplicatedUsing=OnRep_MoveSpeedMultiplier, BlueprintReadOnly, Category="Attribute|Movement")
 	FGameplayAttributeData Player_MoveSpeedMultiplier;
 
+	// 마나 소비 + 보정. -5 면 5 감소
+	UPROPERTY(ReplicatedUsing = OnRep_ManaCostFlat, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_ManaCostFlat;
+
+	// 마나 소비 % 보정. 1.0 이 기본, 0.9 는 10% 감소
+	UPROPERTY(ReplicatedUsing = OnRep_ManaCostMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_ManaCostMultiplier;
+
+	UPROPERTY(ReplicatedUsing = OnRep_CooldownFlat, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_CooldownFlat;
+
+	UPROPERTY(ReplicatedUsing = OnRep_CooldownMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_CooldownMultiplier;
+
 	
 	UFUNCTION()
 	void OnRep_HP(const FGameplayAttributeData& OldValue);
@@ -77,7 +95,18 @@ protected:
 	void OnRep_Defense(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_MoveSpeedMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION() 
+	void OnRep_ManaCostFlat(const FGameplayAttributeData& OldValue);
+	UFUNCTION() 
+	void OnRep_ManaCostMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION() 
+	void OnRep_CooldownFlat(const FGameplayAttributeData& OldValue);
+	UFUNCTION() 
+	void OnRep_CooldownMultiplier(const FGameplayAttributeData& OldValue);
+
 #pragma endregion 
 	
-
+private:
+	// 최대치가 바뀔 때 현재치를 어디로 옮길지. HP 와 마나가 같은 규칙이라 함수로 뺐다.
+	static float CalculateCurrentOnMaxChanged(float Current, float OldMax, float NewMax);
 };

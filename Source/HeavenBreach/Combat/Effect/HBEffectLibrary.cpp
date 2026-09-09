@@ -1,11 +1,11 @@
-#include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
+#include "Combat/Effect/HBEffectLibrary.h"
 
 #include "AbilitySystemComponent.h"
 #include "GameplayEffect.h"
-#include "Player/Warrior/Effects/HBWarriorGameplayEffects.h"
+#include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
 
-FActiveGameplayEffectHandle HBWarriorEffects::ApplyEffect(
+FActiveGameplayEffectHandle HBEffects::ApplyEffect(
 	UAbilitySystemComponent* ASC, const TSubclassOf<UGameplayEffect> EffectClass)
 {
 	if (!ASC || !EffectClass)
@@ -16,7 +16,7 @@ FActiveGameplayEffectHandle HBWarriorEffects::ApplyEffect(
 		EffectClass->GetDefaultObject<UGameplayEffect>(), 1.f, ASC->MakeEffectContext());
 }
 
-FActiveGameplayEffectHandle HBWarriorEffects::ApplyTaggedDuration(
+FActiveGameplayEffectHandle HBEffects::ApplyTaggedDuration(
 	UAbilitySystemComponent* ASC, const float Duration, const FGameplayTag GrantedTag)
 	{
 	if (!ASC || Duration <= 0.f || !GrantedTag.IsValid())
@@ -30,7 +30,7 @@ FActiveGameplayEffectHandle HBWarriorEffects::ApplyTaggedDuration(
 	return ASC->ApplyGameplayEffectSpecToSelf(Spec);
 }
 
-FActiveGameplayEffectHandle HBWarriorEffects::ApplyBattleCryBuff(
+FActiveGameplayEffectHandle HBEffects::ApplyBattleCryBuff(
 	UAbilitySystemComponent* ASC, const float Duration, const float AttackMultiplier,
 	const float MoveSpeedBonus, const float DefenseBonus)
 {
@@ -47,7 +47,7 @@ FActiveGameplayEffectHandle HBWarriorEffects::ApplyBattleCryBuff(
 	return ASC->ApplyGameplayEffectSpecToSelf(Spec);
 }
 
-bool HBWarriorEffects::TryApplyCooldown(
+bool HBEffects::TryApplyCooldown(
 	UAbilitySystemComponent* ASC, const FGameplayTag CooldownTag, const float Duration)
 {
 	if (!ASC || !CooldownTag.IsValid() || IsCooldownActive(ASC, CooldownTag))
@@ -57,13 +57,13 @@ bool HBWarriorEffects::TryApplyCooldown(
 	return ApplyTaggedDuration(ASC, Duration, CooldownTag).IsValid();
 }
 
-bool HBWarriorEffects::IsCooldownActive(
+bool HBEffects::IsCooldownActive(
 	const UAbilitySystemComponent* ASC, const FGameplayTag CooldownTag)
 {
 	return ASC && CooldownTag.IsValid() && ASC->HasMatchingGameplayTag(CooldownTag);
 }
 
-float HBWarriorEffects::GetCooldownRemaining(
+float HBEffects::GetCooldownRemaining(
 	const UAbilitySystemComponent* ASC, const FGameplayTag CooldownTag)
 {
 	if (!ASC || !CooldownTag.IsValid()) return 0.f;

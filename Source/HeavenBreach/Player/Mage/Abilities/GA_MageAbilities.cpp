@@ -7,7 +7,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
-#include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
+#include "Combat/Effect/HBEffectLibrary.h"
 
 // Active-skill mana is charged from FHBJobSkillData by AHBPlayerCharacter.
 #define HB_BEGIN_MAGE(Tag, Cooldown, Cost) AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()); if (!Player || !BeginAbilityWithCooldown(Handle, ActorInfo, ActivationInfo, Tag, Cooldown, 0.f)) return
@@ -32,14 +32,14 @@ void UGA_MageFireball::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 	HB_BEGIN_MAGE(MageTag::TAG_Cooldown_Fireball, 6.f, 20.f);
 	AActor* Direct = FindLineTarget(Player, 1400.f);
 	const FVector Center = Direct ? Direct->GetActorLocation() : Player->GetActorLocation() + Player->GetActorForwardVector() * 900.f;
-	for (AActor* Target : FindTargetsInRadius(Player, Center, 300.f)) { ApplySkillDamage(Player, Target, Player->GetAttackPower() * 1.4f); if (UAbilitySystemComponent* TASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target)) HBWarriorEffects::ApplyTaggedDuration(TASC, 5.f, MageTag::TAG_State_Burning); }
+	for (AActor* Target : FindTargetsInRadius(Player, Center, 300.f)) { ApplySkillDamage(Player, Target, Player->GetAttackPower() * 1.4f); if (UAbilitySystemComponent* TASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target)) HBEffects::ApplyTaggedDuration(TASC, 5.f, MageTag::TAG_State_Burning); }
 	HB_END_MAGE();
 }
 
 void UGA_MageIceLance::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData*)
 {
 	HB_BEGIN_MAGE(MageTag::TAG_Cooldown_IceLance, 5.f, 15.f);
-	for (AActor* Target : FindLineTargets(Player, 1300.f)) { ApplySkillDamage(Player, Target, Player->GetAttackPower() * 1.1f); if (UAbilitySystemComponent* TASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target)) HBWarriorEffects::ApplyTaggedDuration(TASC, 4.f, MageTag::TAG_State_Chilled); if (ACharacter* C = Cast<ACharacter>(Target)) C->GetCharacterMovement()->Velocity *= 0.5f; }
+	for (AActor* Target : FindLineTargets(Player, 1300.f)) { ApplySkillDamage(Player, Target, Player->GetAttackPower() * 1.1f); if (UAbilitySystemComponent* TASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target)) HBEffects::ApplyTaggedDuration(TASC, 4.f, MageTag::TAG_State_Chilled); if (ACharacter* C = Cast<ACharacter>(Target)) C->GetCharacterMovement()->Velocity *= 0.5f; }
 	HB_END_MAGE();
 }
 
@@ -63,14 +63,14 @@ void UGA_MageFireZone::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 {
 	HB_BEGIN_MAGE(MageTag::TAG_Cooldown_FireZone, 10.f, 25.f);
 	const FVector Center = Player->GetActorLocation() + Player->GetActorForwardVector() * 650.f;
-	for (AActor* Target : FindTargetsInRadius(Player, Center, 400.f)) { ApplySkillDamage(Player, Target, Player->GetAttackPower()); if (UAbilitySystemComponent* TASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target)) HBWarriorEffects::ApplyTaggedDuration(TASC, 6.f, MageTag::TAG_State_Burning); }
+	for (AActor* Target : FindTargetsInRadius(Player, Center, 400.f)) { ApplySkillDamage(Player, Target, Player->GetAttackPower()); if (UAbilitySystemComponent* TASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target)) HBEffects::ApplyTaggedDuration(TASC, 6.f, MageTag::TAG_State_Burning); }
 	HB_END_MAGE();
 }
 
 void UGA_MageMagicShield::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData*)
 {
 	HB_BEGIN_MAGE(MageTag::TAG_Cooldown_MagicShield, 15.f, 20.f);
-	HBWarriorEffects::ApplyTaggedDuration(ActorInfo->AbilitySystemComponent.Get(), 6.f, MageTag::TAG_State_MagicShield);
+	HBEffects::ApplyTaggedDuration(ActorInfo->AbilitySystemComponent.Get(), 6.f, MageTag::TAG_State_MagicShield);
 	HB_END_MAGE();
 }
 
@@ -78,7 +78,7 @@ void UGA_MageGravityField::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 {
 	HB_BEGIN_MAGE(MageTag::TAG_Cooldown_GravityField, 12.f, 30.f);
 	const FVector Center = Player->GetActorLocation() + Player->GetActorForwardVector() * 600.f;
-	for (AActor* Target : FindTargetsInRadius(Player, Center, 450.f)) { if (ACharacter* C = Cast<ACharacter>(Target)) C->LaunchCharacter((Center - Target->GetActorLocation()).GetSafeNormal() * 800.f, true, true); if (UAbilitySystemComponent* TASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target)) HBWarriorEffects::ApplyTaggedDuration(TASC, 4.f, MageTag::TAG_State_Chilled); }
+	for (AActor* Target : FindTargetsInRadius(Player, Center, 450.f)) { if (ACharacter* C = Cast<ACharacter>(Target)) C->LaunchCharacter((Center - Target->GetActorLocation()).GetSafeNormal() * 800.f, true, true); if (UAbilitySystemComponent* TASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target)) HBEffects::ApplyTaggedDuration(TASC, 4.f, MageTag::TAG_State_Chilled); }
 	HB_END_MAGE();
 }
 

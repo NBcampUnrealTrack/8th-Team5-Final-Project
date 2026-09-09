@@ -2,7 +2,7 @@
 #include "AbilitySystemComponent.h"
 #include "Core/Tag/Mage/HB_MageTag.h"
 #include "Player/Mage/Effects/HBMageGameplayEffects.h"
-#include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
+#include "Combat/Effect/HBEffectLibrary.h"
 
 UGA_MagePassiveBase::UGA_MagePassiveBase() { InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor; NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::ServerOnly; }
 void UGA_MagePassiveBase::ActivateAbility(const FGameplayAbilitySpecHandle, const FGameplayAbilityActorInfo*, const FGameplayAbilityActivationInfo, const FGameplayEventData*) {}
