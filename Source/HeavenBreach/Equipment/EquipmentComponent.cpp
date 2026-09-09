@@ -190,6 +190,11 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 		return false;
 	}
 
+	// 회전은 인벤토리 그리드 안에서 공간을 차지하는 방식일 뿐이라 장비 슬롯(고정 1칸)에는
+	// 의미가 없다. 장착하는 순간 초기화해줘야 나중에 해제했을 때 회전된 채로 툭 튀어나오는
+	// 어색함이 없어진다.
+	RemovedItem.bRotated = false;
+
 	if (PreviousItem.IsValid())
 	{
 		if (!InSource->TryAddItemAt(PreviousItem, SourcePosition))

@@ -12,6 +12,7 @@ class UTextBlock;
 class UBorder;
 class UWidgetAnimation;
 class UMaterialInstanceDynamic;
+class USizeBox;
 
 /**
  * Per-item input layer used to start inventory drags from the item's geometry
@@ -48,6 +49,16 @@ private:
 	TObjectPtr<UImage> Image_ItemIcon;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<USizeBox> SizeBox_Icon;
+
+	// 1x2, 1x3처럼 정사각형이 아닌(길쭉한) 아이템은 아이콘 아트 자체에 여백이 있어서
+	// 칸을 다 못 채우고 짧아 보이는 경우가 많다. 그런 아이템에만 이 배율만큼 아이콘
+	// 박스를 살짝 키워서 보정한다. 1.0이면 보정 없음. 값은 디자이너가 눈으로 보면서
+	// WBP 클래스 디폴트에서 바로 조정 가능하다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "1.0", ClampMax = "2.0", AllowPrivateAccess = "true"))
+	float ElongatedIconOverscale = 1.15f;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> Text_FallbackName;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
@@ -60,6 +71,9 @@ private:
 	TObjectPtr<UBorder> Border_ItemFrame;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_FavoriteStar;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UBorder> Border_GradeFrame;
 	UPROPERTY(Transient, meta = (BindWidgetAnimOptional))
 	TObjectPtr<UWidgetAnimation> Anim_FavoritePulse;
 

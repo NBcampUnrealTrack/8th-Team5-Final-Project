@@ -77,24 +77,25 @@ void UEquipmentSlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, con
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(EquippedItem.ItemRow, ViewData)) return;
 
-	UImage* DragVisual = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
-	if (UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath))
-	{
-		DragVisual->SetBrushFromTexture(IconTexture, false);
-	}
-	FVector2D SlotSize = InGeometry.GetLocalSize();
-	DragVisual->SetDesiredSizeOverride(SlotSize);
-	DragVisual->SetOpacity(0.7f);
+	const FIntPoint ItemGridSize = GetOccupiedSize(EquippedItem, ViewData);
+	const FVector2D VisualSize(ItemGridSize.X * CellSize, ItemGridSize.Y * CellSize);
+	UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
 
 	UInventoryDragDropOperation* Operation = NewObject<UInventoryDragDropOperation>(this);
 	Operation->InstanceId = EquippedItem.InstanceId;
 	Operation->GrabOffset = FIntPoint::ZeroValue;
-	Operation->GrabPixelOffset = SlotSize * 0.5f;
+	Operation->GrabPixelOffset = VisualSize * 0.5f;
 	Operation->SourceInventory = nullptr;
 	Operation->SourceEquipment = BoundEquipment;
 	Operation->SourceSlot = SlotType;
-	Operation->DefaultDragVisual = DragVisual;
+	Operation->bRotated = EquippedItem.bRotated;
 	Operation->Pivot = EDragPivot::MouseDown;
+
+	// 인벤토리 칸에서 드래그할 때와 똑같이, Operation이 자기만의 Slate 비주얼
+	// (SBox+SImage)을 직접 뷰포트에 붙여서 관리하게 한다. 예전 방식(DefaultDragVisual에
+	// 단순 UImage)은 크기가 슬롯 지오메트리 그대로라 작게 나오고, T키 회전도
+	// 전혀 반영이 안 됐다.
+	Operation->CreateVisual(this, IconTexture, VisualSize);
 
 	OutOperation = Operation;
 }

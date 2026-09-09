@@ -12,14 +12,14 @@ UInventoryComponent::UInventoryComponent()
 	SetIsReplicatedByDefault(true);
 }
 
-void UInventoryComponent::Server_MoveItemIn_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition)
+void UInventoryComponent::Server_MoveItemIn_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated)
 {
 	if (InTarget == nullptr)
 	{
 		return;
 	}
 
-	InTarget->MoveItem(InInstanceId, InNewPosition);
+	InTarget->MoveItem(InInstanceId, InNewPosition, InRotated);
 }
 
 void UInventoryComponent::BeginPlay()
@@ -340,7 +340,7 @@ bool UInventoryComponent::TryAddItemAt(const FItemInstance& InItem, FIntPoint In
 	return true;
 }
 
-bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition)
+bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition, bool bInRotated)
 {
 	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
 
@@ -354,8 +354,12 @@ bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition)
 		return false;
 	}
 
+	// 회전 후 크기로 목표 위치에 들어갈 수 있는지까지 한 번에 검증한다.
+	FItemInstance RotatedItem = Entries[EntryIndex].Item;
+	RotatedItem.bRotated = bInRotated;
+
 	FIntPoint Size;
-	if (!GetEntrySize(Entries[EntryIndex].Item, Size))
+	if (!GetEntrySize(RotatedItem, Size))
 	{
 		return false;
 	}
@@ -366,6 +370,7 @@ bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition)
 	}
 
 	Entries[EntryIndex].Position = InNewPosition;
+	Entries[EntryIndex].Item.bRotated = bInRotated;
 	RebuildCache();
 
 	OnInventoryChanged.Broadcast();
@@ -469,7 +474,7 @@ bool UInventoryComponent::ToggleFavorite(FGuid InInstanceId)
 	OnInventoryChanged.Broadcast();
 	return true;
 }
-bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
+bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool bInRotated)
 {
 	if (GetOwnerRole() != ROLE_Authority)
 	{
@@ -487,7 +492,8 @@ bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid 
 		return false;
 	}
 
-	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+	FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+	SourceItem.bRotated = bInRotated;
 
 	FIntPoint Size;
 	if (!GetEntrySize(SourceItem, Size))
@@ -505,6 +511,7 @@ bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid 
 	{
 		return false;
 	}
+	RemovedItem.bRotated = bInRotated;
 
 	if (!TryAddItemAt(RemovedItem, InTargetPosition))
 	{
@@ -893,7 +900,7 @@ void UInventoryComponent::DebugMoveFirstItem(FIntPoint InNewPosition)
 		return;
 	}
 
-	const bool bMoved = MoveItem(Entries[0].Item.InstanceId, InNewPosition);
+	const bool bMoved = MoveItem(Entries[0].Item.InstanceId, InNewPosition, Entries[0].Item.bRotated);
 	UE_LOG(LogTemp, Log, TEXT("DebugMove to (%d,%d) -> %s"),
 		InNewPosition.X, InNewPosition.Y, bMoved ? TEXT("OK") : TEXT("FAIL"));
 
@@ -921,19 +928,19 @@ void UInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(UInventoryComponent, Entries);
 }
 
-void UInventoryComponent::Server_MoveItem_Implementation(FGuid InInstanceId, FIntPoint InNewPosition)
+void UInventoryComponent::Server_MoveItem_Implementation(FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated)
 {
-	MoveItem(InInstanceId, InNewPosition);
+	MoveItem(InInstanceId, InNewPosition, InRotated);
 }
 
-void UInventoryComponent::Server_TransferItem_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition)
+void UInventoryComponent::Server_TransferItem_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated)
 {
 	if (InTarget == nullptr)
 	{
 		return;
 	}
 
-	InTarget->TransferItemFrom(this, InInstanceId, InTargetPosition);
+	InTarget->TransferItemFrom(this, InInstanceId, InTargetPosition, InRotated);
 }
 
 void UInventoryComponent::Server_TransferItemAuto_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId)
@@ -966,14 +973,14 @@ void UInventoryComponent::Server_UnequipItem_Implementation(UEquipmentComponent*
 	InEquipment->UnequipToInventoryAt(InSlot, this, InTargetPosition);
 }
 
-void UInventoryComponent::Server_TransferItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
+void UInventoryComponent::Server_TransferItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated)
 {
 	if (InSource == nullptr)
 	{
 		return;
 	}
 
-	TransferItemFrom(InSource, InInstanceId, InTargetPosition);
+	TransferItemFrom(InSource, InInstanceId, InTargetPosition, InRotated);
 }
 
 void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)

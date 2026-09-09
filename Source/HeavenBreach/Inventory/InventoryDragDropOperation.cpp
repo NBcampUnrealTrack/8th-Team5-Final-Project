@@ -7,6 +7,7 @@
 #include "Engine/Texture2D.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBox.h"
+#include "Math/TransformCalculus2D.h"
 
 void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTexture2D* IconTexture, const FVector2D& VisualSize)
 {
@@ -15,6 +16,7 @@ void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTex
 		return;
 	}
 	SourceWidgetContext = InSourceWidget;
+	BaseVisualSize = VisualSize;
 
 	UWorld* World = InSourceWidget->GetWorld();
 	UGameViewportClient* GameViewport = World ? World->GetGameViewport() : nullptr;
@@ -30,6 +32,14 @@ void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTex
 	DragVisualBrush.ImageSize = VisualSize;
 	DragVisualBrush.DrawAs = ESlateBrushDrawType::Image;
 
+	TSharedRef<SImage> NewDragImage =
+		SNew(SImage)
+		.Visibility(EVisibility::HitTestInvisible)
+		.Image(&DragVisualBrush)
+		.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f));
+	NewDragImage->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	DragImageWidget = NewDragImage;
+
 	TSharedRef<SBox> NewDragBox =
 		SNew(SBox)
 		.Visibility(EVisibility::HitTestInvisible)
@@ -38,13 +48,24 @@ void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTex
 		.WidthOverride(VisualSize.X)
 		.HeightOverride(VisualSize.Y)
 		[
-			SNew(SImage)
-				.Visibility(EVisibility::HitTestInvisible)
-				.Image(&DragVisualBrush)
-				.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f))
+			NewDragImage
 		];
 
+	DragBoxWidget = NewDragBox;
 	DragVisualRoot = NewDragBox;
+
+	// bRotated는 NativeOnDragDetected에서 CreateVisual() 호출 전에 이미 세팅돼 있다.
+	// 그런데 이 함수는 지금까지 그 값을 무시하고 항상 회전 안 된 모양으로만 비주얼을
+	// 만들고 있었다 (회전 반영은 SetRotated()가 T키로 토글될 때만 일어남). 그래서
+	// 이미 회전된 상태로 집은 아이템은 드래그 시작 시점엔 무조건 회전 안 된 모양으로
+	// 보이는 버그가 있었다. 여기서 초기 상태를 한 번 맞춰준다.
+	if (bRotated)
+	{
+		const FVector2D RotatedBoxSize(VisualSize.Y, VisualSize.X);
+		NewDragBox->SetWidthOverride(RotatedBoxSize.X);
+		NewDragBox->SetHeightOverride(RotatedBoxSize.Y);
+		NewDragImage->SetRenderTransform(FSlateRenderTransform(FQuat2D(FMath::DegreesToRadians(90.0f))));
+	}
 
 	// 뷰포트에 올리기 전에 이미 커서 위치로 배치해서 첫 프레임에 엉뚱한 곳에 나타나는 걸 막는다.
 	UpdateVisualPosition();
@@ -87,6 +108,32 @@ void UInventoryDragDropOperation::DestroyVisual()
 		GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
 	}
 	DragVisualRoot.Reset();
+}
+
+void UInventoryDragDropOperation::SetRotated(bool bInRotated)
+{
+	if (bRotated == bInRotated)
+	{
+		return;
+	}
+	bRotated = bInRotated;
+
+	if (DragBoxWidget.IsValid())
+	{
+		const FVector2D NewBoxSize = bRotated
+			? FVector2D(BaseVisualSize.Y, BaseVisualSize.X)
+			: BaseVisualSize;
+		DragBoxWidget->SetWidthOverride(NewBoxSize.X);
+		DragBoxWidget->SetHeightOverride(NewBoxSize.Y);
+	}
+
+	if (DragImageWidget.IsValid())
+	{
+		const float AngleDegrees = bRotated ? 90.0f : 0.0f;
+		DragImageWidget->SetRenderTransform(FSlateRenderTransform(FQuat2D(FMath::DegreesToRadians(AngleDegrees))));
+	}
+
+	UpdateVisualPosition();
 }
 
 void UInventoryDragDropOperation::HandleDragged(UDragDropOperation* Operation)
