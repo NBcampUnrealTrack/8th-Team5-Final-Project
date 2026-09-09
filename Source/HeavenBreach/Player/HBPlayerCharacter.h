@@ -381,69 +381,6 @@ protected:
 
 	void SetHairVisibleForHelmet(bool bVisible);
 
-	#pragma region TemporaryModularOutfitTest
-	// TODO: Replace this local visual test with the agreed armor-set/shoes item format after team review.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test")
-	bool bEnableModularOutfitTest = false;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test", meta=(EditCondition="bEnableModularOutfitTest"))
-	bool bTestArmorSetEquipped = false;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test", meta=(EditCondition="bEnableModularOutfitTest"))
-	bool bTestShoesEquipped = false;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
-	TObjectPtr<USkeletalMeshComponent> BodyPart01MeshComp;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test|Base Body")
-	TSoftObjectPtr<USkeletalMesh> BaseBodyPart01Mesh;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
-	TObjectPtr<USkeletalMeshComponent> BodyPart02MeshComp;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test|Base Body")
-	TSoftObjectPtr<USkeletalMesh> BaseBodyPart02Mesh;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
-	TObjectPtr<USkeletalMeshComponent> BodyPart03MeshComp;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test|Base Body")
-	TSoftObjectPtr<USkeletalMesh> BaseBodyPart03Mesh;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
-	TObjectPtr<USkeletalMeshComponent> BodyPart04MeshComp;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test|Base Body")
-	TSoftObjectPtr<USkeletalMesh> BaseBodyPart04Mesh;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
-	TObjectPtr<USkeletalMeshComponent> BodyPart05MeshComp;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test|Base Body")
-	TSoftObjectPtr<USkeletalMesh> BaseBodyPart05Mesh;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test|Armor Set")
-	TSoftObjectPtr<USkeletalMesh> ArmorSetUpperMesh;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test|Armor Set")
-	TSoftObjectPtr<USkeletalMesh> ArmorSetPantsMesh;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Modular Outfit Test|Shoes")
-	TSoftObjectPtr<USkeletalMesh> IndependentShoesMesh;
-
-	// Local visual test only; this does not change or replicate inventory/equipment state.
-	UFUNCTION(BlueprintCallable, Category="Player|Equipment|Modular Outfit Test")
-	void SetModularOutfitTestState(bool bArmorSetEquipped, bool bShoesEquipped);
-
-	UPROPERTY(Transient)
-	TObjectPtr<USkeletalMesh> ModularTestSourceMesh;
-	UPROPERTY(Transient)
-	TArray<TObjectPtr<USkeletalMesh>> ModularTestPreviousClothing;
-	TArray<FIntVector4> ModularTestSectionVisibility;
-	bool bModularOutfitApplied = false;
-	void ApplyModularOutfitTest();
-	void RestoreModularOutfitBody();
-	#pragma endregion
 
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Underwear")
