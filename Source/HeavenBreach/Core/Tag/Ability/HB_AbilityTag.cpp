@@ -13,4 +13,8 @@ namespace AbilityTag
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_SetByCaller_Damage, "SetByCaller.Damage", "GE 에 데미지 수치를 넘기는 통로");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_SetByCaller_Heal, "SetByCaller.Heal", "GE 에 회복 수치를 넘기는 통로");
+
+	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_Cooldown, "SetByCaller.Cooldown");
+	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_Duration, "SetByCaller.Duration");
+	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_ManaCost, "SetByCaller.ManaCost");
 }
