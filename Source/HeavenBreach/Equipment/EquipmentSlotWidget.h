@@ -13,8 +13,9 @@
 
 class UImage;
 class UTextBlock;
+class UProgressBar;
 class UEquipmentComponent;
-class UInventoryComponent;
+class UInventoryComponent;	
 
 UCLASS()
 class HEAVENBREACH_API UEquipmentSlotWidget : public UUserWidget
@@ -64,4 +65,28 @@ private:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SlotLabel;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> ProgressBar_Durability;
+
+	// 장착된 아이템 파손 시에만 보이는 텍스트. UMG에서 위젯을 지워서 지금은 안 씀 ?
+	// 바인딩은 남겨둬도 무해하다(매칭되는 위젯 없으면 nullptr).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Text_Broken;
+
+	// 파손 시 아이콘 뒤에 깔리는 반투명 빨간 배경. UMG에 같은 이름의 Image를
+	// 추가하면 자동 바인딩된다(없어도 에러 안 남).
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> Image_BrokenBG;
+
+	// 장착된 아이템 등급을 색으로 보여주는 배경. Overlay에서 Image_BrokenBG보다
+	// 아래(먼저)에 있어야 한다. UMG에 같은 이름의 Image를 추가하면 자동 바인딩된다.
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> Image_GradeBG;
+
+	// UpdateDurabilityBar에서 계산해서 UpdateSlot의 아이콘 틴트에서도 재사용한다.
+	bool bIsItemBroken = false;
+
+	void UpdateDurabilityBar(bool bHasItem);
+	void UpdateGradeBackground(bool bHasItem);
 };

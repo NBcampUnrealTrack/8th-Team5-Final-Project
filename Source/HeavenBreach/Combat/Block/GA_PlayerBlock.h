@@ -40,7 +40,11 @@ protected:
 	// 방어중 이속감소 GE
 	UPROPERTY(EditDefaultsOnly, Category = "Block")
 	TSubclassOf<UGameplayEffect> BlockSlowEffect;
-	
+
+	// 패링 설정은 여기 없다. UGA_WarriorParry 패시브 애셋이 갖는다.
+	// 패링은 패시브로 주어지는 것이므로 그 패시브가 값의 주인이어야 한다.
+	// 방어는 "패링 패시브가 있으면 그 설정대로 창을 연다" 만 한다.
+
 private:
 	// 방어해제신호를 받았는지 검출
 	bool bReleaseBlock = false;
@@ -49,4 +53,9 @@ private:
 	FActiveGameplayEffectHandle SlowHandle;
 
 	void RemoveBlockSlow(const FGameplayAbilityActorInfo* ActorInfo);
+
+	// 패링 패시브를 배웠으면 그 설정으로 창을 연다. 안 배웠으면 아무것도 안 한다.
+	// 핸들을 안 들고 있는다. 스스로 만료되는 게 목적이고, 방어를 일찍 놓아서
+	// 창이 남더라도 패링 판정이 State.Blocking 을 함께 보므로 무해하다.
+	void ApplyParryWindow(const FGameplayAbilityActorInfo* ActorInfo);
 };

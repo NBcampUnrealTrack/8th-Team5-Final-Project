@@ -133,12 +133,48 @@ float ASealedDoorActor::GetInteractHoldSeconds_Implementation() const
 	return GradeData ? GradeData->OpenDurationSeconds : 0.0f;
 }
 
-void ASealedDoorActor::OnHoldBegin_Implementation(AActor* Interactor)
+bool ASealedDoorActor::HasRequiredKey(AActor* Interactor) const
 {
-	// 이미 다른 플레이어가 봉인을 해제하는 중이면 상태를 건드리지 않는다.
-	if (!HasAuthority() || DoorState != ESealedDoorState::Sealed)
+	if (bDebugSkipKeyCheck)
 	{
-		return;
+		return true;
+	}
+
+	const FSealedDoorGradeData* GradeData = FindGradeData();
+	if (GradeData == nullptr)
+	{
+		return false;
+	}
+
+	FGuid UnusedId;
+	return FindMatchingKey(GetInteractorInventory(Interactor), GradeData->RequiredKeyRowName, UnusedId);
+}
+
+bool ASealedDoorActor::OnHoldBegin_Implementation(AActor* Interactor)
+{
+	if (!HasAuthority())
+	{
+		return false;
+	}
+
+	// 이미 다른 플레이어가 봉인을 해제하는 중이면 상태를 건드리지 않되, 이 플레이어의 홀드는 허용한다.
+	// 먼저 끝낸 쪽이 문을 연다.
+	if (DoorState == ESealedDoorState::Opening)
+	{
+		return HasRequiredKey(Interactor);
+	}
+
+	if (DoorState != ESealedDoorState::Sealed)
+	{
+		return false;
+	}
+
+	// 열쇠를 갖고 있지 않으면 시작 자체를 거절한다. 시작 시점에 방을 배치하기 때문에,
+	// 열쇠 없는 플레이어가 눌렀다 떼는 것만으로 맵의 방들을 채울 수 있으면 안 된다.
+	// 소비는 완료 시점(Interact)에 하므로 여기서는 보유 여부만 본다.
+	if (!HasRequiredKey(Interactor))
+	{
+		return false;
 	}
 
 	HoldingInteractor = Interactor;
@@ -150,6 +186,16 @@ void ASealedDoorActor::OnHoldBegin_Implementation(AActor* Interactor)
 		SequenceStartServerTime = GameState->GetServerWorldTimeSeconds();
 	}
 
+	// 내용물을 여기서 미리 배치한다. 완료 시점에 스폰하면 새 액터 채널이 열리는 데 걸리는
+	// 시간 때문에, 핑이 나쁜 클라이언트는 텅 빈 방이 열린 뒤 몬스터가 뒤늦게 나타나는 걸 본다.
+	// 홀드 시간만큼 앞당기면 복제가 끝날 여유가 생기고, 몬스터의 AI 빙의·비헤이비어 트리
+	// 초기화도 문이 열리기 전에 마무리된다.
+	//
+	// 홀드를 중간에 놓아도 배치된 내용물은 그대로 둔다 — bRoomGenerated 가 재생성을 막으므로
+	// 눌렀다 떼기를 반복해도 스폰·파괴가 되풀이되지 않는다.
+	RollRoomResult();
+	GenerateRoom();
+
 	DoorState = ESealedDoorState::Opening;
 
 	// 서버에서는 RepNotify 가 자동 호출되지 않는다 (ABoxActor 와 동일한 처리)
@@ -158,6 +204,8 @@ void ASealedDoorActor::OnHoldBegin_Implementation(AActor* Interactor)
 	UE_LOG(LogTemp, Log,
 		TEXT("[SealedDoor] %s: 봉인 해제 시작 (%.1f초 유지 필요)"),
 		*GetName(), GetInteractHoldSeconds_Implementation());
+
+	return true;
 }
 
 void ASealedDoorActor::OnHoldCancel_Implementation(AActor* Interactor)
@@ -194,7 +242,12 @@ void ASealedDoorActor::FinishOpening()
 
 	HoldingInteractor = nullptr;
 
-	RollRoomResult();
+	// 정상 경로에서는 OnHoldBegin 이 이미 배치를 끝냈고, GenerateRoom 은 bRoomGenerated 로
+	// 막힌다. 홀드를 거치지 않는 경로(홀드 시간 0, 디버그 강제 개방)를 위해 여기서도 호출한다.
+	if (RoomResult == ESealedRoomResult::Undetermined)
+	{
+		RollRoomResult();
+	}
 	GenerateRoom();
 
 	DoorState = ESealedDoorState::Opened;

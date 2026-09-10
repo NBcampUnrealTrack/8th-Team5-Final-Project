@@ -56,9 +56,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Leap", meta = (ClampMin = "0.1"))
 	float MaxAirTime = 3.f;
 
-	// 도약 거리를 늘리는 증강. 비우면 배율 없음. 예) Augment.Warrior.ChargeAttack.Reach
-	UPROPERTY(EditDefaultsOnly, Category = "Leap")
-	FGameplayTag ReachAugmentTag;
+	// 거리 배율은 증강 애셋의 Params 에서 SkillParam.Reach 로 온다.
+	// 여기에 태그 칸을 두지 않는다. 스킬마다 태그 칸을 만들면 증강이 늘 때마다
+	// 헤더를 고쳐야 하고, 그러면 애셋만으로 증강을 추가할 수 없다.
 
 private:
 	// 도약을 실제로 수행하는 머신인가. 서버와 소유 클라만 true.

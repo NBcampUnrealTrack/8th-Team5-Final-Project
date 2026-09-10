@@ -18,6 +18,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "Core/Tag/Cue/HB_CueTag.h"
+#include "Combat/GameplayCue/HitCuePlay.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 
@@ -82,7 +83,7 @@ bool AEnemyCharacterBase::CanBeDamaged_Implementation(AActor* InstigatorActor) c
 	return true;
 }
 
-void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit)
+void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit, EHBDamageSource Source)
 {
 	// 데미지 확정은 서버 전용.
 	if (!HasAuthority() || !AbilitySystemComp || !IncomingDamageEffect)
@@ -125,6 +126,15 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -FinalDamage);
 
 	AbilitySystemComp->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+
+	// 타격 연출. 큐를 쏘는 책임이 맞는 쪽에 있다.
+	//
+	// 왜 여기로 옮겼나: 플레이어는 막기·패링에 따라 큐가 갈리는데, 그 판단은
+	// 맞는 쪽만 할 수 있다. 때리는 쪽(MeleeTraceComponent)에서 쏘던 것을
+	// 양쪽 다 맞는 쪽으로 통일했다. 적은 막기가 없어서 성질 판정만 한다.
+	//
+	// 쳐낼 조건: 적에게도 방어가 생기면 플레이어처럼 결과 우선 분기를 넣는다.
+	HitCuePlay::PlayImpact(InstigatorActor, this, Hit, FinalDamage);
 
 	// 피격 반응
 	if (!AbilitySystemComp->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))

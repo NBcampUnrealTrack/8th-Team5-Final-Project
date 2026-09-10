@@ -290,6 +290,11 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 				NewItem.InstanceId = FGuid::NewGuid();
 				NewItem.StackCount = 1;
 
+				if (Entry.ViewData.IsEquippable())
+				{
+					NewItem.CurrentDurability = GetMaxDurabilityForGrade(Entry.ViewData.Grade);
+				}
+
 				int32 Remainder = 0;
 				InStash->TryAddItem(NewItem, Remainder);
 			}

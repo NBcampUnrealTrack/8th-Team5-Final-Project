@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "AbilitySystemInterface.h"
+#include "GameplayTagContainer.h"
+#include "GameplayEffectTypes.h"
 #include "GameFramework/PlayerState.h"
 #include "Shop/ShopComponent.h"
 #include "HB_PlayerState.generated.h"
@@ -22,23 +24,40 @@ struct FPlayerLoadout;
 UENUM(BlueprintType)
 enum class EHBUpgradeCandidateType : uint8
 {
-	ActiveSkill,
+	// 이미 가진 스킬에 증강을 하나 붙인다. 액티브든 패시브든 상관없다.
+	Augment,
+	// 아직 없는 패시브를 통째로 얻는다.
 	NewPassive
 };
 
+/**
+ * 레벨업 때 뜨는 카드 한 장.
+ *
+ * 작동방식: 서버가 GenerateUpgradeCandidates 로 최대 3장을 만들어 복제하고,
+ * 플레이어가 CandidateId 를 골라 보내면 서버가 그 장을 찾아 적용한다.
+ *
+ * 쳐낼 조건: 카드 종류가 셋 이상 되면 Type 대신 각자의 구조체로 나눈다.
+ * 지금은 "증강 붙이기" 와 "패시브 얻기" 둘뿐이라 한 구조체로 충분하다.
+ */
 USTRUCT(BlueprintType)
 struct HEAVENBREACH_API FHBUpgradeCandidate
 {
 	GENERATED_BODY()
 
+	// 선택을 서버로 보낼 때 쓰는 식별자. 종류마다 다른 규칙으로 만든다.
 	UPROPERTY(BlueprintReadOnly)
 	FName CandidateId;
 
 	UPROPERTY(BlueprintReadOnly)
-	EHBUpgradeCandidateType Type = EHBUpgradeCandidateType::ActiveSkill;
+	EHBUpgradeCandidateType Type = EHBUpgradeCandidateType::Augment;
 
+	// 어느 스킬의 카드인가. NewPassive 면 얻게 될 패시브의 SkillId 다.
 	UPROPERTY(BlueprintReadOnly)
 	FName TargetSkillId;
+
+	// Type == Augment 일 때만 유효하다. 고르면 이 태그가 TakenAugments 에 들어간다.
+	UPROPERTY(BlueprintReadOnly)
+	FGameplayTag AugmentTag;
 
 	UPROPERTY(BlueprintReadOnly)
 	FText DisplayName;
@@ -48,12 +67,6 @@ struct HEAVENBREACH_API FHBUpgradeCandidate
 
 	UPROPERTY(BlueprintReadOnly)
 	TSoftObjectPtr<UTexture2D> Icon;
-
-	UPROPERTY(BlueprintReadOnly)
-	int32 CurrentLevel = 0;
-
-	UPROPERTY(BlueprintReadOnly)
-	int32 NextLevel = 0;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, CurrentHP, float, MaxHP);
@@ -85,7 +98,7 @@ private:
 
 	FTimerHandle LoadoutSaveTimer;
 
-	// ��� �׽�Ʈ
+	// ��� �׽�Ʈ
 	UFUNCTION()
 	void HandleStashLoadCompleted(bool bSuccess);
 
@@ -94,7 +107,7 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Debug")
 	int32 TestGoldMinimum = 5000;
-	// ��� �׽�Ʈ
+	// ��� �׽�Ʈ
 
 #pragma region MatchProgression
 public:
@@ -122,15 +135,29 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Progression|Match")
 	FOnPlayerExperienceChanged OnPlayerExperienceChanged;
 
+	// 이 증강을 골랐는가. 스킬 GA 가 캐릭터를 거쳐 이걸 묻는다.
 	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
+	bool HasAugment(FGameplayTag AugmentTag) const;
+
+	// 지금까지 고른 증강 전부. UI 가 목록을 그릴 때 쓴다.
+	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
+	FGameplayTagContainer GetTakenAugments() const { return TakenAugments; }
+
+	// ================ 폐기 예정 ================
+	// 스킬 레벨(0~3) 모델은 증강 태그로 대체됐다. 아래 둘은 아무 일도 하지 않는다.
+	//
+	// 왜 남겼나: 둘 다 BlueprintPure / BlueprintCallable 이라 UI 위젯 BP 가
+	// 부르고 있으면 지우는 순간 그 BP 의 컴파일이 깨진다. BP 참조 여부를
+	// 확인하기 전까지는 껍데기로 둔다.
+	//
+	// 쳐낼 조건: 에디터의 Find in Blueprints 로 "Get Skill Upgrade Level" 과
+	// "Request Upgrade Skill" 을 검색해 참조가 없으면 이 블록을 통째로 지운다.
+	UFUNCTION(BlueprintPure, Category = "Progression|Skills", meta = (DeprecatedFunction, DeprecationMessage = "증강 태그로 대체됨. HasAugment 를 쓸 것"))
 	int32 GetSkillUpgradeLevel(FName SkillId) const;
 
-	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
-	bool CanUpgradeSkill(FName SkillId) const;
-
-	/** Spends one pending level-up choice to upgrade an equipped Q/E skill. */
-	UFUNCTION(BlueprintCallable, Category = "Progression|Skills")
+	UFUNCTION(BlueprintCallable, Category = "Progression|Skills", meta = (DeprecatedFunction, DeprecationMessage = "증강 태그로 대체됨. RequestSelectUpgrade 를 쓸 것"))
 	void RequestUpgradeSkill(FName SkillId);
+	// ================ 폐기 예정 끝 ================
 
 	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
 	int32 GetPendingUpgradeChoices() const { return PendingUpgradeChoices; }
@@ -164,14 +191,17 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "Progression|Match", meta = (ClampMin = "0"))
 	int32 ExperienceIncreasePerLevel = 50;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Progression|Skills", meta = (ClampMin = "1"))
-	int32 MaxSkillUpgradeLevel = 3;
-
+	// 이번 판에서 고른 증강 전부. 추가만 되고 개별 제거는 없다.
+	// 매치가 끝나 로비로 돌아가면 ResetMatchProgression 이 통째로 비운다.
+	//
+	// 왜 ASC 태그가 아니라 별도 컨테이너인가: UI 가 "내가 고른 증강 목록"을
+	// 열거해야 하는데, ASC 에 넣으면 다른 상태 태그와 섞여 걸러내야 한다.
 	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
-	int32 SkillQUpgradeLevel = 0;
+	FGameplayTagContainer TakenAugments;
 
-	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
-	int32 SkillEUpgradeLevel = 0;
+	// 증강이 붙인 상시 GE 핸들. 개별 취소용이 아니라 매치 리셋용이다.
+	// 복제하지 않는다. 서버에서만 걷으면 클라는 어트리뷰트 복제로 따라온다.
+	TArray<FActiveGameplayEffectHandle> AugmentEffectHandles;
 
 	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
 	int32 PendingUpgradeChoices = 0;
@@ -179,11 +209,16 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_UpgradeCandidates)
 	TArray<FHBUpgradeCandidate> CurrentUpgradeCandidates;
 
-	UFUNCTION(Server, Reliable)
-	void ServerRequestUpgradeSkill(FName SkillId);
-
-	void ApplySkillUpgrade(FName SkillId);
+	// 후보를 뽑을 때 쓰는 조각들. 람다를 쓰지 않으려고 함수로 나눴다.
 	void GenerateUpgradeCandidates();
+	void CollectMissingPassives(TArray<FHBUpgradeCandidate>& OutPool) const;
+	void CollectSkillAugments(TArray<FHBUpgradeCandidate>& OutPool, FName SkillId) const;
+
+	// 증강 하나를 실제로 부여한다. 태그를 넣고 GrantEffect 가 있으면 붙인다.
+	void ApplyAugment(FName TargetSkillId, FGameplayTag AugmentTag);
+
+	// 매치가 끝날 때 증강 GE 를 전부 걷는다.
+	void RemoveAllAugmentEffects();
 
 	UFUNCTION(Server, Reliable)
 	void ServerRequestSelectUpgrade(FName CandidateId);

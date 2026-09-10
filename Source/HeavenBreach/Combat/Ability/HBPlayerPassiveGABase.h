@@ -3,21 +3,27 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Abilities/GameplayAbility.h"
-#include "GameplayTagContainer.h"
 #include "GameplayEffectTypes.h"
+#include "Combat/Ability/HBPlayerSkillGABase.h"
 #include "HBPlayerPassiveGABase.generated.h"
 
-class AHBPlayerCharacter;
-class UAbilitySystemComponent;
 class UGameplayEffect;
 
 /**
- * ÆĞ½Ãºê °øÅë GA
- * È¿°ú °è»êÀº ÇÃ·¹ÀÌ¾î Ä³¸¯ÅÍ¿¡ ÀÖ´Â ±ò¶§±â(ModifyManaCost / ModifyCooldown / ModifyOutgoingDamage)°¡ ±× ÅÂ±×¸¦ ÀĞ¾î¼­ ÇÑ´Ù.
+ * íŒ¨ì‹œë¸Œ ê³µí†µ GA
+ *
+ * íŒ¨ì‹œë¸ŒëŠ” ìŠ¤ìŠ¤ë¡œ ê³„ì‚°í•˜ì§€ ì•ŠëŠ”ë‹¤. íƒœê·¸ë¥¼ ë“¤ê³ ë§Œ ìˆê³ , ì‹¤ì œ ê³„ì‚°ì€
+ * í”Œë ˆì´ì–´ ìºë¦­í„°ì˜ ê¹”ë•Œê¸°(ModifyManaCost / ModifyCooldown / ModifyOutgoingDamage)ê°€
+ * ê·¸ íƒœê·¸ë¥¼ ì½ì–´ì„œ í•œë‹¤.
+ *
+ * GE í•˜ë‚˜ë§Œ ë¶™ì´ë©´ ë˜ëŠ” íŒ¨ì‹œë¸ŒëŠ” C++ ìì‹ì„ ë§Œë“¤ì§€ ì•ŠëŠ”ë‹¤.
+ * ì´ í´ë˜ìŠ¤ë¥¼ ë¶€ëª¨ë¡œ BP ë¥¼ ë§Œë“¤ê³  SelfPassiveEffect ë§Œ ì±„ìš°ë©´ ëë‚œë‹¤.
+ * ì „íˆ¬ í˜¸í¡ì´ ê·¸ í˜•íƒœë‹¤. ë¡œì§ì´ í•„ìš”í•œ íŒ¨ì‹œë¸Œë§Œ C++ ìì‹ìœ¼ë¡œ ë§Œë“ ë‹¤.
+ *
+ * ì¦ê°• ëª©ë¡ê³¼ ì¶œì²˜ íƒœê·¸, ì•„ë°”íƒ€ ì ‘ê·¼ì€ ë¶€ëª¨(UHBPlayerSkillGABase)ì— ìˆë‹¤.
  */
 UCLASS()
-class HEAVENBREACH_API UHBPlayerPassiveGABase : public UGameplayAbility
+class HEAVENBREACH_API UHBPlayerPassiveGABase : public UHBPlayerSkillGABase
 {
 	GENERATED_BODY()
 public:
@@ -25,20 +31,18 @@ public:
 
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 
-	// ·Îµå¾Æ¿ôÀÌ ¹Ù²î¸é ApplyLoadout ÀÇ CancelAbilityHandle ·Î ¿©±â µé¾î¿Â´Ù.
-	// ºÙÀÎ GE ¸¦ ÇÚµéÀ» ÅëÇØ ¹İµå½Ã °È¾î¾ß ÇÑ´Ù. ¾È °ÈÀ¸¸é ÆĞ½Ãºê¸¦ »°´Âµ¥ ÃÖ´ëÃ¼·ÂÀÌ ³²´Â´Ù.
+	// ë¡œë“œì•„ì›ƒì´ ë°”ë€Œë©´ ApplyLoadout ì´ CancelAbilityHandle ë¡œ ì´ ì–´ë¹Œë¦¬í‹°ë¥¼ ëë‚¸ë‹¤.
+	// ê·¸ë•Œ ë¶™ì—¬ ë‘” GE ë¥¼ ë°˜ë“œì‹œ ë–¼ì•¼ í•œë‹¤. ì•ˆ ë–¼ë©´ íŒ¨ì‹œë¸Œë¥¼ ëºëŠ”ë°ë„ ìµœëŒ€ ì²´ë ¥ì´ ë‚¨ëŠ”ë‹¤.
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
 protected:
-	// º¸À¯¸¸À¸·Î »ó½Ã °É¸®´Â È¿°ú. °­ÀÎÇÑ À°Ã¼ÀÇ ÃÖ´ëÃ¼·Â GE.
-	// ÅÂ±×¸¸ ÇÊ¿äÇÑ ÆĞ½Ãºê´Â ºñ¿öµĞ´Ù.
+	// ì´ íŒ¨ì‹œë¸Œë¥¼ ê°€ì§„ ë™ì•ˆ ìƒì‹œë¡œ ê±¸ë¦¬ëŠ” íš¨ê³¼. ìµœëŒ€ ì²´ë ¥ ì¦ê°€ ê°™ì€ ê²ƒ.
+	// íƒœê·¸ë§Œ í•„ìš”í•œ íŒ¨ì‹œë¸ŒëŠ” ë¹„ì›Œ ë‘”ë‹¤. ë¹„ì–´ ìˆìœ¼ë©´ ì•„ë¬´ê²ƒë„ ë¶™ì´ì§€ ì•ŠëŠ”ë‹¤.
 	UPROPERTY(EditDefaultsOnly, Category = "Passive")
 	TSubclassOf<UGameplayEffect> SelfPassiveEffect;
 
 private:
-	UAbilitySystemComponent* GetASC(const FGameplayAbilityActorInfo* ActorInfo) const;
-
-	// ºÙÀÎ GE ÇÚµé. EndAbility ¿¡¼­ °ÈÀ¸·Á°í µé°í ÀÖ´Â´Ù.
-	// ¸â¹ö·Î »óÅÂ¸¦ µé°í ÀÖÀ¸¹Ç·Î InstancedPerActor °¡ ÇÊ¼ö´Ù.
+	// ë¶™ì—¬ ë‘” ìƒì‹œ GE í•¸ë“¤. EndAbility ì—ì„œ ë–¼ë ¤ê³  ë“¤ê³  ìˆëŠ”ë‹¤.
+	// ì¸ìŠ¤í„´ìŠ¤ë§ˆë‹¤ ë‹¤ë¥¸ ê°’ì´ë¯€ë¡œ InstancedPerActor ê°€ í•„ìˆ˜ë‹¤.
 	TArray<FActiveGameplayEffectHandle> PassiveHandles;
 };

@@ -11,6 +11,10 @@
 #include "Animation/AnimMontage.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
+#include "Player/HBPlayerCharacter.h"
+#include "EquipmentComponent.h"
+#include "Combat/Ability/Warrior/GA_WarriorParry.h"
+#include "Player/HBPlayerCharacter.h"
 
 UGA_PlayerBlock::UGA_PlayerBlock()
 {
@@ -26,23 +30,46 @@ UGA_PlayerBlock::UGA_PlayerBlock()
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_BoxInteracting);
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_InventoryBusy);
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_Blocking);
+
+	// ê²½ì§ ì¤‘ì—ëŠ” ë°©ì–´ë¥¼ ì˜¬ë¦´ ìˆ˜ ì—†ë‹¤. ê³µê²©ê³¼ ê°™ì€ ê·œì¹™ìœ¼ë¡œ ë§ì·„ë‹¤.
+	// ì‘ë™ë°©ì‹: í”¼ê²© GE ë‚˜ ë…¸í‹°íŒŒì´ê°€ State.Staggered ë¥¼ ë¶™ì´ë©´
+	// CanActivateAbility ê°€ ì´ ëª©ë¡ê³¼ ë¹„êµí•´ ë°œë™ì„ ê±°ë¶€í•œë‹¤.
+	// State.HitReact ëŠ” ë„£ì§€ ì•ŠëŠ”ë‹¤. ê·¸ íƒœê·¸ëŠ” "í–‰ë™ ìœ ì§€" ìš©ë„ë¡œ ë‚˜ë‰˜ì–´ ìˆë‹¤.
+	// State.Grabbed ë„ ë„£ì§€ ì•ŠëŠ”ë‹¤. ì¡íŒ ìƒíƒœì—ì„œ ë§‰ì„ ìˆ˜ ìˆì–´ì•¼ í•œë‹¤ëŠ” ê¸°íšì´ë‹¤.
+	// ì³ë‚¼ ì¡°ê±´: ê²½ì§ì„ ë°©ì–´ë¡œ ëŠëŠ”(íŒ¨ë§ë¥˜) ì‹œìŠ¤í…œì´ ìƒê¸°ë©´ ì´ ì¤„ì„ ëº€ë‹¤.
+	ActivationBlockedTags.AddTag(StateTag::TAG_State_Staggered);
 }
 
 void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
 	const FGameplayEventData* TriggerEventData)
 {
-	// ºí·Ï ¸ùÅ¸ÁÖ ÇÊ¼ö
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å¸ï¿½ï¿½ ï¿½Ê¼ï¿½
 	if (!AM_Block)
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
 
-	// ¾îºô¸®Æ¼ »ç¿ë ÆÇÁ¤
-	if (!CommitAbility(Handle,ActorInfo,ActivationInfo))
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ğ°ï¿½ ï¿½Ä¼ï¿½ ï¿½ï¿½ï¿½Â¸ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ã¼ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ò¸ï¿½ ï¿½ï¿½ ï¿½ï¿½).
+	// ï¿½ï¿½ï¿½Ğ°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ç¼ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ Ã¼Å©ï¿½ï¿½ ï¿½Ç³Ê¶Ù°ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ø¾ï¿½ ï¿½Ñ´ï¿½.
+	if (const AHBPlayerCharacter* Blocker = ActorInfo ? Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
 	{
-		EndAbility(Handle,ActorInfo,ActivationInfo,true,false);
+		if (const UEquipmentComponent* Equipment = Blocker->GetEquipment())
+		{
+			if (Equipment->IsSlotOccupied(EEquipSlotType::SecondaryEquip)
+				&& Equipment->IsEquippedItemBroken(EEquipSlotType::SecondaryEquip))
+			{
+				EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+				return;
+			}
+		}
+	}
+
+	// ï¿½ï¿½ï¿½ï¿½ï¿½Æ¼ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
 
@@ -58,7 +85,7 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	//	}
 	//}
 
-	// ÇØÁ¦ ½ÅÈ£¸¦ ±â´Ù¸°´Ù. ÇØÁ¦ ½ÅÈ£´Â ÀÌº¥Æ® ÅÂ±× TAG_Event_Block_Release°¡ µé¾î¿Í¾ßÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È£ï¿½ï¿½ ï¿½ï¿½Ù¸ï¿½ï¿½ï¿½. ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È£ï¿½ï¿½ ï¿½Ìºï¿½Æ® ï¿½Â±ï¿½ TAG_Event_Block_Releaseï¿½ï¿½ ï¿½ï¿½ï¿½Í¾ï¿½ï¿½Ñ´ï¿½.
 	UAbilityTask_WaitGameplayEvent* WaitRelease = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, EventTag::TAG_Event_Block_Release, nullptr, false, false);
 	WaitRelease->EventReceived.AddDynamic(this, &UGA_PlayerBlock::OnBlockReleaseReceive);
 	WaitRelease->ReadyForActivation();
@@ -76,7 +103,7 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	MontageTask->OnCancelled.AddDynamic(this, &UGA_PlayerBlock::OnBlockMontageCancelled);
 	MontageTask->ReadyForActivation();
 
-	// ÀÌµ¿ °¨¼Ó. ´Ù¸¥ ¹öÇÁ¿Í °öÇØÁöµµ·Ï GE ·Î °Ç´Ù.
+	// ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½. ï¿½Ù¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ GE ï¿½ï¿½ ï¿½Ç´ï¿½.
 	if (ActorInfo && ActorInfo->IsNetAuthority())
 	{
 		RemoveBlockSlow(ActorInfo);
@@ -89,6 +116,9 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 				SlowHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 			}
 		}
+
+		// íŒ¨ë§ ì°½. ìŠ¬ë¡œìš°ì™€ ê°™ì€ ìë¦¬ì— ë‘ì–´ "ì„œë²„ì—ì„œë§Œ ì ìš©"ì´ë¼ëŠ” ê·œì¹™ì„ ê³µìœ í•œë‹¤.
+		ApplyParryWindow(ActorInfo);
 	}
 	//if (AM_Block)
 	//{
@@ -137,7 +167,7 @@ void UGA_PlayerBlock::EndAbility(const FGameplayAbilitySpecHandle Handle, const 
 
 void UGA_PlayerBlock::OnBlockReleaseReceive(FGameplayEventData Payload)
 {
-	// ½ÅÈ£°¡ µÎ¹ø µé¾î¿À´Â°Í ¹æÁö
+	// ï¿½ï¿½È£ï¿½ï¿½ ï¿½Î¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Â°ï¿½ ï¿½ï¿½ï¿½ï¿½
 	if (bReleaseBlock)
 	{
 		return;
@@ -149,22 +179,22 @@ void UGA_PlayerBlock::OnBlockReleaseReceive(FGameplayEventData Payload)
 	//USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
 	//UAnimInstance* Anim = Mesh ? Mesh->GetAnimInstance() : nullptr;
 	//
-	//// Á¾·á¼½¼ÇÀ¸·Î ³Ñ¾î°¡¼­ ¸¶Áö¸· ¾Ö´Ï¸ŞÀÌ¼Ç Ãâ·Â
+	//// ï¿½ï¿½ï¿½á¼½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ñ¾î°¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´Ï¸ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½
 	//if (Anim && AM_Block && !ReleaseSectionName.IsNone())
 	//{
 	//	Anim->Montage_JumpToSection(ReleaseSectionName, AM_Block);
 	//	return;
 	//}
 
-	// GASÀÚÃ¼¿¡¼­ Á¦°øÇÏ´Â ¸ùÅ¸ÁÖ ±â´É
-	// À§ÀÇ ÁÖ¼®Ã³¸®µÈ ÄÚµå¿Í Â÷ÀÌÁ¡Àº GAS¸¦ ÅëÇØ°¡¼­ Å¬¶ó¿¡¼­ ºÎ¸£¸é ¼­¹ö·Î RPC ±îÁö º¸³½´Ù.
+	// GASï¿½ï¿½Ã¼ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ö¼ï¿½Ã³ï¿½ï¿½ï¿½ï¿½ ï¿½Úµï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ GASï¿½ï¿½ ï¿½ï¿½ï¿½Ø°ï¿½ï¿½ï¿½ Å¬ï¿½ó¿¡¼ï¿½ ï¿½Î¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ RPC ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½.
 	if (AM_Block && !ReleaseSectionName.IsNone())
 	{
 		MontageJumpToSection(ReleaseSectionName);
 		return;
 	}
 
-	// Á¾·á ¼½¼Ç ¾øÀ¸¸é Áï½Ã Á¾·á
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);
 }
 
@@ -176,6 +206,45 @@ void UGA_PlayerBlock::OnBlockMontageCompleted()
 void UGA_PlayerBlock::OnBlockMontageCancelled()
 {
 	EndAbility(GetCurrentAbilitySpecHandle(),GetCurrentActorInfo(),GetCurrentActivationInfo(),true,true);
+}
+
+void UGA_PlayerBlock::ApplyParryWindow(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
+	if (!Player)
+	{
+		return;
+	}
+
+	// íŒ¨ë§ì„ ì•ˆ ë°°ì› ìœ¼ë©´ ì°½ ìì²´ë¥¼ ì—´ì§€ ì•ŠëŠ”ë‹¤.
+	// ì „ì—ëŠ” ëˆ„êµ¬ë‚˜ ë°©ì–´í•  ë•Œë§ˆë‹¤ íƒœê·¸ê°€ ë¶™ê³  íŒì •ì—ì„œ ê±¸ëŸ¬ëƒˆë‹¤. ì“¸ë°ì—†ëŠ” GE ì˜€ë‹¤.
+	const UGA_WarriorParry* Parry = Player->GetParryPassive();
+	if (!Parry)
+	{
+		return;
+	}
+
+	const TSubclassOf<UGameplayEffect> WindowEffect = Parry->GetWindowEffect();
+	if (!WindowEffect)
+	{
+		return;   // íŒ¨ì‹œë¸Œ ì• ì…‹ì— ì°½ GE ë¥¼ ì•ˆ ë„£ì—ˆë‹¤
+	}
+
+	UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+	if (!ASC)
+	{
+		return;
+	}
+
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(WindowEffect, 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+
+	Spec.Data->SetSetByCallerMagnitude(
+		AbilityTag::TAG_SetByCaller_Duration, Parry->GetWindowDuration());
+	ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 }
 
 void UGA_PlayerBlock::RemoveBlockSlow(const FGameplayAbilityActorInfo* ActorInfo)

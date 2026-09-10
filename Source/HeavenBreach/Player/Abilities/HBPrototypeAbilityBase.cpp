@@ -23,8 +23,8 @@ bool UHBPrototypeAbilityBase::BeginAbilityWithCooldown(
 	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
 	if (!ASC || HBEffects::IsCooldownActive(ASC, CooldownTag)) return false;
 
-	// ½ºÅ³À» ÇÏ³ªÇÏ³ª °íÄ¡Áö ¾Êµµ·Ï ¿©±â¼­ Åë°ú½ÃÅ²´Ù.
-	// CooldownTag °¡ ÀÌ¹Ì ½ºÅ³À» ½Äº°ÇÏ¹Ç·Î ±×´ë·Î SourceTag ·Î ¾´´Ù.
+	// ï¿½ï¿½Å³ï¿½ï¿½ ï¿½Ï³ï¿½ï¿½Ï³ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½Êµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½â¼­ ï¿½ï¿½ï¿½ï¿½ï¿½Å²ï¿½ï¿½.
+	// CooldownTag ï¿½ï¿½ ï¿½Ì¹ï¿½ ï¿½ï¿½Å³ï¿½ï¿½ ï¿½Äºï¿½ï¿½Ï¹Ç·ï¿½ ï¿½×´ï¿½ï¿½ SourceTag ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½.
 	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
 	const float FinalCost = Player ? Player->ModifyManaCost(CooldownTag, ManaCost) : ManaCost;
 
@@ -124,7 +124,9 @@ bool UHBPrototypeAbilityBase::ApplySkillDamage(
 	FHitResult Hit;
 	Hit.Location = Target->GetActorLocation();
 	Hit.ImpactPoint = Hit.Location;
-	IDamageableInterface::Execute_ApplyMeleeHit(Target, Player, Damage, Hit);
+	// ì´ í—¬í¼ë¥¼ ì“°ëŠ” ê±´ ê¶ìˆ˜Â·ë§ˆë²•ì‚¬ ì–´ë¹Œë¦¬í‹°ë¿ì´ë¼ ì›ê±°ë¦¬ë¡œ ê³ ì •í•œë‹¤.
+	// ê·¼ì ‘ ì§ì—…ì´ ì´ í—¬í¼ë¥¼ ì“°ê²Œ ë˜ë©´ Source ë¥¼ íŒŒë¼ë¯¸í„°ë¡œ ë°›ì•„ì•¼ í•œë‹¤.
+	IDamageableInterface::Execute_ApplyMeleeHit(Target, Player, Damage, Hit, EHBDamageSource::Ranged);
 	const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 	const bool bKilled = TargetASC && TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
 	Player->NotifyDamageDealt(Target, Damage, bKilled);
