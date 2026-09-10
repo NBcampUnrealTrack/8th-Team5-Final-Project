@@ -69,7 +69,7 @@ protected:
 		Category = "Lobby|Start")
 	bool bStartConfirmed = false;
 
-	/** Matches UHBJobData::JobId (e.g. "Warrior", "Mage", "Archer"). NAME_None means not chosen yet. */
+	/** Matches UHBJobData::JobId (e.g. "Warrior", "Mage", "Archer"). Defaults to Warrior until Mage/Archer are ready to play. */
 	UPROPERTY(
 		ReplicatedUsing = OnRep_SelectedJobId,
 		BlueprintReadOnly,

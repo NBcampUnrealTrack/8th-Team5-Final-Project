@@ -9,6 +9,9 @@ AHBLobbyPlayerState::AHBLobbyPlayerState()
 {
 	bIsReady = false;
 	bStartConfirmed = false;
+
+	// Mage/Archer are not playable yet, so every player starts on Warrior.
+	SelectedJobId = TEXT("Warrior");
 }
 
 void AHBLobbyPlayerState::SetReady(bool bNewReady)

@@ -13,6 +13,7 @@
  */
 
 class UButton;
+class UTextBlock;
 class AHBLobbyPlayerState;
 
 UCLASS()
@@ -39,6 +40,10 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 	UButton* BackButton;
 
+	/** "현재 직업: OOO" 표시. 이 화면이 열려있을 때만 보이므로 로비 HUD가 아니라 이 위젯에 배치. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* CurrentJobText;
+
 	UFUNCTION()
 	void OnWarriorClicked();
 
@@ -54,7 +59,7 @@ protected:
 	UFUNCTION()
 	void OnBackClicked();
 
-	/** Fired when the Back button is pressed, so the owning widget (e.g. the lobby HUD) can switch menus. */
+	/** Optional Blueprint hook fired after Back already switched the lobby HUD back to the Lobby menu in C++ (e.g. for a transition animation). */
 	UFUNCTION(BlueprintImplementableEvent, Category = "CharacterSelection")
 	void OnBackRequested();
 
@@ -67,6 +72,7 @@ private:
 	void UpdateButtonStyles();
 	void ApplySelectedStyle(UButton* Button, const FButtonStyle& DefaultStyle) const;
 	UButton* GetButtonForJob(FName JobId) const;
+	FText GetJobDisplayName(FName JobId) const;
 
 	UFUNCTION()
 	void HandleSelectedJobChanged(FName NewSelectedJobId);
