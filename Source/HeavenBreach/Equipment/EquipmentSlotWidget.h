@@ -34,6 +34,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Slot Style")
 	FVector2D EmptyIconScale = FVector2D(0.8f, 0.8f);
 
+	// 인벤토리 그리드의 CellSize와 반드시 같은 값으로 맞춰야 한다. 장비창에서
+	// 드래그를 시작할 때 아이템의 실제 그리드 칸 크기(가로/세로 칸 수 × CellSize)로
+	// 드래그 비주얼을 만들기 위해 필요하다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment")
+	float CellSize = 70.0f;
+
 	UPROPERTY()
 	TObjectPtr<UEquipmentComponent> BoundEquipment;
 

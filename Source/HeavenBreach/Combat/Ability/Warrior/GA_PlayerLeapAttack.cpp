@@ -1,0 +1,238 @@
+﻿// Fill out your copyright notice in the Description page of Project Settings.
+
+
+#include "Combat/Ability/Warrior/GA_PlayerLeapAttack.h"
+
+#include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
+#include "Animation/AnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "TimerManager.h"
+#include "Core/Tag/Event/HB_EventTag.h"
+
+UGA_PlayerLeapAttack::UGA_PlayerLeapAttack()
+{
+	// 공격속도로 몽타주를 빠르게 하면 체공 시간과 애니가 어긋난다.
+	// 도약은 애니가 아니라 물리가 시간을 정하므로 배속을 걸면 안 된다.
+	bUseAttackSpeed = false;
+}
+
+void UGA_PlayerLeapAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+{
+	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
+	// 베이스가 비용 부족이나 몽타주 없음으로 이미 끝냈으면 아무것도 걸지 않는다.
+	if (!IsActive())
+	{
+		return;
+	}
+
+	bLaunched = false;
+
+	// 발사 이벤트 태그 데리게이트 대기
+	UAbilityTask_WaitGameplayEvent* WaitLaunch = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, EventTag::TAG_Event_Leap_Launch, nullptr, false, false);
+	if (WaitLaunch)
+	{
+		WaitLaunch->EventReceived.AddDynamic(this, &UGA_PlayerLeapAttack::OnLaunchEventReceived);
+		WaitLaunch->ReadyForActivation();
+	}
+	// 땅에 착륙 이벤트 데리게이트 등록
+	if (ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Char->LandedDelegate.AddDynamic(this, &UGA_PlayerLeapAttack::OnCharacterLanded);
+	}
+}
+
+void UGA_PlayerLeapAttack::OnLaunchEventReceived(FGameplayEventData Payload)
+{
+	// 해당 판정은 서버만 담당한다.
+	if (!ShouldSimulateLeap())
+	{
+		return;
+	}
+
+	ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Char)
+	{
+		return;
+	}
+	UCharacterMovementComponent* Movement = Char->GetCharacterMovement();
+	if (!Movement)
+	{
+		return;
+	}
+
+	// 증강 Reach 는 거리를 늘린다. 속도는 궤적 계산이 알아서 같이 올린다.
+	float FinalDistance = LeapDistance;
+	if (ReachAugmentTag.IsValid())
+	{
+		FinalDistance = LeapDistance * GetAugmentValue(ReachAugmentTag);
+	}
+	if (FinalDistance <= 0.f)
+	{
+		return;
+	}
+
+	// 시점의 수평 성분만 쓴다. 하늘을 보고 눌러도 앞으로 뛰게 한다.
+	FVector Forward = Char->GetActorForwardVector();
+	if (Char->GetController())
+	{
+		Forward = Char->GetControlRotation().Vector();
+	}
+	Forward.Z = 0.f;
+	if (!Forward.Normalize())
+	{
+		return;
+	}
+
+	// 빠르게 보이기 위해 중력을 먼저 바꾼다. 궤적 계산이 이 중력을 전제로 해야 착지점이 맞는다.
+	SavedGravityScale = Movement->GravityScale;
+	bGravityOverridden = true;
+	Movement->GravityScale = LeapGravityScale;
+
+	const FVector Start = Char->GetActorLocation();
+	const FVector End = Start + Forward * FinalDistance;
+
+	FVector LaunchVelocity = FVector::ZeroVector;
+	const bool bFound = UGameplayStatics::SuggestProjectileVelocity_CustomArc(Char, LaunchVelocity, Start, End, Movement->GetGravityZ(), ArcParam);
+	if (!bFound)
+	{
+		// 너무 가깝거나 물리적으로 불가능한 경우다. 중력을 돌려놓고 도약만 포기한다.
+		UE_LOG(LogTemp, Warning, TEXT("[Leap] %s 도약 궤적 계산 실패"), *GetNameSafe(Char));
+		RestoreGravity();
+		return;
+	}
+
+	bLaunched = true;
+
+	// 두 인자 true = 기존 XY, Z 속도를 무시하고 전부 덮어쓴다.
+	Char->LaunchCharacter(LaunchVelocity, true, true);
+
+	// 구멍에 빠지면 LandedDelegate 가 영영 안 온다. 중력이 3배인 채로 남는 것을 막는다.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(AirTimeTimer, this, &UGA_PlayerLeapAttack::OnAirTimeExpired, MaxAirTime, false);
+	}
+}
+
+void UGA_PlayerLeapAttack::OnCharacterLanded(const FHitResult& Hit)
+{
+	if (!ShouldSimulateLeap())
+	{
+		return;
+	}
+	// 발사 전에 땅에 닿은 경우(공중에서 발동)는 무시한다.
+	if (!bLaunched)
+	{
+		return;
+	}
+	bLaunched = false;
+
+	// 안전장치 해제
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AirTimeTimer);
+	}
+	// 중력 되돌리기
+	RestoreGravity();
+
+	if (LandSectionName.IsNone())
+	{
+		return;
+	}
+	// ?? 몽타주 없는데 어케왓냐;
+	UAnimMontage* PlayingMontage = GetMontageToPlay();
+	if (!PlayingMontage)
+	{
+		return;
+	}
+	ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Char)
+	{
+		return;
+	}
+	USkeletalMeshComponent* Mesh = Char->GetMesh();
+	if (!Mesh)
+	{
+		return;
+	}
+	UAnimInstance* Anim = Mesh->GetAnimInstance();
+	if (!Anim)
+	{
+		return;
+	}
+
+	// 판정은 이섹션에 붙은 ANS가 한다.
+	Anim->Montage_JumpToSection(LandSectionName, PlayingMontage);
+}
+
+void UGA_PlayerLeapAttack::OnAirTimeExpired()
+{
+	if (!bLaunched)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Leap] %s 착지하지 못해 강제 종료한다."),*GetNameSafe(GetAvatarActorFromActorInfo()));
+
+	bLaunched = false;
+	RestoreGravity();
+	CancelAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true);
+}
+
+void UGA_PlayerLeapAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AirTimeTimer);
+	}
+
+	// 취소나 사망으로 끝나도 중력이 남으면 캐릭터가 영구히 무거워진다.
+	RestoreGravity();
+	bLaunched = false;
+
+	if (ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Char->LandedDelegate.RemoveDynamic(this, &UGA_PlayerLeapAttack::OnCharacterLanded);
+	}
+
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+void UGA_PlayerLeapAttack::RestoreGravity()
+{
+	if (!bGravityOverridden)
+	{
+		return;
+	}
+	bGravityOverridden = false;
+
+	ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Char)
+	{
+		return;
+	}
+	UCharacterMovementComponent* Movement = Char->GetCharacterMovement();
+	if (!Movement)
+	{
+		return;
+	}
+	Movement->GravityScale = SavedGravityScale;
+}
+
+bool UGA_PlayerLeapAttack::ShouldSimulateLeap() const
+{
+	const ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Char)
+	{
+		return false;
+	}
+	if (Char->HasAuthority())
+	{
+		return true;
+	}
+	// 시뮬레이션 프록시는 CharacterMovement 복제로 따라온다. 직접 튀면 이중 적용이다.
+	return Char->IsLocallyControlled();
+}

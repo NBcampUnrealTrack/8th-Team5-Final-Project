@@ -1,4 +1,4 @@
-#include "Player/Warrior/Effects/HBWarriorGameplayEffects.h"
+#include "Combat/Effect/HBGameplayEffects.h"
 
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Core/Tag/Warrior/HB_WarriorTag.h"

@@ -84,7 +84,9 @@ void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		}
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[Attack] 어빌리티 발동"));
+	UE_LOG(LogTemp, Warning, TEXT("[Attack] Activate  Auth=%d  Local=%d"),
+		ActorInfo->IsNetAuthority() ? 1 : 0,
+		ActorInfo->IsLocallyControlled() ? 1 : 0);
 }
 
 void UGA_PlayerAttackRE::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)

@@ -4,74 +4,50 @@
 
 namespace
 {
-	TArray<FHBJobSkillData> BuildLegacyCatalog(
-		const TArray<TSubclassOf<UGameplayAbility>>& AbilityClasses)
+		// 직업의 스킬데이터 안에서 스킬의 id 찾기
+	const FHBJobSkillData* FindSkillById(const TArray<FHBJobSkillData>& Skills, const FName SkillId)
 	{
-		TArray<FHBJobSkillData> Result;
-		for (const TSubclassOf<UGameplayAbility>& AbilityClass : AbilityClasses)
+		// 빈 슬롯(E 미지정등) 조회를 막는다.
+		if (SkillId.IsNone())
 		{
-			if (!AbilityClass) continue;
-			FHBJobSkillData Skill;
-			Skill.SkillId = AbilityClass->GetFName();
-			Skill.DisplayName = FText::FromString(AbilityClass->GetName());
-			Skill.AbilityClass = AbilityClass;
-			Result.Add(MoveTemp(Skill));
+			return nullptr;
 		}
-		return Result;
-	}
 
-	const FHBJobSkillData* FindSkill(const TArray<FHBJobSkillData>& Skills, const FName SkillId)
-	{
-		return Skills.FindByPredicate([SkillId](const FHBJobSkillData& Skill)
+		for (const FHBJobSkillData& Skill : Skills)
 		{
-			return Skill.SkillId == SkillId;
-		});
+			// 동일한 스킬 id발견시 반환
+			if (Skill.SkillId == SkillId)
+			{
+				return &Skill;
+			}
+		}
+		return nullptr;
 	}
-}
-
-TArray<FHBJobSkillData> UHBJobData::GetBasicSkillCatalog() const
-{
-	return BasicSkills.IsEmpty() ? BuildLegacyCatalog(BasicAbilities) : BasicSkills;
-}
-
-TArray<FHBJobSkillData> UHBJobData::GetActiveSkillCatalog() const
-{
-	return ActiveSkills.IsEmpty() ? BuildLegacyCatalog(ActiveAbilities) : ActiveSkills;
-}
-
-TArray<FHBJobSkillData> UHBJobData::GetPassiveSkillCatalog() const
-{
-	return PassiveSkills.IsEmpty() ? BuildLegacyCatalog(PassiveAbilities) : PassiveSkills;
 }
 
 const FHBJobSkillData* UHBJobData::FindActiveSkill(const FName SkillId) const
 {
-	if (!ActiveSkills.IsEmpty()) return FindSkill(ActiveSkills, SkillId);
-	for (const TSubclassOf<UGameplayAbility>& AbilityClass : ActiveAbilities)
-	{
-		if (AbilityClass && AbilityClass->GetFName() == SkillId)
-		{
-			static thread_local FHBJobSkillData LegacySkill;
-			LegacySkill.SkillId = SkillId;
-			LegacySkill.AbilityClass = AbilityClass;
-			return &LegacySkill;
-		}
-	}
-	return nullptr;
+	return FindSkillById(ActiveSkills, SkillId);
 }
 
 const FHBJobSkillData* UHBJobData::FindPassiveSkill(const FName SkillId) const
 {
-	if (!PassiveSkills.IsEmpty()) return FindSkill(PassiveSkills, SkillId);
-	for (const TSubclassOf<UGameplayAbility>& AbilityClass : PassiveAbilities)
+	return FindSkillById(PassiveSkills, SkillId);
+}
+
+const FHBJobSkillData* UHBJobData::FindSkillAnywhere(FName SkillId) const
+{
+	if (const FHBJobSkillData* Skill = FindSkillById(ActiveSkills, SkillId))
 	{
-		if (AbilityClass && AbilityClass->GetFName() == SkillId)
-		{
-			static thread_local FHBJobSkillData LegacySkill;
-			LegacySkill.SkillId = SkillId;
-			LegacySkill.AbilityClass = AbilityClass;
-			return &LegacySkill;
-		}
+		return Skill;
+	}
+	if (const FHBJobSkillData* Skill = FindSkillById(PassiveSkills, SkillId))
+	{
+		return Skill;
+	}
+	if (UltimateSkill.SkillId == SkillId)
+	{
+		return &UltimateSkill;
 	}
 	return nullptr;
 }

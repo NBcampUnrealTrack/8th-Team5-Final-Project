@@ -29,6 +29,13 @@ namespace HBOnline
 	const TCHAR* MatchServerCommandLineKey = TEXT("HBMatchServer=");
 	const TCHAR* LocalMatchServerAddress = TEXT("127.0.0.1:17777");
 	constexpr float MatchServerPollIntervalSeconds = 0.25f;
+
+	bool IsHeavenBreachSession(const FOnlineSessionSettings& Settings)
+	{
+		FString AdvertisedProject;
+		return Settings.Get(ProjectKey, AdvertisedProject) &&
+			AdvertisedProject.Equals(ProjectValue, ESearchCase::CaseSensitive);
+	}
 }
 
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -293,8 +300,8 @@ bool UHBOnlineSessionSubsystem::FindLobbies()
 	);
 	
 	
-	// AppID 480 is shared by many test projects, so require the project marker
-	// advertised by AHBGameSession before attempting a join.
+	// Keep the search hint, but validate returned metadata locally as Steam's
+	// dedicated-server search does not reliably apply custom query settings.
 	LobbySearch->QuerySettings.Set(
 		HBOnline::ProjectKey,
 		FString(HBOnline::ProjectValue),
@@ -358,6 +365,13 @@ bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 			TEXT("Join failed: Invalid result index %d"),
 			InSearchResultIndex
 			));
+	}
+
+	if (!HBOnline::IsHeavenBreachSession(
+		LobbySearch->SearchResults[InSearchResultIndex].Session.SessionSettings))
+	{
+		return FailLobbyOperation(
+			TEXT("Join rejected: Missing or mismatched HB_PROJECT marker"));
 	}
 
 	if (SessionInterface->GetNamedSession(HBOnline::DedicatedServerSessionName) != nullptr)
@@ -973,6 +987,17 @@ void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 		return;
 	}
 
+	const int32 UnfilteredResultCount = LobbySearch->SearchResults.Num();
+	LobbySearch->SearchResults.RemoveAll(
+		[](const FOnlineSessionSearchResult& SearchResult)
+		{
+			return !HBOnline::IsHeavenBreachSession(SearchResult.Session.SessionSettings);
+		});
+	UE_LOG(LogTemp, Log,
+		TEXT("Online | Lobby | Project filter | Total: %d | HeavenBreach: %d | Excluded: %d"),
+		UnfilteredResultCount, LobbySearch->SearchResults.Num(),
+		UnfilteredResultCount - LobbySearch->SearchResults.Num());
+
 	UE_LOG(
 		LogTemp,
 		Warning,
@@ -1129,6 +1154,14 @@ bool UHBOnlineSessionSubsystem::TravelToJoinedDedicatedServer(
 	}
 
 	FString ConnectString;
+	const FNamedOnlineSession* JoinedSession = SessionInterface->GetNamedSession(InSessionName);
+	if (JoinedSession == nullptr ||
+		!HBOnline::IsHeavenBreachSession(JoinedSession->SessionSettings))
+	{
+		return FailLobbyOperation(
+			TEXT("Travel rejected: Missing or mismatched HB_PROJECT marker"));
+	}
+
 	if (!SessionInterface->GetResolvedConnectString(
 		InSessionName,
 		ConnectString) || ConnectString.IsEmpty())

@@ -2,8 +2,8 @@
 
 #include "AbilitySystemComponent.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
-#include "Player/Warrior/Effects/HBWarriorEffectLibrary.h"
-#include "Player/Warrior/Effects/HBWarriorGameplayEffects.h"
+#include "Combat/Effect/HBEffectLibrary.h"
+#include "Combat/Effect/HBGameplayEffects.h"
 
 UGA_WarriorStrongBody::UGA_WarriorStrongBody()
 {
@@ -23,7 +23,7 @@ void UGA_WarriorStrongBody::ActivateAbility(const FGameplayAbilitySpecHandle Han
 		return;
 	}
 
-	PassiveEffectHandle = HBWarriorEffects::ApplyEffect(
+	PassiveEffectHandle = HBEffects::ApplyEffect(
 		ASC, UGE_WarriorStrongBodyPassive::StaticClass());
 
 	// 상시 패시브이므로 종료하지 않고 활성 상태를 유지합니다.

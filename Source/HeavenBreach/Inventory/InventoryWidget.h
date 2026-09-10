@@ -14,9 +14,11 @@ class UItemSplitPopupWidget;
 class UItemInfoPopupWidget;
 class UInventoryCellWidget;
 class UInventoryItemWidget;
+class UInventoryDragDropOperation;
 class UShopComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInventoryItemActivated, FGuid, InstanceId);
 
 /**
  * 인벤토리 화면.
@@ -123,6 +125,9 @@ protected:
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnScrollChanged OnScrollChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "Inventory")
+	FOnInventoryItemActivated OnItemActivated;
+
 private:
 	void BuildBackground();
 	void BuildItems();
@@ -136,6 +141,7 @@ private:
 	void SetHoveredCell(FIntPoint InCell);
 	void ClearHoveredCell();
 	bool UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation);
+	bool UpdatePlacementPreviewAt(const FVector2D& InScreenSpacePosition, UDragDropOperation* InOperation);
 	void ClearPlacementPreview();
 
 	int32 GetVisibleRowCount() const;
@@ -181,8 +187,6 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UItemInfoPopupWidget> ActiveInfoPopup;
-	FSlateBrush DragVisualBrush;
-	TSharedPtr<class SWidget> DragVisualRoot;
 	FVector2D PressedScreenPosition = FVector2D::ZeroVector;
 
 	UPROPERTY()
@@ -196,4 +200,7 @@ private:
 
 	FIntPoint HoveredCell = FIntPoint(-1, -1);
 	TObjectPtr<UShopComponent> LinkedShop;
+
+	// 드래그 중인 Operation을 잡아둬서 T키 입력이 들어왔을 때 바로 회전시킬 수 있게 한다.
+	TWeakObjectPtr<UInventoryDragDropOperation> ActiveDragOperation;
 };

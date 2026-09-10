@@ -15,6 +15,7 @@
 #include "Item/Item.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Item/UItemSplitPopupWidget.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Item/ItemInfoPopupWidget.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Player/HBPlayerController.h"
@@ -139,18 +140,9 @@ void UInventoryWidget::PrepareForHide()
 
 	if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
 	{
+		// CancelDragDrop()이 Operation의 OnDragCancelled를 호출해서 드래그 아이콘도 같이 정리된다.
 		FSlateApplication::Get().CancelDragDrop();
 	}
-
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
-
 	if (ActiveContextMenu)
 	{
 		ActiveContextMenu->RemoveFromParent();
@@ -181,16 +173,8 @@ void UInventoryWidget::NativeDestruct()
 	{
 		LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
 	}
-	// 드래그 중에 인벤토리 창이 닫히면(Tab 키 등) NativeOnDrop/NativeOnDragCancelled가 호출되지
-	// 않아 뷰포트에 직접 올려둔 드래그 아이콘(DragVisualRoot)이 화면에 계속 남는 버그 수정.
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
+	// 드래그 중에 인벤토리 창이 닫히면(Tab 키 등) CancelDragDrop()이 Operation의
+	// OnDragCancelled를 호출해서 뷰포트에 올려둔 드래그 아이콘도 같이 정리된다.
 	if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
 	{
 		FSlateApplication::Get().CancelDragDrop();
@@ -224,6 +208,30 @@ FReply UInventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 		if (HandleQuickSlotRegister(SlotIndex))
 		{
 			return FReply::Handled();
+		}
+	}
+
+	// R키는 방어 액션과 겹쳐서 임시로 T키를 회전 단축키로 사용한다.
+	// ActiveDragOperation은 인벤토리 칸에서 드래그를 "시작"한 경우에만 채워진다.
+	// 장비 슬롯(UEquipmentSlotWidget)에서 드래그를 시작하면 이게 비어있어서
+	// T키가 안 먹는 버그가 있었다. 그래서 어디서 드래그가 시작됐든 상관없이
+	// 현재 진행 중인 드래그 오퍼레이션을 직접 가져오는 방식으로 바꾼다.
+	if (InKeyEvent.GetKey() == EKeys::T)
+	{
+		if (UInventoryDragDropOperation* DragOperation =
+			Cast<UInventoryDragDropOperation>(UWidgetBlueprintLibrary::GetDragDroppingContent()))
+		{
+			// 장비 슬롯에서 드래그해서 빼는 중에는 회전을 지원하지 않는다.
+			// EquipmentComponent::EquipFromInventory에서 장착하는 순간 항상
+			// bRotated = false로 초기화하기 때문에, 굳이 빼는 도중에 돌릴 수 있게
+			// 열어두면 오히려 혼란만 준다. 인벤토리 칸에서 시작된 드래그에서만
+			// T 회전을 허용한다.
+			if (DragOperation->SourceEquipment == nullptr)
+			{
+				DragOperation->SetRotated(!DragOperation->bRotated);
+				UpdatePlacementPreviewAt(FSlateApplication::Get().GetCursorPos(), DragOperation);
+				return FReply::Handled();
+			}
 		}
 	}
 
@@ -401,15 +409,31 @@ bool UInventoryWidget::ScreenToCell(const FVector2D& InScreenPosition, FIntPoint
 	{
 		return false;
 	}
+
 	const FGeometry& CanvasGeometry = GridCanvas->GetCachedGeometry();
 	const FVector2D LocalPosition = CanvasGeometry.AbsoluteToLocal(InScreenPosition);
+
+	if (LocalPosition.X < 0.0f || LocalPosition.Y < 0.0f)
+	{
+		return false;
+	}
+
+	const int32 LocalRow = FMath::FloorToInt(LocalPosition.Y / CellSize);
+
+	if (LocalRow >= GetVisibleRowCount())
+	{
+		return false;
+	}
+
 	const FIntPoint Cell(
 		FMath::FloorToInt(LocalPosition.X / CellSize),
-		FMath::FloorToInt(LocalPosition.Y / CellSize) + ScrollOffsetRow);
+		LocalRow + ScrollOffsetRow);
+
 	if (!BoundInventory->IsValidCoord(Cell))
 	{
 		return false;
 	}
+
 	OutCell = Cell;
 	return true;
 }
@@ -495,6 +519,11 @@ void UInventoryWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
 
 bool UInventoryWidget::UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
+	return UpdatePlacementPreviewAt(InDragDropEvent.GetScreenSpacePosition(), InOperation);
+}
+
+bool UInventoryWidget::UpdatePlacementPreviewAt(const FVector2D& InScreenSpacePosition, UDragDropOperation* InOperation)
+{
 	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
 	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
 	{
@@ -533,6 +562,9 @@ bool UInventoryWidget::UpdatePlacementPreview(const FDragDropEvent& InDragDropEv
 		return false;
 	}
 
+	// 드래그 중 T키로 토글한 회전 상태를 미리보기 크기/충돌 계산에 반영한다.
+	DraggedItem.bRotated = Operation->bRotated;
+
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(DraggedItem.ItemRow, ViewData))
 	{
@@ -541,7 +573,7 @@ bool UInventoryWidget::UpdatePlacementPreview(const FDragDropEvent& InDragDropEv
 	}
 
 	FVector2D LocalPosition;
-	if (!ScreenToLocal(InDragDropEvent.GetScreenSpacePosition(), LocalPosition))
+	if (!ScreenToLocal(InScreenSpacePosition, LocalPosition))
 	{
 		ClearPlacementPreview();
 		return false;
@@ -649,14 +681,8 @@ int32 UInventoryWidget::GetMaxScrollRow() const
 
 bool UInventoryWidget::NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
-	if (DragVisualRoot.IsValid())
-	{
-		if (UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation))
-		{
-			const FVector2D MousePos = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
-			DragVisualRoot->SetRenderTransform(FSlateRenderTransform(MousePos - Operation->GrabPixelOffset));
-		}
-	}
+	// 드래그 아이콘 위치 갱신은 Operation의 OnDragged 이벤트가 매 프레임 알아서 처리한다
+	// (패널 안/밖 상관없이 계속 따라다닌다).
 	return UpdatePlacementPreview(InDragDropEvent, InOperation)
 		|| Super::NativeOnDragOver(InGeometry, InDragDropEvent, InOperation);
 }
@@ -669,14 +695,8 @@ void UInventoryWidget::NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, 
 void UInventoryWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
 	ClearPlacementPreview();
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
+	ActiveDragOperation.Reset();
+	// 드래그 아이콘 정리는 Operation의 OnDragCancelled 이벤트가 알아서 정확히 한 번 처리한다.
 	Super::NativeOnDragCancelled(InDragDropEvent, InOperation);
 }
 
@@ -693,6 +713,13 @@ bool UInventoryWidget::HandleRightClick(FIntPoint InCell)
 		return false;
 	}
 	const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+
+	if (OnItemActivated.IsBound())
+	{
+		OnItemActivated.Broadcast(Item.InstanceId);
+		return true;
+	}
+
 	if (LinkedShop != nullptr)
 	{
 		return LinkedShop->AddToSellBasket(Item.InstanceId);
@@ -1098,48 +1125,22 @@ void UInventoryWidget::NativeOnDragDetected(const FGeometry& InGeometry, const F
 	const FVector2D VisualSize(ItemSize.X * CellSize, ItemSize.Y * CellSize);
 	const FVector2D ItemOrigin(Entry.Position.X * CellSize, (Entry.Position.Y - ScrollOffsetRow) * CellSize);
 	const FVector2D PixelOffset = PressedLocalPosition - ItemOrigin;
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
-	if (UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath))
-	{
-		DragVisualBrush.SetResourceObject(IconTexture);
-		DragVisualBrush.ImageSize = VisualSize;
-		DragVisualBrush.DrawAs = ESlateBrushDrawType::Image;
-	}
-	TSharedRef<SBox> NewDragBox =
-		SNew(SBox)
-		.Visibility(EVisibility::HitTestInvisible)
-		.HAlign(HAlign_Left)
-		.VAlign(VAlign_Top)
-		.WidthOverride(VisualSize.X)
-		.HeightOverride(VisualSize.Y)
-		[
-			SNew(SImage)
-				.Visibility(EVisibility::HitTestInvisible)
-				.Image(&DragVisualBrush)
-				.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f))
-		];
-	DragVisualRoot = NewDragBox;
-	// 뷰포트에 올리기 전에 이미 마우스 위치로 배치해서, 첫 프레임에 좌측상단에
-	// 나타났다가 점프하는 현상 자체를 없앤다.
-	const FVector2D MousePos = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
-	NewDragBox->SetRenderTransform(FSlateRenderTransform(MousePos - PixelOffset));
-	if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-	{
-		GameViewport->AddViewportWidgetContent(NewDragBox, 1000);
-	}
+	UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
+
 	UInventoryDragDropOperation* Operation = NewObject<UInventoryDragDropOperation>(this);
 	Operation->InstanceId = Entry.Item.InstanceId;
 	Operation->GrabOffset = PressedCell - Entry.Position;
 	Operation->GrabPixelOffset = PixelOffset;
 	Operation->SourceInventory = BoundInventory;
 	Operation->bSplitRequested = bPressedWithCtrl && Entry.Item.StackCount > 1;
+	Operation->bRotated = Entry.Item.bRotated;
+
+	// 드래그 아이콘은 이 Operation이 직접 뷰포트에 붙여서 스스로 관리한다.
+	// (UInventoryWidget 인스턴스가 아니라 Operation이 소유하므로,
+	//  인벤토리 칸/패널 밖으로 나가도, 패널을 넘나들어도 계속 잘 따라다니고
+	//  드롭/취소 시 정확히 한 번 정리된다.)
+	Operation->CreateVisual(this, IconTexture, VisualSize);
+	ActiveDragOperation = Operation;
 	OutOperation = Operation;
 }
 
@@ -1164,19 +1165,13 @@ void UInventoryWidget::RefocusAfterDrop()
 bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
 	ClearPlacementPreview();
-	if (DragVisualRoot.IsValid())
-	{
-		if (UGameViewportClient* GameViewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-		{
-			GameViewport->RemoveViewportWidgetContent(DragVisualRoot.ToSharedRef());
-		}
-		DragVisualRoot.Reset();
-	}
+	ActiveDragOperation.Reset();
+	// 드래그 아이콘 정리는 Operation의 OnDrop 이벤트가 알아서 정확히 한 번 처리한다.
 	UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation);
 	if (Operation == nullptr || BoundInventory == nullptr || CellSize <= 0.0f)
 	{
 		return false;
-	}
+	}	
 	FVector2D LocalPosition;
 	if (!ScreenToLocal(InDragDropEvent.GetScreenSpacePosition(), LocalPosition))
 	{
@@ -1233,22 +1228,22 @@ bool UInventoryWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDrop
 	{
 		if (BoundInventory == RequestSender)
 		{
-			RequestSender->Server_MoveItem(Operation->InstanceId, TargetPosition);
+			RequestSender->Server_MoveItem(Operation->InstanceId, TargetPosition, Operation->bRotated);
 		}
 		else
 		{
-			RequestSender->Server_MoveItemIn(BoundInventory, Operation->InstanceId, TargetPosition);
+			RequestSender->Server_MoveItemIn(BoundInventory, Operation->InstanceId, TargetPosition, Operation->bRotated);
 		}
 		RefocusAfterDrop();
 		return true;
 	}
 	if (Operation->SourceInventory == RequestSender)
 	{
-		RequestSender->Server_TransferItem(BoundInventory, Operation->InstanceId, TargetPosition);
+		RequestSender->Server_TransferItem(BoundInventory, Operation->InstanceId, TargetPosition, Operation->bRotated);
 	}
 	else
 	{
-		RequestSender->Server_TransferItemFrom(Operation->SourceInventory, Operation->InstanceId, TargetPosition);
+		RequestSender->Server_TransferItemFrom(Operation->SourceInventory, Operation->InstanceId, TargetPosition, Operation->bRotated);
 	}
 	RefocusAfterDrop();
 	return true;

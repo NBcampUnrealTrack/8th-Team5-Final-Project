@@ -34,6 +34,11 @@ void UHBLobbyHUDWidget::NativeConstruct()
 		Button_Shop->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleShopClicked);
 	}
 
+	if (Button_Craft)
+	{
+		CraftButtonStyle = Button_Craft->GetStyle();
+		Button_Craft->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleCraftClicked);
+	}
 	SelectMenu(EHBLobbyHUDMenu::Lobby);
 }
 
@@ -59,6 +64,10 @@ void UHBLobbyHUDWidget::NativeDestruct()
 		Button_Shop->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleShopClicked);
 	}
 
+	if (Button_Craft)
+	{
+		Button_Craft->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleCraftClicked);
+	}
 	Super::NativeDestruct();
 }
 
@@ -80,6 +89,11 @@ void UHBLobbyHUDWidget::HandleStorageClicked()
 void UHBLobbyHUDWidget::HandleShopClicked()
 {
 	SelectMenu(EHBLobbyHUDMenu::Shop);
+}
+
+void UHBLobbyHUDWidget::HandleCraftClicked()
+{
+	SelectMenu(EHBLobbyHUDMenu::Craft);
 }
 
 void UHBLobbyHUDWidget::SelectMenu(EHBLobbyHUDMenu NewMenu)
@@ -120,6 +134,11 @@ void UHBLobbyHUDWidget::UpdateButtonStyles()
 		Button_Shop->SetStyle(ShopButtonStyle);
 	}
 
+	if (Button_Craft)
+	{
+		Button_Craft->SetStyle(CraftButtonStyle);
+	}
+
 	switch (SelectedMenu)
 	{
 	case EHBLobbyHUDMenu::Lobby:
@@ -133,6 +152,9 @@ void UHBLobbyHUDWidget::UpdateButtonStyles()
 		break;
 	case EHBLobbyHUDMenu::Shop:
 		ApplySelectedStyle(Button_Shop, ShopButtonStyle);
+		break;
+	case EHBLobbyHUDMenu::Craft:
+		ApplySelectedStyle(Button_Craft, CraftButtonStyle);
 		break;
 	default:
 		break;
@@ -163,6 +185,8 @@ UWidget* UHBLobbyHUDWidget::GetContentWidget(EHBLobbyHUDMenu Menu) const
 		return Widget_Storage;
 	case EHBLobbyHUDMenu::Shop:
 		return Widget_Shop;
+	case EHBLobbyHUDMenu::Craft:
+		return Widget_Craft;
 	default:
 		return nullptr;
 	}
