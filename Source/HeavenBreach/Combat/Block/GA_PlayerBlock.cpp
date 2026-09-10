@@ -11,6 +11,8 @@
 #include "Animation/AnimMontage.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
+#include "Player/HBPlayerCharacter.h"
+#include "EquipmentComponent.h"
 
 UGA_PlayerBlock::UGA_PlayerBlock()
 {
@@ -39,10 +41,25 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		return;
 	}
 
-	// 어빌리티 사용 판정
-	if (!CommitAbility(Handle,ActorInfo,ActivationInfo))
+	// 장착된 방패가 파손 상태면 막기 자체를 시작하지 않는다(마나도 소모 안 함).
+	// 방패가 없는 맨손 막기는 이 체크를 건너뛰고 계속 가능해야 한다.
+	if (const AHBPlayerCharacter* Blocker = ActorInfo ? Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
 	{
-		EndAbility(Handle,ActorInfo,ActivationInfo,true,false);
+		if (const UEquipmentComponent* Equipment = Blocker->GetEquipment())
+		{
+			if (Equipment->IsSlotOccupied(EEquipSlotType::SecondaryEquip)
+				&& Equipment->IsEquippedItemBroken(EEquipSlotType::SecondaryEquip))
+			{
+				EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+				return;
+			}
+		}
+	}
+
+	// 어빌리티 사용 판정
+	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
 

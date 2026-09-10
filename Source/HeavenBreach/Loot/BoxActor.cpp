@@ -257,6 +257,12 @@ void ABoxActor::GenerateLoot()
 		Item.InstanceId = FGuid::NewGuid();
 		Item.StackCount = 1;
 
+		FItemViewData ViewData;
+		if (ResolveItemViewData(Item.ItemRow, ViewData) && ViewData.IsEquippable())
+		{
+			Item.CurrentDurability = GetMaxDurabilityForGrade(ViewData.Grade);
+		}
+
 		int32 Remainder = 0;
 		BoxInventory->TryAddItem(Item, Remainder);
 		return Remainder == 0;
