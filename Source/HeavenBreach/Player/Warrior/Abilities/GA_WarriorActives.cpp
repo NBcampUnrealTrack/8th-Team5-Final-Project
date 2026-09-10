@@ -1,3 +1,16 @@
+// ================ 구시대 스킬 ================
+// 새 스킬(돌격 공격, 강타, 피의 광란 등)로 대체 중인 코드다. 지우지 않는다.
+//
+// 스킬 레벨(0~3) 모델이 증강 태그로 바뀌면서 UpgradeLevel 은 항상 0 이다.
+// 아래 Lv.1~3 분기는 전부 기본값 쪽으로만 간다. 의도된 상태다.
+//
+// 왜 호출을 끊었나: AHB_PlayerState::GetSkillUpgradeLevel 은 폐기 대기 중인
+// 껍데기다. BP 참조가 없다고 확인되어 지우는 순간 여기가 컴파일 에러가 된다.
+// 미리 끊어 두면 그때 이 파일을 다시 열지 않아도 된다.
+//
+// 쳐낼 조건: 새 스킬이 이 다섯을 전부 대체하면 파일째로 지운다.
+// 되살릴 거면 UpgradeLevel 자리에 증강 조회를 넣으면 된다.
+
 #include "Player/Warrior/Abilities/GA_WarriorActives.h"
 
 #include "AbilitySystemComponent.h"
@@ -54,7 +67,8 @@ namespace
 		Hit.Location = Target->GetActorLocation();
 		Hit.ImpactPoint = Hit.Location;
 		Damage = Player->ModifyOutgoingDamage(Target, Damage);
-		IDamageableInterface::Execute_ApplyMeleeHit(Target, Player, Damage, Hit);
+		// 전사 액티브 전용 헬퍼라 근접으로 고정한다.
+		IDamageableInterface::Execute_ApplyMeleeHit(Target, Player, Damage, Hit, EHBDamageSource::Melee);
 		const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 		const bool bKilled = TargetASC && TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
 		Player->NotifyDamageDealt(Target, Damage, bKilled);
@@ -97,7 +111,7 @@ void UGA_WarriorChargeSlash::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
 	if (!Player) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
-	const int32 UpgradeLevel = Player->GetSkillUpgradeLevel(TEXT("Warrior.ChargeSlash"));
+	const int32 UpgradeLevel = 0;   // 레벨 모델 폐기. 파일 맨 위 설명 참조
 	const float UpgradedDamageMultiplier =
 		UpgradeLevel >= 3 ? 1.8f : UpgradeLevel >= 1 ? 1.4f : DamageMultiplier;
 	const float UpgradedDashStrength = UpgradeLevel >= 2 ? DashStrength * 1.2f : DashStrength;
@@ -122,9 +136,7 @@ void UGA_WarriorCombatRoll::ActivateAbility(const FGameplayAbilitySpecHandle Han
 	if (ACharacter* Character = Cast<ACharacter>(ActorInfo->AvatarActor.Get()))
 	{
 		const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(Character);
-		const int32 UpgradeLevel = Player
-			? Player->GetSkillUpgradeLevel(TEXT("Warrior.CombatRoll"))
-			: 0;
+		const int32 UpgradeLevel = 0;   // 레벨 모델 폐기. 파일 맨 위 설명 참조
 		FVector Direction = Character->GetLastMovementInputVector().GetSafeNormal();
 		if (Direction.IsNearlyZero()) Direction = Character->GetActorForwardVector();
 		const float UpgradedRollStrength = UpgradeLevel >= 1 ? RollStrength * 1.2f : RollStrength;
@@ -146,9 +158,7 @@ void UGA_WarriorExecute::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
 	AActor* Target = Player ? FindTarget(Player, Player->GetAttackRange()) : nullptr;
-	const int32 UpgradeLevel = Player
-		? Player->GetSkillUpgradeLevel(TEXT("Warrior.Execute"))
-		: 0;
+	const int32 UpgradeLevel = 0;   // 레벨 모델 폐기. 파일 맨 위 설명 참조
 	const float UpgradedHealthRatio = UpgradeLevel >= 3 ? 0.4f : UpgradeLevel >= 1 ? 0.35f : ExecuteHealthRatio;
 	const float UpgradedDamageMultiplier = UpgradeLevel >= 2 ? 3.f : DamageMultiplier;
 	float Ratio = 1.f;
@@ -174,9 +184,7 @@ void UGA_WarriorChainPull::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	AActor* Avatar = ActorInfo->AvatarActor.Get();
 	const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(Avatar);
-	const int32 UpgradeLevel = Player
-		? Player->GetSkillUpgradeLevel(TEXT("Warrior.ChainPull"))
-		: 0;
+	const int32 UpgradeLevel = 0;   // 레벨 모델 폐기. 파일 맨 위 설명 참조
 	const float UpgradedRange = UpgradeLevel >= 1 ? 900.f : Range;
 	const float UpgradedPullStrength = UpgradeLevel >= 2 ? 1400.f : PullStrength;
 	const float UpgradedCooldown = UpgradeLevel >= 3 ? 8.f : Cooldown;
@@ -208,10 +216,7 @@ void UGA_WarriorBloodThirst::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo)) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 	if (ActorInfo->IsNetAuthority())
 	{
-		const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
-		const int32 UpgradeLevel = Player
-			? Player->GetSkillUpgradeLevel(TEXT("Warrior.BloodThirst"))
-			: 0;
+		const int32 UpgradeLevel = 0;   // 레벨 모델 폐기. 파일 맨 위 설명 참조
 		const float UpgradedDuration = UpgradeLevel >= 2 ? 7.f : Duration;
 		const float UpgradedCooldown = UpgradeLevel >= 3 ? 13.f : Cooldown;
 		HBEffects::ApplyTaggedDuration(ASC, UpgradedDuration, WarriorTag::TAG_State_BloodThirst);

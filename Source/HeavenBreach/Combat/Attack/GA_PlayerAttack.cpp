@@ -155,9 +155,8 @@ void UGA_PlayerAttack::ResolveCreatureHit(AActor* Target, const FHitResult& Hit,
 		Damage = AttackerPlayer->ModifyOutgoingDamage(Target, Damage);
 	}
 	
-	IDamageableInterface::Execute_ApplyMeleeHit(Target,AttackerActor,Damage,Hit);
-
-	HitCuePlay::PlayImpact(AttackerActor, Target, Hit, Damage);
+	// 큐는 맞는 쪽이 쏜다. 막기·패링에 따라 소리가 갈리는데 여기서는 그걸 모른다.
+	IDamageableInterface::Execute_ApplyMeleeHit(Target,AttackerActor,Damage,Hit,EHBDamageSource::Melee);
 
 	if (AttackerPlayer)
 	{

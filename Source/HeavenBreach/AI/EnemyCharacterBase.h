@@ -29,7 +29,7 @@ public:
 
 	// ----- IDamageableInterface -----
 	virtual bool CanBeDamaged_Implementation(AActor* InstigatorActor) const override;
-	virtual void ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit) override;
+	virtual void ApplyMeleeHit_Implementation(AActor* InstigatorActor, float RawDamage, const FHitResult& Hit, EHBDamageSource Source) override;
 
 	// ----- GAS -----
 	// 빙의 될 시

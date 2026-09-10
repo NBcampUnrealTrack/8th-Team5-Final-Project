@@ -3,12 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Abilities/GameplayAbility.h"
-#include "GameplayTagContainer.h"
+#include "Combat/Ability/HBPlayerSkillGABase.h"
 #include "HBPlayerActiveGABase.generated.h"
 
-class AHBPlayerCharacter;
-class UAbilitySystemComponent;
 class UAnimMontage;
 class UGameplayEffect;
 
@@ -16,9 +13,12 @@ class UGameplayEffect;
  * 플레이어 액티브 공통 GA
  * 비용,쿨타임, 몽타주 재생, 종료, 증강 까지 한다.
  * 판정은 몽타주의 ANS, 벞 디벞은 GE
+ *
+ * 증강 목록과 출처 태그, 아바타 접근은 부모(UHBPlayerSkillGABase)에 있다.
+ * 패시브와 공유해야 하는 것이라 그리로 올렸다.
  */
 UCLASS()
-class HEAVENBREACH_API UHBPlayerActiveGABase : public UGameplayAbility
+class HEAVENBREACH_API UHBPlayerActiveGABase : public UHBPlayerSkillGABase
 {
 	GENERATED_BODY()
 public:
@@ -43,10 +43,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Skill")
 	float GetBaseBuffDuration() const { return BuffDuration; }
 
-	// 증강 깔때기에 넘길 출처 태그. 캐릭터가 UI가 알아보는데 쓴다.
-	UFUNCTION(BlueprintPure, Category = "Skill")
-	FGameplayTag GetSourceTag() const { return SourceTag; }
-
 	virtual UAnimMontage* GetMontageToPlay() const { return Montage; }
 
 protected:
@@ -55,10 +51,6 @@ protected:
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
 	// ================ 애셋에서 지정 ================
-
-	// 스킬, 증강 조회에 쓰는 출처 태그. 증강 루트를 넣는다. 예) Augment.Warrior.BattleCry
-	UPROPERTY(EditDefaultsOnly, Category = "Skill")
-	FGameplayTag SourceTag;
 
 	// 재생될 몽타주
 	UPROPERTY(EditDefaultsOnly, Category = "Skill")
@@ -97,21 +89,34 @@ protected:
 	float BuffDuration = 0.f;
 
 	// 증강이 있으면 GE 를 하나 더 붙인다. 함성.Damage 같은 4곳이 이 모양이다.
+	//
+	// Augments 배열과 헷갈리지 말 것.
+	//   Augments           이 스킬에 어떤 증강이 있는가 (목록, 설명, 수치)
+	//   AugmentBuffEffects 그중 가진 증강이 있을 때 발동 시 같이 붙일 버프 GE
+	// 하나는 목록이고 하나는 실행이다. 증강 태그로 서로를 가리킨다.
 	UPROPERTY(EditDefaultsOnly, Category = "Skill|Buff")
 	TMap<FGameplayTag, TSubclassOf<UGameplayEffect>> AugmentBuffEffects;
 
-	// 버프 지속시간을 늘리는 증강. 비우면 추가 배율 없음.
+	// ---- 발동 중에만 유지 ----
+
+	// 발동 중에만 걸고 어빌리티가 끝나면 즉시 제거하는 GE.
+	// 스킬 사용 중 이동 감속이 여기 들어간다.
+	// 기본공격(GA_PlayerAttackRE)의 AttackSlowEffect 와 같은 역할이다.
+	//
+	// 작동방식: ActivateAbility 에서 붙이고 EndAbility 에서 뗀다.
+	// 서버에서만 붙이고, 이동속도 어트리뷰트가 복제되면 클라가 따라온다.
+	//
+	// SelfBuffEffect 와 다른 점: 지속시간이 아니라 어빌리티 수명을 따른다.
+	// 비우면 아무것도 걸지 않으므로, 감속이 필요 없는 스킬은 비워두면 된다.
+	// GE 는 Infinite 여야 한다. 지속시간을 주면 어빌리티보다 먼저 풀린다.
+	//
+	// 쳐낼 조건: "발동 중에만" 걸 것이 두 종류 이상 생기면 배열로 바꾼다.
 	UPROPERTY(EditDefaultsOnly, Category = "Skill|Buff")
-	FGameplayTag BuffDurationAugmentTag;
+	TSubclassOf<UGameplayEffect> DuringAbilityEffect;
 
 	// ================ ActorInfo 를 직접 받는 것 ================
 	// 위 오버라이드 넷에서 쓴다. CurrentActorInfo 가 아직 없는 시점이라 인자를 써야 한다.
-
-	// ActorInfo 에서 ASC 를 꺼낸다. 쓰이는 곳이 많아 널 검사를 여기 모았다.
-	UAbilitySystemComponent* GetASC(const FGameplayAbilityActorInfo* ActorInfo) const;
-
-	// 캐릭터에 공격, 방어, 달리기 자원이 GAS 밖에 있어서 캐릭터로 접근해야 한다.
-	AHBPlayerCharacter* GetPlayerFrom(const FGameplayAbilityActorInfo* ActorInfo) const;
+	// GetASC / GetPlayerFrom 은 부모에 있다.
 
 	// 증강의 마나 감소가 반영된 값. CheckCost 와 ApplyCost 가 같은 값을 봐야 한다.
 	float GetFinalManaCostFrom(const FGameplayAbilityActorInfo* ActorInfo) const;
@@ -119,28 +124,22 @@ protected:
 	// 증강의 쿨타임 감소가 반영된 값.
 	float GetFinalCooldownFrom(const FGameplayAbilityActorInfo* ActorInfo) const;
 
-	// 기본 공격은 장착 무기에 따라 출처가 달라지므로 오버라이드한다.
-	virtual FGameplayTag GetSourceTagFrom(const FGameplayAbilityActorInfo* ActorInfo) const;
+	// 증강이 요구하는 추가 코스트 GE 를 붙인다. ApplyCost 가 부른다.
+	void ApplyAdditionalCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const;
 
 	// ================ 발동 중에만 쓰는 것 ================
-	// 파생 클래스와 블루프린트용. ActivateAbility 이후에는 CurrentActorInfo 가 유효하다.
-
-	UFUNCTION(BlueprintPure, Category = "Skill")
-	AHBPlayerCharacter* GetPlayer() const;
-
-	UFUNCTION(BlueprintPure, Category = "Augment")
-	bool HasAugment(FGameplayTag AugmentTag) const;
-
-	// 증강 배율. 배율 미획득이면 1.0
-	// 지속시간, 도약거리, 흡수량 같은 스킬 고유 수치가 이걸 쓴다.
-	UFUNCTION(BlueprintPure, Category = "Augment")
-	float GetAugmentValue(FGameplayTag AugmentTag) const;
+	// GetPlayer / HasAugment / GetAugmentParam 은 부모에 있다.
 
 	// 파생이 버프를 조기에 걷어야 할 때 부른다. 돌격의 공중 피해감소 등.
 	void RemoveSelfBuff();
 
 private:
 	void ApplySelfBuff(const FGameplayAbilityActorInfo* ActorInfo);
+
+	// DuringAbilityEffect 를 붙이고 뗀다. 어빌리티 수명과 정확히 같아야 하므로
+	// 붙이는 곳과 떼는 곳을 한 쌍으로 묶어 두었다.
+	void ApplyDuringAbilityEffect(const FGameplayAbilityActorInfo* ActorInfo);
+	void RemoveDuringAbilityEffect(const FGameplayAbilityActorInfo* ActorInfo);
 
 	UFUNCTION()
 	void OnMontageFinished();
@@ -150,4 +149,7 @@ private:
 
 	// 이번 발동에서 붙인 버프 GE 핸들. 조기 제거용으로만 들고 있는다.
 	TArray<FActiveGameplayEffectHandle> BuffHandles;
+
+	// 발동 중 GE 핸들. 종료 시 떼려고 들고 있는다.
+	FActiveGameplayEffectHandle DuringAbilityHandle;
 };

@@ -299,11 +299,11 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 		FinalDamage = Player->ModifyOutgoingDamage(Target, FinalDamage);
 	}
 
-	// 수치만 넘긴다. GE 를 만드는 건 맞는 쪽의 몫.
-	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, FinalDamage, Hit);
-
-	// 타격시 연출
-	HitCuePlay::PlayImpact(Owner, Target, Hit, FinalDamage);
+	// 수치만 넘긴다. GE 를 만드는 것도 타격 연출도 맞는 쪽의 몫.
+	//
+	// 큐를 여기서 안 쏜다: 막았는지 패링했는지는 맞는 쪽만 안다.
+	// 여기서 쏘면 무기 성질밖에 몰라서 막아도 살점 소리가 난다.
+	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, FinalDamage, Hit, EHBDamageSource::Melee);
 
 	// 플레이어가 흡혈이나 사망 판정, 보수를 여기서해야한다...
 	if (Player)
@@ -353,6 +353,34 @@ USceneComponent* UMeleeTraceComponent::ResolveSocketSource() const
 	}
 
 	// 여까지오면 캐릭터 메쉬로 본다.
+	//
+	// 조용히 떨어지면 안 된다. 캐릭터 메쉬에는 무기 소켓이 없으므로
+	// 소켓 조회가 엉뚱한 위치를 돌려주고, 트레이스 길이가 애니메이션 따라
+	// 출렁이면서 사거리가 반토막 난다. "매우 가까이 가야 맞는" 증상이 이것이다.
+	//
+	// 2026-09-09 데디 로그에서 실제로 이 일이 있었다. 무기 메시 애셋이 서버
+	// 빌드에 없어서(쿠킹 누락) 무기 컴포넌트가 서지 못했고, 몇 주간 원인을
+	// 못 찾았다. 로그가 없어서였다.
+	//
+	// 쳐낼 조건: 무기 없는 맨손 공격을 정식으로 지원하게 되면, 그때는
+	// 맨손 전용 소켓 세트를 따로 두고 이 경고를 없앤다.
+	FString SocketList;
+	for (const FName& SocketName : ActiveSockets)
+	{
+		if (!SocketList.IsEmpty())
+		{
+			SocketList.Append(TEXT("/"));
+		}
+		SocketList.Append(SocketName.ToString());
+	}
+
+	UE_LOG(LogEnemyAI, Warning,
+		TEXT("[Trace] %s 무기 컴포넌트(태그=%s)를 못 찾아 캐릭터 메쉬로 폴백한다. 필요 소켓=%s")
+		TEXT(" → 사거리가 짧아진다. 무기 메시가 로드됐는지 확인할 것"),
+		*GetNameSafe(Owner),
+		*WeaponComponentTag.ToString(),
+		*SocketList);
+
 	return CachedMesh;
 }
 

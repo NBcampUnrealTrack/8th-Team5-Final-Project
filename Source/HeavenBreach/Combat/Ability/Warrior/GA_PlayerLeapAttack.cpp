@@ -4,12 +4,11 @@
 #include "Combat/Ability/Warrior/GA_PlayerLeapAttack.h"
 
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
-#include "Animation/AnimInstance.h"
-#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
+#include "Core/Tag/Skill/HB_SkillParamTag.h"
 #include "Core/Tag/Event/HB_EventTag.h"
 
 UGA_PlayerLeapAttack::UGA_PlayerLeapAttack()
@@ -65,11 +64,9 @@ void UGA_PlayerLeapAttack::OnLaunchEventReceived(FGameplayEventData Payload)
 	}
 
 	// 증강 Reach 는 거리를 늘린다. 속도는 궤적 계산이 알아서 같이 올린다.
-	float FinalDistance = LeapDistance;
-	if (ReachAugmentTag.IsValid())
-	{
-		FinalDistance = LeapDistance * GetAugmentValue(ReachAugmentTag);
-	}
+	// 아무 증강도 Reach 를 안 정했으면 1.0 이 와서 그대로 곱해진다.
+	const float FinalDistance =
+		LeapDistance * GetAugmentParam(SkillParamTag::TAG_SkillParam_Reach, 1.f);
 	if (FinalDistance <= 0.f)
 	{
 		return;
@@ -142,30 +139,18 @@ void UGA_PlayerLeapAttack::OnCharacterLanded(const FHitResult& Hit)
 	{
 		return;
 	}
-	// ?? 몽타주 없는데 어케왓냐;
-	UAnimMontage* PlayingMontage = GetMontageToPlay();
-	if (!PlayingMontage)
-	{
-		return;
-	}
-	ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	if (!Char)
-	{
-		return;
-	}
-	USkeletalMeshComponent* Mesh = Char->GetMesh();
-	if (!Mesh)
-	{
-		return;
-	}
-	UAnimInstance* Anim = Mesh->GetAnimInstance();
-	if (!Anim)
-	{
-		return;
-	}
 
-	// 판정은 이섹션에 붙은 ANS가 한다.
-	Anim->Montage_JumpToSection(LandSectionName, PlayingMontage);
+	// AnimInstance 를 직접 부르지 않는다.
+	//
+	// 왜: Anim->Montage_JumpToSection 은 그 머신에만 남는다. 서버와 본인은
+	// 착지 모션을 보지만 다른 플레이어 화면에서는 도약 루프가 계속 돌다가
+	// 어빌리티가 끝날 때 뚝 끊긴다.
+	//
+	// 작동방식: 어빌리티의 이 함수는 ASC 를 거치므로 복제된다.
+	// 방어(GA_PlayerBlock::OnBlockReleaseReceive)가 이미 같은 이유로 이걸 쓴다.
+	//
+	// 판정은 이 섹션에 붙은 ANS 가 한다.
+	MontageJumpToSection(LandSectionName);
 }
 
 void UGA_PlayerLeapAttack::OnAirTimeExpired()

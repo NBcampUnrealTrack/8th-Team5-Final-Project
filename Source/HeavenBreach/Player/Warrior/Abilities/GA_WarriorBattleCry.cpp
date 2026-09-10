@@ -1,3 +1,14 @@
+// ================ 구시대 스킬 ================
+// 새 전투의 함성(UHBPlayerActiveGABase 기반)으로 대체 중인 코드다. 지우지 않는다.
+//
+// 스킬 레벨(0~3) 모델이 증강 태그로 바뀌면서 UpgradeLevel 은 항상 0 이다.
+// 아래 Lv.1~3 분기는 전부 기본값 쪽으로만 간다. 의도된 상태다.
+//
+// 왜 호출을 끊었나: AHB_PlayerState::GetSkillUpgradeLevel 은 폐기 대기 중인
+// 껍데기다. 지우는 순간 여기가 컴파일 에러가 되므로 미리 끊었다.
+//
+// 쳐낼 조건: 새 함성이 이걸 대체하면 파일째로 지운다.
+
 #include "Player/Warrior/Abilities/GA_WarriorBattleCry.h"
 
 #include "AbilitySystemComponent.h"
@@ -33,10 +44,7 @@ void UGA_WarriorBattleCry::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 
 	if (ActorInfo->IsNetAuthority())
 	{
-		const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
-		const int32 UpgradeLevel = Player
-			? Player->GetSkillUpgradeLevel(TEXT("Warrior.BattleCry"))
-			: 0;
+		const int32 UpgradeLevel = 0;   // 레벨 모델 폐기. 파일 맨 위 설명 참조
 		const float Duration = UpgradeLevel >= 1 ? 7.f : 5.f;
 		const float AttackMultiplier = UpgradeLevel >= 2 ? 1.3f : 1.2f;
 		const float DefenseBonus = UpgradeLevel >= 3 ? 20.f : 0.f;

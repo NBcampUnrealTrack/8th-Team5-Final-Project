@@ -12,6 +12,15 @@ namespace AbilityTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_Death);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_HitReact);
 
+	// 이 비용 요청이 일반공격에서 왔다는 표식.
+	//
+	// 왜 필요한가: 전투 호흡이 일반공격 마나만 줄인다. 스킬·달리기·방어는 안 줄인다.
+	// 그 판별을 예전에는 "넘어온 태그가 지금 든 무기 태그와 같은가" 로 했는데,
+	// 무기를 바꾸면 판단이 흔들리고 읽는 사람이 의도를 알 수 없었다.
+	//
+	// 작동방식: 일반공격 경로가 ModifyManaCost 에 이 태그를 넘기고, 거기서 이것만 본다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_BasicAttack);
+
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SetByCaller_Damage);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SetByCaller_Heal);
 

@@ -210,7 +210,8 @@ void UGrabComponent::BiteGrabbed(float DamageMultiplier)
 	const float HealthBefore = GetTargetHealth(Target, bMeasured);
 
 	// 수치만 넘긴다. GE 를 만드는 건 맞는 쪽의 몫.
-	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, FinalDamage, Hit);
+	// 물기 공격이라 근접이다.
+	IDamageableInterface::Execute_ApplyMeleeHit(Target, Owner, FinalDamage, Hit, EHBDamageSource::Melee);
 
 	// 방어,경감이 반영된 값. 측정할 수 없으면 계산값을 그대로 쓴다.
 	float AppliedDamage = FinalDamage;
