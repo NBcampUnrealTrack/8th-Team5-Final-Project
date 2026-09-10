@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Core/GameFlow/HBPostMatchTypes.h"
 #include "HBPlayerController.generated.h"
 
 class UCommonActivatableWidget;
@@ -13,6 +14,7 @@ class UInputAction;
 class UInputMappingContext;
 class UInventoryUIComponent;
 class UHB_SkillAugment;
+class UUserWidget;
 struct FInputActionValue;
 
 UCLASS(Blueprintable)
@@ -123,6 +125,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
 	TSubclassOf<UHB_ContainerScreen> ContainerScreenClass;
 
+	// ExtractionResult 맵 전용: 탈출 성공(및 일반 매치 종료) 시 띄울 결과 위젯 (구 WBP_ExtractionResult)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameFlow|Result")
+	TSubclassOf<UUserWidget> ExtractionResultWidgetClass;
+
+	// ExtractionResult 맵 전용: 사망으로 인해 도착했을 때 띄울 결과 위젯
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameFlow|Result")
+	TSubclassOf<UUserWidget> DeathResultWidgetClass;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UHB_UILayout> UILayout;
 
@@ -180,8 +190,19 @@ protected:
 	void TestReturnToHub();
 	////////////////////////////////////
 
+public:
+	/** Sent by the server right before ClientTravel to the post-match map, since PlayerState/GameState don't survive that travel. */
+	UFUNCTION(Client, Reliable, Category = "GameFlow")
+	void ClientSetPostMatchReason(EHBPostMatchReason Reason);
 
+protected:
 	void CreateUILayout();
+
+	// ExtractionResult 맵에 도착했을 때만 동작. UHBMatchResultSubsystem에 저장된 사유를 읽어서
+	// ExtractionResultWidgetClass / DeathResultWidgetClass 중 하나를 CreateWidget + AddToViewport 하고
+	// 마우스 커서/UI 입력모드를 켠다. 반환값 true면 ExtractionResult 맵이라는 뜻 (호출자가 인게임
+	// HUD/입력 세팅을 건너뛰는 데 사용).
+	bool TryShowPostMatchResultWidget();
 
 private:
 	void HandleMove(const FInputActionValue& Value);

@@ -73,6 +73,11 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Lobby HUD")
 	void OnLobbyMenuSelected(EHBLobbyHUDMenu NewMenu);
 
+public:
+	/** Lets a nested content widget (e.g. the character selection screen) switch the HUD back to a given menu without Blueprint wiring. */
+	UFUNCTION(BlueprintCallable, Category = "Lobby HUD")
+	void SwitchToMenu(EHBLobbyHUDMenu NewMenu) { SelectMenu(NewMenu); }
+
 private:
 	UFUNCTION()
 	void HandleLobbyClicked();

@@ -105,6 +105,9 @@ private:
 
 	bool bTracing = false;
 
+	// 스윙 1회당 무기 내구도 1만 깎이게 하는 플래그. 여러 명을 맞혀도 한 번만 깎여야 한다.
+	bool bDurabilityConsumedThisSwing = false;
+
 	// 히트스톱관련 저장될 정보들
 	bool bUseHitStop = false;
 	bool bHitStopActive = false;

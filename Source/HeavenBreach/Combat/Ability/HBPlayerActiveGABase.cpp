@@ -7,6 +7,8 @@
 #include "GameplayEffect.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/Skill/HB_SkillParamTag.h"
+#include "Core/Tag/State/HB_StateTag.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
 #include "AbilitySystemGlobals.h"
@@ -14,92 +16,71 @@
 
 UHBPlayerActiveGABase::UHBPlayerActiveGABase()
 {
-    InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+    // InstancingPolicy 는 부모가 InstancedPerActor 로 정한다.
 
     // 클라가 예측한다. 반응성을 위해서다.
     NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
 
-	// 상태 태그(State.Attacking 등)는 블루프린트의 ActivationOwnedTags 에 넣는다.
-	// 스킬마다 다르므로 여기서 정하지 않는다. 반드시 BP_GA제작시 ActivationOwnedTags 추가할 것
+	// 액티브 공통 규약. 기본공격(GA_PlayerAttackRE)·방어(GA_PlayerBlock)와 같은 태그를 쓴다.
+	//
+	// 작동방식: 발동하면 GAS 가 ActivationOwnedTags 를 ASC 에 붙이고,
+	// CanActivateAbility 가 ASC 의 태그와 ActivationBlockedTags 를 비교해 발동을 막는다.
+	// State.Attacking 을 "붙이면서 동시에 막는" 한 쌍이 상호 배제를 만든다.
+	//   스킬 중 다른 스킬   전 스킬이 이 베이스를 상속하므로 서로 막힌다
+	//   스킬 중 기본공격    기본공격도 이 태그를 Blocked 로 갖고 있다
+	//   기본공격 중 스킬    아래 Blocked 가 막는다
+	//
+	// BP 에 맡기지 않는 이유: 하나만 빠뜨려도 그 스킬이 아무 때나 나가고,
+	// 빠뜨린 사실이 로그 없이 조용히 넘어간다.
+	//
+	// 쳐낼 조건: 기본공격을 스킬로 캔슬하고 싶어지면 State.Attacking 을 Blocked 에서 빼고
+	// CancelAbilitiesWithTag 로 옮긴다. 지금은 "휘두르는 중엔 스킬 안 나감" 이다.
+	ActivationOwnedTags.AddTag(StateTag::TAG_State_Attacking);
+
+	ActivationBlockedTags.AddTag(StateTag::TAG_State_Attacking);
+	ActivationBlockedTags.AddTag(AbilityTag::TAG_State_Dead);
+	ActivationBlockedTags.AddTag(StateTag::TAG_State_Blocking);
+	ActivationBlockedTags.AddTag(StateTag::TAG_State_BoxInteracting);
+	ActivationBlockedTags.AddTag(StateTag::TAG_State_InventoryBusy);
+	ActivationBlockedTags.AddTag(StateTag::TAG_State_Staggered);
+
+	// State.Grabbed 는 넣지 않는다. 잡힘 중 사용 가능 여부가 스킬마다 다르므로
+	// 필요한 스킬의 BP 에서 Activation Blocked Tags 에 개별로 추가한다.
+	// 주의: BP 에서 그 컨테이너를 건드리면 이후 여기에 태그를 추가해도 그 BP 는 못 받는다.
 }
 
 // ---------------- ActorInfo 를 직접 받는 것 ----------------
-
-UAbilitySystemComponent* UHBPlayerActiveGABase::GetASC(const FGameplayAbilityActorInfo* ActorInfo) const
-{
-	if (!ActorInfo)
-	{
-		return nullptr;
-	}
-	return ActorInfo->AbilitySystemComponent.Get();
-}
-
-AHBPlayerCharacter* UHBPlayerActiveGABase::GetPlayerFrom(const FGameplayAbilityActorInfo* ActorInfo) const
-{
-	if (!ActorInfo)
-	{
-		return nullptr;
-	}
-
-	// ActorInfo에 있는 캐릭터 추출
-	return Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
-}
-
-FGameplayTag UHBPlayerActiveGABase::GetSourceTagFrom(const FGameplayAbilityActorInfo* ActorInfo) const
-{
-	return SourceTag;
-}
+// GetASC / GetPlayerFrom 은 부모(UHBPlayerSkillGABase)에 있다.
 
 float UHBPlayerActiveGABase::GetFinalManaCostFrom(const FGameplayAbilityActorInfo* ActorInfo) const
 {
+	// 이 스킬에만 걸리는 증강이 먼저다. 전역 보정을 먼저 태우면
+	// 하한선(0)에 걸린 뒤라 스킬 증강이 씹힌다.
+	const float SkillCost = ManaCost * GetAugmentParamFrom(ActorInfo, SkillParamTag::TAG_SkillParam_ManaCost, 1.f);
+
 	const AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
 	if (!Player)
 	{
-		return ManaCost;
+		return SkillCost;
 	}
-	// 최종 마나 코스트 연산 반환
-	return Player->ModifyManaCost(GetSourceTagFrom(ActorInfo), ManaCost);
+	// 전역 보정(장비, 패시브, 증강 GE)을 태운 최종 마나 코스트.
+	// 빈 태그를 넘긴다. 스킬은 일반공격도 방어도 아니라서 특별 취급이 없다.
+	return Player->ModifyManaCost(FGameplayTag(), SkillCost);
 }
 
 float UHBPlayerActiveGABase::GetFinalCooldownFrom(const FGameplayAbilityActorInfo* ActorInfo) const
 {
+	// 마나와 같은 이유로 스킬 한정이 먼저다.
+	// 뒤집으면 ModifyCooldown 의 하한선 0.1 에 걸려 스킬 증강이 통째로 사라진다.
+	const float SkillCooldown = Cooldown * GetAugmentParamFrom(ActorInfo, SkillParamTag::TAG_SkillParam_Cooldown, 1.f);
+
 	const AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
 	if (!Player)
 	{
-		return Cooldown;
+		return SkillCooldown;
 	}
-	// 최종 쿨타임 연산 반환
-	return Player->ModifyCooldown(GetSourceTagFrom(ActorInfo), Cooldown);
-}
-
-// ---------------- 발동 중에만 쓰는 것 ----------------
-
-AHBPlayerCharacter* UHBPlayerActiveGABase::GetPlayer() const
-{
-	// 플레이어 반환
-	return GetPlayerFrom(GetCurrentActorInfo());
-}
-
-bool UHBPlayerActiveGABase::HasAugment(FGameplayTag AugmentTag) const
-{
-	const AHBPlayerCharacter* Player = GetPlayer();
-	if (!Player)
-	{
-		return false;
-	}
-	// 증강 목록 조회
-	return Player->HasAugment(AugmentTag);
-}
-
-float UHBPlayerActiveGABase::GetAugmentValue(FGameplayTag AugmentTag) const
-{
-	const AHBPlayerCharacter* Player = GetPlayer();
-	if (!Player)
-	{
-		return 1.f;   // 미획득과 같은 값
-	}
-	// 증강으로 인한 지속시간 배율
-	return Player->GetAugmentValue(AugmentTag);
+	// 전역 보정을 태운 최종 쿨타임
+	return Player->ModifyCooldown(FGameplayTag(), SkillCooldown);
 }
 
 // ---------------- 발동 판정 ----------------
@@ -186,6 +167,12 @@ bool UHBPlayerActiveGABase::CheckCost(const FGameplayAbilitySpecHandle Handle, c
 
 void UHBPlayerActiveGABase::ApplyCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
 {
+	// 증강이 요구하는 추가 코스트. 원래 코스트와 별개로 낸다.
+	// "마나 대신 체력" 은 이 GE 와 Params 의 ManaCost 0 을 같이 써서 만든다.
+	// 여기 먼저 두는 이유: 아래에서 마나 코스트가 0 이라 일찍 반환해도
+	// 추가 코스트는 내야 하기 때문이다.
+	ApplyAdditionalCost(Handle, ActorInfo, ActivationInfo);
+
 	// 부모함수를 부르지 않는다. 부모는 ApplyGameplayEffectToOwner 로 CDO 를 그대로 붙이기 때문에 SetByCaller 를 꽂을 틈이 없다.
 	// 부르면 0 짜리 GE 가 한 번 더 붙으면서 "magnitude had not yet been set by caller" 경고만 남는다.
 	if (!CostGameplayEffectClass)
@@ -210,6 +197,28 @@ void UHBPlayerActiveGABase::ApplyCost(const FGameplayAbilitySpecHandle Handle, c
 	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_ManaCost, -FinalCost);
 
 	// 활성화 예측 키로 붙기 때문에 클라 마나 바가 즉시 줄어든다.
+	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, Spec);
+}
+
+void UHBPlayerActiveGABase::ApplyAdditionalCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	const TSubclassOf<UGameplayEffect> ExtraCost = FindAdditionalCostEffect(ActorInfo);
+	if (!ExtraCost)
+	{
+		return;   // 코스트를 건드리는 증강이 없다
+	}
+
+	FGameplayEffectSpecHandle Spec = MakeOutgoingGameplayEffectSpec(Handle, ActorInfo, ActivationInfo, ExtraCost, GetAbilityLevel(Handle, ActorInfo));
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+
+	// 소모량은 GE 애셋에 직접 적는다. SetByCaller 를 안 쓰는 이유는
+	// 자원마다 계산식이 달라서, 여기서 하나의 숫자로 넘길 수가 없기 때문이다.
+	//
+	// 쳐낼 조건: CheckCost 가 이 자원이 충분한지 보지 않는다. 체력이 모자라도
+	// 발동되고 어트리뷰트 클램프에 걸린다. 막아야 하면 CheckCost 에 검사를 더한다.
 	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, Spec);
 }
 
@@ -249,6 +258,7 @@ void UHBPlayerActiveGABase::ActivateAbility(const FGameplayAbilitySpecHandle Han
 	}
 
 	ApplySelfBuff(ActorInfo);
+	ApplyDuringAbilityEffect(ActorInfo);
 
 	// 몽타주 없는 스킬도 있다. 즉발 버프 같은 것.
 	// 비용과 쿨타임과 버프는 CommitAbility로 이미 적용되었다.
@@ -311,13 +321,9 @@ void UHBPlayerActiveGABase::ApplySelfBuff(const FGameplayAbilityActorInfo* Actor
 		return;
 	}
 
-	// 증강으로 늘어난 지속시간. 배율을 먼저 만들어 곱셈 안에 삼항을 넣지 않는다.
-	float DurationMultiplier = 1.f;
-	if (BuffDurationAugmentTag.IsValid())
-	{
-		DurationMultiplier = GetAugmentValue(BuffDurationAugmentTag);
-	}
-	const float FinalDuration = BuffDuration * DurationMultiplier;
+	// 증강으로 늘어난 지속시간. 아무 증강도 Duration 을 안 정했으면 1.0 이 와서
+	// 그대로 곱해진다. 그래서 여기에 분기가 없다.
+	const float FinalDuration = BuffDuration * GetAugmentParam(SkillParamTag::TAG_SkillParam_Duration, 1.f);
 
 	if (SelfBuffEffect)
 	{
@@ -350,6 +356,54 @@ void UHBPlayerActiveGABase::ApplySelfBuff(const FGameplayAbilityActorInfo* Actor
 			BuffHandles.Add(ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
 		}
 	}
+}
+
+void UHBPlayerActiveGABase::ApplyDuringAbilityEffect(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!DuringAbilityEffect)
+	{
+		return;   // 감속이 필요 없는 스킬. 비워두면 여기서 끝난다
+	}
+	if (!ActorInfo)
+	{
+		return;
+	}
+
+	// 서버가 붙이고 어트리뷰트 복제로 클라에 전달된다.
+	// 이동속도는 어트리뷰트라 클라가 자체 적용하면 곧 도착할 서버 값과 싸운다.
+	// 기본공격(GA_PlayerAttackRE)도 같은 방식이라 체감을 맞췄다.
+	if (!ActorInfo->IsNetAuthority())
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = GetASC(ActorInfo);
+	if (!ASC)
+	{
+		return;
+	}
+
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(DuringAbilityEffect, 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+	DuringAbilityHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+}
+
+void UHBPlayerActiveGABase::RemoveDuringAbilityEffect(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!DuringAbilityHandle.IsValid())
+	{
+		return;
+	}
+
+	// 취소나 사망으로 끝나도 여기를 거친다. 안 떼면 캐릭터가 영구히 느려진다.
+	if (UAbilitySystemComponent* ASC = GetASC(ActorInfo))
+	{
+		ASC->RemoveActiveGameplayEffect(DuringAbilityHandle);
+	}
+	DuringAbilityHandle.Invalidate();
 }
 
 void UHBPlayerActiveGABase::RemoveSelfBuff()
@@ -385,6 +439,9 @@ void UHBPlayerActiveGABase::OnMontageCancelled()
 
 void UHBPlayerActiveGABase::EndAbility(const FGameplayAbilitySpecHandle Handle,const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,bool bReplicateEndAbility, bool bWasCancelled)
 {
+	// 발동 중에만 유지하는 것은 여기서 뗀다. 취소·사망으로 끝나도 반드시 지나간다.
+	RemoveDuringAbilityEffect(ActorInfo);
+
 	// 버프의 지속시간은 어빌리티 수명보다 길다. 걷지 않고 핸들만 비운다.
 	BuffHandles.Reset();
 

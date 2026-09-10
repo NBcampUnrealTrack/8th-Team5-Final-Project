@@ -11,45 +11,9 @@ UCraftComponent::UCraftComponent()
 	Slots.SetNum(NumCraftSlots);
 }
 
-int32 UCraftComponent::GetCurrentGold() const
-{
-	if (TargetStash == nullptr || GoldItemRow.IsNull())
-	{
-		return 0;
-	}
-
-	return TargetStash->GetTotalGold(GoldItemRow.RowName);
-}
-
-bool UCraftComponent::GetPreviewResult(FDataTableRowHandle& OutItemRow, int32& OutCount, int32& OutGoldCost, bool& bOutCanAfford) const
-{
-	FCraftRecipeRow Recipe;
-
-	OutCount = 0;
-	OutGoldCost = 0;
-	bOutCanAfford = false;
-
-	if (!FindMatchingRecipe(Recipe))
-	{
-		return false;
-	}
-
-	OutItemRow = Recipe.ResultItem;
-	OutCount = Recipe.ResultCount;
-	OutGoldCost = Recipe.GoldCost;
-	bOutCanAfford = GetCurrentGold() >= Recipe.GoldCost;
-
-	return true;
-}
-
 void UCraftComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	if (Slots.Num() != NumCraftSlots)
-	{
-		Slots.SetNum(NumCraftSlots);
-	}
 }
 
 void UCraftComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -58,6 +22,145 @@ void UCraftComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 
 	DOREPLIFETIME(UCraftComponent, Slots);
 	DOREPLIFETIME(UCraftComponent, CraftMode);
+	DOREPLIFETIME(UCraftComponent, SelectedRecipeRowName);
+}
+
+void UCraftComponent::SetTargetStash(UInventoryComponent* InStash)
+{
+	TargetStash = InStash;
+}
+
+int32 UCraftComponent::GetCurrentGold() const
+{
+	if (!TargetStash || GoldItemRow.IsNull())
+	{
+		return 0;
+	}
+	int32 Total = 0;
+	for (const FInventoryEntry& Entry : TargetStash->GetEntries())
+	{
+		if (Entry.Item.ItemRow == GoldItemRow)
+		{
+			Total += Entry.Item.StackCount;
+		}
+	}
+	return Total;
+}
+
+bool UCraftComponent::GetSelectedRecipe(FCraftRecipeRow& OutRecipe) const
+{
+	if (!RecipeTable || SelectedRecipeRowName == NAME_None)
+	{
+		return false;
+	}
+	const FCraftRecipeRow* Row = RecipeTable->FindRow<FCraftRecipeRow>(SelectedRecipeRowName, TEXT("GetSelectedRecipe"));
+	if (!Row)
+	{
+		return false;
+	}
+	OutRecipe = *Row;
+	return true;
+}
+
+bool UCraftComponent::GetPreviewResult(FDataTableRowHandle& OutItemRow, int32& OutCount, int32& OutGoldCost, bool& bOutCanAfford) const
+{
+	FCraftRecipeRow Recipe;
+	if (!GetSelectedRecipe(Recipe))
+	{
+		return false;
+	}
+	OutItemRow = Recipe.ResultItem;
+	OutCount = Recipe.ResultCount;
+	OutGoldCost = Recipe.GoldCost;
+	bOutCanAfford = GetCurrentGold() >= Recipe.GoldCost;
+	return true;
+}
+
+bool UCraftComponent::CanCraft() const
+{
+	FCraftRecipeRow Recipe;
+	if (!GetSelectedRecipe(Recipe))
+	{
+		return false;
+	}
+	if (GetCurrentGold() < Recipe.GoldCost)
+	{
+		return false;
+	}
+	for (int32 i = 0; i < Recipe.Ingredients.Num(); ++i)
+	{
+		if (!Slots[i].IsValid())
+		{
+			return false;
+		}
+		if (Slots[i].ItemRow != Recipe.Ingredients[i].ItemRow)
+		{
+			return false;
+		}
+		if (Slots[i].StackCount < Recipe.Ingredients[i].Count)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool UCraftComponent::IsRecipeUnlocked(const FCraftRecipeRow& InRecipe) const
+{
+	if (!TargetStash || InRecipe.RecipeItem.IsNull())
+	{
+		return false;
+	}
+	for (const FInventoryEntry& Entry : TargetStash->GetEntries())
+	{
+		if (Entry.Item.ItemRow == InRecipe.RecipeItem)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void UCraftComponent::PlaceToFirstMatchingSlot(FGuid InInstanceId)
+{
+	FCraftRecipeRow Recipe;
+	if (!GetSelectedRecipe(Recipe))
+	{
+		return;
+	}
+	for (int32 i = 0; i < Recipe.Ingredients.Num(); ++i)
+	{
+		if (Slots[i].IsValid())
+		{
+			continue;
+		}
+		const int32 EntryIndex = TargetStash ? TargetStash->FindEntryIndexById(InInstanceId) : INDEX_NONE;
+		if (EntryIndex == INDEX_NONE)
+		{
+			return;
+		}
+		const FItemInstance& Item = TargetStash->GetEntries()[EntryIndex].Item;
+		if (Item.ItemRow.RowName == Recipe.Ingredients[i].ItemRow.RowName)
+		{
+			Server_PlaceItem(InInstanceId, i);
+			return;
+		}
+	}
+}
+
+bool UCraftComponent::GetItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutViewData)
+{
+	return ResolveItemViewData(InRow, OutViewData);
+}
+
+void UCraftComponent::SelectRecipe(FName InRowName)
+{
+	Server_SelectRecipe(InRowName);
+}
+
+void UCraftComponent::AutoFillFromStash()
+{
+	Server_AutoFillFromStash();
 }
 
 void UCraftComponent::PlaceFromStash(FGuid InInstanceId, int32 InSlotIndex)
@@ -80,113 +183,60 @@ void UCraftComponent::ReturnAllToStash()
 	Server_ReturnAllToStash();
 }
 
-bool UCraftComponent::GetItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutViewData)
-{
-	return ResolveItemViewData(InRow, OutViewData);
-}
-
-void UCraftComponent::PlaceToFirstEmptySlot(FGuid InInstanceId)
-{
-	for (int32 Index = 0; Index < Slots.Num(); ++Index)
-	{
-		if (!Slots[Index].IsValid())
-		{
-			Server_PlaceItem(InInstanceId, Index);
-			return;
-		}
-	}
-}
-
 void UCraftComponent::OnRep_Slots()
 {
 	OnCraftSlotsChanged.Broadcast();
 }
 
-void UCraftComponent::SetTargetStash(UInventoryComponent* InStash)
+void UCraftComponent::OnRep_SelectedRecipeRowName()
 {
-	TargetStash = InStash;
-}
-
-void UCraftComponent::BuildSlotCountMap(TMap<FName, int32>& OutCounts) const
-{
-	OutCounts.Reset();
-
-	for (const FItemInstance& Slot : Slots)
-	{
-		if (!Slot.IsValid() || Slot.ItemRow.IsNull())
-		{
-			continue;
-		}
-
-		OutCounts.FindOrAdd(Slot.ItemRow.RowName) += Slot.StackCount;
-	}
-}
-
-bool UCraftComponent::FindMatchingRecipe(FCraftRecipeRow& OutRecipe) const
-{
-	if (RecipeTable == nullptr)
-	{
-		return false;
-	}
-
-	TMap<FName, int32> SlotCounts;
-	BuildSlotCountMap(SlotCounts);
-
-	if (SlotCounts.Num() == 0)
-	{
-		return false;
-	}
-
-	static const FString Context(TEXT("FindMatchingRecipe"));
-
-	TArray<FCraftRecipeRow*> Rows;
-	RecipeTable->GetAllRows(Context, Rows);
-
-	for (const FCraftRecipeRow* Row : Rows)
-	{
-		if (Row == nullptr || Row->Ingredients.Num() != SlotCounts.Num())
-		{
-			continue;
-		}
-
-		bool bMatched = true;
-
-		for (const FCraftIngredient& Ingredient : Row->Ingredients)
-		{
-			const int32* Found = SlotCounts.Find(Ingredient.ItemRow.RowName);
-
-			if (Found == nullptr || *Found < Ingredient.Count)
-			{
-				bMatched = false;
-				break;
-			}
-		}
-
-		if (bMatched)
-		{
-			OutRecipe = *Row;
-			return true;
-		}
-	}
-
-	return false;
-}
-
-bool UCraftComponent::CanCraft() const
-{
-	FCraftRecipeRow Recipe;
-	return FindMatchingRecipe(Recipe);
+	OnRecipeSelected.Broadcast();
 }
 
 void UCraftComponent::Server_SetCraftMode_Implementation(ECraftMode InMode)
 {
-	if (CraftMode == InMode)
+	CraftMode = InMode;
+}
+
+void UCraftComponent::Server_SelectRecipe_Implementation(FName InRowName)
+{
+	if (SelectedRecipeRowName == InRowName)
 	{
 		return;
 	}
-
 	Server_ReturnAllToStash_Implementation();
-	CraftMode = InMode;
+	SelectedRecipeRowName = InRowName;
+	OnRecipeSelected.Broadcast();
+	OnCraftSlotsChanged.Broadcast();
+}
+
+void UCraftComponent::Server_AutoFillFromStash_Implementation()
+{
+	if (!TargetStash)
+	{
+		return;
+	}
+	FCraftRecipeRow Recipe;
+	if (!GetSelectedRecipe(Recipe))
+	{
+		return;
+	}
+	for (int32 i = 0; i < Recipe.Ingredients.Num(); ++i)
+	{
+		if (Slots[i].IsValid())
+		{
+			continue;
+		}
+		const FCraftIngredient& Ingredient = Recipe.Ingredients[i];
+		for (const FInventoryEntry& Entry : TargetStash->GetEntries())
+		{
+			if (Entry.Item.ItemRow == Ingredient.ItemRow && Entry.Item.StackCount >= Ingredient.Count)
+			{
+				Server_PlaceItem_Implementation(Entry.Item.InstanceId, i);
+				break;
+			}
+		}
+	}
 }
 
 void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 InSlotIndex)
@@ -196,19 +246,34 @@ void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 
 		return;
 	}
 
-	if (Slots[InSlotIndex].IsValid())
+	FCraftRecipeRow Recipe;
+	if (!GetSelectedRecipe(Recipe) || !Recipe.Ingredients.IsValidIndex(InSlotIndex))
 	{
 		return;
 	}
 
-	const int32 EntryIndex = TargetStash->FindEntryIndexById(InInstanceId);
+	if (Slots[InSlotIndex].IsValid())
+	{
+		ReturnSlotToStash(InSlotIndex);
+	}
 
+	const int32 EntryIndex = TargetStash->FindEntryIndexById(InInstanceId);
 	if (EntryIndex == INDEX_NONE)
 	{
 		return;
 	}
 
 	const FItemInstance Placed = TargetStash->GetEntries()[EntryIndex].Item;
+	const FCraftIngredient& Required = Recipe.Ingredients[InSlotIndex];
+
+	if (Placed.ItemRow.RowName != Required.ItemRow.RowName)
+	{
+		return;
+	}
+	if (Placed.StackCount < Required.Count)
+	{
+		return;
+	}
 
 	if (!TargetStash->RemoveStackCount(InInstanceId, Placed.StackCount))
 	{
@@ -216,65 +281,17 @@ void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 
 	}
 
 	Slots[InSlotIndex] = Placed;
-
 	OnRep_Slots();
 }
 
 void UCraftComponent::Server_RemoveItem_Implementation(int32 InSlotIndex)
 {
-	if (ReturnSlotToStash(InSlotIndex))
+	if (!Slots.IsValidIndex(InSlotIndex) || !Slots[InSlotIndex].IsValid())
 	{
-		OnRep_Slots();
+		return;
 	}
-}
-
-void UCraftComponent::Server_ReturnAllToStash_Implementation()
-{
-	bool bChanged = false;
-
-	for (int32 Index = 0; Index < Slots.Num(); ++Index)
-	{
-		bChanged |= ReturnSlotToStash(Index);
-	}
-
-	if (bChanged)
-	{
-		OnRep_Slots();
-	}
-}
-
-bool UCraftComponent::ReturnSlotToStash(int32 InSlotIndex)
-{
-	if (TargetStash == nullptr || !Slots.IsValidIndex(InSlotIndex))
-	{
-		return false;
-	}
-
-	if (!Slots[InSlotIndex].IsValid())
-	{
-		return false;
-	}
-
-	const int32 Before = Slots[InSlotIndex].StackCount;
-
-	int32 Remainder = 0;
-	TargetStash->TryAddItem(Slots[InSlotIndex], Remainder);
-
-	if (Remainder >= Before)
-	{
-		return false;
-	}
-
-	if (Remainder > 0)
-	{
-		Slots[InSlotIndex].StackCount = Remainder;
-	}
-	else
-	{
-		Slots[InSlotIndex] = FItemInstance();
-	}
-
-	return true;
+	ReturnSlotToStash(InSlotIndex);
+	OnCraftSlotsChanged.Broadcast();
 }
 
 void UCraftComponent::Server_ExecuteCraft_Implementation()
@@ -286,14 +303,13 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 	}
 
 	FCraftRecipeRow Recipe;
-
-	if (!FindMatchingRecipe(Recipe))
+	if (!GetSelectedRecipe(Recipe))
 	{
 		OnCraftCompleted.Broadcast(false);
 		return;
 	}
 
-	if (Recipe.GoldCost > 0 && GetCurrentGold() < Recipe.GoldCost)
+	if (!CanCraft())
 	{
 		OnCraftCompleted.Broadcast(false);
 		return;
@@ -303,6 +319,12 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 	Result.ItemRow = Recipe.ResultItem;
 	Result.InstanceId = FGuid::NewGuid();
 	Result.StackCount = Recipe.ResultCount;
+
+	FItemViewData ResultViewData;
+	if (ResolveItemViewData(Result.ItemRow, ResultViewData) && ResultViewData.IsEquippable())
+	{
+		Result.CurrentDurability = GetMaxDurabilityForGrade(ResultViewData.Grade);
+	}
 
 	if (!TargetStash->CanFitItem(Result))
 	{
@@ -316,31 +338,64 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 		return;
 	}
 
-	for (const FCraftIngredient& Ingredient : Recipe.Ingredients)
+	for (int32 i = 0; i < Recipe.Ingredients.Num(); ++i)
 	{
-		int32 Left = Ingredient.Count;
-
-		for (int32 Index = 0; Index < Slots.Num() && Left > 0; ++Index)
-		{
-			if (!Slots[Index].IsValid() || Slots[Index].ItemRow.RowName != Ingredient.ItemRow.RowName)
-			{
-				continue;
-			}
-
-			const int32 Taken = FMath::Min(Left, Slots[Index].StackCount);
-			Slots[Index].StackCount -= Taken;
-			Left -= Taken;
-
-			if (Slots[Index].StackCount <= 0)
-			{
-				Slots[Index] = FItemInstance();
-			}
-		}
+		Slots[i] = FItemInstance();
 	}
 
 	int32 Remainder = 0;
 	TargetStash->TryAddItem(Result, Remainder);
 
+	if (Recipe.IsLimitedUse())
+	{
+		ConsumeRecipeItemIfLimited(Recipe);
+	}
+
 	OnRep_Slots();
 	OnCraftCompleted.Broadcast(true);
+}
+
+void UCraftComponent::Server_ReturnAllToStash_Implementation()
+{
+	bool bAnyReturned = false;
+	for (int32 i = 0; i < Slots.Num(); ++i)
+	{
+		if (Slots[i].IsValid())
+		{
+			ReturnSlotToStash(i);
+			bAnyReturned = true;
+		}
+	}
+	if (bAnyReturned)
+	{
+		OnCraftSlotsChanged.Broadcast();
+	}
+}
+
+bool UCraftComponent::ReturnSlotToStash(int32 InSlotIndex)
+{
+	if (!TargetStash || !Slots.IsValidIndex(InSlotIndex) || !Slots[InSlotIndex].IsValid())
+	{
+		return false;
+	}
+	int32 Remainder = 0;
+	TargetStash->TryAddItem(Slots[InSlotIndex], Remainder);
+	Slots[InSlotIndex] = FItemInstance();
+	return true;
+}
+
+bool UCraftComponent::ConsumeRecipeItemIfLimited(const FCraftRecipeRow& InRecipe)
+{
+	if (!TargetStash || InRecipe.RecipeItem.IsNull())
+	{
+		return false;
+	}
+	for (const FInventoryEntry& Entry : TargetStash->GetEntries())
+	{
+		if (Entry.Item.ItemRow == InRecipe.RecipeItem)
+		{
+			return TargetStash->RemoveStackCount(Entry.Item.InstanceId, 1);
+		}
+	}
+	return false;
 }

@@ -3,6 +3,7 @@
 #include "EquipmentSlotWidget.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
+#include "Components/ProgressBar.h"
 #include "EquipmentComponent.h"
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
@@ -77,24 +78,25 @@ void UEquipmentSlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, con
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(EquippedItem.ItemRow, ViewData)) return;
 
-	UImage* DragVisual = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
-	if (UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath))
-	{
-		DragVisual->SetBrushFromTexture(IconTexture, false);
-	}
-	FVector2D SlotSize = InGeometry.GetLocalSize();
-	DragVisual->SetDesiredSizeOverride(SlotSize);
-	DragVisual->SetOpacity(0.7f);
+	const FIntPoint ItemGridSize = GetOccupiedSize(EquippedItem, ViewData);
+	const FVector2D VisualSize(ItemGridSize.X * CellSize, ItemGridSize.Y * CellSize);
+	UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
 
 	UInventoryDragDropOperation* Operation = NewObject<UInventoryDragDropOperation>(this);
 	Operation->InstanceId = EquippedItem.InstanceId;
 	Operation->GrabOffset = FIntPoint::ZeroValue;
-	Operation->GrabPixelOffset = SlotSize * 0.5f;
+	Operation->GrabPixelOffset = VisualSize * 0.5f;
 	Operation->SourceInventory = nullptr;
 	Operation->SourceEquipment = BoundEquipment;
 	Operation->SourceSlot = SlotType;
-	Operation->DefaultDragVisual = DragVisual;
+	Operation->bRotated = EquippedItem.bRotated;
 	Operation->Pivot = EDragPivot::MouseDown;
+
+	// 인벤토리 칸에서 드래그할 때와 똑같이, Operation이 자기만의 Slate 비주얼
+	// (SBox+SImage)을 직접 뷰포트에 붙여서 관리하게 한다. 예전 방식(DefaultDragVisual에
+	// 단순 UImage)은 크기가 슬롯 지오메트리 그대로라 작게 나오고, T키 회전도
+	// 전혀 반영이 안 됐다.
+	Operation->CreateVisual(this, IconTexture, VisualSize);
 
 	OutOperation = Operation;
 }
@@ -139,6 +141,9 @@ void UEquipmentSlotWidget::NativePreConstruct()
 
 void UEquipmentSlotWidget::UpdateSlot(bool bHasItem, const FString& DisplayName, UTexture2D* IconTexture)
 {
+	UpdateDurabilityBar(bHasItem);
+	UpdateGradeBackground(bHasItem);
+
 	if (bHasItem)
 	{
 		// 1. 아이템이 장착된 경우
@@ -147,7 +152,9 @@ void UEquipmentSlotWidget::UpdateSlot(bool bHasItem, const FString& DisplayName,
 			if (IconTexture)
 			{
 				IconImage->SetBrushFromTexture(IconTexture, false);
-				IconImage->SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
+				IconImage->SetColorAndOpacity(bIsItemBroken
+					? FLinearColor(1.0f, 0.35f, 0.35f, 1.0f)
+					: FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
 				IconImage->SetRenderScale(FVector2D(1.0f, 1.0f));
 				IconImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 			}
@@ -199,4 +206,97 @@ void UEquipmentSlotWidget::UpdateSlot(bool bHasItem, const FString& DisplayName,
 			}
 		}
 	}
+}
+
+void UEquipmentSlotWidget::UpdateDurabilityBar(bool bHasItem)
+{
+	bIsItemBroken = false;
+
+	FItemInstance EquippedItem;
+	FItemViewData ViewData;
+
+	const bool bHasTrackedItem = bHasItem && BoundEquipment != nullptr
+		&& BoundEquipment->GetItemInSlot(SlotType, EquippedItem)
+		&& ResolveItemViewData(EquippedItem.ItemRow, ViewData)
+		&& EquippedItem.CurrentDurability >= 0.f;
+
+	if (bHasTrackedItem)
+	{
+		bIsItemBroken = (EquippedItem.CurrentDurability == 0.f);
+	}
+
+	// Text_Broken/Image_BrokenBG는 ProgressBar_Durability 유무와 무관하게 항상 갱신한다.
+	if (Text_Broken != nullptr)
+	{
+		Text_Broken->SetVisibility(bIsItemBroken ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+
+	if (Image_BrokenBG != nullptr)
+	{
+		Image_BrokenBG->SetVisibility(bIsItemBroken ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+
+	if (ProgressBar_Durability == nullptr)
+	{
+		return;
+	}
+
+	if (!bHasTrackedItem)
+	{
+		ProgressBar_Durability->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+
+	const float MaxDurability = GetMaxDurabilityForGrade(ViewData.Grade);
+	const float Percent = MaxDurability > 0.f
+		? FMath::Clamp(EquippedItem.CurrentDurability / MaxDurability, 0.f, 1.f)
+		: 0.f;
+
+	// 100%(새 것)면 평소엔 깔끔하게 숨기고, 닳기 시작하면 그때부터 보여준다.
+	ProgressBar_Durability->SetVisibility(Percent >= 1.f ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	ProgressBar_Durability->SetPercent(Percent);
+
+	FLinearColor FillColor;
+	if (Percent >= 0.5f)
+	{
+		FillColor = FLinearColor(0.37f, 0.83f, 0.37f);
+	}
+	else if (Percent >= 0.2f)
+	{
+		FillColor = FLinearColor(0.88f, 0.76f, 0.29f);
+	}
+	else
+	{
+		FillColor = FLinearColor(0.88f, 0.35f, 0.29f);
+	}
+	ProgressBar_Durability->SetFillColorAndOpacity(FillColor);
+}
+
+void UEquipmentSlotWidget::UpdateGradeBackground(bool bHasItem)
+{
+	if (Image_GradeBG == nullptr)
+	{
+		return;
+	}
+
+	FItemInstance EquippedItem;
+	FItemViewData ViewData;
+
+	const bool bHasTrackedItem = bHasItem && BoundEquipment != nullptr
+		&& BoundEquipment->GetItemInSlot(SlotType, EquippedItem)
+		&& ResolveItemViewData(EquippedItem.ItemRow, ViewData);
+
+	if (!bHasTrackedItem)
+	{
+		Image_GradeBG->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+
+	// InventoryTypes.h 공용 함수로 인벤토리 칸이랑 색을 맞춘다(RGB는 공용, 알파만
+	// 슬롯 크기에 맞게 여기서 따로 조절). Normal은 평소처럼 안 보이게 둔다.
+	FLinearColor GradeColor = GetGradeTopColor(ViewData.Grade);
+	GradeColor.A = (ViewData.Grade == EItemGrade::Normal) ? 0.0f : 0.35f;
+
+	Image_GradeBG->SetColorAndOpacity(GradeColor);
+	Image_GradeBG->SetVisibility(GradeColor.A > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 }

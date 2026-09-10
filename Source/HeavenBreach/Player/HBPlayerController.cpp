@@ -19,6 +19,8 @@
 #include "UI/HB_ContainerScreen.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "UI/Skill/HB_SkillAugment.h"
+#include "Core/GameFlow/HBMatchResultSubsystem.h"
+#include "Blueprint/UserWidget.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -29,26 +31,84 @@ void AHBPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (IsLocalPlayerController())
+	if (!IsLocalPlayerController())
 	{
-		if (PlayerCameraManager)
-		{
-			PlayerCameraManager->ViewPitchMax = 60.0f;
-		}
-
-		if (UEnhancedInputLocalPlayerSubsystem* InputSubsystem =
-			ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
-		{
-			if (PlayerMappingContext)
-			{
-				InputSubsystem->AddMappingContext(PlayerMappingContext, MappingPriority);
-			}
-		}
-
-		// 입력 모드와 커서는 HUD 레이어의 InputConfig(Game)가 결정한다.
-		// 메뉴가 스택에 올라오면 그쪽 Menu 설정이 이기고, 닫히면 여기로 자동 복귀한다.
-		CreateUILayout();
+		return;
 	}
+
+	if (TryShowPostMatchResultWidget())
+	{
+		// 결과 화면(ExtractionResult 맵)에서는 인게임 카메라/입력매핑/HUD 세팅이 필요 없다.
+		return;
+	}
+
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->ViewPitchMax = 60.0f;
+	}
+
+	if (UEnhancedInputLocalPlayerSubsystem* InputSubsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
+	{
+		if (PlayerMappingContext)
+		{
+			InputSubsystem->AddMappingContext(PlayerMappingContext, MappingPriority);
+		}
+	}
+
+	// 입력 모드와 커서는 HUD 레이어의 InputConfig(Game)가 결정한다.
+	// 메뉴가 스택에 올라오면 그쪽 Menu 설정이 이기고, 닫히면 여기로 자동 복귀한다.
+	CreateUILayout();
+}
+
+bool AHBPlayerController::TryShowPostMatchResultWidget()
+{
+	// 이 함수는 모든 맵에서 BeginPlay 때마다 호출되므로, ExtractionResult 맵일 때만 동작한다.
+	// (구 Level Blueprint의 "Create Widget (WBP_ExtractionResult)" 노드를 대체함 - 그 노드는 제거해야 함)
+	const UWorld* World = GetWorld();
+	if (!World || !World->GetMapName().Contains(TEXT("ExtractionResult")))
+	{
+		return false;
+	}
+
+	EHBPostMatchReason Reason = EHBPostMatchReason::None;
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UHBMatchResultSubsystem* ResultSubsystem = GI->GetSubsystem<UHBMatchResultSubsystem>())
+		{
+			Reason = ResultSubsystem->GetPostMatchReason();
+
+			// 한 번 보여줬으면 초기화. 다음 매치에서 이전 결과가 남아있지 않도록.
+			ResultSubsystem->SetPostMatchReason(EHBPostMatchReason::None);
+		}
+	}
+
+	const TSubclassOf<UUserWidget> WidgetClassToShow =
+		(Reason == EHBPostMatchReason::Died) ? DeathResultWidgetClass : ExtractionResultWidgetClass;
+
+	if (!WidgetClassToShow)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("HBPlayerController | PostMatch result widget class not set | Reason: %d"),
+			static_cast<int32>(Reason)
+			);
+
+		return true;
+	}
+
+	if (UUserWidget* ResultWidget = CreateWidget<UUserWidget>(this, WidgetClassToShow))
+	{
+		ResultWidget->AddToViewport();
+
+		// 결과 화면은 버튼 클릭 등 UI 조작이 필요하므로 마우스 커서와 UI 입력모드를 켠다.
+		FInputModeUIOnly InputMode;
+		SetInputMode(InputMode);
+		SetShowMouseCursor(true);
+	}
+
+	return true;
 }
 
 void AHBPlayerController::CreateUILayout()
@@ -569,6 +629,17 @@ void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCame
 	if (ShakeClass && PlayerCameraManager)
 	{
 		PlayerCameraManager->StartCameraShake(ShakeClass);
+	}
+}
+
+void AHBPlayerController::ClientSetPostMatchReason_Implementation(EHBPostMatchReason Reason)
+{
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UHBMatchResultSubsystem* ResultSubsystem = GI->GetSubsystem<UHBMatchResultSubsystem>())
+		{
+			ResultSubsystem->SetPostMatchReason(Reason);
+		}
 	}
 }
 

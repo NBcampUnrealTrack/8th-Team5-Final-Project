@@ -123,6 +123,68 @@ bool UEquipmentComponent::GetItemInSlot(EEquipSlotType InSlot, FItemInstance& Ou
 	return true;
 }
 
+bool UEquipmentComponent::DamageEquippedItemDurability(EEquipSlotType InSlot, float InAmount, bool& bOutJustBroke)
+{
+	bOutJustBroke = false;
+
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (!IsSlotOccupied(InSlot))
+	{
+		return false;
+	}
+
+	const int32 SlotIndex = SlotToIndex(InSlot);
+	FItemInstance& Item = Slots[SlotIndex];
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(Item.ItemRow, ViewData))
+	{
+		return false;
+	}
+
+	// 과거에 만들어져서 내구도가 아직 초기화 안 된 인스턴스라면 여기서라도 채워준다.
+	if (Item.CurrentDurability < 0.f)
+	{
+		Item.CurrentDurability = GetMaxDurabilityForGrade(ViewData.Grade);
+	}
+
+	if (Item.CurrentDurability <= 0.f)
+	{
+		// 이미 파손된 상태 - 더 깎을 게 없다. 애초에 파손된 무기로는 공격 자체가
+		// 막혀야 하니, 여기까지 호출됐다면 공격 쪽 체크가 빠진 것일 수 있다.
+		return false;
+	}
+
+	const float PreviousDurability = Item.CurrentDurability;
+	Item.CurrentDurability = FMath::Max(0.f, Item.CurrentDurability - InAmount);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Durability] Slot=%d %.1f -> %.1f"), (int32)InSlot, PreviousDurability, Item.CurrentDurability);
+
+	if (PreviousDurability > 0.f && Item.CurrentDurability <= 0.f)
+	{
+		bOutJustBroke = true;
+	}
+
+	OnEquipmentChanged.Broadcast();
+
+	return true;
+}
+
+bool UEquipmentComponent::IsEquippedItemBroken(EEquipSlotType InSlot) const
+{
+	FItemInstance Item;
+	if (!GetItemInSlot(InSlot, Item))
+	{
+		return false;
+	}
+
+	return Item.IsBroken();
+}
+
 bool UEquipmentComponent::FindSlotByInstanceId(FGuid InInstanceId, EEquipSlotType& OutSlot) const
 {
 	for (int32 Index = 0; Index < Slots.Num(); ++Index)
@@ -189,6 +251,11 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 	{
 		return false;
 	}
+
+	// 회전은 인벤토리 그리드 안에서 공간을 차지하는 방식일 뿐이라 장비 슬롯(고정 1칸)에는
+	// 의미가 없다. 장착하는 순간 초기화해줘야 나중에 해제했을 때 회전된 채로 툭 튀어나오는
+	// 어색함이 없어진다.
+	RemovedItem.bRotated = false;
 
 	if (PreviousItem.IsValid())
 	{

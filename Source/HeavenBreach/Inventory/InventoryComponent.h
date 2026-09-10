@@ -62,7 +62,7 @@ public:
 
 	bool TryAddItemAt(const FItemInstance& InItem, FIntPoint InPosition);
 
-	bool MoveItem(FGuid InInstanceId, FIntPoint InNewPosition);
+	bool MoveItem(FGuid InInstanceId, FIntPoint InNewPosition, bool bInRotated);
 
 	bool RemoveItem(FGuid InInstanceId, FItemInstance& OutRemoved);
 
@@ -73,7 +73,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool ToggleFavorite(FGuid InInstanceId);
 
-	bool TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
+	bool TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool bInRotated);
 
 	bool TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
 
@@ -101,10 +101,10 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION(Server, Reliable)
-	void Server_MoveItem(FGuid InInstanceId, FIntPoint InNewPosition);
+	void Server_MoveItem(FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
-	void Server_TransferItem(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition);
+	void Server_TransferItem(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
 	void Server_TransferItemAuto(UInventoryComponent* InTarget, FGuid InInstanceId);
@@ -116,13 +116,13 @@ public:
 	void Server_UnequipItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, FIntPoint InTargetPosition);
 
 	UFUNCTION(Server, Reliable)
-	void Server_TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
+	void Server_TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
 	void Server_TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
 
 	UFUNCTION(Server, Reliable)
-	void Server_MoveItemIn(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition);
+	void Server_MoveItemIn(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
 	void Server_UnequipItemTo(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition);

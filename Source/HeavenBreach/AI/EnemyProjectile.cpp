@@ -25,29 +25,29 @@ AEnemyProjectile::AEnemyProjectile()
 
 	SetReplicateMovement(true);
 
-	// Ãæµ¹Ã¼°¡ ·çÆ®¿©¾ß ÇÑ´Ù. ÀÌµ¿ ÄÄÆ÷³ÍÆ®°¡ ¿òÁ÷ÀÌ´Â ´ë»óÀÌ ·çÆ®´Ù.
+	// ï¿½æµ¹Ã¼ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½Ñ´ï¿½. ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ì´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½.
 	CollisionComp = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionComp"));
 	CollisionComp->SetCollisionProfileName(TEXT("Projectile"));
 	RootComponent = CollisionComp;
 
-	// ÇØ´ç ¸Þ½¬´Â Ãæµ¹ÇÒ ÇÊ¿ä ¾øÀ½. Ãæµ¹Àº ÄÝ¸®ÀüÄÄÆ÷³ÍÆ®°¡ ÇØÁØ´Ù.
+	// ï¿½Ø´ï¿½ ï¿½Þ½ï¿½ï¿½ï¿½ ï¿½æµ¹ï¿½ï¿½ ï¿½Ê¿ï¿½ ï¿½ï¿½ï¿½ï¿½. ï¿½æµ¹ï¿½ï¿½ ï¿½Ý¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½Ø´ï¿½.
 	MeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComp"));
 	MeshComp->SetupAttachment(CollisionComp);
 	MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-	// ¹Ì»çÀÏ ÄÄÆ÷³ÍÆ®
+	// ï¿½Ì»ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®
 	MovementComp = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("MovementComp"));
-	// ½º½º·Î ¿òÁ÷ÀÌÁö ¾Ê°í ÁöÁ¤µÈ ÄÄÆ÷³ÍÆ®¸¦ ¹Ð¾îÁØ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Ð¾ï¿½ï¿½Ø´ï¿½.
 	MovementComp->UpdatedComponent = CollisionComp;
-	// ¹ß»ç ¼ø°£ÀÇ ¼Óµµ
+	// ï¿½ß»ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Óµï¿½
 	MovementComp->InitialSpeed = 3000.f;
-	// ¹ß»ç ÃÖ´ëÀÇ ¼Óµµ
+	// ï¿½ß»ï¿½ ï¿½Ö´ï¿½ï¿½ï¿½ ï¿½Óµï¿½
 	MovementComp->MaxSpeed = 3000.f;
-	// ÁøÇà¹æÇâÀ¸·Î È¸Àü½ÃÅ´. ¾ÈÅ°¸é È­»ìÀÌ ¿·À»º¸¸ç ³¯¶ó°¡¹ö¸±¼ö ÀÖÀ½
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È¸ï¿½ï¿½ï¿½ï¿½Å´. ï¿½ï¿½Å°ï¿½ï¿½ È­ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ó°¡¹ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	MovementComp->bRotationFollowsVelocity = true;
-	// Æ¨±â´Â ¿É¼Ç. ±×°ÇÁö±ÝÇÊ¿ä¾øÀ½
+	// Æ¨ï¿½ï¿½ï¿½ ï¿½É¼ï¿½. ï¿½×°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¿ï¿½ï¿½ï¿½ï¿½
 	MovementComp->bShouldBounce = false;
-	// Áß·Â ¿µÇâ. 0ÀÌ¸é ¹«º¸Á¤, 1ÀÌ¸é Áß·Â¿¡ ¿À³ªÀü¿µÇâ¹ÞÀ½
+	// ï¿½ß·ï¿½ ï¿½ï¿½ï¿½ï¿½. 0ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, 1ï¿½Ì¸ï¿½ ï¿½ß·Â¿ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	MovementComp->ProjectileGravityScale = 0.f;
 }
 
@@ -63,10 +63,10 @@ void AEnemyProjectile::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Ãæµ¹ ½Ã µî·Ï
+	// ï¿½æµ¹ ï¿½ï¿½ ï¿½ï¿½ï¿½
 	CollisionComp->OnComponentHit.AddDynamic(this, &AEnemyProjectile::OnHit);
 	
-	// ¿µ¿øÈ÷ ³¯¶ó°¡±â ¹æÁö. Á¤ÇØÁø½Ã°£µ¿¾È¸¸ »ýÁ¸ÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ó°¡±ï¿½ ï¿½ï¿½ï¿½ï¿½. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ã°ï¿½ï¿½ï¿½ï¿½È¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
 	if (HasAuthority())
 	{
 		SetLifeSpan(MaxLifeSpan);
@@ -75,27 +75,27 @@ void AEnemyProjectile::BeginPlay()
 
 void AEnemyProjectile::Launch(AActor* InInstigator, float InDamage)
 {
-	// ¼­¹ö Àü¿ë
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	if (!HasAuthority())
 	{
 		return;
 	}
 
-	// µ¥¹ÌÁö µî·Ï
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 	if (InDamage >= 0.f)
 	{
-		// ¹èÀ² Æ÷ÇÔ
+		// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		Damage = InDamage * DamageMultiplier;
 	}
 
-	// ¹Ì»çÀÏ ¹«ºê¸ÕÆ®´Â Ãæµ¹ ½Ã ¹Ù·Î ¸ØÃß±â¿¡ ÀÚ±âÀÚ½ÅÀº OnHitÀÌ ¹ß»ýÇÏÁö¾Êµµ·Ï ¸·´Â´Ù.
-	// ±×¸®°í ÀÌ°Å ÁÖÀÎµµ µî·ÏÇØµÐ´Ù.
+	// ï¿½Ì»ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½æµ¹ ï¿½ï¿½ ï¿½Ù·ï¿½ ï¿½ï¿½ï¿½ß±â¿¡ ï¿½Ú±ï¿½ï¿½Ú½ï¿½ï¿½ï¿½ OnHitï¿½ï¿½ ï¿½ß»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Êµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â´ï¿½.
+	// ï¿½×¸ï¿½ï¿½ï¿½ ï¿½Ì°ï¿½ ï¿½ï¿½ï¿½Îµï¿½ ï¿½ï¿½ï¿½ï¿½ØµÐ´ï¿½.
 	if (InInstigator)
 	{
 		SetInstigator(Cast<APawn>(InInstigator));
 		CollisionComp->IgnoreActorWhenMoving(InInstigator, true);
 
-		// ¹ß»çÀÚÀÇ ÆÀÀ» ±â¾ïÇÑ´Ù.
+		// ï¿½ß»ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
 		OwnerTeamTag.Reset();
 		if (UAbilitySystemComponent* OwnerASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(InInstigator))
 		{
@@ -114,13 +114,13 @@ void AEnemyProjectile::Launch(AActor* InInstigator, float InDamage)
 void AEnemyProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
 
-	// ÆÇÁ¤Àº ¼­¹ö Àü¿ëÀÌ°í Å¬¶ó´Â OnRep_HitÀ¸·Î
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ì°ï¿½ Å¬ï¿½ï¿½ï¿½ OnRep_Hitï¿½ï¿½ï¿½ï¿½
 	if (!HasAuthority() || bHit)
 	{
 		return;
 	}
 
-	// ¹ß»çÃ¼ ÁÖÀÎÀº ¾È¸Âµµ·Ï ¼³Á¤µÇ¾îÀÕÁö¸¸ È¤½Ã¸ð¸£´Ï Á¦¿Ü½ÃÅ´
+	// ï¿½ß»ï¿½Ã¼ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½È¸Âµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È¤ï¿½Ã¸ð¸£´ï¿½ ï¿½ï¿½ï¿½Ü½ï¿½Å´
 	if (OtherActor == this || OtherActor == GetInstigator())
 	{
 		return;
@@ -131,60 +131,76 @@ void AEnemyProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 	bHit = true;
 
 
-	// °°Àº ÆÀÀÌ¸é ÇÇÇØ¸¦ ÁÖÁö ¾Ê´Â´Ù. ASC¸¦ º¸À¯ÇÏ°í º¸À¯ÇÑ ÆÀÅÂ±× ¸®½ºÆ®¿¡ ÀÏºÎ Á¸ÀçÇÑ´Ù¸é µ¥¹ÌÁöÀû¿ëx
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½Ø¸ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½. ASCï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â±ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Ïºï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´Ù¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½x
 	UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(OtherActor);
 	bool bSameTeam = TargetASC && !OwnerTeamTag.IsEmpty() && TargetASC->HasAnyMatchingGameplayTags(OwnerTeamTag);
 
-	// Àû³¢¸®´Â µ¥¹ÌÁö°¡ °¡ÇØÁöÁö¾ÊÀ½.
-	// ÀÎÅÍÆäÀÌ½º¸¦ °¡Áö°í ÀÖÀ¸¸ç µ¥¹ÌÁö°¡ °¡ÇØÁú¼ö ÀÕ´Â ´ë»ó¿¡°Ô¸¸
+	// ë§žëŠ” ìª½ì´ íë¥¼ ìˆëŠ”ê°€. ë§‰ê¸°Â·íŒ¨ë§ì— ë”°ë¼ ì†Œë¦¬ê°€ ê°ˆë¦¬ë¯€ë¡œ íëŠ” ë§žëŠ” ìª½ì´ ìœë‹¤.
+	// ë²½ì²˜ëŸ¼ í”¼í•´ë¥¼ ì•ˆ ë°›ëŠ” ëŒ€ìƒì€ ì•„ë¬´ë„ ì•ˆ ì˜ë¯€ë¡œ ì•„ëž˜ì—ì„œ ì—¬ê¸°ê°€ ëŒ€ì‹  ìœë‹¤.
+	bool bTargetPlayedCue = false;
+
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½.
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Õ´ï¿½ ï¿½ï¿½ó¿¡°Ô¸ï¿½
 	if (!bSameTeam && OtherActor && OtherActor->Implements<UDamageableInterface>() && IDamageableInterface::Execute_CanBeDamaged(OtherActor, GetInstigator()))
 	{
-		// µ¥¹ÌÁö Àû¿ë
-		IDamageableInterface::Execute_ApplyMeleeHit(OtherActor, GetInstigator(), Damage, Hit);
+		// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+		// íˆ¬ì‚¬ì²´ë¼ ì›ê±°ë¦¬ë‹¤. íŒ¨ë§ì„ ë‹¹í•´ë„ ë°œì‚¬ìžì—ê²Œ ìŠ¤íƒœê±°ê°€ ê±¸ë¦¬ì§€ ì•ŠëŠ”ë‹¤.
+		IDamageableInterface::Execute_ApplyMeleeHit(OtherActor, GetInstigator(), Damage, Hit, EHBDamageSource::Ranged);
+
+		// ë§žëŠ” ìª½ì´ ìžê¸° íë¥¼ ìˆë‹¤. ì—¬ê¸°ì„œ ë˜ ì˜ë©´ ì†Œë¦¬ê°€ ë‘ ë²ˆ ë‚œë‹¤.
+		bTargetPlayedCue = true;
 	}
 
-	UE_LOG(LogEnemyAI, Log, TEXT("[Projectile] %s ¡æ %s (%.0f)"), *GetNameSafe(GetInstigator()), *GetNameSafe(OtherActor), Damage);
+	UE_LOG(LogEnemyAI, Log, TEXT("[Projectile] %s ï¿½ï¿½ %s (%.0f)"), *GetNameSafe(GetInstigator()), *GetNameSafe(OtherActor), Damage);
 
-	// Å¸°Ý Cue È£Ãâ. ´ë»ó¿¡ µû¶ó ¼Ò¸®°¡ ´Ù¸§
+	// Å¸ï¿½ï¿½ Cue È£ï¿½ï¿½. ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ò¸ï¿½ï¿½ï¿½ ï¿½Ù¸ï¿½
 	{
-		// ¹ß»çÃ¼´Â ASC°¡ ¾ø¾î ÅÂ±×¸¦ º¸À¯ÇÏÁö¾Ê´Â´Ù. ±×·¯´Ï ³Ñ°ÜÁÙ ÅÂ±×µéÀ» ³Ö¾îÁØ´Ù.
+		// ï¿½ß»ï¿½Ã¼ï¿½ï¿½ ASCï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Â±×¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê´Â´ï¿½. ï¿½×·ï¿½ï¿½ï¿½ ï¿½Ñ°ï¿½ï¿½ï¿½ ï¿½Â±×µï¿½ï¿½ï¿½ ï¿½Ö¾ï¿½ï¿½Ø´ï¿½.
 		FGameplayTagContainer ImpactTags;
 		if (ImpactTypeTag.IsValid())
 		{
 			ImpactTags.AddTag(ImpactTypeTag);
 		}
 
-		// ¹ß»çÃ¼ÀÇ ÁÖÀÎ, ÀÚ±âÀÚ½Å, È÷Æ®Á¤º¸, µ¥¹ÌÁö(»ç½ÇÁö±ÝÀº ¾ø¾îµµµÊ), ÅÂ±×µéÀ» ³Ñ°Ü CueÈ£Ãâ
-		HitCuePlay::PlayImpact(GetInstigator(), OtherActor, Hit, Damage, ImpactTags);
+		// ï¿½ß»ï¿½Ã¼ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½, ï¿½Ú±ï¿½ï¿½Ú½ï¿½, ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½îµµï¿½ï¿½), ï¿½Â±×µï¿½ï¿½ï¿½ ï¿½Ñ°ï¿½ CueÈ£ï¿½ï¿½
+		// ë²½ì²˜ëŸ¼ í”¼í•´ë¥¼ ì•ˆ ë°›ëŠ” ëŒ€ìƒë§Œ ì—¬ê¸°ì„œ ìœë‹¤.
+		//
+		// ì³ë‚¼ ì¡°ê±´: íˆ¬ì‚¬ì²´ì˜ ì„±ì§ˆ íƒœê·¸ëŠ” ë°œì‚¬ìž ASC ì— ì—†ì–´ì„œ ë§žëŠ” ìª½ì´ ì•Œ ìˆ˜ ì—†ë‹¤.
+		// ê·¸ëž˜ì„œ í™”ì‚´ì´ ë§‰ížˆë©´ ê´€í†µìŒì´ ì•„ë‹ˆë¼ ë°©ì–´ìŒë§Œ ë‚œë‹¤. ë‘˜ì„ ê²¹ì¹˜ë ¤ë©´
+		// ApplyMeleeHit ì— ì„±ì§ˆ íƒœê·¸ë¥¼ ê°™ì´ ë„˜ê²¨ì•¼ í•œë‹¤.
+		if (!bTargetPlayedCue)
+		{
+			HitCuePlay::PlayImpact(GetInstigator(), OtherActor, Hit, Damage, ImpactTags);
+		}
 	}
 
-	// ¹Ù·Î ÆÄ±«µÇ´Â ¾×ÅÍ¸é ¹Ù·Î »èÁ¦
+	// ï¿½Ù·ï¿½ ï¿½Ä±ï¿½ï¿½Ç´ï¿½ ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½Ù·ï¿½ ï¿½ï¿½ï¿½ï¿½
 	if (HitBehavior == false)
 	{
 		Destroy();
 		return;
 	}
 
-	// ¹ÚÈû.¿òÁ÷ÀÌ´Â ´ë»óÀÇ À§Ä¡¿¡ ºÎÂø½ÃÅ²´Ù.
+	// ï¿½ï¿½ï¿½ï¿½.ï¿½ï¿½ï¿½ï¿½ï¿½Ì´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Å²ï¿½ï¿½.
 	AttachToComponent(OtherComp, FAttachmentTransformRules::KeepWorldTransform, Hit.BoneName);
 	SetLifeSpan(StickLifeSpan);
 
-	// ¼­¹ö¿¡¼­ °ªÀ» ¹Ù²ãµµ RepNotify ´Â ÀÚµ¿ È£ÃâµÇÁö ¾Ê´Â´Ù. Á÷Á¢ ºÎ¸¥´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ù²ãµµ RepNotify ï¿½ï¿½ ï¿½Úµï¿½ È£ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½. ï¿½ï¿½ï¿½ï¿½ ï¿½Î¸ï¿½ï¿½ï¿½.
 	OnRep_Hit();
 }
 
 void AEnemyProjectile::OnRep_Hit()
 {
-	//// Á¤Áö ½ÃÅ²´Ù.
+	//// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å²ï¿½ï¿½.
 	//if (MovementComp)
 	//{
-	//  // ¿òÁ÷ÀÓÀ» ¸ØÃá´Ù.
+	//  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½.
 	//	MovementComp->StopMovementImmediately();
-	//	// ÀÌÁ¦¾µÀÏ¾øÀ¸´Ï ºñÈ°¼ºÈ­
+	//	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¾ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È°ï¿½ï¿½È­
 	//	MovementComp->Deactivate();
 	//}
 
-	// Ãæµ¹À» ²ö´Ù.
+	// ï¿½æµ¹ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½.
 	if (CollisionComp)
 	{
 		CollisionComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
