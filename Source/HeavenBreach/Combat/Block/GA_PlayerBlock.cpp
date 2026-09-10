@@ -11,6 +11,8 @@
 #include "Animation/AnimMontage.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
+#include "Player/HBPlayerCharacter.h"
+#include "EquipmentComponent.h"
 #include "Combat/Ability/Warrior/GA_WarriorParry.h"
 #include "Player/HBPlayerCharacter.h"
 
@@ -49,10 +51,25 @@ void UGA_PlayerBlock::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		return;
 	}
 
-	// �����Ƽ ��� ����
-	if (!CommitAbility(Handle,ActorInfo,ActivationInfo))
+	// ������ ���а� �ļ� ���¸� ���� ��ü�� �������� �ʴ´�(������ �Ҹ� �� ��).
+	// ���а� ���� �Ǽ� ����� �� üũ�� �ǳʶٰ� ��� �����ؾ� �Ѵ�.
+	if (const AHBPlayerCharacter* Blocker = ActorInfo ? Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
 	{
-		EndAbility(Handle,ActorInfo,ActivationInfo,true,false);
+		if (const UEquipmentComponent* Equipment = Blocker->GetEquipment())
+		{
+			if (Equipment->IsSlotOccupied(EEquipSlotType::SecondaryEquip)
+				&& Equipment->IsEquippedItemBroken(EEquipSlotType::SecondaryEquip))
+			{
+				EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+				return;
+			}
+		}
+	}
+
+	// �����Ƽ ��� ����
+	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
 

@@ -516,6 +516,15 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	{
 		if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
 		{
+			BlockMultiplier = 1.f - FMath::Clamp(GetBlockDamageReduction(), 0.f, 1.f);
+
+			// 방패는 "공격을 막음"이 조건. 막기 각도 안에 들어온 공격을 성공적으로
+			// 막아냈을 때 1 깎는다. 방패가 없으면 슬롯이 비어 있어 조용히 무시된다.
+			if (UEquipmentComponent* Equipment = GetEquipment())
+			{
+				bool bJustBroke = false;
+				Equipment->DamageEquippedItemDurability(EEquipSlotType::SecondaryEquip, 1.f, bJustBroke);
+
 			const FVector ToAttacker =
 				(InstigatorActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
 			const float FacingDot = FMath::Clamp(
@@ -581,6 +590,25 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 			*GetNameSafe(this), RawDamage, TargetDefense, HitMultiplier, BlockMultiplier,
 			FinalDamage, HPBefore, HPAfter,
 			AppliedHandle.WasSuccessfullyApplied() ? TEXT("true") : TEXT("false"));
+
+		// 방어구는 "피해를 받음"이 조건. 장착된 투구/몸통/바지를 동시에 1씩 깎는다.
+		if (AppliedHandle.WasSuccessfullyApplied() && FinalDamage > 0.f)
+		{
+			if (UEquipmentComponent* Equipment = GetEquipment())
+			{
+				static const EEquipSlotType ArmorSlots[] =
+				{
+					EEquipSlotType::Helmet,
+					EEquipSlotType::Chest,
+					EEquipSlotType::Legs
+				};
+				for (const EEquipSlotType ArmorSlot : ArmorSlots)
+				{
+					bool bJustBroke = false;
+					Equipment->DamageEquippedItemDurability(ArmorSlot, 1.f, bJustBroke);
+				}
+			}
+		}
 	}
 	else
 	{
@@ -1434,6 +1462,37 @@ void AHBPlayerCharacter::TestDamage(float Amount)
 			}
 		}
 	}
+}
+
+void AHBPlayerCharacter::TestBreakEquipment(int32 Slot)
+{
+	// 클라이언트 창 콘솔에서 친 경우 여기서 서버로 넘긴다.
+	// Equipment는 서버 권한(ROLE_Authority)에서만 실제로 바뀌기 때문에,
+	// 클라 쪽에서 곧장 시도하면 항상 조용히 실패한다(Result=false).
+	if (!HasAuthority())
+	{
+		ServerTestBreakEquipment(Slot);
+		return;
+	}
+
+	UEquipmentComponent* Equipment = GetEquipment();
+	if (!Equipment)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TestBreakEquipment] Equipment 컴포넌트 없음"));
+		return;
+	}
+
+	const EEquipSlotType TargetSlot = static_cast<EEquipSlotType>(Slot);
+	bool bJustBroke = false;
+	const bool bResult = Equipment->DamageEquippedItemDurability(TargetSlot, 9999.f, bJustBroke);
+
+	UE_LOG(LogTemp, Warning, TEXT("[TestBreakEquipment] Slot=%d Result=%s JustBroke=%s"),
+		Slot, bResult ? TEXT("true") : TEXT("false"), bJustBroke ? TEXT("true") : TEXT("false"));
+}
+
+void AHBPlayerCharacter::ServerTestBreakEquipment_Implementation(int32 Slot)
+{
+	TestBreakEquipment(Slot);
 }
 
 void AHBPlayerCharacter::HandleItemUsed(FName ItemId, float HealAmount)

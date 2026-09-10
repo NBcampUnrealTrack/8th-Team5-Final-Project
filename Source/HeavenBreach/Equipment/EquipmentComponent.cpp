@@ -123,6 +123,68 @@ bool UEquipmentComponent::GetItemInSlot(EEquipSlotType InSlot, FItemInstance& Ou
 	return true;
 }
 
+bool UEquipmentComponent::DamageEquippedItemDurability(EEquipSlotType InSlot, float InAmount, bool& bOutJustBroke)
+{
+	bOutJustBroke = false;
+
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (!IsSlotOccupied(InSlot))
+	{
+		return false;
+	}
+
+	const int32 SlotIndex = SlotToIndex(InSlot);
+	FItemInstance& Item = Slots[SlotIndex];
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(Item.ItemRow, ViewData))
+	{
+		return false;
+	}
+
+	// 과거에 만들어져서 내구도가 아직 초기화 안 된 인스턴스라면 여기서라도 채워준다.
+	if (Item.CurrentDurability < 0.f)
+	{
+		Item.CurrentDurability = GetMaxDurabilityForGrade(ViewData.Grade);
+	}
+
+	if (Item.CurrentDurability <= 0.f)
+	{
+		// 이미 파손된 상태 - 더 깎을 게 없다. 애초에 파손된 무기로는 공격 자체가
+		// 막혀야 하니, 여기까지 호출됐다면 공격 쪽 체크가 빠진 것일 수 있다.
+		return false;
+	}
+
+	const float PreviousDurability = Item.CurrentDurability;
+	Item.CurrentDurability = FMath::Max(0.f, Item.CurrentDurability - InAmount);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Durability] Slot=%d %.1f -> %.1f"), (int32)InSlot, PreviousDurability, Item.CurrentDurability);
+
+	if (PreviousDurability > 0.f && Item.CurrentDurability <= 0.f)
+	{
+		bOutJustBroke = true;
+	}
+
+	OnEquipmentChanged.Broadcast();
+
+	return true;
+}
+
+bool UEquipmentComponent::IsEquippedItemBroken(EEquipSlotType InSlot) const
+{
+	FItemInstance Item;
+	if (!GetItemInSlot(InSlot, Item))
+	{
+		return false;
+	}
+
+	return Item.IsBroken();
+}
+
 bool UEquipmentComponent::FindSlotByInstanceId(FGuid InInstanceId, EEquipSlotType& OutSlot) const
 {
 	for (int32 Index = 0; Index < Slots.Num(); ++Index)

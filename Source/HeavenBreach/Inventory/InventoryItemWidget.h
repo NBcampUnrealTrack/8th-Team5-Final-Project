@@ -13,6 +13,7 @@ class UBorder;
 class UWidgetAnimation;
 class UMaterialInstanceDynamic;
 class USizeBox;
+class UProgressBar;
 
 /**
  * Per-item input layer used to start inventory drags from the item's geometry
@@ -51,6 +52,10 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<USizeBox> SizeBox_Icon;
 
+	// 아이콘 회전과 무관하게 항상 칸 하단에 고정되어야 해서 SizeBox_Icon 밖(Overlay 직속)에 둔다.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UProgressBar> ProgressBar_Durability;
+
 	// 1x2, 1x3처럼 정사각형이 아닌(길쭉한) 아이템은 아이콘 아트 자체에 여백이 있어서
 	// 칸을 다 못 채우고 짧아 보이는 경우가 많다. 그런 아이템에만 이 배율만큼 아이콘
 	// 박스를 살짝 키워서 보정한다. 1.0이면 보정 없음. 값은 디자이너가 눈으로 보면서
@@ -63,6 +68,16 @@ private:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> Text_StackCount;
+
+	// 파손된 장비류 아이템에만 보이는 텍스트. UMG에서 위젯을 지워서 지금은 안 씀 ?
+	// 바인딩은 남겨둬도 무해하다(매칭되는 위젯 없으면 nullptr).
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UTextBlock> Text_Broken;
+
+	// 파손 시 아이콘 뒤에 깔리는 반투명 빨간 배경. UMG에 같은 이름의 Image를
+	// 추가하면 자동 바인딩된다(없어도 에러 안 남).
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UImage> Image_BrokenBG;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_ItemGlow;

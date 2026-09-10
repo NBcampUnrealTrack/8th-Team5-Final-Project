@@ -16,6 +16,7 @@
 #include "Combat/GameplayCue/HitCuePlay.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Player/HBPlayerCharacter.h"
+#include "EquipmentComponent.h"
 
 // Sets default values for this component's properties
 UMeleeTraceComponent::UMeleeTraceComponent()
@@ -77,6 +78,7 @@ void UMeleeTraceComponent::BeginTrace(const TArray<FName>& InSockets, TSubclassO
 	// 이전 공격의 기록이 남으면 안 된다.
 	HitActors.Empty();
 	bTracing = true;
+	bDurabilityConsumedThisSwing = false;
 
 	UE_LOG(LogEnemyAI, Warning, TEXT("[Trace] %s Begin"), *GetNameSafe(Owner));
 }
@@ -311,6 +313,17 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 		const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 		const bool bKilled = TargetASC && TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
 		Player->NotifyDamageDealt(Target, FinalDamage, bKilled);
+
+		// 스윙 1회당 내구도 1씩 감소. 여러 명을 맞혀도 한 번만 깎이고, 아무도 못 맞히면 안 깎인다.
+		if (!bDurabilityConsumedThisSwing)
+		{
+			if (UEquipmentComponent* Equipment = Player->GetEquipment())
+			{
+				bool bJustBroke = false;
+				Equipment->DamageEquippedItemDurability(EEquipSlotType::PrimaryWeapon, 1.f, bJustBroke);
+			}
+			bDurabilityConsumedThisSwing = true;
+		}
 	}
 
 	UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (%.0f)"), *GetNameSafe(Owner), *GetNameSafe(Target), FinalDamage);

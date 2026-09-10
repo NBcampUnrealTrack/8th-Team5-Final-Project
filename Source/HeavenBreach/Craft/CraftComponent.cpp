@@ -304,6 +304,12 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 	Result.InstanceId = FGuid::NewGuid();
 	Result.StackCount = Recipe.ResultCount;
 
+	FItemViewData ResultViewData;
+	if (ResolveItemViewData(Result.ItemRow, ResultViewData) && ResultViewData.IsEquippable())
+	{
+		Result.CurrentDurability = GetMaxDurabilityForGrade(ResultViewData.Grade);
+	}
+
 	if (!TargetStash->CanFitItem(Result))
 	{
 		OnCraftCompleted.Broadcast(false);

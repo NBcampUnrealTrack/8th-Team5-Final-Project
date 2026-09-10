@@ -518,7 +518,16 @@ public:
 	UFUNCTION(Exec, Category = "Debug")
 	void TestDamage(float Amount);
 
+	// 테스트용: 지정한 장비 슬롯 내구도를 즉시 0(파손)으로 만든다.
+	// Slot 번호(EEquipSlotType 순서): 1=무기 2=방패 3=투구 4=몸통 5=바지 6=악세서리
+	// 클라이언트 창 콘솔에서 쳐도 서버로 전달되어 실제로 적용된다.
+	UFUNCTION(Exec, Category = "Debug")
+	void TestBreakEquipment(int32 Slot);
+
 protected:
+	UFUNCTION(Server, Reliable)
+	void ServerTestBreakEquipment(int32 Slot);
+
 	// C++에서 호출하면 블루프린트에서 실행되는 이벤트
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
 	void BP_OnPlayerStateReady();

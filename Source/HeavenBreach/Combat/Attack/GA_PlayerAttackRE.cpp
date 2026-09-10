@@ -9,6 +9,7 @@
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
+#include "EquipmentComponent.h"
 
 UGA_PlayerAttackRE::UGA_PlayerAttackRE()
 {
@@ -43,6 +44,20 @@ void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}
 
 	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
+
+	// 장착된 무기가 파손 상태면 애초에 공격을 시작하지 않는다(마나도 소모 안 함).
+	if (Player)
+	{
+		if (const UEquipmentComponent* Equipment = Player->GetEquipment())
+		{
+			if (Equipment->IsEquippedItemBroken(EEquipSlotType::PrimaryWeapon))
+			{
+				EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+				return;
+			}
+		}
+	}
+
 	// 비용 출처는 일반공격이다. 전투 호흡이 이 태그를 보고 마나를 깎는다.
 	const float ManaCost = Player ? Player->ModifyManaCost(AbilityTag::TAG_Ability_BasicAttack, Player->GetAttackManaCost()) : 0.f;
 

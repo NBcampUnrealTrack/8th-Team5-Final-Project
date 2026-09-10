@@ -8,6 +8,7 @@
 #include "InventoryDragDropOperation.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Components/ProgressBar.h"
 
 void UInventoryItemWidget::NativeOnInitialized()
 {
@@ -39,6 +40,10 @@ void UInventoryItemWidget::InitializeItem(
 	const bool bHasViewData = ResolveItemViewData(Item.ItemRow, ViewData);
 	UTexture2D* IconTexture = bHasViewData ? LoadItemIcon(ViewData.IconPath) : nullptr;
 	const EItemGrade Grade = bHasViewData ? ViewData.Grade : EItemGrade::Normal;
+
+	// 장비류이고 내구도가 0까지 닳은(파손) 상태인지. 아래 ProgressBar 계산이랑
+	// 동일한 조건이라 아이콘 틴트/파손 텍스트 둘 다 여기 하나로 처리한다.
+	const bool bIsBroken = bHasViewData && ViewData.IsEquippable() && Item.CurrentDurability == 0.f;
 	if (Image_ItemBackground != nullptr)
 	{
 		Image_ItemBackground->SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f, 0.95f));
@@ -56,38 +61,10 @@ void UInventoryItemWidget::InitializeItem(
 		}
 		if (BackgroundMID != nullptr)
 		{
-			// 등급별 배경 그라데이션 색상
-			FLinearColor TopColor = FLinearColor(0.85f, 0.85f, 0.85f, 1.0f);
-			FLinearColor BottomColor = FLinearColor(0.35f, 0.35f, 0.35f, 1.0f);
-			switch (Grade)
-			{
-			case EItemGrade::Normal:
-				TopColor = FLinearColor(0.85f, 0.85f, 0.85f, 1.0f);
-				BottomColor = FLinearColor(0.35f, 0.35f, 0.35f, 1.0f);
-				break;
-			case EItemGrade::Rare:
-				TopColor = FLinearColor(0.4f, 0.62f, 1.0f, 1.0f);
-				BottomColor = FLinearColor(0.08f, 0.14f, 0.35f, 1.0f);
-				break;
-			case EItemGrade::Epic:
-				TopColor = FLinearColor(0.65f, 0.25f, 0.9f, 1.0f);
-				BottomColor = FLinearColor(0.18f, 0.05f, 0.3f, 1.0f);
-				break;
-			case EItemGrade::Legend:
-				TopColor = FLinearColor(1.0f, 0.78f, 0.2f, 1.0f);
-				BottomColor = FLinearColor(0.42f, 0.26f, 0.04f, 1.0f);
-				break;
-			case EItemGrade::Relic:
-				TopColor = FLinearColor(1.0f, 0.5f, 0.08f, 1.0f);
-				BottomColor = FLinearColor(0.42f, 0.16f, 0.02f, 1.0f);
-				break;
-			case EItemGrade::Ancient:
-				TopColor = FLinearColor(1.0f, 0.98f, 0.9f, 1.0f);
-				BottomColor = FLinearColor(0.7f, 0.62f, 0.36f, 1.0f);
-				break;
-			default:
-				break;
-			}
+			// 등급별 배경 그라데이션 색상 (InventoryTypes.h 공용 함수 ? EquipmentSlotWidget도
+			// 같은 함수를 써서 색을 맞춘다. 색 조정은 InventoryTypes.cpp 한 곳만 고치면 됨)
+			const FLinearColor TopColor = GetGradeTopColor(Grade);
+			const FLinearColor BottomColor = GetGradeBottomColor(Grade);
 			BackgroundMID->SetVectorParameterValue(TEXT("TopColor"), TopColor);
 			BackgroundMID->SetVectorParameterValue(TEXT("BottomColor"), BottomColor);
 
@@ -104,6 +81,9 @@ void UInventoryItemWidget::InitializeItem(
 		if (IconTexture != nullptr)
 		{
 			Image_ItemIcon->SetBrushFromTexture(IconTexture, false);
+			Image_ItemIcon->SetColorAndOpacity(bIsBroken
+				? FLinearColor(1.0f, 0.35f, 0.35f, 1.0f)
+				: FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
 			Image_ItemIcon->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
 		else
@@ -137,6 +117,53 @@ void UInventoryItemWidget::InitializeItem(
 		SizeBox_Icon->SetHeightOverride(ScaledIconSize.Y);
 		SizeBox_Icon->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
 		SizeBox_Icon->SetRenderTransformAngle(Item.bRotated ? 90.0f : 0.0f);
+	}
+
+	if (ProgressBar_Durability != nullptr)
+	{
+		// 장비류이면서 내구도가 초기화된 아이템만 추적한다(-1은 아직 손상 안 입은 레거시/미초기화 상태로 간주).
+		const bool bTrackDurability = ViewData.IsEquippable() && Item.CurrentDurability >= 0.f;
+
+		if (bTrackDurability)
+		{
+			const float MaxDurability = GetMaxDurabilityForGrade(ViewData.Grade);
+			const float Percent = MaxDurability > 0.f
+				? FMath::Clamp(Item.CurrentDurability / MaxDurability, 0.f, 1.f)
+				: 0.f;
+
+			// 100%(새 것)일 땐 평소에 깔끔하게 숨기고, 닳기 시작하면 그때부터 보여준다.
+			ProgressBar_Durability->SetVisibility(Percent >= 1.f ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+			ProgressBar_Durability->SetPercent(Percent);
+
+			FLinearColor FillColor;
+			if (Percent >= 0.5f)
+			{
+				FillColor = FLinearColor(0.37f, 0.83f, 0.37f);
+			}
+			else if (Percent >= 0.2f)
+			{
+				FillColor = FLinearColor(0.88f, 0.76f, 0.29f);
+			}
+			else
+			{
+				FillColor = FLinearColor(0.88f, 0.35f, 0.29f);
+			}
+			ProgressBar_Durability->SetFillColorAndOpacity(FillColor);
+		}
+		else
+		{
+			ProgressBar_Durability->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+
+	if (Text_Broken != nullptr)
+	{
+		Text_Broken->SetVisibility(bIsBroken ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+
+	if (Image_BrokenBG != nullptr)
+	{
+		Image_BrokenBG->SetVisibility(bIsBroken ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 
 	if (Text_FallbackName != nullptr)

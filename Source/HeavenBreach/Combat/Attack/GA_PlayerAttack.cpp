@@ -10,6 +10,7 @@
 #include "GameFramework/Character.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/HBPlayerController.h"
+#include "EquipmentComponent.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Combat/GameplayCue/HitCuePlay.h"
 
@@ -35,12 +36,26 @@ void UGA_PlayerAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 {
 	if (!AM_Attack)
 	{
-		EndAbility(Handle,ActorInfo,ActivationInfo,true,false);
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
-	if (!CommitAbility(Handle,ActorInfo,ActivationInfo))
+
+	// 장착된 무기가 파손 상태면 애초에 공격을 시작하지 않는다(비용/쿨타임도 소모 안 함).
+	if (const AHBPlayerCharacter* AttackerForCheck = ActorInfo ? Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
 	{
-		EndAbility(Handle,ActorInfo,ActivationInfo,true,false);
+		if (const UEquipmentComponent* Equipment = AttackerForCheck->GetEquipment())
+		{
+			if (Equipment->IsEquippedItemBroken(EEquipSlotType::PrimaryWeapon))
+			{
+				EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+				return;
+			}
+		}
+	}
+
+	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
 	
@@ -91,26 +106,26 @@ void UGA_PlayerAttack::PerformHitTrace(const FGameplayAbilityActorInfo* ActorInf
 	{
 		return;
 	}
-	
+
 	AHBPlayerCharacter* AttackPlayer = Cast<AHBPlayerCharacter>(AttackerCharacter);
-	const float AttackRange = AttackPlayer ?  AttackPlayer->GetAttackRange() : 150.f;
-	
+	const float AttackRange = AttackPlayer ? AttackPlayer->GetAttackRange() : 150.f;
+
 	const FVector Start = AttackerCharacter->GetPawnViewLocation();
 	const FVector End = Start + AttackerCharacter->GetBaseAimRotation().Vector() * AttackRange;
-	
+
 	FCollisionObjectQueryParams ObjectParams;
 	ObjectParams.AddObjectTypesToQuery(ECC_Pawn);
 	ObjectParams.AddObjectTypesToQuery(ECC_WorldStatic);
 	ObjectParams.AddObjectTypesToQuery(ECC_WorldDynamic);
-	
+
 	FCollisionQueryParams QueryParams;
 	QueryParams.bReturnPhysicalMaterial = true;
 	QueryParams.AddIgnoredActor(AttackerCharacter);
-	
+
 	TArray<FHitResult> Hits;
 	AttackerCharacter->GetWorld()->SweepMultiByObjectType(
-		Hits,Start,End,FQuat::Identity,ObjectParams,FCollisionShape::MakeSphere(TracerRadius),QueryParams);
-	
+		Hits, Start, End, FQuat::Identity, ObjectParams, FCollisionShape::MakeSphere(TracerRadius), QueryParams);
+
 	for (const FHitResult& Hit : Hits)
 	{
 		AActor* HitActor = Hit.GetActor();
@@ -119,10 +134,10 @@ void UGA_PlayerAttack::PerformHitTrace(const FGameplayAbilityActorInfo* ActorInf
 			continue;
 		}
 		AlreadyHitActors.Add(HitActor);
-		
-		if (HitActor->Implements<UDamageableInterface>() && IDamageableInterface::Execute_CanBeDamaged(HitActor,AttackerCharacter))
+
+		if (HitActor->Implements<UDamageableInterface>() && IDamageableInterface::Execute_CanBeDamaged(HitActor, AttackerCharacter))
 		{
-			ResolveCreatureHit(HitActor,Hit,AttackerCharacter);
+			ResolveCreatureHit(HitActor, Hit, AttackerCharacter);
 		}
 		else
 		{
