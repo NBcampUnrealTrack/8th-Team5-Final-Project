@@ -11,6 +11,8 @@ class UEquipmentComponent;
 class UTexture2D;
 class UUserWidget;
 class SWidget;
+class SBox;
+class SImage;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryDragDropOperation : public UDragDropOperation
@@ -26,6 +28,14 @@ public:
 
 	UPROPERTY()
 	bool bSplitRequested = false;
+
+	// T키로 드래그 중 회전 여부를 토글한 상태. 실제 아이템 데이터(FItemInstance.bRotated)는
+	// 드롭이 확정될 때 서버에서 반영된다 ? 드래그 도중에는 이 값이 미리보기용 진실이다.
+	UPROPERTY()
+	bool bRotated = false;
+
+	// 드래그 중 T키 회전 시 아이콘/박스를 실시간으로 갱신하기 위해 호출한다.
+	void SetRotated(bool bInRotated);
 
 	UPROPERTY()
 	FVector2D GrabPixelOffset = FVector2D::ZeroVector;
@@ -58,6 +68,9 @@ private:
 
 	TWeakObjectPtr<UUserWidget> SourceWidgetContext;
 	TSharedPtr<SWidget> DragVisualRoot;
+	TSharedPtr<SBox> DragBoxWidget;
+	TSharedPtr<SImage> DragImageWidget;
+	FVector2D BaseVisualSize = FVector2D::ZeroVector;
 
 	UPROPERTY()
 	FSlateBrush DragVisualBrush;
