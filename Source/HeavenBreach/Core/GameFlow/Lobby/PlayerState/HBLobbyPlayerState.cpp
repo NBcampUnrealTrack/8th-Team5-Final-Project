@@ -9,6 +9,9 @@ AHBLobbyPlayerState::AHBLobbyPlayerState()
 {
 	bIsReady = false;
 	bStartConfirmed = false;
+
+	// Mage/Archer are not playable yet, so every player starts on Warrior.
+	SelectedJobId = TEXT("Warrior");
 }
 
 void AHBLobbyPlayerState::SetReady(bool bNewReady)
@@ -51,12 +54,34 @@ void AHBLobbyPlayerState::SetStartConfirmed(bool bNewStartConfirmed)
 	ForceNetUpdate();
 }
 
+void AHBLobbyPlayerState::SetSelectedJobId(FName NewJobId)
+{
+	if (!HasAuthority() || SelectedJobId == NewJobId)
+	{
+		return;
+	}
+
+	SelectedJobId = NewJobId;
+
+	UE_LOG(
+	LogTemp,
+	Log,
+	TEXT("Lobby | Player: %s | SelectedJob: %s"),
+	*GetPlayerName(),
+	*SelectedJobId.ToString()
+	);
+
+	OnSelectedJobChanged.Broadcast(SelectedJobId);
+	ForceNetUpdate();
+}
+
 void AHBLobbyPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	
+
 	DOREPLIFETIME(AHBLobbyPlayerState, bIsReady);
 	DOREPLIFETIME(AHBLobbyPlayerState, bStartConfirmed);
+	DOREPLIFETIME(AHBLobbyPlayerState, SelectedJobId);
 }
 
 void AHBLobbyPlayerState::OnRep_IsReady()
@@ -67,4 +92,9 @@ void AHBLobbyPlayerState::OnRep_IsReady()
 void AHBLobbyPlayerState::OnRep_StartConfirmed()
 {
 	OnStartConfirmationChanged.Broadcast(bStartConfirmed);
+}
+
+void AHBLobbyPlayerState::OnRep_SelectedJobId()
+{
+	OnSelectedJobChanged.Broadcast(SelectedJobId);
 }

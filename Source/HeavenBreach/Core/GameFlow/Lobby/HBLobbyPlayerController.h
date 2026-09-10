@@ -20,23 +20,30 @@ class HEAVENBREACH_API AHBLobbyPlayerController : public APlayerController
 public:
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Ready")
 	void SetReady(bool bNewReady);
-	
+
 	UFUNCTION(BlueprintCallable, Category = "Lobby")
 	void RequestStartGame();
 
 	/** Compatibility entry point used by the existing UI; the dedicated server decides whether the vote is accepted. */
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Match")
 	bool RequestStartDedicatedMatch();
-	
+
+	/** JobId must match a UHBJobData::JobId (e.g. "Warrior", "Mage", "Archer"). The server re-validates it. */
+	UFUNCTION(BlueprintCallable, Category = "Lobby|Job")
+	void SelectJob(FName JobId);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-	
+
 	UFUNCTION(Server, Reliable)
 	void ServerSetReady(bool bNewReady);
-	
+
 	UFUNCTION(Server, Reliable)
 	void ServerRequestStartGame();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSelectJob(FName JobId);
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|UI")
 	TSubclassOf<UHBLobbyHUDWidget> LobbyWidgetClass;
