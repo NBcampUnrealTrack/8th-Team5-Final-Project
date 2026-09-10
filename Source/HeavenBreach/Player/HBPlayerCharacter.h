@@ -376,6 +376,45 @@ protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<USkeletalMeshComponent> ShoesMeshComp;
 
+	/** Upper equipment replaces upper body, neck and hands; lower equipment replaces legs and feet. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
+	bool bUseModularEquipment = true;
+
+	/** Only this source body has its body sections replaced. Other job meshes retain their appearance. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
+	TSoftObjectPtr<USkeletalMesh> ModularBodySourceMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing=OnRep_BaseBodyMeshes, Category="Player|Equipment|Temporary Test")
+	TSoftObjectPtr<USkeletalMesh> BaseUpperBodyMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing=OnRep_BaseBodyMeshes, Category="Player|Equipment|Temporary Test")
+	TSoftObjectPtr<USkeletalMesh> BaseLowerBodyMesh;
+
+	UFUNCTION()
+	void OnRep_BaseBodyMeshes();
+
+	bool CanChangeBaseBodyMeshes() const;
+	bool IsCompatibleBaseBodyMesh(const TSoftObjectPtr<USkeletalMesh>& BodyPart) const;
+
+	bool RefreshModularEquipmentVisuals();
+	void SetSourceBodySectionsVisible(bool bVisible);
+	bool bModularBodyActive = false;
+
+public:
+	/** Change the unequipped upper group; equipped upper armor remains visible until removed. Call on the server in game. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Player|Equipment|Modular Body")
+	bool SetBaseUpperBodyMesh(TSoftObjectPtr<USkeletalMesh> UpperBody);
+
+	/** Change the unequipped lower group without changing upper equipment. Call on the server in game. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Player|Equipment|Modular Body")
+	bool SetBaseLowerBodyMesh(TSoftObjectPtr<USkeletalMesh> LowerBody);
+
+	/** Replace both combined body references together, preserving the currently equipped items. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Player|Equipment|Modular Body")
+	bool SetBaseBodyMeshes(TSoftObjectPtr<USkeletalMesh> UpperBody, TSoftObjectPtr<USkeletalMesh> LowerBody);
+
+protected:
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Helmet")
 	FName HairMaterialSlotName = TEXT("MAT_M_CHAMP_HAIR");
 
@@ -411,32 +450,32 @@ protected:
 
 	// TODO: Replace this temporary visual test with item data after coordinating the equipment data format.
 	#pragma region TemporaryEquipmentVisualTest
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test")
 	bool bEnableEquipmentVisualTest = false;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	TSoftObjectPtr<USkeletalMesh> TestHelmetMesh;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	TSoftObjectPtr<USkeletalMesh> TestChestMesh;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	TSoftObjectPtr<USkeletalMesh> TestLegsMesh;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	TSoftObjectPtr<USkeletalMesh> TestShoesMesh;
 
 	// TODO: Remove the combined-mesh override after the Blender fitting test is complete.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	bool bUseCombinedPantsBootsTest = false;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest && bUseCombinedPantsBootsTest"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest && bUseCombinedPantsBootsTest"))
 	TSoftObjectPtr<USkeletalMesh> TestCombinedPantsBootsMesh;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	TSoftObjectPtr<UStaticMesh> TestWeaponMesh;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
 	TSoftObjectPtr<UStaticMesh> TestShieldMesh;
 
 	UFUNCTION(BlueprintCallable, Category="Player|Equipment|Temporary Test")
