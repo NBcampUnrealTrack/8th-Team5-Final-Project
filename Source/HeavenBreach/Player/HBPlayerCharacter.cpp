@@ -524,12 +524,11 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 			{
 				bool bJustBroke = false;
 				Equipment->DamageEquippedItemDurability(EEquipSlotType::SecondaryEquip, 1.f, bJustBroke);
-
-			const FVector ToAttacker =
-				(InstigatorActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
-			const float FacingDot = FMath::Clamp(
-				FVector::DotProduct(GetActorForwardVector(), ToAttacker), -1.f, 1.f);
-			const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FacingDot));
+			}
+				const FVector ToAttacker = (InstigatorActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+				const float FacingDot = FMath::Clamp(FVector::DotProduct(GetActorForwardVector(), ToAttacker), -1.f, 1.f);
+				const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FacingDot));
+			
 			if (AngleDeg <= GetBlockAngle() * 0.5f)
 			{
 				// 방어 각도 안이면 일단 기본 감소율. 패링이 성립하면 그 값으로 덮는다.
