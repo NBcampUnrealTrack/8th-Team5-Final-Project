@@ -35,13 +35,26 @@ ASealedDoorActor::ASealedDoorActor()
 	RootComponent = DoorFrame;
 	DoorFrame->SetCollisionProfileName(FName("BlockAll"));
 
-	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMesh"));
-	DoorMesh->SetupAttachment(DoorFrame);
-	DoorMesh->SetCollisionProfileName(FName("BlockAll"));
-
+	// 봉인 문양은 문틀에 붙인다. 문짝에 붙이면 열릴 때 같이 끌려간다.
 	SealDecal = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SealDecal"));
-	SealDecal->SetupAttachment(DoorMesh);
+	SealDecal->SetupAttachment(DoorFrame);
 	SealDecal->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// 경첩을 회전축으로 쓴다. 문짝 메시의 피벗이 중앙에 있어도 제대로 열린다.
+	// 경첩 위치는 문틀 메시에 맞춰 BP 에서 조정한다.
+	HingeLeft = CreateDefaultSubobject<USceneComponent>(TEXT("HingeLeft"));
+	HingeLeft->SetupAttachment(DoorFrame);
+
+	DoorMeshLeft = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMeshLeft"));
+	DoorMeshLeft->SetupAttachment(HingeLeft);
+	DoorMeshLeft->SetCollisionProfileName(FName("BlockAll"));
+
+	HingeRight = CreateDefaultSubobject<USceneComponent>(TEXT("HingeRight"));
+	HingeRight->SetupAttachment(DoorFrame);
+
+	DoorMeshRight = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMeshRight"));
+	DoorMeshRight->SetupAttachment(HingeRight);
+	DoorMeshRight->SetCollisionProfileName(FName("BlockAll"));
 }
 
 void ASealedDoorActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -52,6 +65,7 @@ void ASealedDoorActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(ASealedDoorActor, DoorState);
 	DOREPLIFETIME(ASealedDoorActor, RoomResult);
 	DOREPLIFETIME(ASealedDoorActor, SequenceStartServerTime);
+	DOREPLIFETIME(ASealedDoorActor, OpenedServerTime);
 }
 
 bool ASealedDoorActor::CanInteract_Implementation(AActor* Interactor) const
@@ -227,6 +241,7 @@ void ASealedDoorActor::OnHoldCancel_Implementation(AActor* Interactor)
 	// 열쇠는 완료 시점(Interact)에 소비하므로 여기서 되돌릴 것이 없다.
 	DoorState = ESealedDoorState::Sealed;
 	SequenceStartServerTime = 0.0f;
+	OpenedServerTime = 0.0f;
 
 	OnRep_DoorState();
 
@@ -249,6 +264,12 @@ void ASealedDoorActor::FinishOpening()
 		RollRoomResult();
 	}
 	GenerateRoom();
+
+	// DoorState 와 같은 리플리케이션 묶음에 실려야 하므로 대입 직전에 설정한다.
+	if (const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr)
+	{
+		OpenedServerTime = GameState->GetServerWorldTimeSeconds();
+	}
 
 	DoorState = ESealedDoorState::Opened;
 
@@ -298,6 +319,7 @@ void ASealedDoorActor::DebugReseal()
 	bRoomGenerated = false;
 	RoomResult = ESealedRoomResult::Undetermined;
 	SequenceStartServerTime = 0.0f;
+	OpenedServerTime = 0.0f;
 	DoorState = ESealedDoorState::Sealed;
 
 	ApplySealedVisual();
@@ -375,9 +397,10 @@ void ASealedDoorActor::OnRep_DoorState()
 
 	case ESealedDoorState::Opened:
 		// 상태 훅: 열려 있는 동안 항상 호출된다. 뒤늦게 relevant 해진 클라이언트도
-		// 반드시 열린 시각적 상태를 봐야 하므로 조건 없이 호출한다.
+		// 반드시 열린 상태를 봐야 하므로 조건 없이 호출하고, 여는 연출을 재생할지 말지는
+		// bJustOpened 로 넘겨 BP 가 판단하게 한다.
 		ApplyOpenedVisual();
-		BP_OnDoorOpened(Grade);
+		BP_OnDoorOpened(Grade, WasJustOpened());
 		break;
 	}
 }
@@ -459,10 +482,16 @@ FText ASealedDoorActor::GetRequiredKeyDisplayName() const
 
 void ASealedDoorActor::ApplyOpenedVisual()
 {
-	if (DoorMesh)
+	// 문짝 각도는 건드리지 않는다 — BP_OnDoorOpened 의 Timeline 이 소유한다.
+	// 콜리전은 회전이 시작되는 지금 푼다.
+	if (DoorMeshLeft)
 	{
-		DoorMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		DoorMesh->SetRelativeRotation(FRotator(0.0f, -100.0f, 0.0f));
+		DoorMeshLeft->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	if (DoorMeshRight)
+	{
+		DoorMeshRight->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
 	if (SealDecal)
@@ -473,16 +502,64 @@ void ASealedDoorActor::ApplyOpenedVisual()
 
 void ASealedDoorActor::ApplySealedVisual()
 {
-	if (DoorMesh)
+	if (DoorMeshLeft)
 	{
-		DoorMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-		DoorMesh->SetRelativeRotation(FRotator::ZeroRotator);
+		DoorMeshLeft->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	}
+
+	if (DoorMeshRight)
+	{
+		DoorMeshRight->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	}
+
+	// 재봉인은 디버그 전용이라 연출을 거치지 않는다. 각도를 직접 되돌린다.
+	if (HingeLeft)
+	{
+		HingeLeft->SetRelativeRotation(FRotator::ZeroRotator);
+	}
+
+	if (HingeRight)
+	{
+		HingeRight->SetRelativeRotation(FRotator::ZeroRotator);
 	}
 
 	if (SealDecal)
 	{
 		SealDecal->SetVisibility(true);
 	}
+}
+
+void ASealedDoorActor::ApplyOpenAngleInstant()
+{
+	if (HingeLeft)
+	{
+		HingeLeft->SetRelativeRotation(FRotator(0.0f, OpenYawLeft, 0.0f));
+	}
+
+	if (HingeRight)
+	{
+		HingeRight->SetRelativeRotation(FRotator(0.0f, OpenYawRight, 0.0f));
+	}
+}
+
+float ASealedDoorActor::GetSwingDurationSeconds() const
+{
+	const FSealedDoorGradeData* GradeData = FindGradeData();
+	return GradeData ? GradeData->SwingDurationSeconds : 0.0f;
+}
+
+bool ASealedDoorActor::WasJustOpened() const
+{
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+	if (GameState == nullptr)
+	{
+		// 판정할 수 없으면 연출을 재생하지 않는 쪽이 안전하다.
+		return false;
+	}
+
+	const float Age = GameState->GetServerWorldTimeSeconds() - OpenedServerTime;
+	return FMath::Abs(Age) <= GetSwingDurationSeconds();
 }
 
 void ASealedDoorActor::RollRoomResult()
