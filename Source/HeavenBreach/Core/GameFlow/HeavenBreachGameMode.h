@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameMode.h"
+#include "Core/GameFlow/HBPostMatchTypes.h"
 #include "HeavenBreachGameMode.generated.h"
 
 class APlayerState;
@@ -39,8 +40,10 @@ public:
 	void NotifyPlayerExtracted(APlayerState* PlayerState);
 	
 	// 임시, 창고 기능 보여주기 용도
-	void TravelPlayersToPostMatchMap();
-	void TravelPlayerToPostMatchMap(APlayerState* PlayerState);
+	// Reason은 ExtractionResult 맵에서 사망/탈출 UI를 구분해서 띄우는 데 쓰인다.
+	// (UHBMatchResultSubsystem에 저장 -> AHBPlayerController::TryShowPostMatchResultWidget에서 사용)
+	void TravelPlayersToPostMatchMap(EHBPostMatchReason Reason);
+	void TravelPlayerToPostMatchMap(APlayerState* PlayerState, EHBPostMatchReason Reason);
 
 protected:
 	// Shared entry point for new connections and players arriving via seamless travel.

@@ -89,7 +89,7 @@ void AHeavenBreachGameMode::NotifyPlayerDied(APlayerState* PlayerState)
 		ActivePlayers.Num()
 		);
 
-	TravelPlayerToPostMatchMap(PlayerState);
+	TravelPlayerToPostMatchMap(PlayerState, EHBPostMatchReason::Died);
 	EvaluateMatchEnd();
 }
 
@@ -121,11 +121,11 @@ void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
 		ActivePlayers.Num()
 		);
 
-	TravelPlayerToPostMatchMap(PlayerState);
+	TravelPlayerToPostMatchMap(PlayerState, EHBPostMatchReason::Extracted);
 	EvaluateMatchEnd();
 }
 
-void AHeavenBreachGameMode::TravelPlayersToPostMatchMap()
+void AHeavenBreachGameMode::TravelPlayersToPostMatchMap(EHBPostMatchReason Reason)
 {
 	if (!HasAuthority())
 	{
@@ -141,11 +141,11 @@ void AHeavenBreachGameMode::TravelPlayersToPostMatchMap()
 			continue;
 		}
 
-		TravelPlayerToPostMatchMap(PlayerController->PlayerState);
+		TravelPlayerToPostMatchMap(PlayerController->PlayerState, Reason);
 	}
 }
 
-void AHeavenBreachGameMode::TravelPlayerToPostMatchMap(APlayerState* PlayerState)
+void AHeavenBreachGameMode::TravelPlayerToPostMatchMap(APlayerState* PlayerState, EHBPostMatchReason Reason)
 {
 	if (!HasAuthority() || !IsValid(PlayerState) || PostMatchTravelRequestedPlayers.Contains(PlayerState))
 	{
@@ -165,10 +165,18 @@ void AHeavenBreachGameMode::TravelPlayerToPostMatchMap(APlayerState* PlayerState
 		UE_LOG(
 			LogTemp,
 			Warning,
-			TEXT("HeavenBreachGM | Travel Player To PostMatch Map | Player: %s | Map: %s"),
+			TEXT("HeavenBreachGM | Travel Player To PostMatch Map | Player: %s | Map: %s | Reason: %d"),
 			*PlayerState->GetPlayerName(),
-			HBMatchFlow::PostMatchMap
+			HBMatchFlow::PostMatchMap,
+			static_cast<int32>(Reason)
 			);
+
+		// PlayerState/GameState don't survive this travel, so hand the reason to the
+		// client's GameInstance subsystem before it disconnects into the results map.
+		if (AHBPlayerController* HBPlayerController = Cast<AHBPlayerController>(PlayerController))
+		{
+			HBPlayerController->ClientSetPostMatchReason(Reason);
+		}
 
 		PlayerController->ClientTravel(HBMatchFlow::PostMatchMap, TRAVEL_Absolute);
 		return;
@@ -288,8 +296,8 @@ void AHeavenBreachGameMode::HandleMatchHasEnded()
 	
 	StopMatchTimer();
 	ActivePlayers.Reset();
-	
-	TravelPlayersToPostMatchMap();
+
+	TravelPlayersToPostMatchMap(EHBPostMatchReason::MatchEnded);
 	ScheduleMatchMapReload();
 }
 
