@@ -32,6 +32,12 @@ struct FCraftRecipeRow : public FTableRowBase
 	FString RecipeName;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FDataTableRowHandle RecipeItem;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = -1))
+	int32 MaxUses = -1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TArray<FCraftIngredient> Ingredients;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
@@ -42,4 +48,6 @@ struct FCraftRecipeRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = 0))
 	int32 GoldCost = 0;
+
+	bool IsLimitedUse() const { return MaxUses > 0; }
 };
