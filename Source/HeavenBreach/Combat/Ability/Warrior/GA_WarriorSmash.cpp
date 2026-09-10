@@ -6,12 +6,16 @@
 #include "AbilitySystemComponent.h"
 #include "GameplayEffect.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/Skill/HB_SkillParamTag.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
 UAnimMontage* UGA_WarriorSmash::GetMontageToPlay() const
 {
-	// Áõ°­¿¡ µû¶ó ¹æÆÐ°­Å¸ ¸ùÅ¸ÁÖ·Î º¯°æÇØ¾ßÇÒ ¼ö ÀÖÀ½.
-	// 1. ¹æÆÐ°­Å¸ ¸ùÅ¸ÁÖ°¡ ÀÕ¾î¾ßÇÏ¸ç 2. ¹æÆÐ °­Å¸ Áõ°­ÀÌ ¾î¶² ÅÂ±×ÀÎÁö ÁöÁ¤À» ÇØ¾ßÇÏ¸ç 3. ÇØ´ç Áõ°­ ÅÂ±×°¡ Áö±Ý ºÎ¿©µÇ¾îÀÕ´ÂÁö º»´Ù.
+	// ë°©íŒ¨ ê°•íƒ€ ëª½íƒ€ì£¼ë¡œ ë°”ê¿”ì•¼ í•˜ëŠ”ì§€ íŒë‹¨í•œë‹¤. ì…‹ì´ ë‹¤ ë§žì•„ì•¼ ë°”ê¾¼ë‹¤.
+	//   1. ë°©íŒ¨ ê°•íƒ€ ëª½íƒ€ì£¼ê°€ ì• ì…‹ì— ì§€ì •ë˜ì–´ ìžˆê³ 
+	//   2. ì–´ë–¤ ì¦ê°•ì´ ë°©íŒ¨ ê°•íƒ€ë¡œ ë°”ê¾¸ëŠ”ì§€ íƒœê·¸ê°€ ì§€ì •ë˜ì–´ ìžˆê³ 
+	//   3. ê·¸ ì¦ê°•ì„ ì‹¤ì œë¡œ ê³¨ëžë‹¤
+	// í•˜ë‚˜ë¼ë„ ì•„ë‹ˆë©´ ê¸°ë³¸ ëª½íƒ€ì£¼ë¥¼ ê·¸ëŒ€ë¡œ ì“´ë‹¤.
 	if (!ShieldMontage)
 	{
 		return Super::GetMontageToPlay();
@@ -25,7 +29,8 @@ UAnimMontage* UGA_WarriorSmash::GetMontageToPlay() const
 		return Super::GetMontageToPlay();
 	}
 
-	// ¹æÆÐ °­Å¸·Î ±³Ã¼. º£ÀÌ½ºÀÇ ActivateAbility ¾È¿¡¼­ ºÒ¸®¹Ç·Î CurrentActorInfo °¡ À¯È¿ÇÏ´Ù.
+	// ì´ í•¨ìˆ˜ëŠ” ë² ì´ìŠ¤ì˜ ActivateAbility ì•ˆì—ì„œ ë¶ˆë¦¬ë¯€ë¡œ CurrentActorInfo ê°€ ìœ íš¨í•˜ë‹¤.
+	// ê·¸ëž˜ì„œ HasAugment ì˜ íŽ¸ì˜í˜•ì„ ì“¸ ìˆ˜ ìžˆë‹¤.
 	return ShieldMontage;
 }
 
@@ -33,13 +38,13 @@ void UGA_WarriorSmash::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
-	// º£ÀÌ½º°¡ ºñ¿ë ºÎÁ·ÀÌ³ª ¸ùÅ¸ÁÖ ¾øÀ½À¸·Î ÀÌ¹Ì ³¡³ÂÀ¸¸é ¾Æ¹«°Íµµ ºÙÀÌÁö ¾Ê´Â´Ù.
+	// ë² ì´ìŠ¤ê°€ ë¹„ìš© ë¶€ì¡±ì´ë‚˜ ëª½íƒ€ì£¼ ì—†ìŒìœ¼ë¡œ ì´ë¯¸ ëëƒˆìœ¼ë©´ ì•„ë¬´ê²ƒë„ í•˜ì§€ ì•ŠëŠ”ë‹¤.
 	if (!IsActive())
 	{
 		return;
 	}
 
-	// ÀÌÈÄÀÇ °ÍµéÀº ¹æÆÐ °­Å¸ Áõ°­¿ä¼ÒµéÀÌ´Ù. Áõ°­ÀÌ¾ø´Ù¸é ½ºÅµ
+	// ì•„ëž˜ëŠ” ì „ë¶€ ë°©íŒ¨ ê°•íƒ€ ì¦ê°• ì „ìš©ì´ë‹¤. ì¦ê°•ì´ ì—†ìœ¼ë©´ ì—¬ê¸°ì„œ ëë‚œë‹¤.
 	if (!ShieldAugmentTag.IsValid())
 	{
 		return;
@@ -59,12 +64,13 @@ void UGA_WarriorSmash::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 		return;
 	}
 
-	// È¯»ê ºñÀ²Àº Áõ°­ µ¥ÀÌÅÍÀÇ Value ´Ù. GA ¿¡ µÎ¸é Áõ°­ ¼³¸í¹®°ú ¼ýÀÚ°¡ °¥¸°´Ù.
-	// HasAugment ·Î ÀÌ¹Ì °É·¶À¸¹Ç·Î ¹Ìº¸À¯ ½Ã 1.0 ÀÌ ¿À´Â ¹®Á¦´Â ¾ø´Ù.
-	const float Ratio = GetAugmentValue(ShieldAugmentTag);
+	// ë°©ì–´ë ¥ì˜ ëª‡ ë°°ë¥¼ ê³µê²©ë ¥ì— ì–¹ì„ì§€. ì¦ê°• ì• ì…‹ì˜ Params ì— ì í˜€ ìžˆë‹¤.
+	// ë°°ìœ¨ì´ ì•„ë‹ˆë¼ ì „í™˜ ë¹„ìœ¨ì´ë¼ ë¯¸ë³´ìœ  ê¸°ë³¸ê°’ì´ 0 ì´ë‹¤. 1.0 ì„ ì£¼ë©´
+	// ì¦ê°•ì´ ì—†ëŠ”ë°ë„ ë°©ì–´ë ¥ì´ í†µì§¸ë¡œ ê³µê²©ë ¥ì— ë”í•´ì§„ë‹¤.
+	const float Ratio = GetAugmentParam(SkillParamTag::TAG_SkillParam_ShieldRatio, 0.f);
 
-	// ¹æ¾î·ÂÀº ¾îÆ®¸®ºäÆ®¶ó GE ÀÇ °íÁ¤ ¼öÄ¡·Î Ç¥ÇöÇÒ ¼ö ¾ø´Ù.
-	// Áö±Ý °ªÀ» ÀÐ¾î SetByCaller ·Î ³Ñ±ä´Ù. ¹ßµ¿ ¼ø°£ÀÇ ¹æ¾î·ÂÀ¸·Î °íÁ¤µÈ´Ù.
+	// ë°©ì–´ë ¥ì€ ì–´íŠ¸ë¦¬ë·°íŠ¸ë¼ GE ì• ì…‹ì— ìˆ«ìžë¡œ ë°•ì•„ ë‘˜ ìˆ˜ ì—†ë‹¤.
+	// ë°œë™ ì‹œì ì— ì½ì–´ì„œ SetByCaller ë¡œ ë„˜ê¸´ë‹¤. ê·¸ëž˜ì•¼ ìž¥ë¹„ë¥¼ ë°”ê¾¸ë©´ ê°™ì´ ë³€í•œë‹¤.
 	const float Defense = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_DefenseAttribute());
 	const float BonusPower = Defense * Ratio;
 	if (BonusPower <= 0.f)
@@ -85,7 +91,7 @@ void UGA_WarriorSmash::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 
 void UGA_WarriorSmash::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
-	// Ãë¼Ò·Î ³¡³ªµµ °ø°Ý·Â º¸Á¤ÀÌ ³²À¸¸é ¾È µÈ´Ù. Á¦°Å
+	// ì·¨ì†Œë¡œ ëë‚˜ë„ ë°˜ë“œì‹œ ê±·ëŠ”ë‹¤. ì•ˆ ë–¼ë©´ ê³µê²©ë ¥ ë³´ì •ì´ ì˜êµ¬ížˆ ë‚¨ëŠ”ë‹¤.
 	if (ShieldPowerHandle.IsValid())
 	{
 		if (UAbilitySystemComponent* ASC = GetASC(ActorInfo))

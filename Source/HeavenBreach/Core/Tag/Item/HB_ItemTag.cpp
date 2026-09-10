@@ -10,4 +10,10 @@ namespace ItemTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Weapon_Staff, "Weapon.Staff")
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Weapon_Bow, "Weapon.Bow")
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Weapon_Unarmed, "Weapon.Unarmed")
+
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Block_Shield, "Block.Shield")
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Block_Sword, "Block.Sword")
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Block_Staff, "Block.Staff")
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Block_Bow, "Block.Bow")
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Block_Unarmed, "Block.Unarmed")
 }
