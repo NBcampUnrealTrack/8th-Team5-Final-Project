@@ -222,8 +222,13 @@ void UInteractionComponent::Server_BeginHold_Implementation(AActor* Target)
 		return;
 	}
 
+	// 대상이 거절하면 홀드를 시작하지 않는다. 봉인문은 필요한 열쇠가 없으면 여기서 거절한다.
+	if (!IInteractableInterface::Execute_OnHoldBegin(Target, Pawn))
+	{
+		return;
+	}
+
 	ServerHeldTarget = Target;
-	IInteractableInterface::Execute_OnHoldBegin(Target, Pawn);
 
 	GetWorld()->GetTimerManager().SetTimer(
 		ServerHoldTimerHandle,

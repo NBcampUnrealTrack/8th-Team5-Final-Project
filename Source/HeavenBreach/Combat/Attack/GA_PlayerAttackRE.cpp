@@ -24,6 +24,14 @@ UGA_PlayerAttackRE::UGA_PlayerAttackRE()
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_BoxInteracting);
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_InventoryBusy);
 
+	// 경직 중에는 공격이 나가지 않는다.
+	// 작동방식: 피격 GE 나 노티파이가 State.Staggered 를 붙이면
+	// CanActivateAbility 가 이 목록과 비교해 발동을 거부한다.
+	// State.HitReact 는 넣지 않는다. 그 태그는 "행동 유지" 용도로 나뉘어 있다.
+	// State.Grabbed 도 넣지 않는다. 잡힌 상태에서 발버둥칠 수 있어야 한다는 기획이다.
+	// 쳐낼 조건: 경직 중 공격으로 반격하는 시스템이 생기면 이 줄을 뺀다.
+	ActivationBlockedTags.AddTag(StateTag::TAG_State_Staggered);
+
 	// AssetTags 는 여기서 설정하지 않는다.
 }
 
@@ -50,7 +58,8 @@ void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		}
 	}
 
-	const float ManaCost = Player ? Player->ModifyManaCost(Player->GetEquippedWeaponTag(), Player->GetAttackManaCost()) : 0.f;
+	// 비용 출처는 일반공격이다. 전투 호흡이 이 태그를 보고 마나를 깎는다.
+	const float ManaCost = Player ? Player->ModifyManaCost(AbilityTag::TAG_Ability_BasicAttack, Player->GetAttackManaCost()) : 0.f;
 
 	// 클라 판정을 믿지 않는다. 재검증
 	if (Player && !Player->HasEnoughMana(ManaCost))

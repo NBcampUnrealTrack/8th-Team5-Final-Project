@@ -7,6 +7,8 @@
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/Job/HBJobData.h"
+#include "Combat/Ability/HBPlayerSkillGABase.h"
+#include "GameplayEffect.h"
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
 #include "EquipmentComponent.h"
@@ -21,48 +23,31 @@
 
 namespace
 {
-	FText GetActiveUpgradeDescription(const FName SkillId, const int32 NextLevel)
+	// 스킬 하나의 GA 클래스에서 CDO 를 꺼낸다.
+	//
+	// 왜 CDO 인가: 증강 목록은 GA 애셋의 클래스 기본값이라 인스턴스가 필요 없다.
+	// 후보를 뽑는 시점에는 그 스킬이 아직 부여되지 않았을 수도 있다.
+	//
+	// 쳐낼 조건: 증강 목록이 인스턴스마다 달라지면 CDO 로는 못 읽는다.
+	// 지금은 애셋에 박힌 값이라 안전하다.
+	const UHBPlayerSkillGABase* GetSkillCDO(const UHBJobData* JobData, const FName SkillId)
 	{
-		if (SkillId == TEXT("Warrior.ChargeSlash"))
+		if (!JobData)
 		{
-			if (NextLevel == 1) return FText::FromString(TEXT("피해 배율이 1.4배로 증가합니다."));
-			if (NextLevel == 2) return FText::FromString(TEXT("돌진 거리와 공격 판정 범위가 증가합니다."));
-			if (NextLevel == 3) return FText::FromString(TEXT("피해 배율이 1.8배가 되고 쿨타임이 4.5초로 감소합니다."));
-		}
-		if (SkillId == TEXT("Warrior.CombatRoll"))
-		{
-			if (NextLevel == 1) return FText::FromString(TEXT("구르기 이동 거리가 20% 증가합니다."));
-			if (NextLevel == 2) return FText::FromString(TEXT("쿨타임이 2.75초로 감소합니다."));
-			if (NextLevel == 3) return FText::FromString(TEXT("쿨타임이 2.5초로 감소합니다."));
-		}
-		if (SkillId == TEXT("Warrior.Execute"))
-		{
-			if (NextLevel == 1) return FText::FromString(TEXT("체력 35% 이하인 적에게 사용할 수 있습니다."));
-			if (NextLevel == 2) return FText::FromString(TEXT("피해 배율이 3배로 증가합니다."));
-			if (NextLevel == 3) return FText::FromString(TEXT("체력 40% 이하인 적에게 사용할 수 있습니다."));
-		}
-		if (SkillId == TEXT("Warrior.BattleCry"))
-		{
-			if (NextLevel == 1) return FText::FromString(TEXT("버프 지속시간이 7초로 증가합니다."));
-			if (NextLevel == 2) return FText::FromString(TEXT("공격력 증가량이 30%로 증가합니다."));
-			if (NextLevel == 3) return FText::FromString(TEXT("버프가 유지되는 동안 방어력이 20 증가합니다."));
-		}
-		if (SkillId == TEXT("Warrior.ChainPull"))
-		{
-			if (NextLevel == 1) return FText::FromString(TEXT("사거리가 900으로 증가합니다."));
-			if (NextLevel == 2) return FText::FromString(TEXT("적을 당기는 힘이 1400으로 증가합니다."));
-			if (NextLevel == 3) return FText::FromString(TEXT("쿨타임이 8초로 감소합니다."));
-		}
-		if (SkillId == TEXT("Warrior.BloodThirst"))
-		{
-			if (NextLevel == 1) return FText::FromString(TEXT("피해 흡혈량이 25%로 증가합니다."));
-			if (NextLevel == 2) return FText::FromString(TEXT("지속시간이 7초로 증가합니다."));
-			if (NextLevel == 3) return FText::FromString(TEXT("흡혈량이 30%로 증가하고 쿨타임이 13초로 감소합니다."));
+			return nullptr;
 		}
 
-		return FText::Format(
-			NSLOCTEXT("HBProgression", "GenericActiveUpgrade", "스킬이 Lv.{0}로 강화됩니다."),
-			FText::AsNumber(NextLevel));
+		const FHBJobSkillData* Skill = JobData->FindSkillAnywhere(SkillId);
+		if (!Skill)
+		{
+			return nullptr;
+		}
+		if (!Skill->AbilityClass)
+		{
+			return nullptr;
+		}
+
+		return Cast<UHBPlayerSkillGABase>(Skill->AbilityClass->GetDefaultObject());
 	}
 }
 
@@ -321,8 +306,7 @@ void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AHB_PlayerState, PlayerLevel);
 	DOREPLIFETIME(AHB_PlayerState, CurrentExperience);
 	DOREPLIFETIME(AHB_PlayerState, TeamId);
-	DOREPLIFETIME(AHB_PlayerState, SkillQUpgradeLevel);
-	DOREPLIFETIME(AHB_PlayerState, SkillEUpgradeLevel);
+	DOREPLIFETIME(AHB_PlayerState, TakenAugments);
 	DOREPLIFETIME(AHB_PlayerState, PendingUpgradeChoices);
 	DOREPLIFETIME(AHB_PlayerState, CurrentUpgradeCandidates);
 
@@ -430,10 +414,14 @@ void AHB_PlayerState::ResetMatchProgression()
 
 	PlayerLevel = 1;
 	CurrentExperience = 0;
-	SkillQUpgradeLevel = 0;
-	SkillEUpgradeLevel = 0;
 	PendingUpgradeChoices = 0;
 	CurrentUpgradeCandidates.Reset();
+
+	// 증강은 이번 판에서만 유효하다. 태그와 그 태그가 붙인 GE 를 같이 걷는다.
+	// GE 를 안 걷으면 로비에서도 공격력이 오른 채로 남는다.
+	RemoveAllAugmentEffects();
+	TakenAugments.Reset();
+
 	BroadcastProgression();
 	OnSkillUpgradesChanged.Broadcast();
 	OnUpgradeCandidatesChanged.Broadcast();
@@ -474,78 +462,95 @@ void AHB_PlayerState::BroadcastProgression()
 	OnPlayerExperienceChanged.Broadcast(CurrentExperience, GetExperienceToNextLevel(), GetExperiencePercent());
 }
 
-int32 AHB_PlayerState::GetSkillUpgradeLevel(const FName SkillId) const
+bool AHB_PlayerState::HasAugment(const FGameplayTag AugmentTag) const
 {
-	const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
-	if (!Character)
+	if (!AugmentTag.IsValid())
 	{
-		return 0;
+		return false;
 	}
 
-	if (Character->GetSelectedSkillQId() == SkillId)
-		return FMath::Clamp(SkillQUpgradeLevel, 0, MaxSkillUpgradeLevel);
-	if (Character->GetSelectedSkillEId() == SkillId)
-		return FMath::Clamp(SkillEUpgradeLevel, 0, MaxSkillUpgradeLevel);
-	return 0;
+	// 정확히 일치하는 것만 본다. 부모 태그로 물으면 다른 증강이 걸린다.
+	return TakenAugments.HasTagExact(AugmentTag);
 }
 
-bool AHB_PlayerState::CanUpgradeSkill(const FName SkillId) const
+void AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag AugmentTag)
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+	if (!AugmentTag.IsValid())
+	{
+		return;
+	}
+	if (TakenAugments.HasTagExact(AugmentTag))
+	{
+		return;   // 같은 증강을 두 번 고를 수는 없다
+	}
+
+	TakenAugments.AddTag(AugmentTag);
+
+	// 전역 효과가 있으면 여기서 붙인다. 수치만 쓰는 증강은 GrantEffect 가 비어 있다.
 	const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
-	const bool bIsEquipped = Character
-		&& (Character->GetSelectedSkillQId() == SkillId
-			|| Character->GetSelectedSkillEId() == SkillId);
-	return PendingUpgradeChoices > 0
-		&& bIsEquipped
-		&& GetSkillUpgradeLevel(SkillId) < MaxSkillUpgradeLevel;
+	const UHBJobData* JobData = Character ? Character->GetJobData() : nullptr;
+	const UHBPlayerSkillGABase* SkillCDO = GetSkillCDO(JobData, TargetSkillId);
+	if (!SkillCDO)
+	{
+		return;
+	}
+
+	FHBSkillAugment Augment;
+	if (!SkillCDO->FindAugment(AugmentTag, Augment))
+	{
+		return;
+	}
+	if (!Augment.GrantEffect)
+	{
+		return;
+	}
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(
+		Augment.GrantEffect, 1.f, AbilitySystemComponent->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+
+	// 핸들을 들고 있는 이유는 개별 취소가 아니라 매치 리셋 때 걷기 위해서다.
+	AugmentEffectHandles.Add(
+		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
+}
+
+void AHB_PlayerState::RemoveAllAugmentEffects()
+{
+	if (AbilitySystemComponent)
+	{
+		for (const FActiveGameplayEffectHandle& Handle : AugmentEffectHandles)
+		{
+			if (!Handle.IsValid())
+			{
+				continue;
+			}
+			AbilitySystemComponent->RemoveActiveGameplayEffect(Handle);
+		}
+	}
+	AugmentEffectHandles.Reset();
+}
+
+// ================ 폐기 예정 ================
+// 스킬 레벨 모델은 증강 태그로 대체됐다. BP 참조가 없다고 확인되면 지운다.
+
+int32 AHB_PlayerState::GetSkillUpgradeLevel(const FName SkillId) const
+{
+	return 0;
 }
 
 void AHB_PlayerState::RequestUpgradeSkill(const FName SkillId)
 {
-	if (HasAuthority())
-	{
-		ApplySkillUpgrade(SkillId);
-	}
-	else
-	{
-		ServerRequestUpgradeSkill(SkillId);
-	}
-}
-
-void AHB_PlayerState::ServerRequestUpgradeSkill_Implementation(const FName SkillId)
-{
-	ApplySkillUpgrade(SkillId);
-}
-
-void AHB_PlayerState::ApplySkillUpgrade(const FName SkillId)
-{
-	if (!HasAuthority() || !CanUpgradeSkill(SkillId))
-	{
-		return;
-	}
-
-	AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
-	if (!Character)
-	{
-		return;
-	}
-
-	if (Character->GetSelectedSkillQId() == SkillId)
-	{
-		SkillQUpgradeLevel = FMath::Min(SkillQUpgradeLevel + 1, MaxSkillUpgradeLevel);
-	}
-	else if (Character->GetSelectedSkillEId() == SkillId)
-	{
-		SkillEUpgradeLevel = FMath::Min(SkillEUpgradeLevel + 1, MaxSkillUpgradeLevel);
-	}
-	else
-	{
-		return;
-	}
-	--PendingUpgradeChoices;
-	OnSkillUpgradesChanged.Broadcast();
-	GenerateUpgradeCandidates();
-	ForceNetUpdate();
 }
 
 void AHB_PlayerState::OnRep_SkillUpgrades()
@@ -577,30 +582,47 @@ void AHB_PlayerState::ApplyUpgradeCandidate(const FName CandidateId)
 		return;
 	}
 
-	const FHBUpgradeCandidate* Candidate = CurrentUpgradeCandidates.FindByPredicate(
-		[CandidateId](const FHBUpgradeCandidate& Entry)
+	// 람다 대신 직접 훑는다. 후보가 최대 3장이라 비용이 없다.
+	const FHBUpgradeCandidate* Candidate = nullptr;
+	for (const FHBUpgradeCandidate& Entry : CurrentUpgradeCandidates)
+	{
+		if (Entry.CandidateId == CandidateId)
 		{
-			return Entry.CandidateId == CandidateId;
-		});
+			Candidate = &Entry;
+			break;
+		}
+	}
 	if (!Candidate)
 	{
+		return;   // 클라가 없는 카드를 보냈다
+	}
+
+	// 카드 종류에 따라 적용 방식이 갈린다. 성공했을 때만 선택권을 소모한다.
+	bool bApplied = false;
+
+	if (Candidate->Type == EHBUpgradeCandidateType::Augment)
+	{
+		ApplyAugment(Candidate->TargetSkillId, Candidate->AugmentTag);
+		bApplied = true;
+	}
+	else
+	{
+		AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
+		if (Character)
+		{
+			bApplied = Character->AddPassiveSkillFromUpgrade(Candidate->TargetSkillId);
+		}
+	}
+
+	if (!bApplied)
+	{
 		return;
 	}
 
-	if (Candidate->Type == EHBUpgradeCandidateType::ActiveSkill)
-	{
-		ApplySkillUpgrade(Candidate->TargetSkillId);
-		return;
-	}
-
-	AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
-	if (Character && Character->AddPassiveSkillFromUpgrade(Candidate->TargetSkillId))
-	{
-		--PendingUpgradeChoices;
-		OnSkillUpgradesChanged.Broadcast();
-		GenerateUpgradeCandidates();
-		ForceNetUpdate();
-	}
+	--PendingUpgradeChoices;
+	OnSkillUpgradesChanged.Broadcast();
+	GenerateUpgradeCandidates();
+	ForceNetUpdate();
 }
 
 void AHB_PlayerState::GenerateUpgradeCandidates()
@@ -612,37 +634,79 @@ void AHB_PlayerState::GenerateUpgradeCandidates()
 
 	CurrentUpgradeCandidates.Reset();
 	AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
-	UHBJobData* JobData = Character ? Character->GetJobData() : nullptr;
-	if (PendingUpgradeChoices <= 0 || !Character || !JobData)
+	if (PendingUpgradeChoices <= 0 || !Character)
 	{
 		OnUpgradeCandidatesChanged.Broadcast();
 		ForceNetUpdate();
 		return;
 	}
 
-	TArray<FHBJobSkillData> MissingPassives;
+	// 후보를 종류별 자리로 나누지 않고 한 통에 모은 뒤 섞는다.
+	//
+	// 왜 이렇게 바꿨나: 전에는 "패시브 1장 + Q강화 + E강화" 로 자리가 고정이라
+	// 액티브 증강이 항상 2장, 패시브가 항상 1장 이상 떴다. 기획은 모든 증강이
+	// 똑같은 확률로 섞여 나오는 것이다.
+	TArray<FHBUpgradeCandidate> Pool;
+
+	CollectMissingPassives(Pool);
+	CollectSkillAugments(Pool, Character->GetSelectedSkillQId());
+	CollectSkillAugments(Pool, Character->GetSelectedSkillEId());
+	for (const FName PassiveId : Character->GetSelectedPassiveSkillIds())
+	{
+		// 보유한 패시브의 증강도 같은 통에 들어간다.
+		// 패링 증강은 패링 패시브를 얻은 뒤에야 후보로 떠야 한다.
+		CollectSkillAugments(Pool, PassiveId);
+	}
+
+	// 궁극기는 넣지 않는다. 궁극기 증강은 기획에서 폐기됐다.
+
+	// 앞에서부터 3장을 뽑는다. 뽑을 때마다 마지막 것과 자리를 바꿔 O(1) 로 제거한다.
+	const int32 DrawCount = FMath::Min(3, Pool.Num());
+	for (int32 Drawn = 0; Drawn < DrawCount; ++Drawn)
+	{
+		const int32 Index = FMath::RandRange(0, Pool.Num() - 1);
+		CurrentUpgradeCandidates.Add(Pool[Index]);
+		Pool.RemoveAtSwap(Index);
+	}
+
+	// 뽑을 게 하나도 없으면 선택권을 소모하고 넘긴다.
+	// 안 그러면 카드 0장짜리 선택 UI 가 영영 열려 있는다.
+	if (CurrentUpgradeCandidates.IsEmpty())
+	{
+		PendingUpgradeChoices = 0;
+		OnSkillUpgradesChanged.Broadcast();
+	}
+
+	OnUpgradeCandidatesChanged.Broadcast();
+	ForceNetUpdate();
+}
+
+void AHB_PlayerState::CollectMissingPassives(TArray<FHBUpgradeCandidate>& OutPool) const
+{
+	const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
+	const UHBJobData* JobData = Character ? Character->GetJobData() : nullptr;
+	if (!JobData)
+	{
+		return;
+	}
+
 	const TArray<FName> OwnedPassives = Character->GetSelectedPassiveSkillIds();
 	for (const FHBJobSkillData& Passive : JobData->GetPassiveSkillCatalog())
 	{
-		if (!Passive.SkillId.IsNone() && Passive.AbilityClass
-			&& !OwnedPassives.Contains(Passive.SkillId))
+		if (Passive.SkillId.IsNone())
 		{
-			MissingPassives.Add(Passive);
+			continue;
 		}
-	}
-
-	auto AddRandomPassive = [this, &MissingPassives]() -> bool
-	{
-		if (MissingPassives.IsEmpty())
+		if (!Passive.AbilityClass)
 		{
-			return false;
+			continue;
+		}
+		if (OwnedPassives.Contains(Passive.SkillId))
+		{
+			continue;   // 이미 가졌다
 		}
 
-		const int32 Index = FMath::RandRange(0, MissingPassives.Num() - 1);
-		const FHBJobSkillData Passive = MissingPassives[Index];
-		MissingPassives.RemoveAtSwap(Index);
-
-		FHBUpgradeCandidate& Candidate = CurrentUpgradeCandidates.AddDefaulted_GetRef();
+		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
 		Candidate.CandidateId = FName(*FString::Printf(
 			TEXT("Acquire.Passive.%s"), *Passive.SkillId.ToString()));
 		Candidate.Type = EHBUpgradeCandidateType::NewPassive;
@@ -650,48 +714,53 @@ void AHB_PlayerState::GenerateUpgradeCandidates()
 		Candidate.DisplayName = Passive.DisplayName;
 		Candidate.Description = Passive.Description;
 		Candidate.Icon = Passive.Icon;
-		return true;
-	};
+	}
+}
 
-	auto AddActiveUpgrade = [this, JobData](const FName SkillId)
+void AHB_PlayerState::CollectSkillAugments(TArray<FHBUpgradeCandidate>& OutPool, const FName SkillId) const
+{
+	if (SkillId.IsNone())
 	{
-		if (SkillId.IsNone() || GetSkillUpgradeLevel(SkillId) >= MaxSkillUpgradeLevel)
-		{
-			return;
-		}
-
-		const FHBJobSkillData* Skill = JobData->FindActiveSkill(SkillId);
-		if (!Skill)
-		{
-			return;
-		}
-
-		const int32 CurrentLevel = GetSkillUpgradeLevel(SkillId);
-		FHBUpgradeCandidate& Candidate = CurrentUpgradeCandidates.AddDefaulted_GetRef();
-		Candidate.CandidateId = FName(*FString::Printf(
-			TEXT("Upgrade.Active.%s.%d"), *SkillId.ToString(), CurrentLevel + 1));
-		Candidate.Type = EHBUpgradeCandidateType::ActiveSkill;
-		Candidate.TargetSkillId = SkillId;
-		Candidate.DisplayName = FText::Format(
-			NSLOCTEXT("HBProgression", "ActiveUpgradeName", "{0} 강화"),
-			Skill->DisplayName);
-		Candidate.Description = GetActiveUpgradeDescription(SkillId, CurrentLevel + 1);
-		Candidate.Icon = Skill->Icon;
-		Candidate.CurrentLevel = CurrentLevel;
-		Candidate.NextLevel = CurrentLevel + 1;
-	};
-
-	// Card 1 is a random unowned passive whenever one exists.
-	AddRandomPassive();
-	AddActiveUpgrade(Character->GetSelectedSkillQId());
-	AddActiveUpgrade(Character->GetSelectedSkillEId());
-
-	while (CurrentUpgradeCandidates.Num() < 3 && AddRandomPassive())
-	{
+		return;
 	}
 
-	OnUpgradeCandidatesChanged.Broadcast();
-	ForceNetUpdate();
+	const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
+	const UHBJobData* JobData = Character ? Character->GetJobData() : nullptr;
+	const FHBJobSkillData* Skill = JobData ? JobData->FindSkillAnywhere(SkillId) : nullptr;
+	if (!Skill)
+	{
+		return;
+	}
+
+	// 증강 목록의 주인은 GA 애셋이다. 인스턴스 없이 CDO 에서 읽는다.
+	const UHBPlayerSkillGABase* SkillCDO = GetSkillCDO(JobData, SkillId);
+	if (!SkillCDO)
+	{
+		return;   // 이 스킬은 아직 새 베이스를 안 쓴다
+	}
+
+	for (const FHBSkillAugment& Augment : SkillCDO->GetAugments())
+	{
+		if (!Augment.AugmentTag.IsValid())
+		{
+			continue;
+		}
+		if (TakenAugments.HasTagExact(Augment.AugmentTag))
+		{
+			continue;   // 이미 고른 증강은 다시 안 나온다
+		}
+
+		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
+		Candidate.CandidateId = FName(*FString::Printf(
+			TEXT("Augment.%s"), *Augment.AugmentTag.GetTagName().ToString()));
+		Candidate.Type = EHBUpgradeCandidateType::Augment;
+		Candidate.TargetSkillId = SkillId;
+		Candidate.AugmentTag = Augment.AugmentTag;
+		Candidate.DisplayName = Augment.DisplayName;
+		// 설명의 {Cooldown} 같은 치환자를 실제 수치로 바꿔서 넘긴다.
+		Candidate.Description = Augment.GetFormattedDescription();
+		Candidate.Icon = Augment.Icon;
+	}
 }
 
 void AHB_PlayerState::OnRep_UpgradeCandidates()

@@ -36,8 +36,11 @@ public:
 	/** 등급별 봉인 해제 시간. 이 시간 동안 상호작용 키를 누르고 있어야 문이 열린다 */
 	virtual float GetInteractHoldSeconds_Implementation() const override;
 
-	/** 누르기 시작 — Opening 으로 전환해 다른 플레이어에게도 봉인 해제 중임을 보인다 */
-	virtual void OnHoldBegin_Implementation(AActor* Interactor) override;
+	/**
+	 * 누르기 시작 — Opening 으로 전환하고 방 내용물을 미리 배치한다.
+	 * 열쇠를 갖고 있지 않으면 false 를 돌려 시작 자체를 거절한다.
+	 */
+	virtual bool OnHoldBegin_Implementation(AActor* Interactor) override;
 
 	/** 중간에 놓음 — Sealed 로 되돌린다. 열쇠는 아직 소비하지 않았으므로 손실이 없다 */
 	virtual void OnHoldCancel_Implementation(AActor* Interactor) override;
@@ -170,6 +173,12 @@ protected:
 
 	/** 인벤토리에서 지정한 행 이름의 아이템을 찾는다 */
 	bool FindMatchingKey(UInventoryComponent* Inventory, FName RequiredKeyRowName, FGuid& OutInstanceId) const;
+
+	/**
+	 * 상호작용자가 이 문에 맞는 열쇠를 갖고 있는지. 소비하지 않는다.
+	 * bDebugSkipKeyCheck 가 켜져 있으면 항상 true.
+	 */
+	bool HasRequiredKey(AActor* Interactor) const;
 
 	/** 필요한 열쇠의 표시 이름. DT_Item 조회 */
 	FText GetRequiredKeyDisplayName() const;

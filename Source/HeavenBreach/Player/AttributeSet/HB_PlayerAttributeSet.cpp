@@ -21,6 +21,14 @@ UHB_PlayerAttributeSet::UHB_PlayerAttributeSet()
 	InitPlayer_ManaCostMultiplier(1.f);
 	InitPlayer_CooldownFlat(0.f);
 	InitPlayer_CooldownMultiplier(1.f);
+	InitPlayer_LifeStealRatio(0.f);
+	InitPlayer_BasicAttackManaCostMultiplier(1.f);
+	InitPlayer_LowHealthAttackBonus(0.f);
+	// ì¤‘ë¦½ê°’ 0 ì´ë‹¤. ì‹¤ì œ ì„ê³„ê°’ì€ íŒ¨ì‹œë¸Œ GE ê°€ Override ë¡œ ì§€ì •í•œë‹¤.
+	// ì—¬ê¸°ì— 0.3 ì„ ë°•ì•„ë‘ë©´ ë°¸ëŸ°ìŠ¤ê°€ ì„ê³„ê°’ì„ ë°”ê¿€ ë•Œ C++ ì„ ê³ ì³ì•¼ í•œë‹¤.
+	// GE ì—ì„œ ì´ ëª¨ë””íŒŒì´ì–´ë¥¼ ë¹¼ë¨¹ìœ¼ë©´ Span ì´ 1 ì´ ë˜ì–´ ì²´ë ¥ 0% ì—ì„œì•¼ ìµœëŒ€ê°€ ëœë‹¤.
+	// ê³¡ì„ ì´ ì™„ë§Œí•´ì§€ëŠ” ê²ƒìœ¼ë¡œ í…ŒìŠ¤íŠ¸ì—ì„œ ë°”ë¡œ ë“œëŸ¬ë‚œë‹¤.
+	InitPlayer_LowHealthAttackThreshold(0.f);
 }
 
 void UHB_PlayerAttributeSet::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -39,6 +47,10 @@ void UHB_PlayerAttributeSet::GetLifetimeReplicatedProps(TArray<class FLifetimePr
 	DOREPLIFETIME(ThisClass,Player_ManaCostMultiplier);
 	DOREPLIFETIME(ThisClass,Player_CooldownFlat);
 	DOREPLIFETIME(ThisClass,Player_CooldownMultiplier);
+	DOREPLIFETIME(ThisClass,Player_LifeStealRatio);
+	DOREPLIFETIME(ThisClass,Player_BasicAttackManaCostMultiplier);
+	DOREPLIFETIME(ThisClass,Player_LowHealthAttackBonus);
+	DOREPLIFETIME(ThisClass,Player_LowHealthAttackThreshold);
 }
 
 void UHB_PlayerAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
@@ -73,6 +85,28 @@ void UHB_PlayerAttributeSet::PreAttributeChange(const FGameplayAttribute& Attrib
 	{
 		NewValue = FMath::Clamp(NewValue, 0.2f, 2.f);
 	}
+	else if (Attribute == GetPlayer_BasicAttackManaCostMultiplierAttribute())
+	{
+		// í•˜í•œ 0 ì´ë¼ì•¼ ì „íˆ¬ í˜¸í¡ì˜ ì¦ê°• Free(ë§ˆë‚˜ 0)ê°€ ì„±ë¦½í•œë‹¤.
+		// ìƒí•œ 2 ëŠ” ì†Œë¹„ ì¦ê°€ ë””ë²„í”„ìš©.
+		NewValue = FMath::Clamp(NewValue, 0.f, 2.f);
+	}
+	else if (Attribute == GetPlayer_LowHealthAttackBonusAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.f, 2.f);
+	}
+	else if (Attribute == GetPlayer_LowHealthAttackThresholdAttribute())
+	{
+		// ìƒí•œ 0.95 ì¸ ì´ìœ : 1.0 ì´ë©´ ì‚°ì‹ì˜ (1 - ì„ê³„) ê°€ 0 ì´ ë˜ì–´ 0 ìœ¼ë¡œ ë‚˜ëˆˆë‹¤.
+		NewValue = FMath::Clamp(NewValue, 0.f, 0.95f);
+	}
+	else if (Attribute == GetPlayer_LifeStealRatioAttribute())
+	{
+		// í¡í˜ˆ 100% ë¥¼ ë„˜ê¸°ë©´ ë•Œë¦´ìˆ˜ë¡ ì²´ë ¥ì´ ì°¨ì„œ ì£½ì§€ ì•ŠëŠ”ë‹¤.
+		// ë²„í”„Â·ì¦ê°•Â·ì¥ë¹„ê°€ ê²¹ì³ë„ ìƒí•œì„ ë„˜ì§€ ì•Šê²Œ ì—¬ê¸°ì„œ ë§‰ëŠ”ë‹¤.
+		// ì³ë‚¼ ì¡°ê±´: 100% ì´ˆê³¼ í¡í˜ˆì´ ê¸°íšì— ë“¤ì–´ì˜¤ë©´ ìƒí•œì„ ì˜¬ë¦°ë‹¤.
+		NewValue = FMath::Clamp(NewValue, 0.f, 1.f);
+	}
 }
 
 void UHB_PlayerAttributeSet::PostAttributeChange(
@@ -94,8 +128,8 @@ void UHB_PlayerAttributeSet::PostAttributeChange(
 		return;
 	}
 
-	// ÇöÀçÄ¡¸¦ ¾²´Â °ÍÀº ¼­¹ö¸¸ ÇÑ´Ù.
-	// Å¬¶ó¿¡¼­ ¾²¸é °ğ µµÂøÇÒ º¹Á¦°ª°ú ½Î¿ö¼­ Ã¼·Â¹Ù°¡ ÇÑ ¹ø Æ¤´Ù.
+	// ï¿½ï¿½ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ñ´ï¿½.
+	// Å¬ï¿½ó¿¡¼ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Î¿ï¿½ï¿½ï¿½ Ã¼ï¿½Â¹Ù°ï¿½ ï¿½ï¿½ ï¿½ï¿½ Æ¤ï¿½ï¿½.
 	if (!ASC->IsOwnerActorAuthoritative())
 	{
 		return;
@@ -144,11 +178,11 @@ void UHB_PlayerAttributeSet::PostGameplayEffectExecute(const struct FGameplayEff
 
 	if (Data.EvaluatedData.Attribute == GetPlayer_ManaAttribute())
 	{
-		// È¸º¹ºĞÀº È°µ¿À¸·Î Ä¡Áö ¾Ê´Â´Ù. ¿©±â¼­ ¾È ¸·À¸¸é È¸º¹ÀÌ ½º½º·Î È¸º¹ Áö¿¬À» °»½ÅÇØ ¿µ±¸ Á¤ÁöÇÑ´Ù.
+		// È¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ä¡ï¿½ï¿½ ï¿½Ê´Â´ï¿½. ï¿½ï¿½ï¿½â¼­ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
 		if (Data.EvaluatedData.Magnitude < 0.f)
 		{
-			// ¾×Æ¼ºêÀÇ Cost GE ´Â Ä³¸¯ÅÍÀÇ ConsumeMana ¸¦ °ÅÄ¡Áö ¾Ê¾Æ LastManaActivityTime ÀÌ ¾È ¹Ğ¸°´Ù.
-			// GE ·Î ¸¶³ª°¡ ºüÁö´Â ¸ğµç °æ·Î¸¦ ¿©±â ÇÑ °÷¿¡¼­ ¹Ş´Â´Ù.
+			// ï¿½ï¿½Æ¼ï¿½ï¿½ï¿½ï¿½ Cost GE ï¿½ï¿½ Ä³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ConsumeMana ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½Ê¾ï¿½ LastManaActivityTime ï¿½ï¿½ ï¿½ï¿½ ï¿½Ğ¸ï¿½ï¿½ï¿½.
+			// GE ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½Î¸ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ş´Â´ï¿½.
 			if (UAbilitySystemComponent* ASC = GetOwningAbilitySystemComponent())
 			{
 				if (AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(ASC->GetAvatarActor()))
@@ -224,22 +258,42 @@ void UHB_PlayerAttributeSet::OnRep_CooldownMultiplier(const FGameplayAttributeDa
 	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_CooldownMultiplier, OldValue);
 }
 
+void UHB_PlayerAttributeSet::OnRep_LifeStealRatio(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_LifeStealRatio, OldValue);
+}
+
+void UHB_PlayerAttributeSet::OnRep_BasicAttackManaCostMultiplier(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_BasicAttackManaCostMultiplier, OldValue);
+}
+
+void UHB_PlayerAttributeSet::OnRep_LowHealthAttackBonus(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_LowHealthAttackBonus, OldValue);
+}
+
+void UHB_PlayerAttributeSet::OnRep_LowHealthAttackThreshold(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_LowHealthAttackThreshold, OldValue);
+}
+
 float UHB_PlayerAttributeSet::CalculateCurrentOnMaxChanged(float Current, float OldMax, float NewMax)
 {
-	// Á×Àº »óÅÂ¿¡¼­ ÃÖ´ëÄ¡ »ó½ÂÀ¸·Î HP°¡ ¿Ã¶ó°¡ µÇ»ì¾Æ³ª ¹ö¸°´Ù. 0ÀÌ¸é °Çµå¸®Áö ¾Ê´Â´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Â¿ï¿½ï¿½ï¿½ ï¿½Ö´ï¿½Ä¡ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ HPï¿½ï¿½ ï¿½Ã¶ï¿½ ï¿½Ç»ï¿½Æ³ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½. 0ï¿½Ì¸ï¿½ ï¿½Çµå¸®ï¿½ï¿½ ï¿½Ê´Â´ï¿½.
 	if (Current <= 0.f)
 	{
 		return Current;
 	}
 
-	// »ó½Â: ¿À¸¥ ¸¸Å­ ÇöÀçÄ¡µµ °°ÀÌ ¿Ã¸°´Ù.
-	// ¾È ¿Ã¸®¸é Àåºñ¸¦ ³¥ ¶§¸¶´Ù Ã¼·Â¹Ù°¡ ±ğ¿© º¸ÀÎ´Ù.
+	// ï¿½ï¿½ï¿½: ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å­ ï¿½ï¿½ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ã¸ï¿½ï¿½ï¿½.
+	// ï¿½ï¿½ ï¿½Ã¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ã¼ï¿½Â¹Ù°ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½Î´ï¿½.
 	if (NewMax > OldMax)
 	{
 		return Current + (NewMax - OldMax);
 	}
 
-	// ÇÏ¶ô: ÇöÀçÄ¡´Â ±ğÁö ¾Ê´Â´Ù. ´Ù¸¸ ÃÖ´ëÄ¡¸¦ ³Ñ¾î¹ö¸° ¸¸Å­¸¸ Àß¶ó³½´Ù.
+	// ï¿½Ï¶ï¿½: ï¿½ï¿½ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½. ï¿½Ù¸ï¿½ ï¿½Ö´ï¿½Ä¡ï¿½ï¿½ ï¿½Ñ¾ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å­ï¿½ï¿½ ï¿½ß¶ó³½´ï¿½.
 	if (Current > NewMax)
 	{
 		return NewMax;
