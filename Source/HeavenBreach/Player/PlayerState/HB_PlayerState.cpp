@@ -20,6 +20,7 @@
 #include "Core/DataManagement/LoadoutStorageSubsystem.h"
 #include "TimerManager.h"
 #include "CraftComponent.h"
+#include "OnlineSubsystem.h"
 
 namespace
 {
@@ -165,12 +166,6 @@ void AHB_PlayerState::BeginPlay()
 			}
 		}
 	}
-
-	if (HasAuthority())
-	{
-		LoadLoadout();
-	}
-
 }
 
 void AHB_PlayerState::OnHealthChanged(const FOnAttributeChangeData& Data)
@@ -257,7 +252,15 @@ void AHB_PlayerState::LoadLoadout()
 		return;
 	}
 
-	LoadoutAccountId = TEXT("TestAccount");
+	LoadoutAccountId = ResolveAccountId();
+
+	if (LoadoutAccountId.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("Loadout: steam identity unavailable; load skipped"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("Loadout: account=%s"), *LoadoutAccountId);
 
 	FOnLoadoutLoaded Callback;
 	Callback.BindUObject(this, &AHB_PlayerState::HandleLoadoutLoaded);
@@ -300,6 +303,27 @@ void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& I
 	UE_LOG(LogTemp, Log, TEXT("Loadout: applied inv=%d"), InLoadout.InventoryEntries.Num());
 }
 
+FString AHB_PlayerState::ResolveAccountId() const
+{
+	const IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
+	const bool bSteamIsActive = OnlineSubsystem != nullptr &&
+		OnlineSubsystem->GetSubsystemName() == FName(TEXT("STEAM"));
+
+	if (!bSteamIsActive)
+	{
+		return TEXT("TestAccount");
+	}
+
+	const FUniqueNetIdRepl& UniqueNetId = GetUniqueId();
+
+	if (UniqueNetId.IsValid() &&
+		UniqueNetId.GetType() == FName(TEXT("STEAM")))
+	{
+		return UniqueNetId.ToString();
+	}
+
+	return FString();
+}
 void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -337,6 +361,8 @@ void AHB_PlayerState::HandleQuickSlotChanged()
 
 void AHB_PlayerState::HandleStashLoadCompleted(bool bSuccess)
 {
+	LoadLoadout();
+
 	if (!bSuccess || !HasAuthority() || !bGrantTestGold || !Stash)
 	{
 		return;
