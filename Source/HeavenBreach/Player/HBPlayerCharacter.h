@@ -19,6 +19,7 @@ class UInteractionPromptWidget;
 class UHBJobData;
 class UGA_WarriorParry;
 struct FHBJobSkillData;
+struct FHBStartingLoadout;
 class USkeletalMesh;
 class UStaticMesh;
 struct FGameplayAbilitySpecHandle;
@@ -132,7 +133,22 @@ protected:
 		TSubclassOf<UGameplayAbility> AbilityClass);
 	void ApplyLoadout(FName SkillQId, FName SkillEId, TArray<FName> PassiveSkillIds);
 	void TryActivateJobSkill(FName SkillId);
-	TArray<FName> ResolveStartingSkillIds() const;
+	/** PlayerState 의 시작 구성을 확정된 JobData 로 검증해 돌려준다. */
+	bool ResolveStartingLoadout(FHBStartingLoadout& OutLoadout, FText& OutError) const;
+
+	/**
+	 * 이 플레이어가 쓸 직업을 정한다. PlayerState → BP 기본값 순이다.
+	 *
+	 * 왜 BP 기본값을 CDO 에서 읽나: InitializeJob 이 JobData 를 런타임에 덮으므로,
+	 * 인스턴스 값을 보면 "직전에 해석한 직업" 을 기본값으로 오인한다.
+	 *
+	 * 쳐낼 조건: 모든 진입이 로비를 거치게 되면 BP 폴백을 제거한다.
+	 */
+	UHBJobData* ResolveJobForCurrentPlayer() const;
+	UHBJobData* GetBlueprintDefaultJob() const;
+
+	/** 직업을 다시 해석해 외형까지 맞춘다. 서버·클라 공용. */
+	void RefreshJobFromPlayerState();
 
 	UFUNCTION(Server, Reliable)
 	void ServerTryActivateJobSkill(FName SkillId);
@@ -142,6 +158,15 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Job")
 	TObjectPtr<UHBJobData> JobData;
+
+	/**
+	 * 외형을 이미 적용한 직업.
+	 *
+	 * 왜 필요한가: RefreshJobFromPlayerState 가 PossessedBy 와 OnRep_PlayerState
+	 * 양쪽에서 불린다. 같은 직업으로 메시를 두 번 갈아끼우지 않으려고 둔다.
+	 */
+	UPROPERTY()
+	TObjectPtr<UHBJobData> AppliedAppearanceJob;
 
 	UPROPERTY(Replicated, VisibleInstanceOnly, BlueprintReadOnly, Category="Player|Loadout")
 	FName SelectedSkillQId;

@@ -333,7 +333,71 @@ void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AHB_PlayerState, TakenAugments);
 	DOREPLIFETIME(AHB_PlayerState, PendingUpgradeChoices);
 	DOREPLIFETIME(AHB_PlayerState, CurrentUpgradeCandidates);
+	DOREPLIFETIME(AHB_PlayerState, StartingLoadout);
 
+}
+
+bool AHB_PlayerState::TrySetStartingLoadout(const FHBStartingLoadout& InLoadout, FText& OutError)
+{
+	OutError = FText::GetEmpty();
+
+	if (!HasAuthority())
+	{
+		OutError = FText::FromString(TEXT("서버에서만 시작 구성을 확정할 수 있습니다."));
+		return false;
+	}
+
+	if (!ValidateStartingLoadout(InLoadout, OutError))
+	{
+		return false;
+	}
+
+	// 같은 값이면 복제도 알림도 일으키지 않는다.
+	// 자동 저장이 같은 구성을 반복해서 보내도 조용히 넘어간다.
+	if (StartingLoadout == InLoadout)
+	{
+		return true;
+	}
+
+	StartingLoadout = InLoadout;
+
+	HandleStartingLoadoutChanged();
+	ForceNetUpdate();
+	return true;
+}
+
+void AHB_PlayerState::HandleStartingLoadoutChanged()
+{
+	OnStartingLoadoutChanged.Broadcast();
+}
+
+void AHB_PlayerState::OnRep_StartingLoadout()
+{
+	HandleStartingLoadoutChanged();
+}
+
+void AHB_PlayerState::CopyProperties(APlayerState* NewPlayerState)
+{
+	Super::CopyProperties(NewPlayerState);
+
+	AHB_PlayerState* NewState = Cast<AHB_PlayerState>(NewPlayerState);
+	if (!NewState)
+	{
+		return;
+	}
+
+	NewState->StartingLoadout = StartingLoadout;
+	NewState->ForceNetUpdate();
+
+	// 진단 로그. 이 줄이 안 찍히면 CopyProperties 가 실제로는 안 불리는 것이고,
+	// 그때는 SeamlessTravelTo 도 같이 오버라이드해야 한다.
+	// 트래블 전달이 확인되면 지운다.
+	UE_LOG(LogTemp, Log,
+		TEXT("[SkillLoadout] CopyProperties | Job=%s Q=%s E=%s P=%s"),
+		*GetNameSafe(StartingLoadout.Job),
+		*StartingLoadout.SkillQId.ToString(),
+		*StartingLoadout.SkillEId.ToString(),
+		*StartingLoadout.PassiveSkillId.ToString());
 }
 
 void AHB_PlayerState::RequestSaveLoadout()

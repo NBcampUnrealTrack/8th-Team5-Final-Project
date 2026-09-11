@@ -135,6 +135,16 @@ void UGA_PlayerLeapAttack::OnCharacterLanded(const FHitResult& Hit)
 	// 중력 되돌리기
 	RestoreGravity();
 
+	// 공중에서만 걸리는 버프를 착지 순간 걷는다. 증강 Guard(도약 중 피해 감소)가 이것이다.
+	//
+	// 왜 여기서 거두나: 자버프 GE 의 지속시간은 BuffDuration 을 따르는데, 도약은
+	// 지형과 거리에 따라 체공 시간이 매번 다르다. 시간으로 맞추면 짧으면 무방비고
+	// 길면 착지 후에도 남는다. 착지라는 사건으로 끊는 게 정확하다.
+	//
+	// 쳐낼 조건: 착지 후에도 유지돼야 하는 자버프가 생기면 그것만 따로 관리해야 한다.
+	// 지금은 이 스킬의 자버프가 전부 공중용이다.
+	RemoveSelfBuff();
+
 	if (LandSectionName.IsNone())
 	{
 		return;

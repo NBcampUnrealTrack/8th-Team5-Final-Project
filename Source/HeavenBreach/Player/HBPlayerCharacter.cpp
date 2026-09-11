@@ -31,6 +31,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/Job/HBJobData.h"
+#include "Player/Job/HBStartingLoadout.h"
 #include "Player/Job/HBJobAttributeEffects.h"
 #include "Combat/Effect/HBEffectLibrary.h"
 #include "Combat/Effect/HBGameplayEffects.h"
@@ -424,7 +425,7 @@ void AHBPlayerCharacter::PossessedBy(AController* NewController)
 		}
 
 		OnAbilitySystemInitialized(ASC);
-		ApplyJobAppearance();
+		RefreshJobFromPlayerState();
 	}
 
 	BindToPlayerStateComponents();
@@ -441,7 +442,7 @@ void AHBPlayerCharacter::OnRep_PlayerState()
 		UAbilitySystemComponent* ASC = HB_PlayerState->GetAbilitySystemComponent();
 		ASC->InitAbilityActorInfo(HB_PlayerState,this);
 		OnAbilitySystemInitialized(ASC);
-		ApplyJobAppearance();
+		RefreshJobFromPlayerState();
 
 		if (IsLocallyControlled())
 		{
@@ -832,17 +833,97 @@ void AHBPlayerCharacter::TryActivateJobSkill(const FName SkillId)
 	ASC->TryActivateAbilityByClass(Skill->AbilityClass);
 }
 
-TArray<FName> AHBPlayerCharacter::ResolveStartingSkillIds() const
+UHBJobData* AHBPlayerCharacter::GetBlueprintDefaultJob() const
 {
-	if (!JobData)
+	const AHBPlayerCharacter* Defaults = GetClass()->GetDefaultObject<AHBPlayerCharacter>();
+
+	if (!Defaults)
 	{
-		return TArray<FName>();
+		return nullptr;
 	}
 
-	// 1순위: 계정에 저장된 로드아웃.  미구현. 서버 권위로 만들어야 한다
-	// 2순위: 로비에서 고른 값.        미구현. PlayerState 를 거쳐 들어온다
-	// 3순위: DA 의 기본값.
-	return JobData->InitialSkillIds;
+	return Defaults->JobData.Get();
+}
+
+UHBJobData* AHBPlayerCharacter::ResolveJobForCurrentPlayer() const
+{
+	const AHB_PlayerState* State = GetPlayerState<AHB_PlayerState>();
+
+	if (State)
+	{
+		UHBJobData* SelectedJob = State->GetSelectedJob();
+
+		if (SelectedJob)
+		{
+			return SelectedJob;
+		}
+	}
+
+	UHBJobData* BlueprintJob = GetBlueprintDefaultJob();
+
+	if (!BlueprintJob)
+	{
+		return nullptr;
+	}
+
+	// 이 경고가 없으면 로비 전달이 통째로 깨져도 멀쩡한 전사가 스폰돼 아무도
+	// 눈치채지 못한다. 장비 메시가 조용히 폴백해 데디 사거리가 죽었던 것과 같은
+	// 종류의 함정이다.
+	UE_LOG(LogTemp, Warning,
+		TEXT("[Job] PlayerState 에 직업이 없어 BP 기본 직업 '%s' 를 쓴다. "
+			 "로비에서 직업이 전달되지 않았다는 뜻이다."),
+		*BlueprintJob->JobId.ToString());
+
+	return BlueprintJob;
+}
+
+void AHBPlayerCharacter::RefreshJobFromPlayerState()
+{
+	UHBJobData* ResolvedJob = ResolveJobForCurrentPlayer();
+
+	if (!ResolvedJob)
+	{
+		return;
+	}
+
+	JobData = ResolvedJob;
+
+	if (AppliedAppearanceJob == ResolvedJob)
+	{
+		return;
+	}
+
+	ApplyJobAppearance();
+	AppliedAppearanceJob = ResolvedJob;
+}
+
+bool AHBPlayerCharacter::ResolveStartingLoadout(FHBStartingLoadout& OutLoadout, FText& OutError) const
+{
+	const AHB_PlayerState* State = GetPlayerState<AHB_PlayerState>();
+
+	if (!State)
+	{
+		OutError = FText::FromString(TEXT("PlayerState 가 아직 없습니다."));
+		return false;
+	}
+
+	const FHBStartingLoadout Candidate = State->GetStartingLoadout();
+
+	// 직업 폴백을 탄 경우, 전달받은 구성은 다른 직업의 것이다. 그대로 쓰면
+	// 스킬 ID 가 이 직업 목록에 없어 조용히 빈 슬롯이 된다.
+	if (Candidate.Job != JobData)
+	{
+		OutError = FText::FromString(TEXT("시작 구성의 직업이 적용 직업과 다릅니다."));
+		return false;
+	}
+
+	if (!ValidateStartingLoadout(Candidate, OutError))
+	{
+		return false;
+	}
+
+	OutLoadout = Candidate;
+	return true;
 }
 
 void AHBPlayerCharacter::ServerTryActivateJobSkill_Implementation(const FName SkillId)
@@ -1518,11 +1599,33 @@ void AHBPlayerCharacter::OnAbilitySystemInitialized(UAbilitySystemComponent* Abi
 
 void AHBPlayerCharacter::InitializeJob(UAbilitySystemComponent* AbilitySystem)
 {
-	if (!HasAuthority() || bJobInitialized || !AbilitySystem || !JobData)
+	if (!HasAuthority())
+	{
+		return;
+	}
+	if (bJobInitialized)
+	{
+		return;
+	}
+	if (!AbilitySystem)
 	{
 		return;
 	}
 
+	// 진입 가드에서 JobData 유무를 보지 않는다. 직업은 여기서 정한다.
+	// BP 기본값 없이 PlayerState 만으로 들어오는 경우를 막으면 안 된다.
+	UHBJobData* ResolvedJob = ResolveJobForCurrentPlayer();
+
+	if (!ResolvedJob)
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("[Job] 직업을 찾지 못했다. PlayerState 와 BP 기본값이 모두 비어 있다."));
+		return;
+	}
+
+	JobData = ResolvedJob;
+
+	// 직업이 정해진 뒤에만 완료로 기록한다. 실패를 완료로 남기지 않는다.
 	bJobInitialized = true;
 
 	AbilitySystem->RemoveLooseGameplayTag(JobTag::TAG_Job_Warrior);
@@ -1558,48 +1661,45 @@ void AHBPlayerCharacter::InitializeJob(UAbilitySystemComponent* AbilitySystem)
 		}
 	}
 
-	// ActiveSkills/PassiveSkills are catalogs. Only entries listed in BasicSkills
-	// are equipped as the initial loadout.
-	// ActiveSkills / PassiveSkills 는 카탈로그다. 시작 로드아웃에 적힌 것만 장착된다.
-	SelectedSkillQId = NAME_None;
-	SelectedSkillEId = NAME_None;
-	SelectedPassiveSkillIds.Reset();
-	for (const FName SkillId : ResolveStartingSkillIds())
-	{
-		if (SkillId.IsNone())
-		{
-			continue;
-		}
-		// 직업 데이터에서 스킬을 찾는다.
-		if (JobData->FindActiveSkill(SkillId))
-		{
-			// 1번째는 q
-			if (SelectedSkillQId.IsNone())
-			{
-				SelectedSkillQId = SkillId;
-			}
-			// 2번짼 e
-			else if (SelectedSkillEId.IsNone())
-			{
-				SelectedSkillEId = SkillId;
-			}
-			// 그 외에는 넘어가기
-			continue;
-		}
-		if (JobData->FindPassiveSkill(SkillId))
-		{
-			SelectedPassiveSkillIds.AddUnique(SkillId);
-			continue;
-		}
-
-		// 오타를 런타임에 조용히 넘기지 않는다. 이번 Q 미발동이 정확히 이 구멍이었다.
-		UE_LOG(LogTemp, Error,
-			TEXT("[Job] 시작 스킬 '%s' 가 ActiveSkills/PassiveSkills 어디에도 없다."),
-			*SkillId.ToString());
-	}
-	ApplyLoadout(SelectedSkillQId, SelectedSkillEId, SelectedPassiveSkillIds);
-
+	// 궁극기를 로드아웃보다 먼저 준다.
+	// 로드아웃 데이터 오류가 직업 초기화를 건너뛰게 하지 않는다.
 	GrantAbilityIfMissing(AbilitySystem, JobData->UltimateSkill.AbilityClass);
+
+	// ActiveSkills / PassiveSkills 는 카탈로그다. 실제 장착은 로비가 확정한
+	// 시작 구성이 정하고, 그게 없거나 못 쓸 때만 DA 의 InitialSkillIds 로 떨어진다.
+	FHBStartingLoadout Loadout;
+	FText LoadoutError;
+
+	if (!ResolveStartingLoadout(Loadout, LoadoutError))
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("[SkillLoadout] 전달된 시작 구성을 쓸 수 없다: %s"),
+			*LoadoutError.ToString());
+
+		if (!MakeDefaultStartingLoadout(JobData, Loadout, LoadoutError))
+		{
+			UE_LOG(LogTemp, Error,
+				TEXT("[SkillLoadout] 기본 구성도 만들 수 없다: %s. "
+					 "직업 초기화는 유지하고 스킬 부여만 생략한다."),
+				*LoadoutError.ToString());
+			return;
+		}
+
+		UE_LOG(LogTemp, Warning,
+			TEXT("[SkillLoadout] 직업 '%s' 의 기본 구성으로 대체한다."),
+			*JobData->JobId.ToString());
+	}
+
+	// 슬롯을 그대로 넘긴다. 배열에 모아 앞에서부터 채우면 Q 가 비었을 때
+	// E 가 Q 자리로 밀려 들어간다.
+	TArray<FName> StartingPassives;
+
+	if (!Loadout.PassiveSkillId.IsNone())
+	{
+		StartingPassives.Add(Loadout.PassiveSkillId);
+	}
+
+	ApplyLoadout(Loadout.SkillQId, Loadout.SkillEId, StartingPassives);
 }
 
 void AHBPlayerCharacter::ApplyJobAppearance()

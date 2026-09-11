@@ -37,14 +37,19 @@ public:
 
 	bool IsReady() const { return bIsReady; }
 	bool IsStartConfirmed() const { return bStartConfirmed; }
-	FName GetSelectedJobId() const { return SelectedJobId; }
-	bool HasSelectedJob() const { return !SelectedJobId.IsNone(); }
+
+	/**
+	 * 부모의 StartingLoadout.Job 에서 이름만 꺼낸다.
+	 *
+	 * 왜 남겼나: UHB_CharacterSelectionWidget 이 이 이름으로 버튼 강조와
+	 * "현재 직업" 표시를 한다. 저장 위치가 부모로 옮겨갔어도 그 호출은 유지한다.
+	 */
+	FName GetSelectedJobId() const;
+
+	bool HasSelectedJob() const { return GetSelectedJob() != nullptr; }
 
 	void SetReady(bool bNewReady);
 	void SetStartConfirmed(bool bNewStartConfirmed);
-
-	/** Server-authoritative. The JobId is still re-validated against UHBJobData when the match spawns the character. */
-	void SetSelectedJobId(FName NewJobId);
 
 	UPROPERTY(BlueprintAssignable, Category = "Lobby|Ready")
 	FOnReadyStateChanged OnReadyStateChanged;
@@ -69,12 +74,14 @@ protected:
 		Category = "Lobby|Start")
 	bool bStartConfirmed = false;
 
-	/** Matches UHBJobData::JobId (e.g. "Warrior", "Mage", "Archer"). Defaults to Warrior until Mage/Archer are ready to play. */
-	UPROPERTY(
-		ReplicatedUsing = OnRep_SelectedJobId,
-		BlueprintReadOnly,
-		Category = "Lobby|Job")
-	FName SelectedJobId = NAME_None;
+	/**
+	 * 부모가 시작 구성 변경을 알릴 때 직업 변경 이벤트를 덧붙인다.
+	 *
+	 * 왜 재정의인가: 직업 ID 필드가 부모의 StartingLoadout 으로 옮겨갔지만
+	 * OnSelectedJobChanged 를 구독하는 UI 가 있다. 자식이 BeginPlay 에서
+	 * 부모 델리게이트를 자가 구독하는 것보다 순서가 확실하다.
+	 */
+	virtual void HandleStartingLoadoutChanged() override;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -84,6 +91,7 @@ protected:
 	UFUNCTION()
 	void OnRep_StartConfirmed();
 
-	UFUNCTION()
-	void OnRep_SelectedJobId();
+private:
+	/** 직업이 실제로 바뀐 경우에만 알리려고 직전 값을 기억한다. */
+	FName LastNotifiedJobId = NAME_None;
 };
