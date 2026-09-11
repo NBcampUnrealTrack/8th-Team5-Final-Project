@@ -14,6 +14,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Components/TextBlock.h"
+#include "Core/GameFlow/HeavenBreachGameState.h"
 #include "UI/HUD/HB_HitEffectWidget.h"
 #include "Engine/TextureRenderTarget2D.h"
 
@@ -144,6 +145,9 @@ void UHB_HUDLayer::NativeConstruct()
 	}
 
 	BindPlayerState();
+
+	LastDisplayedRemainingSeconds = -2;
+	UpdateRemainingTime();
 }
 
 void UHB_HUDLayer::NativeDestruct()
@@ -193,6 +197,43 @@ void UHB_HUDLayer::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	}
 
 	UpdateCompass();
+	UpdateRemainingTime();
+}
+
+void UHB_HUDLayer::UpdateRemainingTime()
+{
+	if (!Txt_Remaining_Time)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	AHeavenBreachGameState* GameState = World
+		? World->GetGameState<AHeavenBreachGameState>()
+		: nullptr;
+
+	int32 RemainingSeconds = -1;
+	if (GameState)
+	{
+		if (GameState->HasMatchEnded())
+		{
+			RemainingSeconds = 0;
+		}
+		else if (GameState->GetMatchEndServerTime() > 0.0)
+		{
+			RemainingSeconds = FMath::CeilToInt32(GameState->GetRemainingMatchTime());
+		}
+	}
+
+	if (RemainingSeconds == LastDisplayedRemainingSeconds)
+	{
+		return;
+	}
+
+	LastDisplayedRemainingSeconds = RemainingSeconds;
+	Txt_Remaining_Time->SetText(RemainingSeconds < 0
+		? FText::FromString(TEXT("--:--"))
+		: FText::FromString(FString::Printf(TEXT("%02d:%02d"), RemainingSeconds / 60, RemainingSeconds % 60)));
 }
 
 void UHB_HUDLayer::UpdateCompass()

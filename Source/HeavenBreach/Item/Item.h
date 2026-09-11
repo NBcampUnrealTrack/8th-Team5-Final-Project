@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
 #include "Inventory/InventoryTypes.h"
@@ -105,7 +105,14 @@ struct FItemData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString ShoesMeshPath;
 
-	// ===== ��ű�(Relic) ���� �ʵ� =====
+	// 반대쪽 슬롯(Chest<->Legs)이 비어있을 때 기본 바디 대신 사용할 보정용 바디 메시 경로.
+	// 예) Celestial 하의를 착용했는데 Chest가 비어있으면, 이 하의와 자연스럽게 어울리는
+    // 상체 메시로 교체한다. Chest 아이템이면 이 필드는 "하체" 보정 메시를,
+    // Legs 아이템이면 "상체" 보정 메시를 가리킨다. 비어있으면 기존처럼 기본 바디 사용.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FString PairedBodyMeshPath;
+
+	// ===== 장신구(Relic) 전용 필드 =====
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
 	bool bIsRelic = false;
 
