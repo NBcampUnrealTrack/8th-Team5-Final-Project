@@ -1,4 +1,4 @@
-#pragma once
+Ôªø#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
@@ -22,7 +22,7 @@ public:
     FName SkillId;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skill")
-    ESkillType SkillType; // Active ∂«¥¬ Passive ±∏∫–
+    ESkillType SkillType; // Active ÎòêÎäî Passive Íµ¨Î∂Ñ
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skill")
     FText DisplayName;

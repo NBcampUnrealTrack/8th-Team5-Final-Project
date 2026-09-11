@@ -7,6 +7,8 @@
 #include "PlayerState/HBLobbyPlayerState.h"
 #include "HBLobbyGameState.h"
 #include "Core/Online/Session/HBGameSession.h"
+#include "Player/Job/HBJobData.h"
+#include "Player/Job/HBStartingLoadout.h"
 #include "Misc/ConfigCacheIni.h"
 
 namespace HBLobbyFlow
@@ -165,6 +167,51 @@ void AHBLobbyGameMode::TryStartGame()
 	GetWorld()->ServerTravel(MapPath);
 }
 
+UHBJobData* AHBLobbyGameMode::FindJobById(FName JobId) const
+{
+	if (JobId.IsNone())
+	{
+		return nullptr;
+	}
+
+	for (const TObjectPtr<UHBJobData>& Job : SelectableJobs)
+	{
+		if (!Job)
+		{
+			continue;
+		}
+		if (Job->JobId != JobId)
+		{
+			continue;
+		}
+		return Job.Get();
+	}
+
+	// 조용히 실패하면 "직업 버튼을 눌렀는데 아무 일도 안 난다" 가 된다.
+	UE_LOG(LogTemp, Warning,
+		TEXT("Lobby | 직업 '%s' 를 SelectableJobs 에서 찾지 못했다. "
+			 "BP_HBLobbyGameMode 의 Selectable Jobs 에 해당 DA 가 있는지 확인할 것."),
+		*JobId.ToString());
+	return nullptr;
+}
+
+UHBJobData* AHBLobbyGameMode::GetDefaultJob() const
+{
+	for (const TObjectPtr<UHBJobData>& Job : SelectableJobs)
+	{
+		if (!Job)
+		{
+			continue;
+		}
+		return Job.Get();
+	}
+
+	UE_LOG(LogTemp, Error,
+		TEXT("Lobby | SelectableJobs 가 비어 있다. "
+			 "BP_HBLobbyGameMode 에 직업 DA 를 최소 하나 등록해야 한다."));
+	return nullptr;
+}
+
 void AHBLobbyGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
@@ -174,9 +221,70 @@ void AHBLobbyGameMode::PostLogin(APlayerController* NewPlayer)
 		return;
 	}
 
+	InitializeLobbyLoadout(NewPlayer);
+
 	// A newly connected player changes the group that is approving the match.
 	ResetStartConfirmations();
 	EvaluateCanStartMatch();
+}
+
+void AHBLobbyGameMode::InitializeLobbyLoadout(APlayerController* NewPlayer)
+{
+	if (!NewPlayer)
+	{
+		return;
+	}
+
+	AHBLobbyPlayerState* LobbyPlayerState = NewPlayer->GetPlayerState<AHBLobbyPlayerState>();
+
+	if (!IsValid(LobbyPlayerState))
+	{
+		return;
+	}
+
+	UHBJobData* DefaultJob = GetDefaultJob();
+
+	if (!DefaultJob)
+	{
+		// GetDefaultJob 이 이미 오류를 남겼다.
+		return;
+	}
+
+	FHBStartingLoadout DefaultLoadout;
+	FText Error;
+
+	if (!MakeDefaultStartingLoadout(DefaultJob, DefaultLoadout, Error))
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Lobby | 기본 직업 '%s' 의 시작 구성을 만들지 못했다: %s"),
+			*DefaultJob->JobId.ToString(),
+			*Error.ToString()
+			);
+		return;
+	}
+
+	if (!LobbyPlayerState->TrySetStartingLoadout(DefaultLoadout, Error))
+	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("Lobby | 기본 시작 구성 확정 실패: %s"),
+			*Error.ToString()
+			);
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("Lobby | 기본 구성 | Job=%s Q=%s E=%s P=%s"),
+		*DefaultJob->JobId.ToString(),
+		*DefaultLoadout.SkillQId.ToString(),
+		*DefaultLoadout.SkillEId.ToString(),
+		*DefaultLoadout.PassiveSkillId.ToString()
+		);
 }
 
 void AHBLobbyGameMode::Logout(AController* Exiting)

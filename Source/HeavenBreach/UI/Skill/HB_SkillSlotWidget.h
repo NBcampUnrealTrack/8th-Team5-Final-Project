@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -32,22 +32,22 @@ class HEAVENBREACH_API UHB_SkillSlotWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	// ¿¡µğÅÍ¿¡¼­ ÇØ´ç ½½·ÔÀÌ Q, E, Passive Áß ¹«¾ùÀÎÁö ¼³Á¤ÇÒ º¯¼ö
+	// ì—ë””í„°ì—ì„œ í•´ë‹¹ ìŠ¬ë¡¯ì´ Q, E, Passive ì¤‘ ë¬´ì—‡ì¸ì§€ ì„¤ì •í•  ë³€ìˆ˜
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skill Slot")
 	ESkillSlotType SlotType;
 
-	// ¿ÜºÎ(WBP_LobbyUI µî)¿¡¼­ ÀÌº¥Æ®¸¦ ¹ÙÀÎµùÇÒ ¼ö ÀÖµµ·Ï ³ëÃâ
+	// ì™¸ë¶€(WBP_LobbyUI ë“±)ì—ì„œ ì´ë²¤íŠ¸ë¥¼ ë°”ì¸ë”©í•  ìˆ˜ ìˆë„ë¡ ë…¸ì¶œ
 	UPROPERTY(BlueprintAssignable, Category = "Skill Slot|Events")
 	FOnSkillSlotClicked OnSlotClicked;
 
-	// ³ªÁß¿¡ ½ºÅ³ÀÌ ¼±ÅÃµÇ¾úÀ» ¶§ ¾ÆÀÌÄÜ ÀÌ¹ÌÁö¸¦ ±³Ã¼ÇÏ±â À§ÇÑ ÇÔ¼ö
+	// ë‚˜ì¤‘ì— ìŠ¤í‚¬ì´ ì„ íƒë˜ì—ˆì„ ë•Œ ì•„ì´ì½˜ ì´ë¯¸ì§€ë¥¼ êµì²´í•˜ê¸° ìœ„í•œ í•¨ìˆ˜
 	UFUNCTION(BlueprintCallable, Category = "Skill Slot")
 	void SetSkillIcon(UTexture2D* NewIcon);
 
 protected:
 	virtual void NativeConstruct() override;
 
-	// ºí·çÇÁ¸°Æ® À§Á¬ÀÇ ÄÄÆ÷³ÍÆ®¿Í µ¿ÀÏÇÑ ÀÌ¸§À¸·Î »ı¼ºÇØ¾ß ¹ÙÀÎµù µÊ
+	// ë¸”ë£¨í”„ë¦°íŠ¸ ìœ„ì ¯ì˜ ì»´í¬ë„ŒíŠ¸ì™€ ë™ì¼í•œ ì´ë¦„ìœ¼ë¡œ ìƒì„±í•´ì•¼ ë°”ì¸ë”© ë¨
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UButton> SlotButton;
 
@@ -55,7 +55,7 @@ protected:
 	TObjectPtr<UImage> SkillIconImage;
 
 private:
-	// ¹öÆ°ÀÌ Å¬¸¯µÇ¾úÀ» ¶§ ½ÇÇàµÉ ³»ºÎ ÇÔ¼ö
+	// ë²„íŠ¼ì´ í´ë¦­ë˜ì—ˆì„ ë•Œ ì‹¤í–‰ë  ë‚´ë¶€ í•¨ìˆ˜
 	UFUNCTION()
 	void HandleSlotButtonClicked();
 	
