@@ -109,6 +109,17 @@ struct FSealedDoorGradeData : public FTableRowBase
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor", meta = (ClampMin = 0, Units = "s"))
 	float OpenDurationSeconds = 2.0f;
+
+	/**
+	 * 문짝이 실제로 열리는 데 걸리는 시간(초). OpenDurationSeconds 와 별개다 —
+	 * 홀드가 끝난 뒤부터 이 시간 동안 문짝이 회전한다.
+	 *
+	 * 상위 등급일수록 길게 잡아 "무거운 문"(기획서 8장)의 무게감을 준다.
+	 * 뒤늦게 이 문을 보게 된 클라이언트가 여는 연출을 재생할지, 이미 열린 상태로 둘지도
+	 * 이 값으로 판정한다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor", meta = (ClampMin = 0, Units = "s"))
+	float SwingDurationSeconds = 1.0f;
 };
 
 /** ESealedDoorGrade -> DT_SealedDoorGrade 행 이름 */

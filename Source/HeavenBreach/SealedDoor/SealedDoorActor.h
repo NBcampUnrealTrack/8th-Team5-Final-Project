@@ -9,6 +9,7 @@
 #include "SealedDoorActor.generated.h"
 
 class UStaticMeshComponent;
+class USceneComponent;
 class UDataTable;
 class UInventoryComponent;
 
@@ -54,6 +55,23 @@ public:
 	UFUNCTION(BlueprintPure, Category = "SealedDoor")
 	ESealedRoomResult GetRoomResult() const { return RoomResult; }
 
+	/** 이 등급의 문짝이 열리는 데 걸리는 시간(초). Timeline 길이를 여기에 맞춘다 */
+	UFUNCTION(BlueprintPure, Category = "SealedDoor|Visual")
+	float GetSwingDurationSeconds() const;
+
+	UFUNCTION(BlueprintPure, Category = "SealedDoor|Visual")
+	float GetOpenYawLeft() const { return OpenYawLeft; }
+
+	UFUNCTION(BlueprintPure, Category = "SealedDoor|Visual")
+	float GetOpenYawRight() const { return OpenYawRight; }
+
+	/**
+	 * 두 문짝을 열린 각도로 즉시 세팅한다. 연출 없이 결과 자세만 맞춘다.
+	 * BP_OnDoorOpened 에서 bJustOpened 가 false 일 때 호출한다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "SealedDoor|Visual")
+	void ApplyOpenAngleInstant();
+
 	/**
 	 * 디버그: 문을 다시 봉인 상태로 되돌린다. 스폰했던 내용물을 전부 제거하고
 	 * 재추첨·재스폰이 가능한 상태로 만든다. PIE 를 껐다 켜지 않고 반복 실험하기 위한 것으로,
@@ -72,14 +90,38 @@ public:
 
 protected:
 
+	/** 문틀. 루트이며 움직이지 않는다 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> DoorFrame;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	TObjectPtr<UStaticMeshComponent> DoorMesh;
-
+	/**
+	 * 봉인 문양. 문짝이 아니라 문틀에 붙인다 — 쌍문에서는 문양이 두 문짝에 걸쳐 있어서
+	 * 어느 한쪽에 붙이면 열릴 때 끌려간다. 기획서 8장의 "문양이 갈라지거나 분해됨"은
+	 * 머티리얼로 표현한다.
+	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> SealDecal;
+
+	/** 왼쪽 경첩. 회전축이다. 문짝 메시의 피벗이 중앙에 있어도 이 컴포넌트를 돌리면 제대로 열린다 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<USceneComponent> HingeLeft;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> DoorMeshLeft;
+
+	/** 오른쪽 경첩 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<USceneComponent> HingeRight;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> DoorMeshRight;
+
+	/** 왼쪽 문짝이 열렸을 때의 Yaw. 문틀 안쪽에 걸리면 더 크게 준다 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor|Visual")
+	float OpenYawLeft = -90.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SealedDoor|Visual")
+	float OpenYawRight = 90.0f;
 
 	/** 레벨 배치 시 고정한다. 상자와 달리 랜덤 등급이 없다 — 위치가 등급을 정한다 */
 	UPROPERTY(EditAnywhere, Replicated, BlueprintReadOnly, Category = "SealedDoor")
@@ -100,6 +142,14 @@ protected:
 	 */
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SealedDoor")
 	float SequenceStartServerTime = 0.0f;
+
+	/**
+	 * 문이 실제로 열린 서버 시각. BP_OnDoorOpened 의 bJustOpened 판정에 쓴다.
+	 * SequenceStartServerTime 과 따로 두는 이유: 봉인 해제는 홀드 시작 시각이고,
+	 * 문이 열리는 것은 그로부터 OpenDurationSeconds 뒤라 같은 값으로 판정할 수 없다.
+	 */
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SealedDoor")
+	float OpenedServerTime = 0.0f;
 
 
 	/** 방 안에 배치한 ATargetPoint 들. 서버에서만 쓰므로 복제하지 않는다 */
@@ -159,11 +209,19 @@ protected:
 
 	/**
 	 * 상태 훅. 문이 열려 있는 동안(막 열렸을 때는 물론, 이미 열려 있던 문이 나중에
-	 * relevant 해졌을 때도) 매번 호출된다. 멱등해야 한다 — 교체된 머티리얼, 열린 상태
-	 * 프롭 배치처럼 "계속 유지되는" 시각 요소는 여기에 넣는다.
+	 * relevant 해졌을 때도) 매번 호출된다.
+	 *
+	 * bJustOpened 로 두 경우를 구분한다:
+	 *  - true  : 방금 열렸다. 문짝이 회전하는 연출(Timeline)을 재생한다.
+	 *  - false : 이미 열려 있던 문을 지금 처음 본다. 연출 없이 ApplyOpenAngleInstant() 로
+	 *            열린 자세를 바로 적용한다. 여기서 연출을 재생하면, 한참 전에 열린 문이
+	 *            눈앞에서 다시 열리는 것처럼 보인다.
+	 *
+	 * 판정 기준은 SwingDurationSeconds 다. 연출이 끝나기 전에 도착한 클라이언트는 true 를
+	 * 받아 처음부터 재생하므로 약간 늦게 끝나지만, 문이 움직이는 중인 것은 맞다.
 	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "SealedDoor", meta = (DisplayName = "On Door Opened"))
-	void BP_OnDoorOpened(ESealedDoorGrade InGrade);
+	void BP_OnDoorOpened(ESealedDoorGrade InGrade, bool bJustOpened);
 
 	/** DoorGradeTable 에서 현재 등급 행을 찾는다. 실패 시 nullptr */
 	const FSealedDoorGradeData* FindGradeData() const;
@@ -183,11 +241,21 @@ protected:
 	/** 필요한 열쇠의 표시 이름. DT_Item 조회 */
 	FText GetRequiredKeyDisplayName() const;
 
-	/** 문짝 콜리전 해제 + 봉인 문양 숨김. 서버·클라이언트 양쪽에서 호출된다 */
+	/**
+	 * 개방 시 게임플레이 측 처리 — 문짝 콜리전 해제와 봉인 문양 숨김.
+	 * 문짝 회전은 여기서 하지 않는다. 그건 BP_OnDoorOpened 가 Timeline 으로 처리한다 —
+	 * 여기서 각도를 스냅하면 Timeline 과 서로 덮어쓴다.
+	 *
+	 * 콜리전은 문짝이 열리기 시작하는 시점에 푼다. 다 열린 뒤에 풀면 이미 열려 보이는
+	 * 문에서 잠깐 막힌다.
+	 */
 	void ApplyOpenedVisual();
 
-	/** ApplyOpenedVisual 의 역방향. DebugReseal 전용 */
+	/** ApplyOpenedVisual 의 역방향. 문짝 각도까지 되돌린다. DebugReseal 전용 */
 	void ApplySealedVisual();
+
+	/** 문이 SwingDurationSeconds 이내에 열렸는지. BP_OnDoorOpened 의 bJustOpened */
+	bool WasJustOpened() const;
 
 	/** 서버 전용. 결과 확정 → 스폰 → Opened 전환 → 복제. 정상 개방과 디버그 개방이 공유한다 */
 	void FinishOpening();
