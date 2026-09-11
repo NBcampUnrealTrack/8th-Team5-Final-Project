@@ -6,7 +6,9 @@
 #include "GameFramework/PlayerController.h"
 #include "HBLobbyPlayerController.generated.h"
 
+class UHBLobbyHUDWidget;
 class UHBLobbyWidget;
+class UGameViewportClient;
 /**
  * 
  */
@@ -18,23 +20,50 @@ class HEAVENBREACH_API AHBLobbyPlayerController : public APlayerController
 public:
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Ready")
 	void SetReady(bool bNewReady);
-	
+
 	UFUNCTION(BlueprintCallable, Category = "Lobby")
 	void RequestStartGame();
-	
+
+	/** Compatibility entry point used by the existing UI; the dedicated server decides whether the vote is accepted. */
+	UFUNCTION(BlueprintCallable, Category = "Lobby|Match")
+	bool RequestStartDedicatedMatch();
+
+	/** JobId must match a UHBJobData::JobId (e.g. "Warrior", "Mage", "Archer"). The server re-validates it. */
+	UFUNCTION(BlueprintCallable, Category = "Lobby|Job")
+	void SelectJob(FName JobId);
+
 protected:
 	virtual void BeginPlay() override;
-	
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 	UFUNCTION(Server, Reliable)
 	void ServerSetReady(bool bNewReady);
-	
+
 	UFUNCTION(Server, Reliable)
 	void ServerRequestStartGame();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSelectJob(FName JobId);
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|UI")
-	TSubclassOf<UHBLobbyWidget> LobbyWidgetClass;
+	TSubclassOf<UHBLobbyHUDWidget> LobbyWidgetClass;
 	
 private:
+	// Client-side diagnostics use replicated state; no extra server RPCs.
+	struct FLobbyDebugPlayer
+	{
+		FString Name;
+		bool bReady = false;
+	};
+	void RefreshLobbyDebug();
+	void ShowLobbyDebugEvent(const FString& Message);
+	FTimerHandle LobbyDebugTimer;
+	TMap<uint32, FLobbyDebugPlayer> LobbyDebugPlayers;
+	bool bLobbyDebugInitialized = false;
+
+	// The old controller can lose its LocalPlayer before EndPlay during a swap.
+	TWeakObjectPtr<UGameViewportClient> LobbyInputViewport;
+
 	UPROPERTY()
-	TObjectPtr<UHBLobbyWidget> LobbyWidget;
+	TObjectPtr<UHBLobbyHUDWidget> LobbyWidget;
 };

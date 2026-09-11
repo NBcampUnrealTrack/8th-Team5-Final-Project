@@ -5,14 +5,15 @@
 #include "InventoryTypes.h"
 #include "EquipmentWidget.generated.h"
 
-class UCanvasPanel;
 class UEquipmentComponent;
 class UInventoryComponent;
+class UEquipmentSlotWidget; // 개별 슬롯 위젯 전방 선언
 
 UCLASS()
 class HEAVENBREACH_API UEquipmentWidget : public UUserWidget
 {
 	GENERATED_BODY()
+
 public:
 
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
@@ -23,34 +24,39 @@ public:
 
 protected:
 
+	virtual void NativeOnInitialized() override;
 	virtual void NativeDestruct() override;
-
-	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
-
-	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
-
-	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
-
-	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 	UFUNCTION()
 	void HandleEquipmentChanged();
 
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
-	TObjectPtr<UCanvasPanel> SlotCanvas;
+	// -------------------------------------------------------------
+	// WBP 에디터의 슬롯 위젯들과 1:1로 매칭되는 BindWidget 선언
+	// (WBP의 계층 구조(Hierarchy) 이름과 토씨 하나 틀리지 않고 똑같아야 합니다)
+	// -------------------------------------------------------------
+	UPROPERTY(meta = (BindWidget))
+	TObjectPtr<UEquipmentSlotWidget> Slot_Helmet;
 
-	UPROPERTY(EditAnywhere, Category = "Equipment")
-	float SlotSize = 64.0f;
+	UPROPERTY(meta = (BindWidget))
+	TObjectPtr<UEquipmentSlotWidget> Slot_Chest;
 
-	UPROPERTY(EditAnywhere, Category = "Equipment")
-	float SlotGap = 8.0f;
+	UPROPERTY(meta = (BindWidget))
+	TObjectPtr<UEquipmentSlotWidget> Slot_Legs;
+
+	UPROPERTY(meta = (BindWidget))
+	TObjectPtr<UEquipmentSlotWidget> Slot_PrimaryWeapon;
+
+	UPROPERTY(meta = (BindWidget))
+	TObjectPtr<UEquipmentSlotWidget> Slot_SecondaryEquip;
+
+	UPROPERTY(meta = (BindWidget))
+	TObjectPtr<UEquipmentSlotWidget> Slot_Accessory;
 
 private:
-	FVector2D GetSlotPosition(EEquipSlotType InSlot) const;
 
-	bool ScreenToSlot(const FVector2D& InScreenPosition, EEquipSlotType& OutSlot) const;
-
-	void BuildSlots();
+	// C++에서 Enum 슬롯 타입으로 슬롯 위젯을 빠르게 찾아 순회하기 위한 TMap
+	UPROPERTY()
+	TMap<EEquipSlotType, TObjectPtr<UEquipmentSlotWidget>> SlotMap;
 
 	UPROPERTY()
 	TObjectPtr<UEquipmentComponent> BoundEquipment;
@@ -58,5 +64,5 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
 
-	EEquipSlotType PressedSlot = EEquipSlotType::None;
+	void EnsureSlotMapInitialized();
 };

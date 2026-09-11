@@ -16,6 +16,8 @@ UEnemyAttributeSetBase::UEnemyAttributeSetBase()
 	InitMaxHP(100.f);
 	InitHP(100.f);
 	InitAttackPower(10.f);
+	InitMoveSpeedRate(1.f);
+	InitAttackSpeedRate(1.f);
 }
 
 void UEnemyAttributeSetBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -25,6 +27,8 @@ void UEnemyAttributeSetBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	DOREPLIFETIME(UEnemyAttributeSetBase, HP);
 	DOREPLIFETIME(UEnemyAttributeSetBase, MaxHP);
 	DOREPLIFETIME(UEnemyAttributeSetBase, AttackPower);
+	DOREPLIFETIME(UEnemyAttributeSetBase, MoveSpeedRate);
+	DOREPLIFETIME(UEnemyAttributeSetBase, AttackSpeedRate);
 }
 
 bool UEnemyAttributeSetBase::PreGameplayEffectExecute(FGameplayEffectModCallbackData& Data)
@@ -32,7 +36,7 @@ bool UEnemyAttributeSetBase::PreGameplayEffectExecute(FGameplayEffectModCallback
 	// UAttributeSet에서 공백이긴한데 엔진 업데이트로 공백이아닌뭐가 추가될 경우가 있을수 있음
 	Super::PreGameplayEffectExecute(Data);
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PreGameplayEffectExecute"));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PreGameplayEffectExecute"));
 
 	return true;
 }
@@ -50,16 +54,26 @@ void UEnemyAttributeSetBase::PreAttributeChange(const FGameplayAttribute& Attrib
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
+	else if (Attribute == GetMoveSpeedRateAttribute())
+	{
+		// 0이면 이동을 못한다. 0.1이 최소 배율
+		NewValue = FMath::Clamp(NewValue, 0.1f, 3.f);
+	}
+	else if (Attribute == GetAttackSpeedRateAttribute())
+	{
+		// 0 이면 몽타주가 완전히 멈춘다. 0.1이 최소
+		NewValue = FMath::Clamp(NewValue, 0.1f, 3.f);
+	}
 
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PreAttributeChange"));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PreAttributeChange"));
 }
 
 void UEnemyAttributeSetBase::PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue)
 {
 	Super::PostAttributeChange(Attribute, OldValue, NewValue);
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PostAttributeChange"));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PostAttributeChange"));
 }
 
 void UEnemyAttributeSetBase::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
@@ -108,7 +122,7 @@ void UEnemyAttributeSetBase::PostGameplayEffectExecute(const FGameplayEffectModC
 		}
 	}
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PostGameplayEffectExecute"));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("PostGameplayEffectExecute"));
 }
 
 void UEnemyAttributeSetBase::OnRep_Health(const FGameplayAttributeData& OldValue)

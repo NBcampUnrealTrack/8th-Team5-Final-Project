@@ -46,6 +46,23 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI")
 	float GetAttackRange() const;
 
+	UFUNCTION(BlueprintPure, Category = "AI")
+	float GetTurnSpeed() const;
+
+	UFUNCTION(BlueprintPure, Category = "AI")
+	bool HasRangedAttack() const;
+
+	UFUNCTION(BlueprintPure, Category = "AI")
+	bool ShouldStayHome() const;
+
+	UFUNCTION(BlueprintPure, Category = "AI")
+	bool ShouldUseSpacing() const;
+
+	// 포위 또는 후퇴 지점. 둘 중 하나를 랜덤으로 고른다
+	// StateTree측에서 딜레이를 주며 호출받아 Moveto로 이동할 것
+	UFUNCTION(BlueprintPure, Category = "AI")
+	FVector GetStrafePoint() const;
+
 protected:
 	// 데이터 에셋. 값을 복사하는 게 아니라 애셋 포인터만 들고 있는다.
 	UPROPERTY()

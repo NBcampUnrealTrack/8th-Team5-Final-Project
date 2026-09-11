@@ -2,7 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "AbilitySystemInterface.h"
+#include "GameplayEffectTypes.h"
 #include "Combat/Interface/DamageableInterface.h"
+#include "Combat/Ability/HBSkillAugment.h"
 #include "GameFramework/Character.h"
 #include "HBPlayerCharacter.generated.h"
 
@@ -14,6 +16,13 @@ class UInventoryComponent;
 class UEquipmentComponent;
 class UInteractionComponent;
 class UInteractionPromptWidget;
+class UHBJobData;
+class UGA_WarriorParry;
+struct FHBJobSkillData;
+class USkeletalMesh;
+class UStaticMesh;
+struct FGameplayAbilitySpecHandle;
+class UQuickSlotComponent;
 
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface
@@ -41,11 +50,56 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
 	virtual void ToggleBlocking();
 
-	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
-	UInventoryComponent* GetInventory() const { return Inventory; }
+	UFUNCTION(BlueprintCallable, Category = "Player|Abilities")
+	virtual void ActivateSkill1();
+
+	UFUNCTION(BlueprintCallable, Category = "Player|Abilities")
+	virtual void ActivateSkill2();
+
+	UFUNCTION(BlueprintPure, Category = "Player|Job")
+	UHBJobData* GetJobData() const { return JobData; }
+
+	/** Applies IDs selected by the lobby. The server validates every ID against JobData. */
+	UFUNCTION(BlueprintCallable, Category="Player|Loadout")
+	void RequestApplyLoadout(FName SkillQId, FName SkillEId, const TArray<FName>& PassiveSkillIds);
+
+	UFUNCTION(BlueprintPure, Category="Player|Loadout")
+	FName GetSelectedSkillQId() const { return SelectedSkillQId; }
+
+	UFUNCTION(BlueprintPure, Category="Player|Loadout")
+	FName GetSelectedSkillEId() const { return SelectedSkillEId; }
+
+	UFUNCTION(BlueprintPure, Category="Player|Loadout")
+	TArray<FName> GetSelectedPassiveSkillIds() const { return SelectedPassiveSkillIds; }
+
+	/** Server-only progression hook. Grants a passive without replacing the equipped Q/E skills. */
+	bool AddPassiveSkillFromUpgrade(FName PassiveSkillId);
+
+	/** UI-ready GAS cooldown query using the same stable Skill ID stored by the loadout. */
+	UFUNCTION(BlueprintPure, Category="Player|Abilities")
+	float GetSkillCooldownRemaining(FName SkillId) const;
+
+	UFUNCTION(BlueprintPure, Category="Player|Abilities")
+	bool IsSkillOnCooldown(FName SkillId) const;
+
+	UFUNCTION(BlueprintPure, Category="Player|Abilities")
+	int32 GetSkillUpgradeLevel(FName SkillId) const;
+
+	/** Resets the mana regeneration delay after an action consumes mana. Server authoritative. */
+	void NotifyManaActivity();
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
-	UEquipmentComponent* GetEquipment() const { return Equipment; }
+	UInventoryComponent* GetInventory() const;
+
+	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
+	UEquipmentComponent* GetEquipment() const;
+
+	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
+	UQuickSlotComponent* GetQuickSlot() const;
+
+	// 장착 무기의 WeaponType을 태그로 변환한다. 올바르지 않거나 타입이 없으면 Weapon.Unarmed.
+	UFUNCTION(BlueprintPure, Category = "Player|Combat")
+	FGameplayTag GetEquippedWeaponTag() const;
 
 #pragma region Interaction
 public:
@@ -71,15 +125,41 @@ private:
 
 protected:
 	virtual void OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem);
+	void InitializeJob(UAbilitySystemComponent* AbilitySystem);
+	void ApplyJobAppearance();
+	FGameplayAbilitySpecHandle GrantAbilityIfMissing(
+		UAbilitySystemComponent* AbilitySystem,
+		TSubclassOf<UGameplayAbility> AbilityClass);
+	void ApplyLoadout(FName SkillQId, FName SkillEId, TArray<FName> PassiveSkillIds);
+	void TryActivateJobSkill(FName SkillId);
+	TArray<FName> ResolveStartingSkillIds() const;
+
+	UFUNCTION(Server, Reliable)
+	void ServerTryActivateJobSkill(FName SkillId);
+
+	UFUNCTION(Server, Reliable)
+	void ServerApplyLoadout(FName SkillQId, FName SkillEId, const TArray<FName>& PassiveSkillIds);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Job")
+	TObjectPtr<UHBJobData> JobData;
+
+	UPROPERTY(Replicated, VisibleInstanceOnly, BlueprintReadOnly, Category="Player|Loadout")
+	FName SelectedSkillQId;
+
+	UPROPERTY(Replicated, VisibleInstanceOnly, BlueprintReadOnly, Category="Player|Loadout")
+	FName SelectedSkillEId;
+
+	UPROPERTY(Replicated, VisibleInstanceOnly, BlueprintReadOnly, Category="Player|Loadout")
+	TArray<FName> SelectedPassiveSkillIds;
+
+	TArray<FGameplayAbilitySpecHandle> LoadoutAbilityHandles;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
-	TObjectPtr<UInventoryComponent> Inventory;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
-	TObjectPtr<UEquipmentComponent> Equipment;
+	/** Socket whose animated position is followed by the first-person camera. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Camera")
+	FName FirstPersonCameraSocketName = TEXT("FirstPersonCameraSocket");
 	
 #pragma region ASC
 public:
@@ -92,9 +172,15 @@ public:
 protected:
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
+	void BindToPlayerStateComponents();
 private:
 	UPROPERTY()
 	TObjectPtr<AHB_PlayerState> HB_PlayerState;
+
+	bool bJobInitialized = false;
+
+	bool bPlayerStateComponentsBound = false;
+
 #pragma endregion 
 	
 #pragma region DamageInterface
@@ -102,7 +188,7 @@ private:
 public:
 	virtual bool CanBeDamaged_Implementation(AActor* InstigatorActor) const override;
 	
-	virtual void ApplyMeleeHit_Implementation(AActor* Instigator, float RawDamage, const FHitResult& Hit) override;
+	virtual void ApplyMeleeHit_Implementation(AActor* Instigator, float RawDamage, const FHitResult& Hit, EHBDamageSource Source) override;
 	
 #pragma endregion 
 	
@@ -120,6 +206,79 @@ public:
 	
 	UFUNCTION(BlueprintPure, Category="Player|Combat")
 	float GetBlockAngle() const;
+
+	// 보조 슬롯에 방패가 있는가. 방어 모션과 감소율이 이걸로 갈린다.
+	UFUNCTION(BlueprintPure, Category="Player|Combat")
+	bool HasShieldEquipped() const;
+
+	// 지금 장착으로 어떤 방어를 하는가. 방패가 최우선이고, 없으면 무기 종류를 따른다.
+	//
+	// 작동방식: 기본공격이 Weapon.<타입> 으로 BP 를 찾는 것과 같은 구조다.
+	// 이 태그를 AssetTags 로 가진 방어 BP 가 발동한다.
+	// 그런 BP 가 없으면 발동이 실패하고, 그게 곧 "이 무기로는 못 막는다" 다.
+	UFUNCTION(BlueprintPure, Category="Player|Combat")
+	FGameplayTag GetBlockSourceTag() const;
+
+	// 데미지 처리. 패시브나 액티브등 데미지보너스 포함
+	float ModifyOutgoingDamage(AActor* Target, float Damage);
+	// 
+	void NotifyDamageDealt(AActor* Target, float Damage, bool bTargetKilled);
+	// 마나 비용의 유일한 통로. 패시브,증강의 소비 감소를 여기 한 곳에서만 처리한다.
+	float ModifyManaCost(FGameplayTag SourceTag, float Cost) const;
+
+	// 쿨타임 연산의 유일한 통로. 마나와 같은 모양이다.
+	float ModifyCooldown(FGameplayTag SourceTag, float Duration) const;
+
+	// 증강 보유 여부. 출혈, 방패 강타, 마나 0 처럼 켜고 끄는 것에 쓴다.
+	// 답은 PlayerState 의 TakenAugments 가 갖고 있다. 여기는 통로다.
+	UFUNCTION(BlueprintPure, Category = "Augment")
+	bool HasAugment(FGameplayTag AugmentTag) const;
+
+	// 태그 하나로 증강 정보를 되찾는다. UI 가 툴팁이나 목록을 그릴 때 쓴다.
+	// 직업 카탈로그 전체를 뒤진다. 장착을 풀어도 고른 기록은 남아야 하기 때문이다.
+	UFUNCTION(BlueprintPure, Category = "Augment")
+	bool FindAugmentInfo(FGameplayTag AugmentTag, FHBSkillAugment& Out) const;
+
+	// 지금까지 고른 증강 전부. 이름, 설명, 아이콘, 수치가 다 들어 있다.
+	UFUNCTION(BlueprintPure, Category = "Augment")
+	TArray<FHBSkillAugment> GetTakenAugmentInfos() const;
+
+	// 보유 중인 패링 패시브의 설정. 패시브를 안 배웠으면 nullptr.
+	//
+	// 왜 이 함수 하나인가: "패링을 배웠나" 와 "패링 수치가 얼마냐" 가 늘 같이 필요하다.
+	// 태그 검사와 설정 조회를 따로 두면 한쪽만 하고 넘어가는 실수가 난다.
+	// nullptr 이면 패링이 없는 것이고, 아니면 그 안에 수치가 다 들어 있다.
+	//
+	// 방어 GA 와 피격 판정 두 곳이 쓴다.
+	UFUNCTION(BlueprintPure, Category = "Combat")
+	const UGA_WarriorParry* GetParryPassive() const;
+
+	// [폐기] float GetAugmentValue(FGameplayTag AugmentTag) const;
+	//
+	// 증강의 수치를 캐릭터에 묻던 함수. 항상 1.0 을 돌려주는 스텁이었다.
+	// 없앤 이유: 캐릭터는 어느 스킬의 증강인지 모른다. 같은 이름의 증강이라도
+	// 스킬마다 수치가 다르므로 캐릭터가 답할 수 있는 질문이 아니었다.
+	// 지금은 스킬 GA 가 자기 Augments 배열에서 읽는다.
+	//   UHBPlayerSkillGABase::GetAugmentParam(항목태그, 기본값)
+
+	// 비용만큼 마나가 있는가. 클라도 읽어서 즉시 막는다.
+	bool HasEnoughMana(float Cost) const;
+	float GetAttackManaCost() const { return AttackManaCost; }
+
+	// 스킬id로 해당 스킬의 남은 쿨타임 / 총 쿨타임.
+	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
+	float GetSkillCooldownPercent(FName SkillId) const;
+
+	// 증강,장비가 반영된 실제 마나 비용
+	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
+	float GetSkillManaCost(FName SkillId) const;
+
+	// 쿨타임 중이거나 마나가 부족하면 false
+	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
+	bool CanUseSkill(FName SkillId) const;
+
+	// 실제 차감. 서버에서만 유효하다.
+	void ConsumeMana(float Cost);
 	
 protected:
 	/****GA***/
@@ -147,31 +306,137 @@ protected:
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
 	float BaseBlockingAngle = 120.f;
+
+	// 패링 수치는 여기 없다. UGA_WarriorParry 애셋이 갖는다.
+	// 패링은 패시브로 주어지는 것이므로 그 패시브가 값의 주인이어야 한다.
+	// 조회는 GetParryPassive() 를 쓴다.
+
+	/** Development-only visualization: Warrior=red, Archer=green, Mage=blue. */
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug")
+	bool bDrawBasicAttackDebug = true;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug", meta=(ClampMin="0.05"))
+	float BasicAttackDebugDuration = 1.f;
+
+	// 켜면 방어 각도 안에서 맞은 모든 근접 공격이 패링으로 성립한다.
+	// 왜 넣었나: 패링 판정이 GE_ParryWindow 와 패링 패시브 두 애셋에 의존하는데,
+	// 그 둘이 아직 없어서 판정 코드 자체를 검증할 방법이 없다.
+	// 작동방식: 태그 두 개(State.Warrior.ParryWindow, Passive.Warrior.Parry) 검사를 건너뛴다.
+	// 서버에서만 읽히므로 데디 환경에서도 그대로 동작한다.
+	// 쳐낼 조건: 패링 패시브와 GE_ParryWindow 가 완성되면 false 로 두고,
+	// 5단계 대청소에서 이 변수와 관련 분기를 삭제한다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug")
+	bool bDebugAlwaysParry = false;
+
+private:
+	// 타격 연출을 쏜다. 막힘·패링이면 그에 맞는 큐로, 아니면 무기 성질 판정에 맡긴다.
+	//
+	// 왜 맞는 쪽이 쏘나: 막았는지는 여기서만 안다. 때리는 쪽은 무기 성질밖에 모른다.
+	// 쳐낼 조건: 큐 종류가 더 늘면 결과 → 큐 매핑을 데이터로 뺀다.
+	void PlayHitCue(AActor* InstigatorActor, const FHitResult& Hit, float FinalDamage, float BlockMultiplier, bool bParried) const;
+
+	// 보조 슬롯의 방패 데이터. 없으면 nullptr.
+	// 방패 조회가 세 곳에서 필요해서 한 곳으로 모았다.
+	const struct FShieldData* GetEquippedShieldData() const;
+
+	// 카탈로그에서 찾은 패링 패시브 CDO. 피격마다 훑을 수는 없어서 한 번만 찾는다.
+	// CDO 라 수명이 엔진과 같고, 우리가 소유하지 않는다.
+	mutable TObjectPtr<const UGA_WarriorParry> CachedParryPassive;
+
+	// 스킬 목록 하나를 훑어 증강 태그에 해당하는 항목을 찾는다.
+	// GA 의 CDO 를 읽으므로 인스턴스가 없어도 되고, 그래서 static 이다.
+	static bool FindAugmentInCatalog(const TArray<FHBJobSkillData>& Catalog, FGameplayTag AugmentTag, FHBSkillAugment& Out);
+
+	// 패링에 당한 상대를 경직시킨다.
+	// 작동방식: 상대 ASC 에서 Ability.HitReact 를 발동시킨다.
+	// 적은 BP_GA_HitReact 가, 플레이어는 GA_PlayerStagger 가 그 태그로 잡힌다.
+	// 슈퍼아머·사망 차단은 각 GA 의 ActivationBlockedTags 가 하므로 여기서 다시 보지 않는다.
+	// 쳐낼 조건: 경직의 세기를 패링마다 다르게 하려면 태그가 아니라 GE 를 직접 걸어야 한다.
+	void ApplyStaggerTo(AActor* Target) const;
+
+	void ResetCombatInstinct();
+
+	TWeakObjectPtr<AActor> ConsecutiveTarget;
+	int32 ConsecutiveHitCount = 0;
+	TWeakObjectPtr<AActor> LastDamageInstigator;
+	double LastDamageReceivedTime = -1000.0;
+	FActiveGameplayEffectHandle KillingMomentumEffectHandle;
+	FTimerHandle CombatInstinctTimer;
+
+	void UpdateManaResource();
+	void StopManaActionsAtZero();
+	// SkillId로 쿨다운 GE 의 부여 태그 조회
+	const FGameplayTagContainer* GetSkillCooldownTags(FName SkillId) const;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float ManaRegenDelay = 2.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float ManaRegenPerSecond = 10.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float SprintManaCostPerSecond = 5.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float BlockManaCostPerSecond = 4.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
+	float ManaResourceTickInterval = 0.25f;
+	// 공격 1회당 마나.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin = "0.0"))
+	float AttackManaCost = 10.f;
+
+	FTimerHandle ManaResourceTimer;
+	double LastManaActivityTime = 0.0;
 #pragma endregion 
 	
 #pragma region Movement
 public:
+	// 지금 달릴 수 있는가. 막는 상태와 마나를 한 곳에서 본다.
+	//
+	// 클라 예측(StartSprint)과 서버 검증(ServerSetSprinting), 그리고 달리는 도중
+	// 상태가 걸렸을 때의 자동 해제(RefreshMovementSpeed) 셋이 같은 답을 봐야 한다.
+	// 조건이 갈라지면 클라는 달리는데 서버는 아니라서 위치가 튄다.
+	UFUNCTION(BlueprintPure, Category = "Player|Movement")
+	bool CanSprint() const;
+
 	void StartSprint();
 	
 	void StopSprint();
+
+	void SetMovementSpeedMultiplier(float NewMultiplier);
+
+	/** Called by the AttributeSet when a GAS movement modifier changes. */
+	void RefreshMovementSpeedFromAttributes();
 protected:
 	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
 	float WalkSpeed = 300.f;
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
 	float SprintSpeed = 600.f;
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
+	float CrouchSpeed = 300.f;
 	
 	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
 	bool bIsSprinting = false;
+
+	UPROPERTY(ReplicatedUsing=OnRep_MovementSpeedMultiplier)
+	float MovementSpeedMultiplier = 1.f;
 	
 	UFUNCTION()
 	void OnRep_IsSprinting();
+
+	UFUNCTION()
+	void OnRep_MovementSpeedMultiplier();
 	
 	UFUNCTION(Server, Reliable)
 	void ServerSetSprinting(bool bNewSprinting);
+
+	void RefreshMovementSpeed();
 #pragma endregion 
 	
-#pragma region EquimentVisual
+#pragma region EquipmentVisual
 	
 protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
@@ -179,21 +444,84 @@ protected:
 	
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Combat")
+	TObjectPtr<class UMeleeTraceComponent> MeleeTraceComp;
 	
+	#pragma region ModularEquipmentMesh
+	// Modular equipment meshes copy the character mesh pose instead of attaching to a socket.
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
-	TObjectPtr<UStaticMeshComponent> HelmetMeshComp;
+	TObjectPtr<USkeletalMeshComponent> HelmetMeshComp;
 
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<USkeletalMeshComponent> ChestMeshComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> LegsMeshComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> ShoesMeshComp;
+
+	/** Upper equipment replaces upper body, neck and hands; lower equipment replaces legs and feet. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
+	bool bUseModularEquipment = true;
+
+	/** Only this source body has its body sections replaced. Other job meshes retain their appearance. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
+	TSoftObjectPtr<USkeletalMesh> ModularBodySourceMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing=OnRep_BaseBodyMeshes, Category="Player|Equipment|Temporary Test")
+	TSoftObjectPtr<USkeletalMesh> BaseUpperBodyMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing=OnRep_BaseBodyMeshes, Category="Player|Equipment|Temporary Test")
+	TSoftObjectPtr<USkeletalMesh> BaseLowerBodyMesh;
+
+	UFUNCTION()
+	void OnRep_BaseBodyMeshes();
+
+	bool CanChangeBaseBodyMeshes() const;
+	bool IsCompatibleBaseBodyMesh(const TSoftObjectPtr<USkeletalMesh>& BodyPart) const;
+
+	bool RefreshModularEquipmentVisuals();
+	void SetSourceBodySectionsVisible(bool bVisible);
+	bool bModularBodyActive = false;
+
+public:
+	/** Change the unequipped upper group; equipped upper armor remains visible until removed. Call on the server in game. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Player|Equipment|Modular Body")
+	bool SetBaseUpperBodyMesh(TSoftObjectPtr<USkeletalMesh> UpperBody);
+
+	/** Change the unequipped lower group without changing upper equipment. Call on the server in game. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Player|Equipment|Modular Body")
+	bool SetBaseLowerBodyMesh(TSoftObjectPtr<USkeletalMesh> LowerBody);
+
+	/** Replace both combined body references together, preserving the currently equipped items. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Player|Equipment|Modular Body")
+	bool SetBaseBodyMeshes(TSoftObjectPtr<USkeletalMesh> UpperBody, TSoftObjectPtr<USkeletalMesh> LowerBody);
+
+protected:
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Helmet")
+	FName HairMaterialSlotName = TEXT("MAT_M_CHAMP_HAIR");
+
+	void SetHairVisibleForHelmet(bool bVisible);
+
+
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Underwear")
+	bool bUnderwearVisible = true;
+
+	UFUNCTION(BlueprintCallable, Category="Player|Equipment|Underwear")
+	void SetUnderwearVisible(bool bVisible);
+
+	virtual void OnConstruction(const FTransform& Transform) override;
+	#pragma endregion
 
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName WeaponSocketName = TEXT("PrimaryWeaponSocket");
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName ShieldSocketName = TEXT("SecondWeaponSocket");
-	
-	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
-	FName HelmetSocketName = TEXT("HelmetSocket");
 	
 	virtual void BeginPlay() override;
 	
@@ -204,6 +532,41 @@ protected:
 	void RefreshShieldVisual();
 	void RefreshHelmetVisual();
 	void RefreshChestVisual();
+	void RefreshLegsVisual();
+
+	// TODO: Replace this temporary visual test with item data after coordinating the equipment data format.
+	#pragma region TemporaryEquipmentVisualTest
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test")
+	bool bEnableEquipmentVisualTest = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestHelmetMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestChestMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestLegsMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<USkeletalMesh> TestShoesMesh;
+
+	// TODO: Remove the combined-mesh override after the Blender fitting test is complete.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	bool bUseCombinedPantsBootsTest = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest && bUseCombinedPantsBootsTest"))
+	TSoftObjectPtr<USkeletalMesh> TestCombinedPantsBootsMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<UStaticMesh> TestWeaponMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Temporary Test", meta=(EditCondition="bEnableEquipmentVisualTest"))
+	TSoftObjectPtr<UStaticMesh> TestShieldMesh;
+
+	UFUNCTION(BlueprintCallable, Category="Player|Equipment|Temporary Test")
+	void ApplyTemporaryEquipmentVisualTest();
+	#pragma endregion
 
 #pragma endregion 
 
@@ -211,7 +574,16 @@ public:
 	UFUNCTION(Exec, Category = "Debug")
 	void TestDamage(float Amount);
 
+	// 테스트용: 지정한 장비 슬롯 내구도를 즉시 0(파손)으로 만든다.
+	// Slot 번호(EEquipSlotType 순서): 1=무기 2=방패 3=투구 4=몸통 5=바지 6=악세서리
+	// 클라이언트 창 콘솔에서 쳐도 서버로 전달되어 실제로 적용된다.
+	UFUNCTION(Exec, Category = "Debug")
+	void TestBreakEquipment(int32 Slot);
+
 protected:
+	UFUNCTION(Server, Reliable)
+	void ServerTestBreakEquipment(int32 Slot);
+
 	// C++에서 호출하면 블루프린트에서 실행되는 이벤트
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
 	void BP_OnPlayerStateReady();

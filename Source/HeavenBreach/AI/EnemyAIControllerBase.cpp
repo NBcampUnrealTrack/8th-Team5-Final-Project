@@ -15,6 +15,7 @@
 #include "AI/DataRow/EnemyArchetypeData.h"
 #include "Components/StateTreeAIComponent.h"
 #include "AI/GAS/EnemyAbilitySystemComponent.h"
+#include "core/Tag/Ability/HB_AbilityTag.h"
 
 DEFINE_LOG_CATEGORY(LogEnemyAI);
 
@@ -143,6 +144,83 @@ float AEnemyAIControllerBase::GetAttackRange() const
 	return CachedArchetype ? CachedArchetype->GetStats().AttackRange : 200.f;
 }
 
+float AEnemyAIControllerBase::GetTurnSpeed() const
+{
+	return CachedArchetype ? CachedArchetype->GetStats().TurnSpeed : 360.f;
+}
+
+bool AEnemyAIControllerBase::HasRangedAttack() const
+{
+	AEnemyCharacterBase* Char = Cast<AEnemyCharacterBase>(GetPawn());
+	if (!Char)
+	{
+		return false;
+	}
+
+	// ASC에 원거리 공격 태그를 가진 어빌리티가 있나 확인한다.
+	UEnemyAbilitySystemComponent* ASC = Char->GetEnemyASC();
+	if (ASC && ASC->HasAbilityByTag(AbilityTag::TAG_Ability_Offensive_Ranged))
+	{
+		return true;
+	}
+
+	return false;
+}
+
+bool AEnemyAIControllerBase::ShouldStayHome() const
+{
+	return CachedArchetype ? CachedArchetype->GetStats().bStayAtHome : false;
+}
+
+bool AEnemyAIControllerBase::ShouldUseSpacing() const
+{
+	return CachedArchetype ? CachedArchetype->GetStats().bUseSpacing : false;
+}
+
+FVector AEnemyAIControllerBase::GetStrafePoint() const
+{
+	APawn* MyPawn = GetPawn();
+	if (!MyPawn)
+	{
+		return FVector::ZeroVector;
+	}
+
+	// 해당 기능은 타겟이 있어야함.
+	AActor* Target = AlertComponent ? AlertComponent->GetCurrentTarget() : nullptr;
+	if (!Target)
+	{
+		return MyPawn->GetActorLocation();
+	}
+
+	FVector MyLoc = MyPawn->GetActorLocation();
+	FVector TargetLoc = Target->GetActorLocation();
+	FVector FinalPos;
+
+	// 타겟에서 나를 향하는 방향
+	FVector FleeDir = (MyLoc - TargetLoc).GetSafeNormal();
+
+	// 포위와 후퇴를 반반으로 고른다.
+	float Rand = FMath::RandRange(0, 1);
+	if (Rand <= 0.3)
+	{
+		// 후퇴 — 타겟 반대방향으로 이동
+		FinalPos = MyLoc + FleeDir * 500.f;
+	}
+	else
+	{
+		// 포위 — 좌우 랜덤으로 이동
+		// 현재 거리를 반지름으로 그대로 쓴다.
+		float Radius = FVector::Dist(MyLoc, TargetLoc);
+		// 방향벡터와 Z축을 외적하여 타겟을 바라보는 기준 수직으로 이동방향결정
+		FVector TangentDir = FVector::CrossProduct(FVector::UpVector, FleeDir);
+		// 좌로돌지 우로돌지 결정
+		float Side = FMath::RandBool() ? 1.f : -1.f;
+		FinalPos = TargetLoc + (FleeDir + TangentDir * Side).GetSafeNormal() * Radius;
+	}
+
+	return FinalPos;
+}
+
 void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 {
 	const UEnemyArchetypeData* Data = Char ? Char->GetArchetypeData() : nullptr;
@@ -171,10 +249,11 @@ void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)
 		Char->SetWalkSpeed(S.WalkSpeed);
 		Char->SetRunSpeed(S.RunSpeed);
 		Char->SetAccRadius(S.AcceptanceRadius);
+		Char->SetReward(S.ExpReward);
 
 		if (UEnemyAbilitySystemComponent* ASC = Char->GetEnemyASC())
 		{
-			ASC->InitStats(S.MaxHealth, S.AttackPower);
+			ASC->InitStats(S.MaxHealth, S.AttackPower,S.AttackSpeedRate);
 			ASC->SetupAbilities(Data->Abilities);
 		}
 
@@ -207,8 +286,18 @@ bool AEnemyAIControllerBase::IsValidTarget(const AActor* Actor) const
 
 	// IsPlayerControlled() 는 AActor로는 알수 없다. APawn으로 캐스팅 시켜 확인하도록한다.
 	const APawn* AsPawn = Cast<const APawn>(Actor);
+	if (!AsPawn || !AsPawn->IsPlayerControlled())
+	{
+		return false;
+	}
 
-	return AsPawn && AsPawn->IsPlayerControlled();
+	// 죽은 플레이어는 타겟이 아니다.
+	if (!AlertComponent->IsTargetAlive(Actor))
+	{
+		return false;
+	}
+
+	return true;
 }
 
 void AEnemyAIControllerBase::ApplySenses(const FEnemyStatRow* Stats)

@@ -5,41 +5,70 @@
 #include "InteractableInterface.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
+#include "Input/CommonUIActionRouterBase.h"
 
 UInteractionComponent::UInteractionComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 
-	// 컴포넌트에서 Server RPC를 라우팅하려면 리플리케이트되어야 한다. (소유 폰은 클라 커넥션 소유)
 	SetIsReplicatedByDefault(true);
 }
 
 void UInteractionComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	// NOTE: 빙의(possess)가 BeginPlay보다 늦을 수 있어 여기서 틱을 끄면 로컬 폰인데도 영영 안 켜질 수 있다.
-	// 그래서 비활성화하지 않고, TickComponent가 매 틱 IsLocallyControlled로 조기 리턴하도록 둔다.
 }
 
 void UInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	// 소유권이 늦게 확정될 수 있으므로 매 틱 로컬 컨트롤 여부를 확인한다.
 	const APawn* Pawn = GetOwnerPawn();
-	if (Pawn == nullptr || !Pawn->IsLocallyControlled())
+	if (Pawn == nullptr)
+	{
+		return;
+	}
+
+	// 서버는 홀드 중인 대상이 여전히 유효한 거리·상태인지 감시한다.
+	// 클라이언트가 키를 누른 채 걸어나가도 서버가 끊어야 하기 때문이다.
+	if (GetOwnerRole() == ROLE_Authority && ServerHeldTarget != nullptr)
+	{
+		if (!IsTargetInteractable(ServerHeldTarget))
+		{
+			CancelHoldOnServer();
+		}
+	}
+
+	if (!Pawn->IsLocallyControlled())
 	{
 		return;
 	}
 
 	UpdateFocus();
+
+	// 보고 있던 대상에서 시선이 벗어나면 홀드를 놓은 것으로 본다.
+	if (HeldTarget != nullptr && FocusedInteractable != HeldTarget)
+	{
+		EndHold();
+	}
 }
 
 void UInteractionComponent::UpdateFocus()
 {
+	// 인벤토리 / 상자 / 상점이 열려 있는 동안에는 탐색을 멈추고 포커스를 놓는다.
+	// 포커스를 nullptr 로 밀면 OnFocusChanged 를 타고 프롬프트 위젯이 스스로 숨는다.
+	// (프롬프트는 AddToViewport 로 붙어 있어 UI 레이어에 가려지지 않으므로,
+	//  여기서 끄지 않으면 상자 화면 위에 "F 상자 오픈"이 계속 남는다)
+	if (IsInputOwnedByMenu())
+	{
+		SetFocusedInteractable(nullptr);
+		return;
+	}
+
 	FVector ViewLocation;
 	FVector ViewDirection;
 	if (!GetViewPoint(ViewLocation, ViewDirection))
@@ -50,7 +79,7 @@ void UInteractionComponent::UpdateFocus()
 
 	const FVector TraceEnd = ViewLocation + ViewDirection * InteractionDistance;
 
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(InteractionTrace), /*bTraceComplex=*/false);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(InteractionTrace), false);
 	Params.AddIgnoredActor(GetOwner());
 
 	FHitResult Hit;
@@ -60,7 +89,6 @@ void UInteractionComponent::UpdateFocus()
 	if (bHit)
 	{
 		AActor* HitActor = Hit.GetActor();
-		// 대상이 인터페이스를 구현하고, 지금 상호작용 가능한 상태일 때만 후보로 삼는다.
 		if (HitActor && HitActor->Implements<UInteractableInterface>()
 			&& IInteractableInterface::Execute_CanInteract(HitActor, GetOwner()))
 		{
@@ -92,19 +120,175 @@ void UInteractionComponent::SetFocusedInteractable(AActor* NewInteractable)
 
 void UInteractionComponent::TryInteract()
 {
-	// 조준 대상이 없으면 아무것도 하지 않는다.
 	if (FocusedInteractable == nullptr)
 	{
 		return;
 	}
 
-	// 판정은 서버에서. (로컬에서 호출되어 서버로 전달됨)
 	Server_Interact(FocusedInteractable);
+}
+
+void UInteractionComponent::BeginHold()
+{
+	if (FocusedInteractable == nullptr || !FocusedInteractable->Implements<UInteractableInterface>())
+	{
+		return;
+	}
+
+	const float HoldSeconds = IInteractableInterface::Execute_GetInteractHoldSeconds(FocusedInteractable);
+
+	// 홀드가 필요 없는 대상은 기존 단발 경로 그대로. 상자·탈출 지점이 여기로 온다.
+	if (HoldSeconds <= 0.0f)
+	{
+		Server_Interact(FocusedInteractable);
+		return;
+	}
+
+	HeldTarget = FocusedInteractable;
+	HoldDuration = HoldSeconds;
+	HoldStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+
+	Server_BeginHold(FocusedInteractable);
+}
+
+void UInteractionComponent::EndHold()
+{
+	if (HeldTarget == nullptr)
+	{
+		return;
+	}
+
+	HeldTarget = nullptr;
+	HoldDuration = 0.0f;
+	HoldStartTime = 0.0f;
+
+	Server_EndHold();
+}
+
+float UInteractionComponent::GetHoldProgress() const
+{
+	if (HeldTarget == nullptr || HoldDuration <= 0.0f || GetWorld() == nullptr)
+	{
+		return 0.0f;
+	}
+
+	const float Elapsed = GetWorld()->GetTimeSeconds() - HoldStartTime;
+	return FMath::Clamp(Elapsed / HoldDuration, 0.0f, 1.0f);
+}
+
+bool UInteractionComponent::IsTargetInteractable(AActor* Target) const
+{
+	const APawn* Pawn = GetOwnerPawn();
+	if (Pawn == nullptr || Target == nullptr || !IsValid(Target))
+	{
+		return false;
+	}
+
+	const float MaxDistance = InteractionDistance + ServerDistanceTolerance;
+	if (FVector::DistSquared(Pawn->GetActorLocation(), Target->GetActorLocation()) > FMath::Square(MaxDistance))
+	{
+		return false;
+	}
+
+	return Target->Implements<UInteractableInterface>()
+		&& IInteractableInterface::Execute_CanInteract(Target, const_cast<APawn*>(Pawn));
+}
+
+bool UInteractionComponent::Server_BeginHold_Validate(AActor* Target)
+{
+	return true;
+}
+
+void UInteractionComponent::Server_BeginHold_Implementation(AActor* Target)
+{
+	// 이전 홀드가 남아 있으면 정리하고 시작한다.
+	if (ServerHeldTarget != nullptr)
+	{
+		CancelHoldOnServer();
+	}
+
+	if (!IsTargetInteractable(Target))
+	{
+		return;
+	}
+
+	APawn* Pawn = GetOwnerPawn();
+
+	const float HoldSeconds = IInteractableInterface::Execute_GetInteractHoldSeconds(Target);
+	if (HoldSeconds <= 0.0f)
+	{
+		// 클라이언트가 보낸 값이 아니라 서버가 다시 물어본 값이다. 0 이면 즉시 실행.
+		IInteractableInterface::Execute_Interact(Target, Pawn);
+		return;
+	}
+
+	// 대상이 거절하면 홀드를 시작하지 않는다. 봉인문은 필요한 열쇠가 없으면 여기서 거절한다.
+	if (!IInteractableInterface::Execute_OnHoldBegin(Target, Pawn))
+	{
+		return;
+	}
+
+	ServerHeldTarget = Target;
+
+	GetWorld()->GetTimerManager().SetTimer(
+		ServerHoldTimerHandle,
+		this,
+		&UInteractionComponent::CompleteHold,
+		HoldSeconds,
+		false);
+}
+
+void UInteractionComponent::Server_EndHold_Implementation()
+{
+	CancelHoldOnServer();
+}
+
+void UInteractionComponent::CompleteHold()
+{
+	AActor* Target = ServerHeldTarget;
+	ServerHeldTarget = nullptr;
+
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(ServerHoldTimerHandle);
+	}
+
+	// 시간이 다 찼어도 완료 시점에 다시 검증한다. 홀드 도중 상태가 바뀌었을 수 있다.
+	if (!IsTargetInteractable(Target))
+	{
+		if (Target && Target->Implements<UInteractableInterface>())
+		{
+			IInteractableInterface::Execute_OnHoldCancel(Target, GetOwnerPawn());
+		}
+		return;
+	}
+
+	IInteractableInterface::Execute_Interact(Target, GetOwnerPawn());
+}
+
+void UInteractionComponent::CancelHoldOnServer()
+{
+	if (ServerHeldTarget == nullptr)
+	{
+		return;
+	}
+
+	AActor* Target = ServerHeldTarget;
+	ServerHeldTarget = nullptr;
+
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(ServerHoldTimerHandle);
+	}
+
+	if (IsValid(Target) && Target->Implements<UInteractableInterface>())
+	{
+		IInteractableInterface::Execute_OnHoldCancel(Target, GetOwnerPawn());
+	}
 }
 
 bool UInteractionComponent::Server_Interact_Validate(AActor* Target)
 {
-	// 기본 검증: 대상이 유효하고 상호작용 인터페이스를 구현해야 한다.
 	return true;
 }
 
@@ -116,14 +300,12 @@ void UInteractionComponent::Server_Interact_Implementation(AActor* Target)
 		return;
 	}
 
-	// 치팅 방지: 서버에서 거리를 재검증한다.
 	const float MaxDistance = InteractionDistance + ServerDistanceTolerance;
 	if (FVector::DistSquared(Pawn->GetActorLocation(), Target->GetActorLocation()) > FMath::Square(MaxDistance))
 	{
 		return;
 	}
 
-	// 대상이 지금 상호작용 가능한지 최종 확인 후 실행한다.
 	if (Target->Implements<UInteractableInterface>()
 		&& IInteractableInterface::Execute_CanInteract(Target, Pawn))
 	{
@@ -148,7 +330,6 @@ bool UInteractionComponent::GetViewPoint(FVector& OutLocation, FVector& OutDirec
 		return false;
 	}
 
-	// 컨트롤러의 시점(1인칭 카메라 시점)을 우선 사용한다.
 	if (const AController* Controller = Pawn->GetController())
 	{
 		FVector Location;
@@ -159,10 +340,35 @@ bool UInteractionComponent::GetViewPoint(FVector& OutLocation, FVector& OutDirec
 		return true;
 	}
 
-	// 폴백: 폰 위치/전방
 	OutLocation = Pawn->GetActorLocation();
 	OutDirection = Pawn->GetActorForwardVector();
 	return true;
+}
+
+bool UInteractionComponent::IsInputOwnedByMenu() const
+{
+	if (!bSuppressWhileMenuInput)
+	{
+		return false;
+	}
+
+	const APawn* Pawn = GetOwnerPawn();
+	const APlayerController* PC = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
+	if (PC == nullptr)
+	{
+		return false;
+	}
+
+	const UCommonUIActionRouterBase* ActionRouter =
+		ULocalPlayer::GetSubsystemFromController<UCommonUIActionRouterBase>(PC);
+	if (ActionRouter == nullptr)
+	{
+		return false;
+	}
+
+	// Menu = UI가 입력을 독점한 상태(인벤토리 / 상자 / 상점).
+	// All(GameAndMenu)은 게임 입력이 살아 있는 상태이므로 상호작용을 막지 않는다.
+	return ActionRouter->GetActiveInputMode() == ECommonInputMode::Menu;
 }
 
 APawn* UInteractionComponent::GetOwnerPawn() const
@@ -172,6 +378,5 @@ APawn* UInteractionComponent::GetOwnerPawn() const
 
 void UInteractionComponent::Client_OpenContainer_Implementation(UInventoryComponent* Container)
 {
-	// 요청 클라에서 실행됨. 실제 UI 오픈(InventoryUI.OpenContainer)은 BP에서 이 이벤트에 연결한다.
 	OnRequestOpenContainer.Broadcast(Container);
 }

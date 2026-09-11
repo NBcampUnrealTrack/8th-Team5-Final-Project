@@ -33,7 +33,7 @@ protected:
 
 	// 상호작용시 띄울 문구
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
-	FText InteractPrompt = FText::FromString(TEXT("상자 열기 [F]"));
+	FText InteractPrompt = FText::FromString(TEXT("루팅 [F]"));
 
 	// 데이터 테이블에 대조할 ID
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")

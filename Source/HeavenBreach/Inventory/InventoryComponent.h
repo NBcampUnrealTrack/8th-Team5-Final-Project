@@ -10,6 +10,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUsed, FName, ItemId, float, 
 
 class UDataTable;
 class UEquipmentComponent;
+class AItemBase;
 
 UCLASS(ClassGroup = (Inventory), meta = (BlueprintSpawnableComponent))
 class HEAVENBREACH_API UInventoryComponent : public UActorComponent
@@ -43,7 +44,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 FindEntryIndexById(FGuid InInstanceId) const;
 
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	int32 GetTotalGold(FName InGoldRowName) const;
+
+	bool ConsumeGold(const FDataTableRowHandle& InGoldRow, int32 InAmount);
+
+	bool AddGold(const FDataTableRowHandle& InGoldRow, int32 InAmount);
+
 	bool CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int32 InIgnoredIndex = INDEX_NONE) const;
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool CanFitItem(const FItemInstance& InItem) const;
 
 	bool FindFirstFreeSlot(FIntPoint InSize, FIntPoint& OutPosition, int32 InIgnoredIndex = INDEX_NONE) const;
 
@@ -51,7 +62,7 @@ public:
 
 	bool TryAddItemAt(const FItemInstance& InItem, FIntPoint InPosition);
 
-	bool MoveItem(FGuid InInstanceId, FIntPoint InNewPosition);
+	bool MoveItem(FGuid InInstanceId, FIntPoint InNewPosition, bool bInRotated);
 
 	bool RemoveItem(FGuid InInstanceId, FItemInstance& OutRemoved);
 
@@ -59,10 +70,18 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool UseItem(FGuid InInstanceId);
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool ToggleFavorite(FGuid InInstanceId);
 
-	bool TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
+	bool TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool bInRotated);
 
 	bool TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
+
+	bool MergeStack(FGuid InSourceId, FGuid InTargetId);
+
+	bool MergeStackFrom(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId);
+
+	bool DropItem(FGuid InInstanceId);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ClearAll();
@@ -82,10 +101,10 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION(Server, Reliable)
-	void Server_MoveItem(FGuid InInstanceId, FIntPoint InNewPosition);
+	void Server_MoveItem(FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
-	void Server_TransferItem(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition);
+	void Server_TransferItem(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
 	void Server_TransferItemAuto(UInventoryComponent* InTarget, FGuid InInstanceId);
@@ -97,13 +116,13 @@ public:
 	void Server_UnequipItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, FIntPoint InTargetPosition);
 
 	UFUNCTION(Server, Reliable)
-	void Server_TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition);
+	void Server_TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
 	void Server_TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
 
 	UFUNCTION(Server, Reliable)
-	void Server_MoveItemIn(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition);
+	void Server_MoveItemIn(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
 	void Server_UnequipItemTo(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition);
@@ -114,9 +133,21 @@ public:
 
 	UFUNCTION(Server, Reliable)
 	void Server_UseItem(FGuid InInstanceId);
+	UFUNCTION(Server, Reliable)
+	void Server_ToggleFavorite(FGuid InInstanceId);
 
 	UFUNCTION(Server, Reliable)
 	void Server_SplitStack(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition);
+
+	UFUNCTION(Server, Reliable)
+	void Server_MergeStack(FGuid InSourceId, FGuid InTargetId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_MergeStackFrom(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_DropItem(FGuid InInstanceId);
+
 
 protected:
 
@@ -151,6 +182,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Inventory|Debug")
 	TObjectPtr<UDataTable> DebugItemTable;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Drop")
+	TSubclassOf<AItemBase> DropItemClass;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Entries)
 	TArray<FInventoryEntry> Entries;

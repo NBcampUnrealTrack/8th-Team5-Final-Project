@@ -7,6 +7,8 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Animation/AnimMontage.h"
 #include "AbilitySystemComponent.h"
+#include "AI/GAS/EnemyAttributeSetBase.h"
+//#include "HBPlayerActiveGABase.h"
 
 UEnemyMontageGABase::UEnemyMontageGABase()
 {
@@ -27,6 +29,8 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
+	bCooldownPending = false;
+
 	// 이거 실행하려면 몽타주 잇어야함
 	if (!Montage)
 	{
@@ -35,19 +39,52 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		return;
 	}
 
-	// CommitAbility선언은 필수
-	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
+	bool bCommitted = false;
+
+	// 쿨다운 적용방식에 따른 구분
+	if (bCooldownOnEnd)
+	{
+		bCommitted = CommitAbilityCost(Handle, ActorInfo, ActivationInfo);
+	}
+	else
+	{
+		bCommitted = CommitAbility(Handle, ActorInfo, ActivationInfo);
+	}
+
+	// 정상적으로 실행되었나를 확인
+	if (!bCommitted)
 	{
 		// 맨끝의 저건 정상적으로 취소햇음? 취소/중단. 인터럽트, 조건 실패, 외부 취소여부
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
 
+	// 당연하지만 ASC를 가지고 잇어야하며 서버만 가능
+	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+
+	// 최종 몽타주 속도
+	float FinalPlayRate = PlayRate;
+
+	if (ASC)
+	{
+		// 공격속도 보정
+		// 공격용 몽타주만 사용. 그외의 몽타주들은 기존 Rate적용
+		if (bIsAttackSpeed)
+		{
+			bool bFound = false;
+			float Rate = ASC->GetGameplayAttributeValue(UEnemyAttributeSetBase::GetAttackSpeedRateAttribute(), bFound);
+
+			if (bFound && Rate > 0.f)
+			{
+				FinalPlayRate = PlayRate * Rate;
+			}
+		}
+	}
+
+
 	// 몽타주와 별개로 지속되는 상태를 건다. 어빌리티가 끝나도 GE 는 남는다.
 	if (ActivationEffect)
 	{
-		// 당연하지만 ASC를 가지고 잇어야하며 서버만 가능
-		UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
 		if (ASC && ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
 		{
 			// 자기 자신에게 GE부여
@@ -59,8 +96,10 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		}
 	}
 
+
+
 	// 몽타주 재생을 어빌리티 태스크에 맡긴다
-	UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Montage, PlayRate);
+	UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Montage, FinalPlayRate);
 
 
 	if (!Task)
@@ -78,6 +117,30 @@ void UEnemyMontageGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	// 이걸 빼먹으면 태스크가 시작되지 않는다
 	Task->ReadyForActivation();
 
+	// 쿨다운이 끝나고나서 처리되는 어빌은 여기까지 왔으면 몽타주가 돈다. 끝날 때 쿨다운을 건다.
+	if (bCooldownOnEnd)
+	{
+		bCooldownPending = true;
+	}
+
+}
+
+bool UEnemyMontageGABase::IsRange(float Distance) const
+{
+	// 최소사거리보다 짧은지 판단한다.
+	// 원거리 어빌리티의 경우 필요할수도있다.
+	if (Distance < MinRange)
+	{
+		return false;
+	}
+
+	// MaxRange가 0일 시 사거리 제한없음
+	if (MaxRange > 0.f && Distance > MaxRange)
+	{
+		return false;
+	}
+
+	return true;
 }
 
 void UEnemyMontageGABase::OnMontageFinished()
@@ -89,4 +152,30 @@ void UEnemyMontageGABase::OnMontageFinished()
 void UEnemyMontageGABase::OnMontageCancelled()
 {
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, true);
+}
+
+void UEnemyMontageGABase::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+{
+	// 끝나고나서 쿨타임 적용방식 일 시
+	if (bCooldownPending)
+	{
+		bCooldownPending = false;
+		// 쿨타임 적용. 지금적용안하면 영원히 적용안됨.
+		ApplyCooldown(Handle, ActorInfo, ActivationInfo);
+	}
+
+	// 종료후 경직시간 적용
+	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (ASC && RecoveryEffect)
+	{
+		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(RecoveryEffect, 1.f, ASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			// 경직용 GE발동. 일정시간동안 Tag를 부여
+			ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		}
+	}
+
+	// 실제 EndAbility적용
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

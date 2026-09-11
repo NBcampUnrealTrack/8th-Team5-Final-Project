@@ -10,6 +10,8 @@ public class HeavenBreach : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[] {
 			"Core",
+			// Stash account resolution calls FUniqueNetIdWrapper APIs implemented by CoreOnline.
+			"CoreOnline",
 			"CoreUObject",
 			"Engine",
 			"InputCore",
@@ -20,13 +22,17 @@ public class HeavenBreach : ModuleRules
 			"UMG",
 			"Slate",
 			"SlateCore",
+			"CommonUI",
+			"CommonInput",
             "GameplayAbilities",
             "GameplayTags",
             "GameplayTasks",
             "NavigationSystem",
 			"HTTP",
 			"Json",
-            "JsonUtilities"
+            "JsonUtilities",
+			"OnlineSubsystem",
+			"OnlineSubsystemUtils"
         });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
@@ -35,6 +41,7 @@ public class HeavenBreach : ModuleRules
 			"HeavenBreach",
 			"HeavenBreach/Interaction",
 			"HeavenBreach/Loot",
+			"HeavenBreach/SealedDoor",
 			"HeavenBreach/Escape",
 			"HeavenBreach/Variant_Horror",
 			"HeavenBreach/Variant_Horror/UI",
@@ -45,8 +52,13 @@ public class HeavenBreach : ModuleRules
 			"HeavenBreach/Inventory",
             "HeavenBreach/Equipment",
             "HeavenBreach/Item",
-            "HeavenBreach/Core/DataManagement"
+            "HeavenBreach/Core/DataManagement",
+            "HeavenBreach/Shop",
+            "HeavenBreach/UI",
+            "HeavenBreach/Craft"
         });
+		
+		DynamicallyLoadedModuleNames.Add("OnlineSubsystemSteam");
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

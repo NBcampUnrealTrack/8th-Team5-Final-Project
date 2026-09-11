@@ -1,7 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "5.7",
-	"Category": "",
+	"EngineAssociation": "HeavenBreach_UE_5.7.4",
 	"Description": "",
 	"Modules": [
 		{
@@ -37,7 +36,11 @@
 			"Enabled": true
 		},
 		{
-			"Name": "GameplayAbilities",
+			"Name": "OnlineSubsystemSteam",
+			"Enabled": true
+		},
+		{
+			"Name": "CommonUI",
 			"Enabled": true
 		}
 	]

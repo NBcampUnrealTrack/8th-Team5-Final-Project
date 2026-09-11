@@ -7,6 +7,9 @@
 #include "InventoryComponent.h"
 #include "InventoryWidget.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Player/HBPlayerController.h"
+#include "Core/Tag/UI/HB_UITag.h"
+#include "UI/HB_UILayout.h"
 
 UInventoryUIComponent::UInventoryUIComponent()
 {
@@ -17,35 +20,18 @@ void UInventoryUIComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	EnsureWidget();
+	// 위젯은 열 때 스택이 만든다. 미리 만들어 뷰포트에 붙여두지 않는다.
 }
 
-void UInventoryUIComponent::EnsureWidget()
+UHB_UILayout* UInventoryUIComponent::GetUILayout() const
 {
-	if (InventoryWidget != nullptr || InventoryWidgetClass == nullptr)
-	{
-		return;
-	}
-
-	APlayerController* OwningController = Cast<APlayerController>(GetOwner());
-	if (OwningController == nullptr || !OwningController->IsLocalController())
-	{
-		return;
-	}
-
-	InventoryWidget = CreateWidget<UInventoryWidget>(OwningController, InventoryWidgetClass);
-	if (InventoryWidget == nullptr)
-	{
-		return;
-	}
-
-	InventoryWidget->AddToViewport();
-	InventoryWidget->SetVisibility(ESlateVisibility::Collapsed);
+	const AHBPlayerController* OwningController = Cast<AHBPlayerController>(GetOwner());
+	return OwningController ? OwningController->GetUILayout() : nullptr;
 }
 
 void UInventoryUIComponent::ToggleInventory()
 {
-	if (bIsOpen)
+	if (IsInventoryOpen())
 	{
 		CloseInventory();
 	}
@@ -57,10 +43,13 @@ void UInventoryUIComponent::ToggleInventory()
 
 void UInventoryUIComponent::OpenInventory()
 {
-	EnsureWidget();
+	if (IsInventoryOpen() || InventoryWidgetClass == nullptr)
+	{
+		return;
+	}
 
 	APlayerController* OwningController = Cast<APlayerController>(GetOwner());
-	if (InventoryWidget == nullptr || OwningController == nullptr)
+	if (OwningController == nullptr || !OwningController->IsLocalController())
 	{
 		return;
 	}
@@ -71,37 +60,46 @@ void UInventoryUIComponent::OpenInventory()
 		return;
 	}
 
-	InventoryWidget->BindToInventory(PlayerCharacter->GetInventory());
-	InventoryWidget->BindToEquipment(PlayerCharacter->GetEquipment());
-	InventoryWidget->SetLinkedEquipment(PlayerCharacter->GetEquipment());
-	InventoryWidget->SetLinkedContainer(nullptr);
-	InventoryWidget->SetVisibility(ESlateVisibility::Visible);
-
-	FInputModeGameAndUI InputMode;
-	InputMode.SetWidgetToFocus(InventoryWidget->TakeWidget());
-	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-	InputMode.SetHideCursorDuringCapture(false);
-
-	OwningController->SetInputMode(InputMode);
-	OwningController->SetShowMouseCursor(true);
-
-	bIsOpen = true;
-}
-
-void UInventoryUIComponent::CloseInventory()
-{
-	APlayerController* OwningController = Cast<APlayerController>(GetOwner());
-	if (InventoryWidget == nullptr || OwningController == nullptr)
+	UHB_UILayout* Layout = GetUILayout();
+	if (Layout == nullptr)
 	{
 		return;
 	}
 
-	InventoryWidget->SetVisibility(ESlateVisibility::Collapsed);
+	// 스택이 위젯을 만들고, 활성화하고, InputConfig(Menu)까지 적용한다.
+	// 초기화 함수는 활성화 이전에 실행되므로 첫 프레임부터 데이터가 채워져 있다.
+	InventoryWidget = Layout->PushWidgetToLayer<UInventoryWidget>(
+		UITag::TAG_UI_Layer_Menu, InventoryWidgetClass,
+		[PlayerCharacter](UInventoryWidget& Screen)
+		{
+			Screen.BindToInventory(PlayerCharacter->GetInventory());
+			Screen.BindToEquipment(PlayerCharacter->GetEquipment());
+			Screen.SetLinkedEquipment(PlayerCharacter->GetEquipment());
+			Screen.SetLinkedContainer(nullptr);
+		});
 
-	OwningController->SetInputMode(FInputModeGameOnly());
-	OwningController->SetShowMouseCursor(false);
+	if (InventoryWidget != nullptr)
+	{
+		// ESC 처럼 위젯이 스스로 닫히는 경로가 있으므로 참조를 여기서 정리한다.
+		// 이걸 놓치면 이미 닫힌 인벤토리를 열려 있다고 오판해서 다음 Tab 이 먹지 않는다
+		InventoryWidget->OnDeactivated().AddWeakLambda(this, [this]()
+		{
+			InventoryWidget = nullptr;
+		});
+	}
+}
 
-	bIsOpen = false;
+void UInventoryUIComponent::CloseInventory()
+{
+	if (InventoryWidget == nullptr)
+	{
+		return;
+	}
+
+	// 스택이 제거하고, 바로 아래 위젯의 InputConfig를 다시 계산해 적용한다.
+	// (창고가 아직 열려 있으면 Menu 유지, 아무것도 없으면 HUD의 Game으로 복귀)
+	InventoryWidget->DeactivateWidget();
+	InventoryWidget = nullptr;
 }
 
 void UInventoryUIComponent::OpenStash()

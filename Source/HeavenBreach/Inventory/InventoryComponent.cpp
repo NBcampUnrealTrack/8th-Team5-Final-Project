@@ -2,6 +2,11 @@
 #include "Engine/DataTable.h"
 #include "Net/UnrealNetwork.h"
 #include "EquipmentComponent.h"
+#include "Item/ItemBase.h"
+#include "GameFramework/PlayerState.h"
+#include "GameFramework/Pawn.h"
+#include "Player/PlayerState/HB_PlayerState.h"
+#include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -9,14 +14,14 @@ UInventoryComponent::UInventoryComponent()
 	SetIsReplicatedByDefault(true);
 }
 
-void UInventoryComponent::Server_MoveItemIn_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition)
+void UInventoryComponent::Server_MoveItemIn_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated)
 {
 	if (InTarget == nullptr)
 	{
 		return;
 	}
 
-	InTarget->MoveItem(InInstanceId, InNewPosition);
+	InTarget->MoveItem(InInstanceId, InNewPosition, InRotated);
 }
 
 void UInventoryComponent::BeginPlay()
@@ -56,12 +61,12 @@ bool UInventoryComponent::IsValidCoord(FIntPoint InCoord) const
 
 int32 UInventoryComponent::GetEntryIndexAt(FIntPoint InCoord) const
 {
-	if (!IsValidCoord(InCoord))
+	const int32 Index = CoordToIndex(InCoord);
+	if (!CellCache.IsValidIndex(Index))
 	{
 		return INDEX_NONE;
 	}
-
-	return CellCache[CoordToIndex(InCoord)];
+	return CellCache[Index];
 }
 
 int32 UInventoryComponent::FindEntryIndexById(FGuid InInstanceId) const
@@ -75,6 +80,74 @@ int32 UInventoryComponent::FindEntryIndexById(FGuid InInstanceId) const
 	}
 
 	return INDEX_NONE;
+}
+
+int32 UInventoryComponent::GetTotalGold(FName InGoldRowName) const
+{
+	int32 Total = 0;
+
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		if (Entry.Item.ItemRow.RowName == InGoldRowName)
+		{
+			Total += Entry.Item.StackCount;
+		}
+	}
+
+	return Total;
+}
+
+bool UInventoryComponent::ConsumeGold(const FDataTableRowHandle& InGoldRow, int32 InAmount)
+{
+	if (GetOwnerRole() != ROLE_Authority || InAmount <= 0)
+	{
+		return false;
+	}
+
+	if (GetTotalGold(InGoldRow.RowName) < InAmount)
+	{
+		return false;
+	}
+
+	int32 Remaining = InAmount;
+
+	for (int32 Index = Entries.Num() - 1; Index >= 0 && Remaining > 0; --Index)
+	{
+		if (Entries[Index].Item.ItemRow.RowName != InGoldRow.RowName)
+		{
+			continue;
+		}
+
+		const int32 Consumed = FMath::Min(Entries[Index].Item.StackCount, Remaining);
+		Entries[Index].Item.StackCount -= Consumed;
+		Remaining -= Consumed;
+
+		if (Entries[Index].Item.StackCount <= 0)
+		{
+			Entries.RemoveAt(Index);
+		}
+	}
+
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+
+bool UInventoryComponent::AddGold(const FDataTableRowHandle& InGoldRow, int32 InAmount)
+{
+	if (GetOwnerRole() != ROLE_Authority || InAmount <= 0)
+	{
+		return false;
+	}
+
+	FItemInstance GoldItem;
+	GoldItem.ItemRow = InGoldRow;
+	GoldItem.InstanceId = FGuid::NewGuid();
+	GoldItem.StackCount = InAmount;
+
+	int32 Remainder = 0;
+	return TryAddItem(GoldItem, Remainder);
 }
 
 bool UInventoryComponent::GetEntrySize(const FItemInstance& InItem, FIntPoint& OutSize) const
@@ -114,6 +187,11 @@ bool UInventoryComponent::CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int
 		return false;
 	}
 
+	if (CellCache.Num() != Width * Height)
+	{
+		return false;
+	}
+
 	if (InPosition.X + InSize.X > Width || InPosition.Y + InSize.Y > Height)
 	{
 		return false;
@@ -134,6 +212,61 @@ bool UInventoryComponent::CanPlaceAt(FIntPoint InSize, FIntPoint InPosition, int
 	}
 
 	return true;
+}
+
+bool UInventoryComponent::CanFitItem(const FItemInstance& InItem) const
+{
+	FItemViewData ViewData;
+
+	if (!ResolveItemViewData(InItem.ItemRow, ViewData))
+	{
+		return false;
+	}
+
+	int32 Remaining = InItem.StackCount;
+
+	if (ViewData.IsStackable())
+	{
+		for (const FInventoryEntry& Entry : Entries)
+		{
+			if (Remaining <= 0)
+			{
+				return true;
+			}
+
+			if (Entry.Item.ItemRow.RowName != InItem.ItemRow.RowName)
+			{
+				continue;
+			}
+
+			const int32 Space = ViewData.MaxStack - Entry.Item.StackCount;
+
+			if (Space > 0)
+			{
+				Remaining -= FMath::Min(Space, Remaining);
+			}
+		}
+	}
+
+	if (Remaining <= 0)
+	{
+		return true;
+	}
+
+	if (Remaining > ViewData.MaxStack)
+	{
+		return false;
+	}
+
+	FIntPoint Size;
+
+	if (!GetEntrySize(InItem, Size))
+	{
+		return false;
+	}
+
+	FIntPoint FreePosition;
+	return FindFirstFreeSlot(Size, FreePosition);
 }
 
 bool UInventoryComponent::FindFirstFreeSlot(FIntPoint InSize, FIntPoint& OutPosition, int32 InIgnoredIndex) const
@@ -264,7 +397,7 @@ bool UInventoryComponent::TryAddItemAt(const FItemInstance& InItem, FIntPoint In
 	return true;
 }
 
-bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition)
+bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition, bool bInRotated)
 {
 	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
 
@@ -278,8 +411,12 @@ bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition)
 		return false;
 	}
 
+	// 회전 후 크기로 목표 위치에 들어갈 수 있는지까지 한 번에 검증한다.
+	FItemInstance RotatedItem = Entries[EntryIndex].Item;
+	RotatedItem.bRotated = bInRotated;
+
 	FIntPoint Size;
-	if (!GetEntrySize(Entries[EntryIndex].Item, Size))
+	if (!GetEntrySize(RotatedItem, Size))
 	{
 		return false;
 	}
@@ -290,6 +427,7 @@ bool UInventoryComponent::MoveItem(FGuid InInstanceId, FIntPoint InNewPosition)
 	}
 
 	Entries[EntryIndex].Position = InNewPosition;
+	Entries[EntryIndex].Item.bRotated = bInRotated;
 	RebuildCache();
 
 	OnInventoryChanged.Broadcast();
@@ -371,6 +509,22 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(Item.ItemRow, ViewData)) return false;
 	if (!ViewData.IsConsumable()) return false;
+
+	// 최대 체력 상태에서는 체력 회복 아이템을 사용할 수 없다 (개발 기획 18장 남은 기능).
+	if (ViewData.HealAmount > 0.f)
+	{
+		if (const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner()))
+		{
+			if (const UHB_PlayerAttributeSet* AttribSet = OwnerPlayerState->GetPlayerAttributeSet())
+			{
+				if (AttribSet->GetPlayer_HP() >= AttribSet->GetPlayer_MaxHP())
+				{
+					return false;
+				}
+			}
+		}
+	}
+
 	bHasUsedItem = true;
 	LastItemUseTime = CurrentTime;
 	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);
@@ -378,7 +532,22 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 	return true;
 }
 
-bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
+bool UInventoryComponent::ToggleFavorite(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+	Entries[EntryIndex].Item.bIsFavorite = !Entries[EntryIndex].Item.bIsFavorite;
+	OnInventoryChanged.Broadcast();
+	return true;
+}
+bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool bInRotated)
 {
 	if (GetOwnerRole() != ROLE_Authority)
 	{
@@ -396,7 +565,8 @@ bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid 
 		return false;
 	}
 
-	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+	FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+	SourceItem.bRotated = bInRotated;
 
 	FIntPoint Size;
 	if (!GetEntrySize(SourceItem, Size))
@@ -414,6 +584,7 @@ bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid 
 	{
 		return false;
 	}
+	RemovedItem.bRotated = bInRotated;
 
 	if (!TryAddItemAt(RemovedItem, InTargetPosition))
 	{
@@ -485,6 +656,227 @@ bool UInventoryComponent::TransferItemFromAuto(UInventoryComponent* InSource, FG
 
 	return true;
 }
+bool UInventoryComponent::MergeStack(FGuid InSourceId, FGuid InTargetId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (InSourceId == InTargetId)
+	{
+		return false;
+	}
+
+	const int32 SourceIndex = FindEntryIndexById(InSourceId);
+	const int32 TargetIndex = FindEntryIndexById(InTargetId);
+
+	if (SourceIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	FItemInstance& SourceItem = Entries[SourceIndex].Item;
+	FItemInstance& TargetItem = Entries[TargetIndex].Item;
+
+	if (SourceItem.ItemRow.RowName != TargetItem.ItemRow.RowName
+		|| SourceItem.ItemRow.DataTable != TargetItem.ItemRow.DataTable)
+	{
+		return false;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(SourceItem.ItemRow, ViewData) || !ViewData.IsStackable())
+	{
+		return false;
+	}
+
+	const int32 Space = ViewData.MaxStack - TargetItem.StackCount;
+	if (Space <= 0)
+	{
+		return false;
+	}
+
+	const int32 Moved = FMath::Min(Space, SourceItem.StackCount);
+	TargetItem.StackCount += Moved;
+	SourceItem.StackCount -= Moved;
+
+	if (SourceItem.StackCount <= 0)
+	{
+		Entries.RemoveAt(SourceIndex);
+	}
+
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+
+bool UInventoryComponent::MergeStackFrom(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (InSource == nullptr)
+	{
+		return false;
+	}
+
+	if (InSource == this)
+	{
+		return MergeStack(InSourceId, InTargetId);
+	}
+
+	const int32 SourceIndex = InSource->FindEntryIndexById(InSourceId);
+	const int32 TargetIndex = FindEntryIndexById(InTargetId);
+
+	if (SourceIndex == INDEX_NONE || TargetIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+	FItemInstance& TargetItem = Entries[TargetIndex].Item;
+
+	if (SourceItem.ItemRow.RowName != TargetItem.ItemRow.RowName
+		|| SourceItem.ItemRow.DataTable != TargetItem.ItemRow.DataTable)
+	{
+		return false;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(SourceItem.ItemRow, ViewData) || !ViewData.IsStackable())
+	{
+		return false;
+	}
+
+	const int32 Space = ViewData.MaxStack - TargetItem.StackCount;
+	if (Space <= 0)
+	{
+		return false;
+	}
+
+	const int32 Moved = FMath::Min(Space, SourceItem.StackCount);
+	TargetItem.StackCount += Moved;
+
+	if (Moved >= SourceItem.StackCount)
+	{
+		FItemInstance Removed;
+		InSource->RemoveItem(InSourceId, Removed);
+	}
+	else
+	{
+		InSource->RemoveStackCount(InSourceId, Moved);
+	}
+
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+
+	return true;
+}
+bool UInventoryComponent::DropItem(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FDataTableRowHandle ItemRow = Entries[EntryIndex].Item.ItemRow;
+	const int32 DroppedStackCount = Entries[EntryIndex].Item.StackCount;
+	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
+	{
+		return false;
+	}
+
+	const UScriptStruct* RowStruct = ItemRow.DataTable->GetRowStruct();
+	if (RowStruct == nullptr)
+	{
+		return false;
+	}
+
+	EItemSourceTable SourceTable = EItemSourceTable::Item;
+	if (RowStruct == FWeaponData::StaticStruct())
+	{
+		SourceTable = EItemSourceTable::Weapon;
+	}
+	else if (RowStruct == FShieldData::StaticStruct())
+	{
+		SourceTable = EItemSourceTable::Shield;
+	}
+	else if (RowStruct != FItemData::StaticStruct())
+	{
+		return false;
+	}
+
+	AActor* OwnerActor = GetOwner();
+	UWorld* World = GetWorld();
+	if (OwnerActor == nullptr || World == nullptr)
+	{
+		return false;
+	}
+	// Inventory 컴포넌트는 PlayerState에 붙어있는데, PlayerState는 실제로 필드를 돌아다니는
+	// 액터가 아니라서 GetOwner()의 위치는 항상 고정된 값이 나옴. 실제 캐릭터(Pawn) 위치를
+	// 써야 플레이어가 서 있는 곳에 정확히 떨어짐.
+	AActor* SpawnBasisActor = OwnerActor;
+	if (const APlayerState* OwnerPlayerState = Cast<APlayerState>(OwnerActor))
+	{
+		if (APawn* OwnerPawn = OwnerPlayerState->GetPawn())
+		{
+			SpawnBasisActor = OwnerPawn;
+		}
+	}
+	TSubclassOf<AItemBase> ClassToSpawn = AItemBase::StaticClass();
+	if (DropItemClass != nullptr)
+	{
+		ClassToSpawn = DropItemClass;
+	}
+	const FVector ForwardOffset = SpawnBasisActor->GetActorForwardVector() * 200.f;
+	const FVector UpOffset = FVector(0.f, 0.f, 50.f);
+	const FVector SpawnLocation = SpawnBasisActor->GetActorLocation() + ForwardOffset + UpOffset;
+	const FTransform SpawnTransform(FRotator::ZeroRotator, SpawnLocation);
+
+	AItemBase* NewItemActor = World->SpawnActorDeferred<AItemBase>(ClassToSpawn, SpawnTransform);
+	if (NewItemActor == nullptr)
+	{
+		return false;
+	}
+
+	NewItemActor->ItemID = ItemRow.RowName;
+	NewItemActor->SourceTable = SourceTable;
+
+	UDataTable* MutableDataTable = const_cast<UDataTable*>(ItemRow.DataTable.Get());
+
+	switch (SourceTable)
+	{
+	case EItemSourceTable::Weapon:
+		NewItemActor->WeaponDataTable = MutableDataTable;
+		break;
+	case EItemSourceTable::Shield:
+		NewItemActor->ShieldDataTable = MutableDataTable;
+		break;
+	case EItemSourceTable::Item:
+	default:
+		NewItemActor->ItemDataTable = MutableDataTable;
+		break;
+	}
+
+	NewItemActor->StackCount = FMath::Max(1, DroppedStackCount);
+	NewItemActor->FinishSpawning(SpawnTransform);
+
+	FItemInstance RemovedItem;
+	RemoveItem(InInstanceId, RemovedItem);
+
+	return true;
+}
+
 void UInventoryComponent::ClearAll()
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -581,7 +973,7 @@ void UInventoryComponent::DebugMoveFirstItem(FIntPoint InNewPosition)
 		return;
 	}
 
-	const bool bMoved = MoveItem(Entries[0].Item.InstanceId, InNewPosition);
+	const bool bMoved = MoveItem(Entries[0].Item.InstanceId, InNewPosition, Entries[0].Item.bRotated);
 	UE_LOG(LogTemp, Log, TEXT("DebugMove to (%d,%d) -> %s"),
 		InNewPosition.X, InNewPosition.Y, bMoved ? TEXT("OK") : TEXT("FAIL"));
 
@@ -609,19 +1001,19 @@ void UInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(UInventoryComponent, Entries);
 }
 
-void UInventoryComponent::Server_MoveItem_Implementation(FGuid InInstanceId, FIntPoint InNewPosition)
+void UInventoryComponent::Server_MoveItem_Implementation(FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated)
 {
-	MoveItem(InInstanceId, InNewPosition);
+	MoveItem(InInstanceId, InNewPosition, InRotated);
 }
 
-void UInventoryComponent::Server_TransferItem_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition)
+void UInventoryComponent::Server_TransferItem_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated)
 {
 	if (InTarget == nullptr)
 	{
 		return;
 	}
 
-	InTarget->TransferItemFrom(this, InInstanceId, InTargetPosition);
+	InTarget->TransferItemFrom(this, InInstanceId, InTargetPosition, InRotated);
 }
 
 void UInventoryComponent::Server_TransferItemAuto_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId)
@@ -654,14 +1046,14 @@ void UInventoryComponent::Server_UnequipItem_Implementation(UEquipmentComponent*
 	InEquipment->UnequipToInventoryAt(InSlot, this, InTargetPosition);
 }
 
-void UInventoryComponent::Server_TransferItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition)
+void UInventoryComponent::Server_TransferItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated)
 {
 	if (InSource == nullptr)
 	{
 		return;
 	}
 
-	TransferItemFrom(InSource, InInstanceId, InTargetPosition);
+	TransferItemFrom(InSource, InInstanceId, InTargetPosition, InRotated);
 }
 
 void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)
@@ -685,6 +1077,10 @@ void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponen
 void UInventoryComponent::Server_UseItem_Implementation(FGuid InInstanceId)
 {
 	UseItem(InInstanceId);
+}
+void UInventoryComponent::Server_ToggleFavorite_Implementation(FGuid InInstanceId)
+{
+	ToggleFavorite(InInstanceId);
 }
 
 void UInventoryComponent::Server_SplitStack_Implementation(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition)
@@ -736,6 +1132,23 @@ void UInventoryComponent::Server_SplitStack_Implementation(FGuid InInstanceId, i
 		FItemInstance Removed;
 		RemoveItem(NewItem.InstanceId, Removed);
 	}
+}
+void UInventoryComponent::Server_MergeStack_Implementation(FGuid InSourceId, FGuid InTargetId)
+{
+	MergeStack(InSourceId, InTargetId);
+}
+
+void UInventoryComponent::Server_MergeStackFrom_Implementation(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId)
+{
+	if (InSource == nullptr)
+	{
+		return;
+	}
+	MergeStackFrom(InSource, InSourceId, InTargetId);
+}
+void UInventoryComponent::Server_DropItem_Implementation(FGuid InInstanceId)
+{
+	DropItem(InInstanceId);
 }
 
 void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)

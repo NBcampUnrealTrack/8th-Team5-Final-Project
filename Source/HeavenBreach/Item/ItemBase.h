@@ -29,19 +29,16 @@ public:
 	AItemBase();
 
 	// ----- 에디터에서 지정 -----
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_ItemID, Category = "Item")
 	FName ItemID;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
 	EItemSourceTable SourceTable = EItemSourceTable::Item;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
 	UDataTable* ItemDataTable;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
 	UDataTable* WeaponDataTable;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
 	UDataTable* ShieldDataTable;
 
 	// ----- 컴포넌트 -----
@@ -74,11 +71,21 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item|Cached")
 	TObjectPtr<UTexture2D> Icon;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
+	int32 StackCount = 1;
+
 	// ----- 함수 -----
 	// ItemID / SourceTable 기준으로 해당 DataTable에서 값을 읽어와 위 캐시 변수들을 채우고,
 	// EquipMeshPath(무기/방패) 또는 WorldMeshPath(아이템)를 로드해서 MeshComponent에 세팅
 	UFUNCTION(BlueprintCallable, Category = "Item")
 	void InitializeFromDataTable();
+
+	//~ Begin AActor Interface
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	//~ End AActor Interface
+
+	UFUNCTION()
+	void OnRep_ItemID();
 
 	// ----- IInteractableInterface -----
 	virtual bool CanInteract_Implementation(AActor* Interactor) const override;
@@ -89,7 +96,13 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
 
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	float PickupBlockDuration = 1.0f;
+
 private:
 	// 오버랩으로 걸어서 줍는 경우와 E키 상호작용으로 줍는 경우가 공유하는 실제 습득 로직
 	bool TryPickUp(AActor* Picker);
+
+	float SpawnTime = 0.f;
 };
