@@ -2144,35 +2144,59 @@ bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
 		LowerEquipment = bUseCombinedPantsBootsTest
 			? TestCombinedPantsBootsMesh.LoadSynchronous() : TestLegsMesh.LoadSynchronous();
 	}
+	USkeletalMesh* UpperPairedOverride = nullptr; // Legs 아이템이 지정한 상체 보정 메시
+	USkeletalMesh* LowerPairedOverride = nullptr; // Chest 아이템이 지정한 하체 보정 메시
+
+	if (bEnableEquipmentVisualTest)
+	{
+		// (기존 TestChestMesh 블록은 그대로 위에 있음, 건드릴 필요 없음)
+	}
 	else if (UEquipmentComponent* Equipment = GetEquipment())
 	{
-		const auto LoadEquipmentMesh = [Equipment](EEquipSlotType Slot) -> USkeletalMesh*
-		{
-			FItemInstance Item;
-			if (Equipment->GetItemInSlot(Slot, Item))
+		const auto GetEquippedItemData = [Equipment](EEquipSlotType Slot) -> const FItemData*
 			{
-				if (const FItemData* Data = Item.ItemRow.GetRow<FItemData>(TEXT("ModularEquipment")))
+				FItemInstance Item;
+				if (Equipment->GetItemInSlot(Slot, Item))
 				{
-					return Data->WorldMeshPath.IsEmpty() ? nullptr
-						: LoadObject<USkeletalMesh>(nullptr, *Data->WorldMeshPath);
+					return Item.ItemRow.GetRow<FItemData>(TEXT("ModularEquipment"));
 				}
-			}
-			return nullptr;
-		};
-		UpperEquipment = LoadEquipmentMesh(EEquipSlotType::Chest);
-		LowerEquipment = LoadEquipmentMesh(EEquipSlotType::Legs);
+				return nullptr;
+			};
+
+		const auto LoadMesh = [](const FString& Path) -> USkeletalMesh*
+			{
+				return Path.IsEmpty() ? nullptr : LoadObject<USkeletalMesh>(nullptr, *Path);
+			};
+
+		const FItemData* ChestData = GetEquippedItemData(EEquipSlotType::Chest);
+		const FItemData* LegsData = GetEquippedItemData(EEquipSlotType::Legs);
+
+		UpperEquipment = ChestData ? LoadMesh(ChestData->WorldMeshPath) : nullptr;
+		LowerEquipment = LegsData ? LoadMesh(LegsData->WorldMeshPath) : nullptr;
+
+		// 반대쪽 슬롯이 비어있을 때만 짝 맞춤 보정 메시를 적용한다.
+		if (!UpperEquipment && LegsData)
+		{
+			UpperPairedOverride = LoadMesh(LegsData->PairedBodyMeshPath);
+		}
+		if (!LowerEquipment && ChestData)
+		{
+			LowerPairedOverride = LoadMesh(ChestData->PairedBodyMeshPath);
+		}
 	}
 	// Missing or incompatible equipment restores the complete unequipped body group.
 	if (!IsCompatible(UpperEquipment)) UpperEquipment = nullptr;
 	if (!IsCompatible(LowerEquipment)) LowerEquipment = nullptr;
+	if (!IsCompatible(UpperPairedOverride)) UpperPairedOverride = nullptr;
+	if (!IsCompatible(LowerPairedOverride)) LowerPairedOverride = nullptr;
 
 	const auto ApplyPart = [this](USkeletalMeshComponent* Component, USkeletalMesh* PartMesh)
-	{
-		Component->SetSkeletalMesh(PartMesh);
-		Component->SetLeaderPoseComponent(GetMesh(), true);
-	};
-	ApplyPart(ChestMeshComp, UpperEquipment ? UpperEquipment : UpperBody);
-	ApplyPart(LegsMeshComp, LowerEquipment ? LowerEquipment : Legs);
+		{
+			Component->SetSkeletalMesh(PartMesh);
+			Component->SetLeaderPoseComponent(GetMesh(), true);
+		};
+	ApplyPart(ChestMeshComp, UpperEquipment ? UpperEquipment : (UpperPairedOverride ? UpperPairedOverride : UpperBody));
+	ApplyPart(LegsMeshComp, LowerEquipment ? LowerEquipment : (LowerPairedOverride ? LowerPairedOverride : Legs));
 	ApplyPart(ShoesMeshComp, nullptr);
 	bModularBodyActive = true;
 	SetSourceBodySectionsVisible(false);
