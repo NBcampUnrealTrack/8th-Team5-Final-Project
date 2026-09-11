@@ -335,6 +335,7 @@ private:
 
 	TSharedPtr<ILoadoutStorage> LoadoutStorage;
 	FString LoadoutAccountId;
+	FString ResolveAccountId() const;
 #pragma endregion
 
 #pragma region Shop
