@@ -83,6 +83,10 @@ bool UCraftComponent::CanCraft() const
 	{
 		return false;
 	}
+	if (!IsRecipeUnlocked(Recipe))
+	{
+		return false;
+	}
 	if (GetCurrentGold() < Recipe.GoldCost)
 	{
 		return false;
