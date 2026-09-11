@@ -8,6 +8,8 @@
 #include "UI/Lobby/HBLobbyHUDWidget.h"
 #include "HBLobbyGameMode.h"
 #include "HBLobbyGameState.h"
+#include "Player/Job/HBJobData.h"
+#include "Player/Job/HBStartingLoadout.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -81,6 +83,17 @@ void AHBLobbyPlayerController::SelectJob(FName JobId)
 	// Same reasoning as SetReady: only the dedicated server may write the
 	// replicated selection, so the client just forwards the request.
 	ServerSelectJob(JobId);
+}
+
+void AHBLobbyPlayerController::ApplySkillLoadout(const FHBStartingLoadout& InLoadout)
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	// SetReady / SelectJob 과 같은 이유로 클라는 요청만 하고 서버가 쓴다.
+	ServerApplySkillLoadout(InLoadout);
 }
 
 void AHBLobbyPlayerController::BeginPlay()
@@ -278,7 +291,147 @@ void AHBLobbyPlayerController::ServerSelectJob_Implementation(FName JobId)
 		return;
 	}
 
-	// TODO: once a JobId -> UHBJobData registry exists, reject unknown JobIds here
-	// instead of trusting the client-sent FName.
-	LobbyPlayerState->SetSelectedJobId(JobId);
+	// 준비를 누른 뒤에는 직업을 못 바꾼다. 바꾸려면 준비를 해제해야 한다.
+	// 그래야 다른 플레이어가 본 구성과 실제로 매치에 들어가는 구성이 어긋나지 않는다.
+	if (LobbyPlayerState->IsReady())
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Lobby | 준비 상태에서는 직업을 바꿀 수 없다. Player: %s"),
+			*LobbyPlayerState->GetPlayerName()
+			);
+		return;
+	}
+
+	AHBLobbyGameMode* LobbyGameMode = GetWorld() != nullptr
+		? GetWorld()->GetAuthGameMode<AHBLobbyGameMode>()
+		: nullptr;
+
+	if (!IsValid(LobbyGameMode))
+	{
+		return;
+	}
+
+	// 클라가 보낸 것은 이름뿐이다. 등록된 직업인지 서버가 확인한다.
+	UHBJobData* Job = LobbyGameMode->FindJobById(JobId);
+
+	if (!Job)
+	{
+		// 요청한 직업이 등록돼 있지 않다. 선택 UI 에는 아직 만들지 않은 직업
+		// 버튼도 있기 때문이다.
+		//
+		// 왜 거절이 아니라 대체인가: 거절하면 그 플레이어는 직업 없이 남아
+		// 매치에서 스킬을 하나도 못 받는다. 기본 직업으로 밀어 주는 편이 낫다.
+		//
+		// 쳐낼 조건: 모든 직업이 실제로 구현되면 이 대체가 오히려 설정 실수를
+		// 숨기게 된다. 그때는 거절로 바꾼다.
+		Job = LobbyGameMode->GetDefaultJob();
+
+		if (!Job)
+		{
+			// GetDefaultJob 이 이미 오류를 남겼다.
+			return;
+		}
+
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Lobby | 요청 직업 '%s' 가 없어 기본 직업 '%s' 로 대체한다."),
+			*JobId.ToString(),
+			*Job->JobId.ToString()
+			);
+	}
+
+	// 직업을 바꾸면 그 직업의 기본 구성으로 통째로 교체한다.
+	// 이전 직업의 스킬 ID 를 남기면 새 직업 목록에 없어서 매치에서 거절된다.
+	FHBStartingLoadout NewLoadout;
+	FText Error;
+
+	if (!MakeDefaultStartingLoadout(Job, NewLoadout, Error))
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Lobby | 직업 '%s' 의 기본 구성을 만들지 못했다: %s"),
+			*Job->JobId.ToString(),
+			*Error.ToString()
+			);
+		return;
+	}
+
+	if (!LobbyPlayerState->TrySetStartingLoadout(NewLoadout, Error))
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Lobby | 직업 '%s' 확정 실패: %s"),
+			*Job->JobId.ToString(),
+			*Error.ToString()
+			);
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("Lobby | Player: %s | SelectedJob: %s"),
+		*LobbyPlayerState->GetPlayerName(),
+		*Job->JobId.ToString()
+		);
+}
+
+void AHBLobbyPlayerController::ServerApplySkillLoadout_Implementation(const FHBStartingLoadout& InLoadout)
+{
+	AHBLobbyPlayerState* LobbyPlayerState = GetPlayerState<AHBLobbyPlayerState>();
+
+	if (!IsValid(LobbyPlayerState))
+	{
+		return;
+	}
+
+	if (LobbyPlayerState->IsReady())
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Lobby | 준비 상태에서는 스킬을 바꿀 수 없다. Player: %s"),
+			*LobbyPlayerState->GetPlayerName()
+			);
+		return;
+	}
+
+	if (LobbyPlayerState->IsStartConfirmed())
+	{
+		return;
+	}
+
+	// 이 RPC 는 스킬만 바꾼다. 클라가 직업을 같이 보내도 무시하고 현재 확정
+	// 직업으로 덮는다. 직업 변경 경로가 SelectJob 과 둘로 갈리면 어느 쪽이
+	// 이겼는지 추적할 수 없다.
+	FHBStartingLoadout Sanitized = InLoadout;
+	Sanitized.Job = LobbyPlayerState->GetSelectedJob();
+
+	FText Error;
+
+	if (!LobbyPlayerState->TrySetStartingLoadout(Sanitized, Error))
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Lobby | 스킬 구성 거절: %s"),
+			*Error.ToString()
+			);
+		return;
+	}
+
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("Lobby | Player: %s | Skills | Q=%s E=%s P=%s"),
+		*LobbyPlayerState->GetPlayerName(),
+		*Sanitized.SkillQId.ToString(),
+		*Sanitized.SkillEId.ToString(),
+		*Sanitized.PassiveSkillId.ToString()
+		);
 }

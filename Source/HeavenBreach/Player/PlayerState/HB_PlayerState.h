@@ -6,6 +6,7 @@
 #include "GameplayEffectTypes.h"
 #include "GameFramework/PlayerState.h"
 #include "Shop/ShopComponent.h"
+#include "Player/Job/HBStartingLoadout.h"
 #include "HB_PlayerState.generated.h"
 
 
@@ -76,6 +77,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPlayerExperienceChanged, int32
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTeamIdChanged, int32, NewTeamId);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSkillUpgradesChanged);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnUpgradeCandidatesChanged);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStartingLoadoutChanged);
 
 UCLASS()
 class HEAVENBREACH_API AHB_PlayerState : public APlayerState,public IAbilitySystemInterface
@@ -238,6 +240,61 @@ private:
 	void OnRep_CurrentExperience();
 
 	void BroadcastProgression();
+#pragma endregion
+
+#pragma region StartingLoadout
+public:
+	/** 로비에서 확정한 시작 구성. 매치 캐릭터가 이걸 읽어 스킬을 부여한다. */
+	UFUNCTION(BlueprintPure, Category = "Loadout|Skills")
+	FHBStartingLoadout GetStartingLoadout() const { return StartingLoadout; }
+
+	/** 고른 직업. UI 가 스킬 목록을 그릴 때 이걸로 카탈로그를 꺼낸다. */
+	UFUNCTION(BlueprintPure, Category = "Loadout|Job")
+	UHBJobData* GetSelectedJob() const { return StartingLoadout.Job; }
+
+	/**
+	 * 서버 전용. 검증을 통과해야만 확정된다.
+	 *
+	 * 왜 서버만인가: 이 값이 그대로 매치의 GA 부여로 이어진다. 클라가 직접
+	 * 쓰게 두면 아무 스킬이나 장착할 수 있다.
+	 *
+	 * 작동방식: ValidateStartingLoadout 을 통과하고, 기존 값과 다를 때만
+	 * 바꾸고 알린다. 같은 값이면 복제도 알림도 일으키지 않는다.
+	 */
+	bool TrySetStartingLoadout(const FHBStartingLoadout& InLoadout, FText& OutError);
+
+	UPROPERTY(BlueprintAssignable, Category = "Loadout|Skills")
+	FOnStartingLoadoutChanged OnStartingLoadoutChanged;
+
+	/**
+	 * 심리스 트래블로 새 PlayerState 가 만들어질 때 시작 구성을 넘긴다.
+	 *
+	 * 왜 필요한가: 로비→매치는 ServerTravel + bUseSeamlessTravel 이라 객체가
+	 * 새로 생긴다. 로비는 AHBLobbyPlayerState, 매치는 AHB_PlayerState 로
+	 * 클래스까지 다르다. 이 함수를 안 거치는 필드는 전부 사라진다.
+	 * 프로젝트에 CopyProperties 오버라이드가 하나도 없어서, 지금까지 로비의
+	 * 어떤 선택도 매치에 도달하지 못했다.
+	 *
+	 * 쳐낼 조건: 성장 정보까지 다음 판으로 넘기는 기획이 생기면 여기에 더한다.
+	 * 지금은 시작 구성만 넘긴다.
+	 */
+	virtual void CopyProperties(APlayerState* NewPlayerState) override;
+
+protected:
+	/**
+	 * 서버 확정과 클라 OnRep 이 함께 지나는 한 지점.
+	 *
+	 * 왜 가상인가: 로비 자식이 여기에 직업 변경 알림을 덧붙인다. 자식이
+	 * BeginPlay 에서 부모 델리게이트를 자가 구독하는 것보다 순서가 확실하다.
+	 */
+	virtual void HandleStartingLoadoutChanged();
+
+private:
+	UPROPERTY(ReplicatedUsing = OnRep_StartingLoadout)
+	FHBStartingLoadout StartingLoadout;
+
+	UFUNCTION()
+	void OnRep_StartingLoadout();
 #pragma endregion
 
 #pragma region Team
