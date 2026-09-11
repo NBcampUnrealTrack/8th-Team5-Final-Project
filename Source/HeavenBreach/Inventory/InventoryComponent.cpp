@@ -5,6 +5,8 @@
 #include "Item/ItemBase.h"
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/Pawn.h"
+#include "Player/PlayerState/HB_PlayerState.h"
+#include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -507,6 +509,22 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(Item.ItemRow, ViewData)) return false;
 	if (!ViewData.IsConsumable()) return false;
+
+	// 최대 체력 상태에서는 체력 회복 아이템을 사용할 수 없다 (개발 기획 18장 남은 기능).
+	if (ViewData.HealAmount > 0.f)
+	{
+		if (const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner()))
+		{
+			if (const UHB_PlayerAttributeSet* AttribSet = OwnerPlayerState->GetPlayerAttributeSet())
+			{
+				if (AttribSet->GetPlayer_HP() >= AttribSet->GetPlayer_MaxHP())
+				{
+					return false;
+				}
+			}
+		}
+	}
+
 	bHasUsedItem = true;
 	LastItemUseTime = CurrentTime;
 	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);

@@ -132,6 +132,10 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	ShoesMeshComp->SetupAttachment(GetMesh());
 	ShoesMeshComp->SetLeaderPoseComponent(GetMesh());
 	ShoesMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	ModularBodySourceMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Character/SK_HB_Warrior.SK_HB_Warrior")));
+	BaseUpperBodyMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Body/SK_HB_BaseBody_Upper.SK_HB_BaseBody_Upper")));
+	BaseLowerBodyMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Body/SK_HB_BaseBody_Lower.SK_HB_BaseBody_Lower")));
 	#pragma endregion
 #pragma endregion
 
@@ -141,6 +145,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 void AHBPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	SetUnderwearVisible(bUnderwearVisible);
 	
 	BindToPlayerStateComponents();
 
@@ -159,9 +164,7 @@ void AHBPlayerCharacter::BeginPlay()
 		);
 	}
 
-	#pragma region TemporaryEquipmentVisualTest
-	ApplyTemporaryEquipmentVisualTest();
-	#pragma endregion
+	RefreshEquippedVisuals();
 }
 
 void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -173,6 +176,8 @@ void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	DOREPLIFETIME(ThisClass,SelectedSkillQId);
 	DOREPLIFETIME(ThisClass,SelectedSkillEId);
 	DOREPLIFETIME(ThisClass,SelectedPassiveSkillIds);
+	DOREPLIFETIME(ThisClass,BaseUpperBodyMesh);
+	DOREPLIFETIME(ThisClass,BaseLowerBodyMesh);
 }
 
 void AHBPlayerCharacter::MoveForward(const float Value)
@@ -1606,12 +1611,18 @@ void AHBPlayerCharacter::ApplyJobAppearance()
 
 	if (USkeletalMesh* JobMesh = JobData->CharacterMesh.LoadSynchronous())
 	{
+		if (bModularBodyActive)
+		{
+			SetSourceBodySectionsVisible(true);
+		}
 		GetMesh()->SetSkeletalMeshAsset(JobMesh);
 	}
 	if (JobData->AnimInstanceClass)
 	{
 		GetMesh()->SetAnimInstanceClass(JobData->AnimInstanceClass);
 	}
+	SetUnderwearVisible(bUnderwearVisible);
+	RefreshEquippedVisuals();
 }
 
 void AHBPlayerCharacter::RequestApplyLoadout(
@@ -1926,6 +1937,10 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 	RefreshWeaponVisual();
 	RefreshShieldVisual();
 	RefreshHelmetVisual();
+	if (RefreshModularEquipmentVisuals())
+	{
+		return;
+	}
 	RefreshChestVisual();
 	RefreshLegsVisual();
 }
@@ -2051,6 +2066,211 @@ void AHBPlayerCharacter::RefreshLegsVisual()
 }
 
 #pragma region ModularEquipmentMesh
+
+bool AHBPlayerCharacter::CanChangeBaseBodyMeshes() const
+{
+	return !GetWorld() || !GetWorld()->IsGameWorld() || HasAuthority();
+}
+
+bool AHBPlayerCharacter::IsCompatibleBaseBodyMesh(const TSoftObjectPtr<USkeletalMesh>& BodyPart) const
+{
+	USkeletalMesh* PartMesh = BodyPart.LoadSynchronous();
+	USkeletalMesh* SourceMesh = ModularBodySourceMesh.LoadSynchronous();
+	return PartMesh && SourceMesh && SourceMesh->GetSkeleton()
+		&& PartMesh->GetSkeleton() == SourceMesh->GetSkeleton();
+}
+
+bool AHBPlayerCharacter::SetBaseUpperBodyMesh(TSoftObjectPtr<USkeletalMesh> UpperBody)
+{
+	return SetBaseBodyMeshes(UpperBody, BaseLowerBodyMesh);
+}
+
+bool AHBPlayerCharacter::SetBaseLowerBodyMesh(TSoftObjectPtr<USkeletalMesh> LowerBody)
+{
+	return SetBaseBodyMeshes(BaseUpperBodyMesh, LowerBody);
+}
+
+bool AHBPlayerCharacter::SetBaseBodyMeshes(TSoftObjectPtr<USkeletalMesh> UpperBody, TSoftObjectPtr<USkeletalMesh> LowerBody)
+{
+	// Validate the entire selection before modifying any reference or visible component.
+	if (!CanChangeBaseBodyMeshes() || !IsCompatibleBaseBodyMesh(UpperBody)
+		|| !IsCompatibleBaseBodyMesh(LowerBody))
+	{
+		return false;
+	}
+	BaseUpperBodyMesh = UpperBody;
+	BaseLowerBodyMesh = LowerBody;
+	RefreshEquippedVisuals();
+	if (HasAuthority()) ForceNetUpdate();
+	return true;
+}
+
+void AHBPlayerCharacter::OnRep_BaseBodyMeshes()
+{
+	RefreshEquippedVisuals();
+}
+
+bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
+{
+	USkeletalMesh* SourceMesh = GetMesh()->GetSkeletalMeshAsset();
+	const bool bEligible = bUseModularEquipment && SourceMesh
+		&& FSoftObjectPath(SourceMesh) == ModularBodySourceMesh.ToSoftObjectPath()
+		&& GetMesh()->GetMaterialIndex(TEXT("MAT_BODY")) != INDEX_NONE;
+	USkeletalMesh* UpperBody = bEligible ? BaseUpperBodyMesh.LoadSynchronous() : nullptr;
+	USkeletalMesh* Legs = bEligible ? BaseLowerBodyMesh.LoadSynchronous() : nullptr;
+	const auto IsCompatible = [SourceMesh](USkeletalMesh* PartMesh)
+	{
+		return PartMesh && SourceMesh && PartMesh->GetSkeleton() == SourceMesh->GetSkeleton();
+	};
+	if (!bEligible || !IsCompatible(UpperBody) || !IsCompatible(Legs))
+	{
+		if (bModularBodyActive)
+		{
+			SetSourceBodySectionsVisible(true);
+			ChestMeshComp->SetSkeletalMesh(nullptr);
+			LegsMeshComp->SetSkeletalMesh(nullptr);
+			ShoesMeshComp->SetSkeletalMesh(nullptr);
+		}
+		bModularBodyActive = false;
+		return false;
+	}
+
+	USkeletalMesh* UpperEquipment = nullptr;
+	USkeletalMesh* LowerEquipment = nullptr;
+	if (bEnableEquipmentVisualTest)
+	{
+		UpperEquipment = TestChestMesh.LoadSynchronous();
+		// Keep the old combined-preview reference usable while existing Blueprints migrate.
+		LowerEquipment = bUseCombinedPantsBootsTest
+			? TestCombinedPantsBootsMesh.LoadSynchronous() : TestLegsMesh.LoadSynchronous();
+	}
+	USkeletalMesh* UpperPairedOverride = nullptr; // Legs 아이템이 지정한 상체 보정 메시
+	USkeletalMesh* LowerPairedOverride = nullptr; // Chest 아이템이 지정한 하체 보정 메시
+
+	if (bEnableEquipmentVisualTest)
+	{
+		// (기존 TestChestMesh 블록은 그대로 위에 있음, 건드릴 필요 없음)
+	}
+	else if (UEquipmentComponent* Equipment = GetEquipment())
+	{
+		const auto GetEquippedItemData = [Equipment](EEquipSlotType Slot) -> const FItemData*
+			{
+				FItemInstance Item;
+				if (Equipment->GetItemInSlot(Slot, Item))
+				{
+					return Item.ItemRow.GetRow<FItemData>(TEXT("ModularEquipment"));
+				}
+				return nullptr;
+			};
+
+		const auto LoadMesh = [](const FString& Path) -> USkeletalMesh*
+			{
+				return Path.IsEmpty() ? nullptr : LoadObject<USkeletalMesh>(nullptr, *Path);
+			};
+
+		const FItemData* ChestData = GetEquippedItemData(EEquipSlotType::Chest);
+		const FItemData* LegsData = GetEquippedItemData(EEquipSlotType::Legs);
+
+		UpperEquipment = ChestData ? LoadMesh(ChestData->WorldMeshPath) : nullptr;
+		LowerEquipment = LegsData ? LoadMesh(LegsData->WorldMeshPath) : nullptr;
+
+		// 반대쪽 슬롯이 비어있을 때만 짝 맞춤 보정 메시를 적용한다.
+		if (!UpperEquipment && LegsData)
+		{
+			UpperPairedOverride = LoadMesh(LegsData->PairedBodyMeshPath);
+		}
+		if (!LowerEquipment && ChestData)
+		{
+			LowerPairedOverride = LoadMesh(ChestData->PairedBodyMeshPath);
+		}
+	}
+	// Missing or incompatible equipment restores the complete unequipped body group.
+	if (!IsCompatible(UpperEquipment)) UpperEquipment = nullptr;
+	if (!IsCompatible(LowerEquipment)) LowerEquipment = nullptr;
+	if (!IsCompatible(UpperPairedOverride)) UpperPairedOverride = nullptr;
+	if (!IsCompatible(LowerPairedOverride)) LowerPairedOverride = nullptr;
+
+	const auto ApplyPart = [this](USkeletalMeshComponent* Component, USkeletalMesh* PartMesh)
+		{
+			Component->SetSkeletalMesh(PartMesh);
+			Component->SetLeaderPoseComponent(GetMesh(), true);
+		};
+	ApplyPart(ChestMeshComp, UpperEquipment ? UpperEquipment : (UpperPairedOverride ? UpperPairedOverride : UpperBody));
+	ApplyPart(LegsMeshComp, LowerEquipment ? LowerEquipment : (LowerPairedOverride ? LowerPairedOverride : Legs));
+	ApplyPart(ShoesMeshComp, nullptr);
+	bModularBodyActive = true;
+	SetSourceBodySectionsVisible(false);
+	return true;
+}
+
+void AHBPlayerCharacter::SetSourceBodySectionsVisible(const bool bVisible)
+{
+	USkeletalMesh* SourceMesh = GetMesh()->GetSkeletalMeshAsset();
+	const FSkeletalMeshRenderData* RenderData = SourceMesh ? SourceMesh->GetResourceForRendering() : nullptr;
+	if (!RenderData) return;
+	const int32 BodyIndex = GetMesh()->GetMaterialIndex(TEXT("MAT_BODY"));
+	const int32 UnderwearIndex = GetMesh()->GetMaterialIndex(TEXT("MAT_M_LINGERIE"));
+	for (int32 LODIndex = 0; LODIndex < RenderData->LODRenderData.Num(); ++LODIndex)
+	{
+		const auto& Sections = RenderData->LODRenderData[LODIndex].RenderSections;
+		for (int32 SectionIndex = 0; SectionIndex < Sections.Num(); ++SectionIndex)
+		{
+			const int32 MaterialIndex = Sections[SectionIndex].MaterialIndex;
+			if (MaterialIndex == BodyIndex || MaterialIndex == UnderwearIndex)
+			{
+				const bool bShow = bVisible && (MaterialIndex != UnderwearIndex || bUnderwearVisible);
+				GetMesh()->ShowMaterialSection(MaterialIndex, SectionIndex, bShow, LODIndex);
+			}
+		}
+	}
+}
+
+void AHBPlayerCharacter::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	SetUnderwearVisible(bUnderwearVisible);
+	// Construction runs for Blueprint preview actors and placed actors when references change.
+	if (!bEnableEquipmentVisualTest && !GetEquipment())
+	{
+		HelmetMeshComp->SetSkeletalMesh(nullptr);
+		WeaponMeshComp->SetStaticMesh(nullptr);
+		ShieldMeshComp->SetStaticMesh(nullptr);
+		ChestMeshComp->SetSkeletalMesh(nullptr);
+		LegsMeshComp->SetSkeletalMesh(nullptr);
+		ShoesMeshComp->SetSkeletalMesh(nullptr);
+		SetHairVisibleForHelmet(true);
+	}
+	RefreshEquippedVisuals();
+}
+
+void AHBPlayerCharacter::SetUnderwearVisible(const bool bVisible)
+{
+	bUnderwearVisible = bVisible;
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	USkeletalMesh* BodyMesh = CharacterMesh ? CharacterMesh->GetSkeletalMeshAsset() : nullptr;
+	const FSkeletalMeshRenderData* RenderData = BodyMesh ? BodyMesh->GetResourceForRendering() : nullptr;
+	if (!RenderData)
+	{
+		return;
+	}
+	const int32 MaterialIndex = CharacterMesh->GetMaterialIndex(TEXT("MAT_M_LINGERIE"));
+	if (MaterialIndex == INDEX_NONE)
+	{
+		return;
+	}
+	for (int32 LODIndex = 0; LODIndex < RenderData->LODRenderData.Num(); ++LODIndex)
+	{
+		const auto& Sections = RenderData->LODRenderData[LODIndex].RenderSections;
+		for (int32 SectionIndex = 0; SectionIndex < Sections.Num(); ++SectionIndex)
+		{
+			if (Sections[SectionIndex].MaterialIndex == MaterialIndex)
+			{
+				CharacterMesh->ShowMaterialSection(MaterialIndex, SectionIndex, bVisible && !bModularBodyActive, LODIndex);
+			}
+		}
+	}
+}
+
 void AHBPlayerCharacter::SetHairVisibleForHelmet(const bool bVisible)
 {
 	USkeletalMeshComponent* CharacterMesh = GetMesh();
@@ -2086,6 +2306,14 @@ void AHBPlayerCharacter::ApplyTemporaryEquipmentVisualTest()
 {
 	if (!bEnableEquipmentVisualTest)
 	{
+		if (!GetEquipment())
+		{
+			HelmetMeshComp->SetSkeletalMesh(nullptr);
+			WeaponMeshComp->SetStaticMesh(nullptr);
+			ShieldMeshComp->SetStaticMesh(nullptr);
+			SetHairVisibleForHelmet(true);
+		}
+		RefreshEquippedVisuals();
 		return;
 	}
 
@@ -2096,19 +2324,30 @@ void AHBPlayerCharacter::ApplyTemporaryEquipmentVisualTest()
 		SetHairVisibleForHelmet(HelmetMesh == nullptr);
 	}
 
-	if (ChestMeshComp)
+	if (!RefreshModularEquipmentVisuals())
 	{
-		ChestMeshComp->SetSkeletalMesh(TestChestMesh.LoadSynchronous());
-	}
+		if (ChestMeshComp)
+		{
+			ChestMeshComp->SetSkeletalMesh(TestChestMesh.LoadSynchronous());
+		}
 
-	if (LegsMeshComp)
-	{
-		LegsMeshComp->SetSkeletalMesh(TestLegsMesh.LoadSynchronous());
-	}
+		USkeletalMesh* CombinedMesh = bUseCombinedPantsBootsTest ? TestCombinedPantsBootsMesh.LoadSynchronous() : nullptr;
+		const bool bValidCombinedMesh = CombinedMesh && GetMesh()->GetSkeletalMeshAsset()
+			&& CombinedMesh->GetSkeleton() == GetMesh()->GetSkeletalMeshAsset()->GetSkeleton();
+		if (bUseCombinedPantsBootsTest && !bValidCombinedMesh)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Combined pants/boots test: missing mesh or skeleton mismatch on %s; using separate test meshes."), *GetName());
+		}
 
-	if (ShoesMeshComp)
-	{
-		ShoesMeshComp->SetSkeletalMesh(TestShoesMesh.LoadSynchronous());
+		if (LegsMeshComp)
+		{
+			LegsMeshComp->SetSkeletalMesh(bValidCombinedMesh ? CombinedMesh : TestLegsMesh.LoadSynchronous());
+		}
+
+		if (ShoesMeshComp)
+		{
+			ShoesMeshComp->SetSkeletalMesh(bValidCombinedMesh ? nullptr : TestShoesMesh.LoadSynchronous());
+		}
 	}
 
 	if (WeaponMeshComp)
@@ -2122,6 +2361,7 @@ void AHBPlayerCharacter::ApplyTemporaryEquipmentVisualTest()
 	}
 }
 #pragma endregion
+
 
 UInventoryComponent* AHBPlayerCharacter::GetInventory() const
 {

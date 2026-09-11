@@ -112,6 +112,9 @@ protected:
 	/** 컨트롤 회전(카메라 시야 방향)을 나침반 머티리얼의 Heading 파라미터로 보낸다 */
 	void UpdateCompass();
 
+	/** 서버 기준 남은 시간을 MM:SS로 표시한다. */
+	void UpdateRemainingTime();
+
 protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_HP_Bar_Fill;
@@ -150,6 +153,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> Txt_Level;
 
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Remaining_Time;
+
 	/**
 	 * 피격 혈흔 오버레이. WBP_MainHUD 캔버스에 풀스크린으로 배치하면 바인딩된다.
 	 * 배치하지 않아도 HUD 는 정상 동작하고 연출만 생략된다
@@ -162,6 +168,9 @@ protected:
 	TObjectPtr<UInventoryWidget> WBP_Inventory;
 
 private:
+	// -2: 초기 갱신 전, -1: 타이머 정보 대기 중.
+	int32 LastDisplayedRemainingSeconds = -2;
+
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> HPBarDynamicMaterial;
 
