@@ -86,6 +86,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Craft")
 	UDataTable* GetRecipeTable() const { return RecipeTable; }
 
+	UFUNCTION(BlueprintCallable, Category = "Craft")
+	bool HasAnyFillableIngredient() const;
+
 	UFUNCTION(Server, Reliable)
 	void Server_SetCraftMode(ECraftMode InMode);
 
