@@ -38,6 +38,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Parry")
 	TSubclassOf<UGameplayEffect> GetWindowEffect() const { return WindowEffect; }
 
+	// 설명의 {ParryWindow} {ParryReduction%} 를 이 값들로 답한다.
+	// 값의 주인이 여기 하나라는 이 클래스의 취지 그대로다.
+	virtual bool GetNamedSkillValue(FName InName, float& OutValue) const override;
+
 protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Parry", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float DamageReduction = 0.9f;

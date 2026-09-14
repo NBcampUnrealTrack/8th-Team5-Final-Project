@@ -35,6 +35,12 @@ public:
 	// 그때 붙여 둔 GE 를 반드시 떼야 한다. 안 떼면 패시브를 뺐는데도 최대 체력이 남는다.
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
+	// 설명 치환이 이 GE 의 모디파이어에서 수치를 읽는다.
+	// 액티브의 GetSelfBuffEffect 와 짝이다. 한쪽만 있으면
+	// 최대 체력, 흡혈 같은 패시브 설명이 통째로 안 나온다.
+	UFUNCTION(BlueprintPure, Category = "Passive")
+	TSubclassOf<UGameplayEffect> GetSelfPassiveEffect() const { return SelfPassiveEffect; }
+
 protected:
 	// 이 패시브를 가진 동안 상시로 걸리는 효과. 최대 체력 증가 같은 것.
 	// 태그만 필요한 패시브는 비워 둔다. 비어 있으면 아무것도 붙이지 않는다.

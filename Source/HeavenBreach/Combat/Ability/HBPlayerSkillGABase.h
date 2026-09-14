@@ -42,6 +42,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Augment")
 	bool FindAugment(FGameplayTag AugmentTag, FHBSkillAugment& Out) const;
 
+	/**
+	 * 목록에 없는 이 스킬만의 수치. 설명 치환이 부른다.
+	 *
+	 * 왜 넣었나: 패링의 창 길이처럼 어트리뷰트도 GE 도 아닌 곳에 사는 값이 있다.
+	 * 이게 없으면 치환 코드가 GA_WarriorParry 를 캐스팅해야 하고,
+	 * 그러면 공용 파일에 직업별 분기가 쌓인다.
+	 *
+	 * CDO 에서 불러도 안전해야 한다. 아바타를 거치는 값을 답하지 말 것.
+	 *
+	 * 쳐낼 조건: 이걸 오버라이드하는 스킬이 없어지면 지운다.
+	 */
+	virtual bool GetNamedSkillValue(FName InName, float& OutValue) const { return false; }
+
 protected:
 	// ================ 애셋에서 지정 ================
 

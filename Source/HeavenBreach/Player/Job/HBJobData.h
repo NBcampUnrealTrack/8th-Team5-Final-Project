@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "Player/Job/HBSkillDescription.h"
 #include "HBJobData.generated.h"
 
 class UGameplayAbility;
@@ -23,8 +24,27 @@ struct HEAVENBREACH_API FHBJobSkillData
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Skill")
 	FText DisplayName;
 
+	// 치환자를 쓸 수 있다. "공격력 {Attack%} 상승" 처럼 적으면 애셋의 실제 수치가 들어간다.
+	// 쓸 수 있는 이름은 HBSkillDescription.cpp 의 BuildRegistry 에 있다.
+	// 읽을 때는 이 칸이 아니라 아래 두 함수를 쓸 것.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Skill", meta = (MultiLine = "true"))
 	FText Description;
+
+	// 평문과 리치를 함께 얻는다. 스킬 카드처럼 색을 쓸 수 있는 곳이 쓴다.
+	FHBFormattedText FormatDescription() const;
+
+	/**
+	 * 평문만. 태그가 섞이지 않는다.
+	 *
+	 * 왜 따로 두나: HB_PlayerState 의 신규 패시브 후보가 이것을 쓰는데,
+	 * 그쪽 증강 카드는 아직 리치 텍스트가 아니다. 리치를 돌려주면
+	 * 화면에 <Value> 가 글자로 찍힌다.
+	 *
+	 * USTRUCT 이라 UFUNCTION 을 못 붙인다. 블루프린트에서 Description 을 직접
+	 * 꺼내면 치환 전 원문이 나온다. BP 에서 쓸 일이 생기면 UHBJobData 에
+	 * BlueprintPure 래퍼를 하나 다는 것이 해법이다.
+	 */
+	FText GetFormattedDescription() const;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Skill")
 	TSoftObjectPtr<UTexture2D> Icon;

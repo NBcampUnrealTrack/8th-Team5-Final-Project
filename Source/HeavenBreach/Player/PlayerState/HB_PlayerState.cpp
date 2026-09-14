@@ -802,7 +802,9 @@ void AHB_PlayerState::CollectMissingPassives(TArray<FHBUpgradeCandidate>& OutPoo
 		Candidate.Type = EHBUpgradeCandidateType::NewPassive;
 		Candidate.TargetSkillId = Passive.SkillId;
 		Candidate.DisplayName = Passive.DisplayName;
-		Candidate.Description = Passive.Description;
+		// 설명의 치환자를 실제 수치로 바꿔서 넘긴다. 아래 증강 카드와 같은 처리다.
+		// 안 하면 같은 패시브가 로비 카드와 레벨업 카드에서 다르게 보인다.
+		Candidate.Description = Passive.GetFormattedDescription();
 		Candidate.Icon = Passive.Icon;
 	}
 }
