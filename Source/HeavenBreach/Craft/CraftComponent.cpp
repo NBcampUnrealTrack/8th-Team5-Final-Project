@@ -132,24 +132,75 @@ void UCraftComponent::PlaceToFirstMatchingSlot(FGuid InInstanceId)
 	{
 		return;
 	}
-	for (int32 i = 0; i < Recipe.Ingredients.Num(); ++i)
+
+	const int32 MaxSlots = Slots.Num();
+	for (int32 i = 0; i < Recipe.Ingredients.Num() && i < MaxSlots; ++i)
 	{
-		if (Slots[i].IsValid())
+		const FCraftIngredient& Required = Recipe.Ingredients[i];
+
+		const int32 CurrentCount = Slots[i].IsValid() ? Slots[i].StackCount : 0;
+		if (CurrentCount >= Required.Count)
 		{
 			continue;
 		}
+
 		const int32 EntryIndex = TargetStash ? TargetStash->FindEntryIndexById(InInstanceId) : INDEX_NONE;
 		if (EntryIndex == INDEX_NONE)
 		{
 			return;
 		}
 		const FItemInstance& Item = TargetStash->GetEntries()[EntryIndex].Item;
-		if (Item.ItemRow.RowName == Recipe.Ingredients[i].ItemRow.RowName)
+		if (Item.ItemRow.RowName == Required.ItemRow.RowName)
 		{
 			Server_PlaceItem(InInstanceId, i);
 			return;
 		}
 	}
+}
+
+bool UCraftComponent::HasAnyFillableIngredient() const
+{
+	FCraftRecipeRow Recipe;
+	if (!GetSelectedRecipe(Recipe))
+	{
+		return false;
+	}
+
+	if (!TargetStash)
+	{
+		return false;
+	}
+
+	const int32 MaxSlots = Slots.Num();
+	for (int32 i = 0; i < Recipe.Ingredients.Num() && i < MaxSlots; ++i)
+	{
+		const FCraftIngredient& Ingredient = Recipe.Ingredients[i];
+
+		if (Ingredient.ItemRow.IsNull())
+		{
+			continue;
+		}
+
+		if (Slots[i].IsValid() && Slots[i].ItemRow.RowName == Ingredient.ItemRow.RowName)
+		{
+			continue;
+		}
+
+		for (const FInventoryEntry& Entry : TargetStash->GetEntries())
+		{
+			if (!Entry.Item.IsValid())
+			{
+				continue;
+			}
+
+			if (Entry.Item.ItemRow.RowName == Ingredient.ItemRow.RowName && Entry.Item.StackCount > 0)
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 bool UCraftComponent::GetItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutViewData)
@@ -225,22 +276,71 @@ void UCraftComponent::Server_AutoFillFromStash_Implementation()
 	{
 		return;
 	}
-	for (int32 i = 0; i < Recipe.Ingredients.Num(); ++i)
+	const int32 MaxSlots = Slots.Num();
+	for (int32 i = 0; i < Recipe.Ingredients.Num() && i < MaxSlots; ++i)
 	{
 		if (Slots[i].IsValid())
 		{
 			continue;
 		}
 		const FCraftIngredient& Ingredient = Recipe.Ingredients[i];
+
+		int32 TotalCount = 0;
+		TArray<TPair<FGuid, int32>> MatchingItems;
 		for (const FInventoryEntry& Entry : TargetStash->GetEntries())
 		{
-			if (Entry.Item.ItemRow == Ingredient.ItemRow && Entry.Item.StackCount >= Ingredient.Count)
+			if (Entry.Item.ItemRow == Ingredient.ItemRow)
 			{
-				Server_PlaceItem_Implementation(Entry.Item.InstanceId, i);
+				TotalCount += Entry.Item.StackCount;
+				MatchingItems.Add(TPair<FGuid, int32>(Entry.Item.InstanceId, Entry.Item.StackCount));
+				if (TotalCount >= Ingredient.Count)
+				{
+					break;
+				}
+			}
+		}
+
+		if (TotalCount < Ingredient.Count)
+		{
+			continue;
+		}
+
+		int32 Remaining = Ingredient.Count;
+		FItemInstance SlotItem;
+		bool bSlotInitialized = false;
+
+		for (const TPair<FGuid, int32>& Pair : MatchingItems)
+		{
+			const int32 TakeCount = FMath::Min(Remaining, Pair.Value);
+
+			if (!bSlotInitialized)
+			{
+				const int32 EntryIndex = TargetStash->FindEntryIndexById(Pair.Key);
+				if (EntryIndex == INDEX_NONE)
+				{
+					continue;
+				}
+				SlotItem = TargetStash->GetEntries()[EntryIndex].Item;
+				SlotItem.StackCount = 0;
+				bSlotInitialized = true;
+			}
+
+			TargetStash->RemoveStackCount(Pair.Key, TakeCount);
+			SlotItem.StackCount += TakeCount;
+			Remaining -= TakeCount;
+
+			if (Remaining <= 0)
+			{
 				break;
 			}
 		}
+
+		if (bSlotInitialized)
+		{
+			Slots[i] = SlotItem;
+		}
 	}
+	OnRep_Slots();
 }
 
 void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 InSlotIndex)
@@ -256,11 +356,6 @@ void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 
 		return;
 	}
 
-	if (Slots[InSlotIndex].IsValid())
-	{
-		ReturnSlotToStash(InSlotIndex);
-	}
-
 	const int32 EntryIndex = TargetStash->FindEntryIndexById(InInstanceId);
 	if (EntryIndex == INDEX_NONE)
 	{
@@ -274,17 +369,32 @@ void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 
 	{
 		return;
 	}
-	if (Placed.StackCount < Required.Count)
+
+	const int32 CurrentCount = Slots[InSlotIndex].IsValid() ? Slots[InSlotIndex].StackCount : 0;
+	const int32 Needed = Required.Count - CurrentCount;
+
+	if (Needed <= 0)
 	{
 		return;
 	}
 
-	if (!TargetStash->RemoveStackCount(InInstanceId, Placed.StackCount))
+	const int32 TakeCount = FMath::Min(Needed, Placed.StackCount);
+
+	if (!TargetStash->RemoveStackCount(InInstanceId, TakeCount))
 	{
 		return;
 	}
 
-	Slots[InSlotIndex] = Placed;
+	if (!Slots[InSlotIndex].IsValid())
+	{
+		Slots[InSlotIndex] = Placed;
+		Slots[InSlotIndex].StackCount = TakeCount;
+	}
+	else
+	{
+		Slots[InSlotIndex].StackCount += TakeCount;
+	}
+
 	OnRep_Slots();
 }
 
@@ -300,6 +410,13 @@ void UCraftComponent::Server_RemoveItem_Implementation(int32 InSlotIndex)
 
 void UCraftComponent::Server_ExecuteCraft_Implementation()
 {
+
+	FCraftRecipeRow SelectedRecipe;
+	if (!GetSelectedRecipe(SelectedRecipe))
+	{
+		return;
+	}
+
 	if (TargetStash == nullptr)
 	{
 		OnCraftCompleted.Broadcast(false);
@@ -342,7 +459,8 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 		return;
 	}
 
-	for (int32 i = 0; i < Recipe.Ingredients.Num(); ++i)
+	const int32 MaxSlots = Slots.Num();
+	for (int32 i = 0; i < Recipe.Ingredients.Num() && i < MaxSlots; ++i)
 	{
 		Slots[i] = FItemInstance();
 	}
@@ -382,8 +500,27 @@ bool UCraftComponent::ReturnSlotToStash(int32 InSlotIndex)
 	{
 		return false;
 	}
-	int32 Remainder = 0;
-	TargetStash->TryAddItem(Slots[InSlotIndex], Remainder);
+
+	FItemViewData ViewData;
+	UCraftComponent::GetItemViewData(Slots[InSlotIndex].ItemRow, ViewData);
+
+	if (!ViewData.IsStackable() && Slots[InSlotIndex].StackCount > 1)
+	{
+		FItemInstance SingleItem = Slots[InSlotIndex];
+		SingleItem.StackCount = 1;
+		for (int32 j = 0; j < Slots[InSlotIndex].StackCount; ++j)
+		{
+			SingleItem.InstanceId = FGuid::NewGuid();
+			int32 Remainder = 0;
+			TargetStash->TryAddItem(SingleItem, Remainder);
+		}
+	}
+	else
+	{
+		int32 Remainder = 0;
+		TargetStash->TryAddItem(Slots[InSlotIndex], Remainder);
+	}
+
 	Slots[InSlotIndex] = FItemInstance();
 	return true;
 }
