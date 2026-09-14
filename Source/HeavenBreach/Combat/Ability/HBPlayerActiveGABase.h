@@ -43,6 +43,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Skill")
 	float GetBaseBuffDuration() const { return BuffDuration; }
 
+	// 설명 치환이 이 GE 의 모디파이어에서 수치를 읽는다.
+	UFUNCTION(BlueprintPure, Category = "Skill")
+	TSubclassOf<UGameplayEffect> GetSelfBuffEffect() const { return SelfBuffEffect; }
+
 	virtual UAnimMontage* GetMontageToPlay() const { return Montage; }
 
 protected:

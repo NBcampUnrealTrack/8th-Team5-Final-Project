@@ -1,13 +1,13 @@
-#include "Player/Job/HBJobData.h"
+ï»¿#include "Player/Job/HBJobData.h"
 
 #include "Abilities/GameplayAbility.h"
 
 namespace
 {
-		// Á÷¾÷ÀÇ ½ºÅ³µ¥ÀÌÅÍ ¾È¿¡¼­ ½ºÅ³ÀÇ id Ã£±â
+		// ì§ì—…ì˜ ìŠ¤í‚¬ë°ì´í„° ì•ˆì—ì„œ ìŠ¤í‚¬ì˜ id ì°¾ê¸°
 	const FHBJobSkillData* FindSkillById(const TArray<FHBJobSkillData>& Skills, const FName SkillId)
 	{
-		// ºó ½½·Ô(E ¹ÌÁöÁ¤µî) Á¶È¸¸¦ ¸·´Â´Ù.
+		// ë¹ˆ ìŠ¬ë¡¯(E ë¯¸ì§€ì •ë“±) ì¡°íšŒë¥¼ ë§‰ëŠ”ë‹¤.
 		if (SkillId.IsNone())
 		{
 			return nullptr;
@@ -15,7 +15,7 @@ namespace
 
 		for (const FHBJobSkillData& Skill : Skills)
 		{
-			// µ¿ÀÏÇÑ ½ºÅ³ id¹ß°ß½Ã ¹İÈ¯
+			// ë™ì¼í•œ ìŠ¤í‚¬ idë°œê²¬ì‹œ ë°˜í™˜
 			if (Skill.SkillId == SkillId)
 			{
 				return &Skill;
@@ -23,6 +23,21 @@ namespace
 		}
 		return nullptr;
 	}
+}
+
+FHBFormattedText FHBJobSkillData::FormatDescription() const
+{
+	FHBSkillValueContext Context;
+	Context.AbilityClass = AbilityClass;
+	// ëª» ì½ì€ ì¹˜í™˜ìê°€ ì–´ëŠ ìŠ¤í‚¬ ê²ƒì¸ì§€ ë¡œê·¸ë¡œ ì•Œì•„ì•¼ í•œë‹¤.
+	Context.DebugSkillId = SkillId;
+
+	return FormatSkillText(Description, Context);
+}
+
+FText FHBJobSkillData::GetFormattedDescription() const
+{
+	return FormatDescription().Plain;
 }
 
 const FHBJobSkillData* UHBJobData::FindActiveSkill(const FName SkillId) const

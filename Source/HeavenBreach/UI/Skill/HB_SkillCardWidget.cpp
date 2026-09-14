@@ -4,6 +4,7 @@
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
+#include "Components/RichTextBlock.h"
 
 void UHB_SkillCardWidget::NativeConstruct()
 {
@@ -22,7 +23,7 @@ void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData, bool bIsAlre
     CurrentSkillId = SkillData.SkillId;
 
     if (DisplayNameText) DisplayNameText->SetText(SkillData.DisplayName);
-    if (DescriptionText) DescriptionText->SetText(SkillData.Description);
+    ApplyDescription(SkillData);
     if (ManaCostText) ManaCostText->SetText(FText::AsNumber(SkillData.ManaCost));
     if (CooldownText) CooldownText->SetText(FText::AsNumber(SkillData.DisplayCooldown));
     // 아이콘이 없으면 ("없음" 카드, 또는 아이콘 미설정) 빈 브러시가 흰 네모로
@@ -72,6 +73,29 @@ void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData, bool bIsAlre
     if (CooldownText)
     {
         CooldownText->SetVisibility(CostVisibility);
+    }
+}
+
+void UHB_SkillCardWidget::ApplyDescription(const FSkillCardData& SkillData)
+{
+    // 리치 텍스트 칸이 WBP 에 있으면 색이 들어간 쪽을 쓴다.
+    // 없으면 평문으로 떨어진다. WBP 를 안 바꿔도 아무것도 깨지지 않는다.
+    if (DescriptionRichText)
+    {
+        DescriptionRichText->SetText(SkillData.DescriptionRich);
+        DescriptionRichText->SetVisibility(ESlateVisibility::Visible);
+
+        // 둘이 같이 보이면 설명이 두 번 나온다.
+        if (DescriptionText)
+        {
+            DescriptionText->SetVisibility(ESlateVisibility::Collapsed);
+        }
+        return;
+    }
+
+    if (DescriptionText)
+    {
+        DescriptionText->SetText(SkillData.Description);
     }
 }
 

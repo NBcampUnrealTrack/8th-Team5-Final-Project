@@ -224,6 +224,8 @@ void UHB_SkillMainWidget::PopulateSkillList(bool bIsPassive)
     EmptyCard.SkillType = Type;
     EmptyCard.DisplayName = FText::FromString(TEXT("없음"));
     EmptyCard.Description = FText::FromString(TEXT("이 슬롯을 비웁니다."));
+    // 치환자도 특수문자도 없는 문장이라 리치도 같은 것을 쓴다.
+    EmptyCard.DescriptionRich = EmptyCard.Description;
     EmptyCard.Icon = nullptr;
     EmptyCard.ManaCost = 0;
     EmptyCard.DisplayCooldown = 0.f;
@@ -276,7 +278,11 @@ bool UHB_SkillMainWidget::MakeCardData(const FHBJobSkillData& InSkill, ESkillTyp
     OutCard.SkillId = InSkill.SkillId;
     OutCard.SkillType = InType;
     OutCard.DisplayName = InSkill.DisplayName;
-    OutCard.Description = InSkill.Description;
+    // 설명의 {Attack%} 같은 치환자를 애셋의 실제 수치로 바꾼다.
+    // 평문과 리치를 둘 다 채운다. 어느 쪽을 쓸지는 카드 위젯이 정한다.
+    const FHBFormattedText Formatted = InSkill.FormatDescription();
+    OutCard.Description = Formatted.Plain;
+    OutCard.DescriptionRich = Formatted.Rich;
     OutCard.Icon = ResolveIcon(InSkill);
     OutCard.ManaCost = 0;
     OutCard.DisplayCooldown = 0.f;
