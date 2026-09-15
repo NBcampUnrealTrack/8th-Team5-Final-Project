@@ -183,17 +183,21 @@ void UMeleeTraceComponent::UpdateTrace()
 
 			HitActors.Add(Target);
 
-			ApplyDamage(Target, Hit);
+			// 못 때린 대상은 한 대로 세지 않는다.
+			// 벽 · 바닥이 Attack 채널을 Block 하게 되면서 트레이스에 걸리기 시작했는데,
+			// 이걸 안 거르면 벽에 스친 순간 히트스톱이 걸리고 스윙이 끝나버린다.
+			//
+			// 쳐낼 조건: 벽 타격 연출을 넣게 되면 여기서 갈라서 처리한다.
+			if (!ApplyDamage(Target, Hit))
+			{
+				continue;
+			}
 
 			// 적중은 한번에 하나씩. 히트스탑이 끝나고나서 진행되어야함.
 			if (bUseHitStop)
 			{
 				TriggerHitStop();
 				return;
-			}
-			else
-			{
-				UE_LOG(LogEnemyAI, Warning, TEXT("[HitStop] bUseHitStop 꺼져있음"));
 			}
 		}
 
@@ -258,7 +262,7 @@ void UMeleeTraceComponent::BeginPlay()
 	
 }
 
-void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
+bool UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 {
 	AActor* Owner = GetOwner();
 
@@ -279,17 +283,18 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 	}
 
 	// 대상이 인터페이스를 가진지 확인한다.
+	// 벽 · 바닥이 여기로 들어온다. 때린 걸로 세면 안 된다.
 	if (!Target->Implements<UDamageableInterface>())
 	{
 		UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (Damageable 아님)"), *GetNameSafe(Owner), *GetNameSafe(Target));
-		return;
+		return false;
 	}
 
 	// 맞을 수 있는 상태인지는 대상이 판단
 	if (!IDamageableInterface::Execute_CanBeDamaged(Target, Owner))
 	{
 		UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (거부됨)"), *GetNameSafe(Owner), *GetNameSafe(Target));
-		return;
+		return false;
 	}
 
 	// 데미지값 배율합해서 연산
@@ -327,6 +332,8 @@ void UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 	}
 
 	UE_LOG(LogEnemyAI, Log, TEXT("[HIT] %s → %s (%.0f)"), *GetNameSafe(Owner), *GetNameSafe(Target), FinalDamage);
+
+	return true;
 }
 
 USceneComponent* UMeleeTraceComponent::ResolveSocketSource() const

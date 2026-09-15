@@ -3,7 +3,9 @@
 namespace EventTag
 {
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Event_MeleeHitCheck,"Event.Melee.HitCheck")
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Ranged_Fire, "Event.Ranged.Fire", "¸ùÅ¸ÁÖ ¹ß»ç ÇÁ·¹ÀÓ ½ÅÈ£")
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Leap_Launch, "Event.Leap.Launch", "¸ùÅ¸ÁÖ ·çÇÁ ´ÙÀ½´Ü°è ³ª¾Æ°¡±â ½ÅÈ£")
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Block_Release, "Event.Block.Release", "¹æ¾î ÇØÁ¦ ÀÌº¥Æ®. ÇÃ·¹ÀÌ¾î°¡ »ç¿ë")
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Event_Beam_Fire, "Event.Beam.Fire")
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Event_Beam_Stop, "Event.Beam.Stop")
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Ranged_Fire, "Event.Ranged.Fire", "ï¿½ï¿½Å¸ï¿½ï¿½ ï¿½ß»ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È£")
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Leap_Launch, "Event.Leap.Launch", "ï¿½ï¿½Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ü°ï¿½ ï¿½ï¿½ï¿½Æ°ï¿½ï¿½ï¿½ ï¿½ï¿½È£")
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Block_Release, "Event.Block.Release", "ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ìºï¿½Æ®. ï¿½Ã·ï¿½ï¿½Ì¾î°¡ ï¿½ï¿½ï¿½")
 }
