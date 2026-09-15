@@ -1,91 +1,104 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "UI/Lobby/HBLobbyWidget.h"
 
 #include "Components/Button.h"
-#include "Core/GameFlow/Lobby/HBLobbyPlayerController.h"
-#include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
-#include "Core/GameFlow/Lobby/HBLobbyGameState.h"
+#include "Components/TextBlock.h"
+#include "GameFramework/PlayerController.h"
+#include "UObject/UnrealType.h"
+
+void UHBLobbyWidget::NativePreConstruct()
+{
+	Super::NativePreConstruct();
+	RefreshLobbyActions();
+}
 
 void UHBLobbyWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-	
+
+	// Keep the existing widget names so the assembled Blueprint retains its layout.
+	if (ReadyButtonModule)
+	{
+		ReadyButton = Cast<UButton>(ReadyButtonModule->GetWidgetFromName(TEXT("Button_Action")));
+	}
+	if (StartMatchButtonModule)
+	{
+		StartMatchButton = Cast<UButton>(StartMatchButtonModule->GetWidgetFromName(TEXT("Button_Action")));
+	}
 	if (ReadyButton)
 	{
-		ReadyButton->OnClicked.AddUniqueDynamic(
-			this,
-			&UHBLobbyWidget::HandleReadyClicked
-			);
+		ReadyButton->OnClicked.AddUniqueDynamic(this, &UHBLobbyWidget::HandleFindRoomClicked);
 	}
-	
 	if (StartMatchButton)
 	{
-		StartMatchButton->OnClicked.AddUniqueDynamic(
-			this,
-			&UHBLobbyWidget::HandleStartMatchClicked
-			);
-		
-		// All Ready 전에는 비활성화 
-		StartMatchButton->SetIsEnabled(false);
+		StartMatchButton->OnClicked.AddUniqueDynamic(this, &UHBLobbyWidget::HandlePrimaryActionClicked);
 	}
-	
-	LobbyGameState = GetWorld()->GetGameState<AHBLobbyGameState>();
-	if (IsValid(LobbyGameState))
-	{
-		LobbyGameState->OnCanStartMatchChanged.AddUniqueDynamic(
-			this,
-			&UHBLobbyWidget::HandleCanStartMatchChanged
-			);
-		
-		HandleCanStartMatchChanged(LobbyGameState->CanStartMatch());
-	}
-	
+	RefreshLobbyActions();
 }
 
 void UHBLobbyWidget::NativeDestruct()
 {
-	if (IsValid(LobbyGameState))
+	if (ReadyButton)
 	{
-		LobbyGameState->OnCanStartMatchChanged.RemoveDynamic(
-			this,
-			&UHBLobbyWidget::HandleCanStartMatchChanged);
+		ReadyButton->OnClicked.RemoveDynamic(this, &UHBLobbyWidget::HandleFindRoomClicked);
 	}
-
+	if (StartMatchButton)
+	{
+		StartMatchButton->OnClicked.RemoveDynamic(this, &UHBLobbyWidget::HandlePrimaryActionClicked);
+	}
 	Super::NativeDestruct();
 }
 
-void UHBLobbyWidget::HandleReadyClicked()
+#pragma region LobbyActionRequests
+bool UHBLobbyWidget::IsLocalLobbyHost() const
 {
-	AHBLobbyPlayerController* LobbyPC = GetOwningPlayer<AHBLobbyPlayerController>();
-	AHBLobbyPlayerState* LobbyPS = GetOwningPlayerState<AHBLobbyPlayerState>();
-	
-	if (!IsValid(LobbyPC) || !IsValid(LobbyPS))
+	if (IsDesignTime())
+	{
+		return bPreviewAsHost;
+	}
+	const APlayerController* PlayerController = GetOwningPlayer();
+	// The listen host owns an authoritative local controller; a joining client does not.
+	return IsValid(PlayerController) && PlayerController->IsLocalController() && PlayerController->HasAuthority();
+}
+
+void UHBLobbyWidget::RefreshLobbyActions()
+{
+	if (!StartMatchButtonModule)
 	{
 		return;
 	}
-	
-	LobbyPC->SetReady(!LobbyPS->IsReady());
-}
-
-void UHBLobbyWidget::HandleStartMatchClicked()
-{
-	AHBLobbyPlayerController* LobbyPC =
-	GetOwningPlayer<AHBLobbyPlayerController>();
-
-	if (!IsValid(LobbyPC))
+	const FText Label = IsLocalLobbyHost()
+		? NSLOCTEXT("LobbyActions", "Start", "시작")
+		: NSLOCTEXT("LobbyActions", "Ready", "준비");
+	// Keep the module's RefreshVisual from restoring an outdated label.
+	for (const FName PropertyName : {FName(TEXT("ButtonLabel")), FName(TEXT("ButtonTooltip"))})
 	{
-		return;
+		if (FTextProperty* TextProperty = FindFProperty<FTextProperty>(StartMatchButtonModule->GetClass(), PropertyName))
+		{
+			TextProperty->SetPropertyValue_InContainer(StartMatchButtonModule, Label);
+		}
 	}
-
-	LobbyPC->RequestStartGame();
-}
-
-void UHBLobbyWidget::HandleCanStartMatchChanged(bool bCanStartMatch)
-{
-	if (StartMatchButton)
+	if (UTextBlock* Text = Cast<UTextBlock>(StartMatchButtonModule->GetWidgetFromName(TEXT("Text_Label"))))
 	{
-		StartMatchButton->SetIsEnabled(bCanStartMatch);
+		Text->SetText(Label);
+	}
+	StartMatchButtonModule->SetToolTipText(Label);
+}
+
+void UHBLobbyWidget::HandleFindRoomClicked()
+{
+	OnFindRoomRequested.Broadcast();
+}
+
+void UHBLobbyWidget::HandlePrimaryActionClicked()
+{
+	RefreshLobbyActions();
+	if (IsLocalLobbyHost())
+	{
+		OnStartRequested.Broadcast();
+	}
+	else
+	{
+		OnReadyRequested.Broadcast();
 	}
 }
+#pragma endregion
