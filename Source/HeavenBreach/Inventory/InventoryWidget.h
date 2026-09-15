@@ -36,6 +36,7 @@ class HEAVENBREACH_API UInventoryWidget : public UHB_ActivatableWidget
 
 public:
 	UInventoryWidget();
+	virtual void SynchronizeProperties() override;
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void BindToInventory(UInventoryComponent* InInventory);
@@ -86,6 +87,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void PrepareForHide();
 protected:
+	virtual void NativePreConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
@@ -113,6 +115,21 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Inventory")
 	int32 VisibleRows = 0;
 
+#if WITH_EDITORONLY_DATA
+#pragma region InventoryDesignerPreview
+	/** Show empty cells in the widget designer without binding a gameplay inventory. */
+	UPROPERTY(EditAnywhere, Category = "Inventory|Designer Preview")
+	bool bShowDesignerGrid = true;
+
+	UPROPERTY(EditAnywhere, Category = "Inventory|Designer Preview", meta = (ClampMin = "1", ClampMax = "32", EditCondition = "bShowDesignerGrid"))
+	int32 PreviewColumns = 6;
+
+	/** Total preview rows. VisibleRows still limits the rows displayed, as it does at runtime. */
+	UPROPERTY(EditAnywhere, Category = "Inventory|Designer Preview", meta = (ClampMin = "1", ClampMax = "32", EditCondition = "bShowDesignerGrid"))
+	int32 PreviewRows = 5;
+#pragma endregion
+#endif
+
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Widget")
 	TSubclassOf<UInventoryCellWidget> InventoryCellWidgetClass;
 
@@ -129,6 +146,9 @@ protected:
 	FOnInventoryItemActivated OnItemActivated;
 
 private:
+#if WITH_EDITOR
+	void RefreshDesignerGrid();
+#endif
 	void BuildBackground();
 	void BuildItems();
 	bool ScreenToCell(const FVector2D& InScreenPosition, FIntPoint& OutCell) const;
