@@ -9,6 +9,7 @@
 void UHBLobbyHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	InitializeNavigation();
 
 	if (Button_Lobby)
 	{

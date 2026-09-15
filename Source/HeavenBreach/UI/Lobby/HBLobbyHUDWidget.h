@@ -31,19 +31,19 @@ protected:
 	virtual void NativeDestruct() override;
 
 #pragma region LobbyActionButtons
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> Button_Lobby;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> Button_ChoiceJob;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> Button_Storage;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> Button_Shop;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> Button_Craft;
 #pragma endregion
 
@@ -69,6 +69,10 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Lobby HUD")
 	EHBLobbyHUDMenu SelectedMenu = EHBLobbyHUDMenu::Lobby;
+
+	/** Builds modular navigation before the initial menu selection is applied. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Lobby HUD")
+	void InitializeNavigation();
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Lobby HUD")
 	void OnLobbyMenuSelected(EHBLobbyHUDMenu NewMenu);
