@@ -28,6 +28,7 @@ namespace
 		Object->SetStringField(TEXT("rowName"), InItem.ItemRow.RowName.ToString());
 		Object->SetNumberField(TEXT("stackCount"), InItem.StackCount);
 		Object->SetBoolField(TEXT("rotated"), InItem.bRotated);
+		Object->SetNumberField(TEXT("currentDurability"), InItem.CurrentDurability);
 
 		return Object;
 	}
@@ -43,6 +44,10 @@ namespace
 
 		OutItem.StackCount = InObject->GetIntegerField(TEXT("stackCount"));
 		OutItem.bRotated = InObject->GetBoolField(TEXT("rotated"));
+
+		double LoadedDurability = -1.0;
+		InObject->TryGetNumberField(TEXT("currentDurability"), LoadedDurability);
+		OutItem.CurrentDurability = static_cast<float>(LoadedDurability);
 	}
 }
 

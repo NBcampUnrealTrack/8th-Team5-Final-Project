@@ -63,4 +63,8 @@ private:
 
 	FTimerHandle StashSaveTimer;
 	FTimerHandle StashIdentityRetryTimer;
+
+	void HandleStashSaved(bool bSuccess);
+	bool bStashSaveInFlight = false;
+	bool bStashSavePending = false;
 };
