@@ -7,7 +7,7 @@
 #include "HBLobbyWidget.generated.h"
 
 class UButton;
-class AHBLobbyGameState;
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBLobbyActionRequested);
 /**
  * 
  */
@@ -15,27 +15,53 @@ UCLASS()
 class HEAVENBREACH_API UHBLobbyWidget : public UUserWidget
 {
 	GENERATED_BODY()
+
+public:
+#pragma region LobbyActionRequests
+	/** UI requests only. Connect room and match behavior in the owning screen. */
+	UPROPERTY(BlueprintAssignable, Category = "Lobby|Actions")
+	FHBLobbyActionRequested OnFindRoomRequested;
+
+	UPROPERTY(BlueprintAssignable, Category = "Lobby|Actions")
+	FHBLobbyActionRequested OnStartRequested;
+
+	UPROPERTY(BlueprintAssignable, Category = "Lobby|Actions")
+	FHBLobbyActionRequested OnReadyRequested;
+
+	UFUNCTION(BlueprintPure, Category = "Lobby|Actions")
+	bool IsLocalLobbyHost() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Lobby|Actions")
+	void RefreshLobbyActions();
+
+	/** Designer preview only; runtime uses the owning local controller's authority. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lobby|Preview")
+	bool bPreviewAsHost = true;
+#pragma endregion
 	
 protected:
+	virtual void NativePreConstruct() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 	
-	UPROPERTY(meta = (BindWidget))
+#pragma region LobbyActionButtons
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> ReadyButton;
 	
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> StartMatchButton;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UUserWidget> ReadyButtonModule;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UUserWidget> StartMatchButtonModule;
+#pragma endregion
 	
 private:
 	UFUNCTION()
-	void HandleReadyClicked();
+	void HandleFindRoomClicked();
 	
 	UFUNCTION()
-	void HandleStartMatchClicked();
-	
-	UFUNCTION()
-	void HandleCanStartMatchChanged(bool bCanStartMatch);
-	
-	UPROPERTY()
-	TObjectPtr<AHBLobbyGameState> LobbyGameState;
+	void HandlePrimaryActionClicked();
 };

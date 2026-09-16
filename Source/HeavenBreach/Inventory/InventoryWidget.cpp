@@ -36,6 +36,79 @@ UInventoryWidget::UInventoryWidget()
 	bIsBackHandler = true;
 }
 
+#pragma region InventoryDesignerPreview
+void UInventoryWidget::NativePreConstruct()
+{
+	Super::NativePreConstruct();
+#if WITH_EDITOR
+	RefreshDesignerGrid();
+#endif
+}
+
+void UInventoryWidget::SynchronizeProperties()
+{
+	Super::SynchronizeProperties();
+#if WITH_EDITOR
+	RefreshDesignerGrid();
+#endif
+}
+
+#if WITH_EDITOR
+void UInventoryWidget::RefreshDesignerGrid()
+{
+	if (!IsDesignTime() || GridCanvas == nullptr || WidgetTree == nullptr || IsTemplate())
+	{
+		return;
+	}
+
+	// Only populate the designer instance; keep the template and gameplay arrays untouched.
+	GridCanvas->ClearChildren();
+	if (!bShowDesignerGrid || !FMath::IsFinite(CellSize) || CellSize <= 2.0f)
+	{
+		return;
+	}
+
+	const int32 Columns = FMath::Clamp(PreviewColumns, 1, 32);
+	const int32 Rows = FMath::Clamp(PreviewRows, 1, 32);
+	const int32 DisplayRows = VisibleRows > 0 ? FMath::Min(Rows, VisibleRows) : Rows;
+	for (int32 Y = 0; Y < DisplayRows; ++Y)
+	{
+		for (int32 X = 0; X < Columns; ++X)
+		{
+			UWidget* PreviewCell = nullptr;
+			if (InventoryCellWidgetClass != nullptr && !InventoryCellWidgetClass->HasAnyClassFlags(CLASS_Abstract))
+			{
+				// WidgetTree ownership does not require a gameplay PlayerController.
+				UInventoryCellWidget* CellWidget = WidgetTree->ConstructWidget<UInventoryCellWidget>(InventoryCellWidgetClass);
+				if (CellWidget != nullptr)
+				{
+					CellWidget->SetDesignerFlags(GetDesignerFlags());
+					CellWidget->InitializeCell(FIntPoint(X, Y));
+					PreviewCell = CellWidget;
+				}
+			}
+			if (PreviewCell == nullptr)
+			{
+				UBorder* Cell = WidgetTree->ConstructWidget<UBorder>();
+				Cell->SetBrushColor(FLinearColor(0.04f, 0.04f, 0.05f, 0.9f));
+				Cell->SetPadding(FMargin(0.0f));
+				PreviewCell = Cell;
+			}
+
+			PreviewCell->SetFlags(RF_Transient);
+			PreviewCell->SetVisibility(ESlateVisibility::HitTestInvisible);
+			UCanvasPanelSlot* CanvasSlot = GridCanvas->AddChildToCanvas(PreviewCell);
+			CanvasSlot->SetAutoSize(false);
+			CanvasSlot->SetPosition(FVector2D(X * CellSize, Y * CellSize));
+			CanvasSlot->SetSize(FVector2D(CellSize - 2.0f, CellSize - 2.0f));
+			CanvasSlot->SetZOrder(0);
+		}
+	}
+	GridCanvas->InvalidateLayoutAndVolatility();
+}
+#endif
+#pragma endregion
+
 void UInventoryWidget::BindToInventory(UInventoryComponent* InInventory)
 {
 	if (BoundInventory != nullptr)
