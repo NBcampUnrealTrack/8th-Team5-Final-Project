@@ -77,8 +77,12 @@ protected:
 	float DebugDrawTime = 0.5f;
 
 private:
-	// 데미지 적용
-	void ApplyDamage(AActor* Target, const FHitResult& Hit);
+	// 데미지 적용. 실제로 때렸으면 true.
+	//
+	// 왜 반환값이 있나: 벽이나 바닥처럼 Damageable 이 아닌 것도 트레이스에는 걸린다.
+	// 그걸 "한 대 때렸다" 로 세면 히트스톱이 걸리고 스윙이 거기서 끝나서
+	// 뒤에 있는 진짜 적을 못 때린다.
+	bool ApplyDamage(AActor* Target, const FHitResult& Hit);
 
 	// 지정된 소켓이 있는 컴포넌트를 고른다. 하위 자식 메시 -> 캐릭터 메쉬 순서.
 	USceneComponent* ResolveSocketSource() const;

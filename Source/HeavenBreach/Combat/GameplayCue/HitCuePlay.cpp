@@ -47,19 +47,25 @@ void HitCuePlay::PlayImpact(AActor* Instigator, AActor* Target, const FHitResult
 
 FGameplayTag HitCuePlay::ResolveCueTag(const FGameplayTagContainer& SourceTags)
 {
-	// 공격자가 어떤 성질의 공격을 했는지 본다.
-	// 어빌리티의 ActivationOwnedTags나 발사체가 넘긴 태그에 들어 있다.
-	if (SourceTags.HasTag(CueTag::TAG_Impact_Slash))
+	// 공격자가 들고 있는 GameplayCue.Hit.* 를 그대로 쓴다.
+	// 어빌리티의 ActivationOwnedTags 나 발사체가 넘긴 태그에 들어 있다.
+	//
+	// 왜 매핑을 안 하는가: 예전에는 Impact.X 를 달고 여기서 GameplayCue.Hit.X 로
+	// 바꿔줬는데, 둘이 1:1 이라 매핑 코드가 전부 중복이었고 타격 종류가 늘 때마다
+	// if 도 같이 늘었다. 별칭을 없애니 이 함수가 더 이상 자라지 않는다.
+	//
+	// 쳐낼 조건: 태그 하나가 여러 큐로 갈라져야 하면 그때 다시 매핑이 필요해진다.
+	for (const FGameplayTag& Tag : SourceTags)
 	{
-		return CueTag::TAG_GameplayCue_Hit_Slash;
-	}
-	if (SourceTags.HasTag(CueTag::TAG_Impact_Blunt))
-	{
-		return CueTag::TAG_GameplayCue_Hit_Blunt;
-	}
-	if (SourceTags.HasTag(CueTag::TAG_Impact_Pierce))
-	{
-		return CueTag::TAG_GameplayCue_Hit_Pierce;
+		// 부모(GameplayCue.Hit)만 달려 있으면 대응하는 GCN 이 없다. 건너뛴다.
+		if (Tag == CueTag::TAG_GameplayCue_Hit)
+		{
+			continue;
+		}
+		if (Tag.MatchesTag(CueTag::TAG_GameplayCue_Hit))
+		{
+			return Tag;
+		}
 	}
 
 	// 성질을 지정하지 않은 공격이다.
