@@ -14,6 +14,7 @@ class UEnemyAttributeSetBase;
 class UEnemyArchetypeData;
 class UGameplayEffect;
 struct FGameplayTag;
+struct FDataTableRowHandle;
 class ULootComponent;
 
 UCLASS()
@@ -54,6 +55,10 @@ public:
 	void SetRunSpeed(float InRunSpeed) { RunSpeed = InRunSpeed; RefreshMoveSpeed(); }
 	void SetAccRadius(float InAcceptanceRadius) { AcceptanceRadius = InAcceptanceRadius; }
 	void SetReward(float InExpReward) { ExpReward = InExpReward; }
+
+	// 드랍 테이블의 행을 루트 컴포넌트에 전달한다.
+	// 스탯 DT 에서 주입되므로 적 BP 마다 따로 설정하지 않는다.
+	void SetLootRow(const FDataTableRowHandle& InRow);
 
 	UFUNCTION(BlueprintCallable)
 	void BecomeDead();

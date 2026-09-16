@@ -169,6 +169,16 @@ void AEnemyCharacterBase::SetMoveSpeed(bool bRun)
 	RefreshMoveSpeed();
 }
 
+void AEnemyCharacterBase::SetLootRow(const FDataTableRowHandle& InRow)
+{
+	if (!LootComponent)
+	{
+		return;
+	}
+
+	LootComponent->SetLootRow(InRow);
+}
+
 void AEnemyCharacterBase::BecomeDead()
 {
 	// 이미 죽거나 서버가아니면 실행x
