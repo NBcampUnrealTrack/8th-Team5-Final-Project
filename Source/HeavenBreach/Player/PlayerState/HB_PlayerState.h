@@ -91,6 +91,7 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	UFUNCTION()
@@ -99,6 +100,10 @@ private:
 	void HandleQuickSlotChanged();
 
 	FTimerHandle LoadoutSaveTimer;
+
+	void HandleLoadoutSaved(bool bSuccess);
+	bool bLoadoutSaveInFlight = false;
+	bool bLoadoutSavePending = false;
 
 	// ��� �׽�Ʈ
 	UFUNCTION()

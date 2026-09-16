@@ -3,6 +3,7 @@
 #include "Net/UnrealNetwork.h"
 #include "EquipmentComponent.h"
 #include "Item/ItemBase.h"
+#include "Components/StaticMeshComponent.h"
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/Pawn.h"
 #include "Player/PlayerState/HB_PlayerState.h"
@@ -838,9 +839,9 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	{
 		ClassToSpawn = DropItemClass;
 	}
-	const FVector ForwardOffset = SpawnBasisActor->GetActorForwardVector() * 200.f;
-	const FVector UpOffset = FVector(0.f, 0.f, 50.f);
-	const FVector SpawnLocation = SpawnBasisActor->GetActorLocation() + ForwardOffset + UpOffset;
+
+	const FVector ForwardVector = SpawnBasisActor->GetActorForwardVector();
+	const FVector SpawnLocation = SpawnBasisActor->GetActorLocation() + ForwardVector * 60.f + FVector(0.f, 0.f, 60.f);
 	const FTransform SpawnTransform(FRotator::ZeroRotator, SpawnLocation);
 
 	AItemBase* NewItemActor = World->SpawnActorDeferred<AItemBase>(ClassToSpawn, SpawnTransform);
@@ -870,6 +871,14 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 
 	NewItemActor->StackCount = FMath::Max(1, DroppedStackCount);
 	NewItemActor->FinishSpawning(SpawnTransform);
+
+	// 던진 사람과는 한동안 충돌 무시해서 스폰 직후 캐릭터에 끼어서 튕기는 걸 방지.
+	if (NewItemActor->MeshComponent)
+	{
+		NewItemActor->MeshComponent->IgnoreActorWhenMoving(SpawnBasisActor, true);
+		NewItemActor->MeshComponent->SetPhysicsLinearVelocity(ForwardVector * 250.f + FVector(0.f, 0.f, 150.f));
+		NewItemActor->MeshComponent->SetPhysicsAngularVelocityInDegrees(FVector(0.f, 90.f, 0.f));
+	}
 
 	FItemInstance RemovedItem;
 	RemoveItem(InInstanceId, RemovedItem);

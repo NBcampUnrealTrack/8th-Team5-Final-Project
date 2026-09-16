@@ -73,6 +73,10 @@ void FBackendStashStorage::LoadStashAsync(const FString& InAccountId, FOnStashLo
 					Entry.Item.StackCount = (*ItemObject)->GetIntegerField(TEXT("stackCount"));
 					Entry.Item.bRotated = (*ItemObject)->GetBoolField(TEXT("rotated"));
 
+					double LoadedDurability = -1.0;
+					(*ItemObject)->TryGetNumberField(TEXT("currentDurability"), LoadedDurability);
+					Entry.Item.CurrentDurability = static_cast<float>(LoadedDurability);
+
 					Entry.Position = FIntPoint(
 						(*ItemObject)->GetIntegerField(TEXT("posX")),
 						(*ItemObject)->GetIntegerField(TEXT("posY")));
@@ -111,6 +115,7 @@ void FBackendStashStorage::SaveStashAsync(const FString& InAccountId, const TArr
 		ItemObject->SetStringField(TEXT("rowName"), Entry.Item.ItemRow.RowName.ToString());
 		ItemObject->SetNumberField(TEXT("stackCount"), Entry.Item.StackCount);
 		ItemObject->SetBoolField(TEXT("rotated"), Entry.Item.bRotated);
+		ItemObject->SetNumberField(TEXT("currentDurability"), Entry.Item.CurrentDurability);
 		ItemObject->SetNumberField(TEXT("posX"), Entry.Position.X);
 		ItemObject->SetNumberField(TEXT("posY"), Entry.Position.Y);
 

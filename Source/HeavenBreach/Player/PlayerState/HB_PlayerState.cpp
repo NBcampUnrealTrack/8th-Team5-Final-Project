@@ -52,7 +52,6 @@ namespace
 	}
 }
 
-
 AHB_PlayerState::AHB_PlayerState()
 {
 #pragma region NetworkSettings
@@ -127,7 +126,6 @@ AHB_PlayerState::AHB_PlayerState()
 void AHB_PlayerState::BeginPlay()
 {
 	Super::BeginPlay();
-
 
 	if (Craft != nullptr && Stash != nullptr)
 	{
@@ -207,24 +205,37 @@ void AHB_PlayerState::SaveLoadout()
 		return;
 	}
 
+	if (bLoadoutSaveInFlight)
+	{
+		bLoadoutSavePending = true;
+		return;
+	}
+
 	FPlayerLoadout Loadout;
+	if (Inventory) { Loadout.InventoryEntries = Inventory->GetEntries(); }
+	if (Equipment) { Loadout.EquipmentSlots = Equipment->GetSlots(); }
+	if (QuickSlot) { Loadout.QuickSlots = QuickSlot->GetSlots(); }
 
-	if (Inventory)
+	bLoadoutSaveInFlight = true;
+	bLoadoutSavePending = false;
+
+	FOnLoadoutSaved Callback;
+	Callback.BindUObject(this, &AHB_PlayerState::HandleLoadoutSaved);
+	LoadoutStorage->SaveLoadoutAsync(LoadoutAccountId, Loadout, Callback);
+}
+
+void AHB_PlayerState::HandleLoadoutSaved(bool bSuccess)
+{
+	bLoadoutSaveInFlight = false;
+	if (!bSuccess)
 	{
-		Loadout.InventoryEntries = Inventory->GetEntries();
+		UE_LOG(LogTemp, Warning, TEXT("Loadout: save failed"));
 	}
-
-	if (Equipment)
+	if (bLoadoutSavePending)
 	{
-		Loadout.EquipmentSlots = Equipment->GetSlots();
+		bLoadoutSavePending = false;
+		SaveLoadout();
 	}
-
-	if (QuickSlot)
-	{
-		Loadout.QuickSlots = QuickSlot->GetSlots();
-	}
-
-	LoadoutStorage->SaveLoadoutAsync(LoadoutAccountId, Loadout, FOnLoadoutSaved());
 }
 
 void AHB_PlayerState::LoadLoadout()
@@ -398,6 +409,21 @@ void AHB_PlayerState::CopyProperties(APlayerState* NewPlayerState)
 		*StartingLoadout.SkillQId.ToString(),
 		*StartingLoadout.SkillEId.ToString(),
 		*StartingLoadout.PassiveSkillId.ToString());
+}
+
+void AHB_PlayerState::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (HasAuthority())
+	{
+		UWorld* World = GetWorld();
+		if (World && World->GetTimerManager().IsTimerActive(LoadoutSaveTimer))
+		{
+			World->GetTimerManager().ClearTimer(LoadoutSaveTimer);
+			SaveLoadout();
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void AHB_PlayerState::RequestSaveLoadout()

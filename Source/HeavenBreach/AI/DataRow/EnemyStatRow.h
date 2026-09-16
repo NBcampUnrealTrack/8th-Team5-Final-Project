@@ -80,12 +80,24 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Exp", meta = (ClampMin = "0.0"))
 	float ExpReward = 40.f;
 
+	// ----- 드랍 -----
+	// 이 적이 쓸 DT_EnemyLootTable 의 행.
+	//
+	// 왜 핸들인가: 테이블과 행 이름은 항상 같이 다닌다. 핸들로 두면 에디터가
+	// 행 이름을 드롭다운으로 주므로 오타가 불가능해진다. FName 이면 오타가
+	// 그대로 저장되고 적을 죽여봐야 발견된다.
+	//
+	// 쳐낼 조건: 적마다 테이블이 달라질 일이 없어지면 테이블을 한곳으로 빼도 된다.
+	UPROPERTY(EditAnywhere, Category = "Loot")
+	FDataTableRowHandle LootRow;
+
 	// ----- 전술 -----
 	// 평소에 배회하지 않고 제자리에서 대기한다
 	UPROPERTY(EditAnywhere, Category = "Tactics")
 	bool bStayAtHome = false;
 
 	// 쿨다운 동안 포위/후퇴한다. false 면 제자리 대기
+	// 더미데이터
 	UPROPERTY(EditAnywhere, Category = "Tactics")
 	bool bUseSpacing = false;
 };

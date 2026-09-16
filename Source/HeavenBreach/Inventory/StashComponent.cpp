@@ -181,7 +181,34 @@ void UStashComponent::SaveStash()
 		return;
 	}
 
-	Storage->SaveStashAsync(AccountId, GetEntries(), FOnStashSaved());
+	if (bStashSaveInFlight)
+	{	
+		bStashSavePending = true;
+		return;
+	}
+
+	bStashSaveInFlight = true;
+	bStashSavePending = false;
+
+	FOnStashSaved Callback;
+	Callback.BindUObject(this, &UStashComponent::HandleStashSaved);
+	Storage->SaveStashAsync(AccountId, GetEntries(), Callback);
+}
+
+void UStashComponent::HandleStashSaved(bool bSuccess)
+{
+	bStashSaveInFlight = false;
+
+	if (!bSuccess)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Stash: save failed"));
+	}
+
+	if (bStashSavePending)
+	{
+		bStashSavePending = false;
+		SaveStash();
+	}
 }
 
 void UStashComponent::RequestSave_Implementation()
