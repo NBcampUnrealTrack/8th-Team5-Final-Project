@@ -2,6 +2,8 @@
 
 namespace CueTag
 {
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit, "GameplayCue.Hit", "타격 큐의 부모. 직접 달지 말 것")
+
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Slash, "GameplayCue.Hit.Slash", "베기 타격")
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Blunt, "GameplayCue.Hit.Blunt", "둔타 타격")
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Pierce, "GameplayCue.Hit.Pierce", "관통 타격")
@@ -10,8 +12,9 @@ namespace CueTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Block, "GameplayCue.Hit.Block", "방어로 막힘")
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Parry, "GameplayCue.Hit.Parry", "패링 성공")
 
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Impact_Slash, "Impact.Slash", "참격류");
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Impact_Blunt, "Impact.Blunt", "타격류");
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Impact_Pierce, "Impact.Pierce", "화살류");
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Impact_Magic, "Impact.Magic", "마법?");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Heavy, "GameplayCue.Hit.Heavy", "워든 기본공격 · 도약 착지")
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Claw, "GameplayCue.Hit.Claw", "딜버 발톱")
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Bite, "GameplayCue.Hit.Bite", "딜버 물기")
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Magic, "GameplayCue.Hit.Magic", "마법")
 }
