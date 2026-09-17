@@ -17,7 +17,6 @@ class UEquipmentComponent;
 class UInteractionComponent;
 class UInteractionPromptWidget;
 class UHBJobData;
-class UGA_WarriorParry;
 struct FHBJobSkillData;
 struct FHBStartingLoadout;
 class USkeletalMesh;
@@ -226,23 +225,13 @@ public:
 	UFUNCTION(BlueprintPure, Category="Player|Combat")
 	float GetAttackRange() const;
 	
-	UFUNCTION(BlueprintPure, Category="Player|Combat")
-	float GetBlockDamageReduction() const;
-	
+	// 정면 판정 각도. 패링과 방어태세가 같은 값을 쓴다.
 	UFUNCTION(BlueprintPure, Category="Player|Combat")
 	float GetBlockAngle() const;
 
-	// 보조 슬롯에 방패가 있는가. 방어 모션과 감소율이 이걸로 갈린다.
+	// 보조 슬롯에 방패가 있는가. 패링의 유일한 전제조건이다.
 	UFUNCTION(BlueprintPure, Category="Player|Combat")
 	bool HasShieldEquipped() const;
-
-	// 지금 장착으로 어떤 방어를 하는가. 방패가 최우선이고, 없으면 무기 종류를 따른다.
-	//
-	// 작동방식: 기본공격이 Weapon.<타입> 으로 BP 를 찾는 것과 같은 구조다.
-	// 이 태그를 AssetTags 로 가진 방어 BP 가 발동한다.
-	// 그런 BP 가 없으면 발동이 실패하고, 그게 곧 "이 무기로는 못 막는다" 다.
-	UFUNCTION(BlueprintPure, Category="Player|Combat")
-	FGameplayTag GetBlockSourceTag() const;
 
 	// 데미지 처리. 패시브나 액티브등 데미지보너스 포함
 	float ModifyOutgoingDamage(AActor* Target, float Damage);
@@ -267,16 +256,6 @@ public:
 	// 지금까지 고른 증강 전부. 이름, 설명, 아이콘, 수치가 다 들어 있다.
 	UFUNCTION(BlueprintPure, Category = "Augment")
 	TArray<FHBSkillAugment> GetTakenAugmentInfos() const;
-
-	// 보유 중인 패링 패시브의 설정. 패시브를 안 배웠으면 nullptr.
-	//
-	// 왜 이 함수 하나인가: "패링을 배웠나" 와 "패링 수치가 얼마냐" 가 늘 같이 필요하다.
-	// 태그 검사와 설정 조회를 따로 두면 한쪽만 하고 넘어가는 실수가 난다.
-	// nullptr 이면 패링이 없는 것이고, 아니면 그 안에 수치가 다 들어 있다.
-	//
-	// 방어 GA 와 피격 판정 두 곳이 쓴다.
-	UFUNCTION(BlueprintPure, Category = "Combat")
-	const UGA_WarriorParry* GetParryPassive() const;
 
 	// [폐기] float GetAugmentValue(FGameplayTag AugmentTag) const;
 	//
@@ -326,15 +305,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
 	float BaseAttackRange = 150.f;
 	
-	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
-	float BaseBlockDamageReduction = 0.3f;
-	
+	// 정면 판정에만 쓴다. 감소율은 없앴다 — 막으면 0, 못 막으면 전부다.
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
 	float BaseBlockingAngle = 120.f;
-
-	// 패링 수치는 여기 없다. UGA_WarriorParry 애셋이 갖는다.
-	// 패링은 패시브로 주어지는 것이므로 그 패시브가 값의 주인이어야 한다.
-	// 조회는 GetParryPassive() 를 쓴다.
 
 	/** Development-only visualization: Warrior=red, Archer=green, Mage=blue. */
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug")
@@ -343,15 +316,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug", meta=(ClampMin="0.05"))
 	float BasicAttackDebugDuration = 1.f;
 
-	// 켜면 방어 각도 안에서 맞은 모든 근접 공격이 패링으로 성립한다.
-	// 왜 넣었나: 패링 판정이 GE_ParryWindow 와 패링 패시브 두 애셋에 의존하는데,
-	// 그 둘이 아직 없어서 판정 코드 자체를 검증할 방법이 없다.
-	// 작동방식: 태그 두 개(State.Warrior.ParryWindow, Passive.Warrior.Parry) 검사를 건너뛴다.
-	// 서버에서만 읽히므로 데디 환경에서도 그대로 동작한다.
-	// 쳐낼 조건: 패링 패시브와 GE_ParryWindow 가 완성되면 false 로 두고,
-	// 5단계 대청소에서 이 변수와 관련 분기를 삭제한다.
-	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug")
-	bool bDebugAlwaysParry = false;
 
 private:
 	// 타격 연출을 쏜다. 막힘·패링이면 그에 맞는 큐로, 아니면 무기 성질 판정에 맡긴다.
@@ -361,12 +325,8 @@ private:
 	void PlayHitCue(AActor* InstigatorActor, const FHitResult& Hit, float FinalDamage, float BlockMultiplier, bool bParried) const;
 
 	// 보조 슬롯의 방패 데이터. 없으면 nullptr.
-	// 방패 조회가 세 곳에서 필요해서 한 곳으로 모았다.
+	// 방패 조회가 두 곳에서 필요해서 한 곳으로 모았다.
 	const struct FShieldData* GetEquippedShieldData() const;
-
-	// 카탈로그에서 찾은 패링 패시브 CDO. 피격마다 훑을 수는 없어서 한 번만 찾는다.
-	// CDO 라 수명이 엔진과 같고, 우리가 소유하지 않는다.
-	mutable TObjectPtr<const UGA_WarriorParry> CachedParryPassive;
 
 	// 스킬 목록 하나를 훑어 증강 태그에 해당하는 항목을 찾는다.
 	// GA 의 CDO 를 읽으므로 인스턴스가 없어도 되고, 그래서 static 이다.

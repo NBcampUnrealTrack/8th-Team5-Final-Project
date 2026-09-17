@@ -9,7 +9,6 @@
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
-#include "Combat/Block/GA_PlayerBlock.h"
 #include "Combat/Block/GA_PlayerParry.h"
 #include "Combat/Damage/HBDamageCalculation.h"
 #include "Combat/GameplayCue/HitCuePlay.h"
@@ -46,7 +45,6 @@
 #include "Combat/Ability/HBPlayerActiveGABase.h"
 #include "Combat/Ability/HBPlayerPassiveGABase.h"
 #include "Combat/Ability/HBPlayerSkillGABase.h"
-#include "Combat/Ability/Warrior/GA_WarriorParry.h"
 
 namespace
 {
@@ -313,36 +311,6 @@ const FShieldData* AHBPlayerCharacter::GetEquippedShieldData() const
 bool AHBPlayerCharacter::HasShieldEquipped() const
 {
 	return GetEquippedShieldData() != nullptr;
-}
-
-FGameplayTag AHBPlayerCharacter::GetBlockSourceTag() const
-{
-	// 방패가 최우선이다. 방패를 끼고 검을 들었으면 방패로 막는다.
-	if (HasShieldEquipped())
-	{
-		return ItemTag::TAG_Block_Shield;
-	}
-
-	// 방패가 없으면 무기로 막는다. 무기 태그와 같은 방식으로 이름을 만든다.
-	// 예시) Weapon.Sword → Block.Sword
-	FItemInstance WeaponItem;
-	if (GetEquipment() && GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
-	{
-		if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetBlockSourceTag")))
-		{
-			const FName TagName(*FString::Printf(TEXT("Block.%s"), *WeaponData->WeaponType));
-
-			const FGameplayTag BlockTag = FGameplayTag::RequestGameplayTag(TagName, false);
-			if (BlockTag.IsValid())
-			{
-				return BlockTag;
-			}
-
-			UE_LOG(LogTemp, Warning, TEXT("[Block] 등록되지 않은 방어 태그: %s"), *TagName.ToString());
-		}
-	}
-
-	return ItemTag::TAG_Block_Unarmed;
 }
 
 void AHBPlayerCharacter::TryParry()
@@ -1186,51 +1154,6 @@ bool AHBPlayerCharacter::FindAugmentInCatalog(
 	return false;
 }
 
-const UGA_WarriorParry* AHBPlayerCharacter::GetParryPassive() const
-{
-	// 배우지 않았으면 설정을 볼 것도 없다. 태그가 곧 보유 여부다.
-	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
-	if (!ASC)
-	{
-		return nullptr;
-	}
-	if (!ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_Parry))
-	{
-		return nullptr;
-	}
-
-	if (CachedParryPassive)
-	{
-		return CachedParryPassive;
-	}
-	if (!JobData)
-	{
-		return nullptr;
-	}
-
-	// 직업의 패시브 카탈로그에서 패링 클래스를 찾는다. 한 번만 돈다.
-	for (const FHBJobSkillData& Skill : JobData->GetPassiveSkillCatalog())
-	{
-		if (!Skill.AbilityClass)
-		{
-			continue;
-		}
-		const UGA_WarriorParry* Parry = Cast<UGA_WarriorParry>(Skill.AbilityClass->GetDefaultObject());
-		if (!Parry)
-		{
-			continue;
-		}
-		CachedParryPassive = Parry;
-		return CachedParryPassive;
-	}
-
-	// 태그는 있는데 클래스가 없다. BP 부모를 GA_WarriorParry 로 안 바꿨을 때 여기 온다.
-	UE_LOG(LogTemp, Warning,
-		TEXT("[Parry] %s 는 패링 태그를 갖고 있는데 UGA_WarriorParry 패시브를 못 찾았다."),
-		*GetNameSafe(this));
-	return nullptr;
-}
-
 TArray<FHBSkillAugment> AHBPlayerCharacter::GetTakenAugmentInfos() const
 {
 	TArray<FHBSkillAugment> Result;
@@ -1449,17 +1372,6 @@ float AHBPlayerCharacter::GetAttackRange() const
 		}
 	}
 	return BaseAttackRange;
-}
-
-float AHBPlayerCharacter::GetBlockDamageReduction() const
-{
-	// 방패가 없으면 무기 방어라 기본값을 쓴다.
-	const FShieldData* Shield = GetEquippedShieldData();
-	if (!Shield)
-	{
-		return BaseBlockDamageReduction;
-	}
-	return Shield->DamageReduction;
 }
 
 float AHBPlayerCharacter::GetBlockAngle() const
