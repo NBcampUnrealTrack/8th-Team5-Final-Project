@@ -42,14 +42,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
 	virtual void Attack();
 
+	// 패링을 시도한다. 방패가 유일한 전제조건이고 직업은 보지 않는다.
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
-	virtual void StartBlocking();
+	virtual void TryParry();
 
+	// R 을 뗀 신호. 방어태세가 이걸 받아 종료한다.
+	// 패링만 돌고 있으면 받는 쪽이 없어 무해하다.
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
-	virtual void StopBlocking();
-
-	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
-	virtual void ToggleBlocking();
+	virtual void ReleaseParryInput();
 
 	UFUNCTION(BlueprintCallable, Category = "Player|Abilities")
 	virtual void ActivateSkill1();

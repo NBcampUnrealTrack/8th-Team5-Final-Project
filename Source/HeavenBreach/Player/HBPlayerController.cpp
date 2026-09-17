@@ -555,11 +555,13 @@ void AHBPlayerController::Attack()
 	}
 }
 
+// 함수 이름과 입력 액션 애셋(BlockAction)은 그대로 둔다.
+// 개명하면 입력 매핑 애셋과 BP 참조가 깨진다. 하는 일만 패링으로 바뀌었다.
 void AHBPlayerController::Block()
 {
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
-		PlayerCharacter->StartBlocking();
+		PlayerCharacter->TryParry();
 	}
 }
 
@@ -567,7 +569,7 @@ void AHBPlayerController::StopBlock()
 {
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
-		PlayerCharacter->StopBlocking();
+		PlayerCharacter->ReleaseParryInput();
 	}
 }
 

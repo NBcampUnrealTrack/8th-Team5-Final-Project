@@ -10,6 +10,7 @@
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
 #include "Combat/Block/GA_PlayerBlock.h"
+#include "Combat/Block/GA_PlayerParry.h"
 #include "Combat/Damage/HBDamageCalculation.h"
 #include "Combat/GameplayCue/HitCuePlay.h"
 #include "Core/Tag/Cue/HB_CueTag.h"
@@ -344,36 +345,7 @@ FGameplayTag AHBPlayerCharacter::GetBlockSourceTag() const
 	return ItemTag::TAG_Block_Unarmed;
 }
 
-void AHBPlayerCharacter::StartBlocking()
-{
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
-	{
-		if (ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) <= 0.f)
-		{
-			return;
-		}
-
-		StopSprint();
-
-		// 기본공격과 같은 구조다. 장착에 맞는 방어 BP 를 태그로 찾아 발동한다.
-		// 그 태그를 가진 BP 가 없으면 여기서 조용히 실패한다.
-		// 그게 곧 "이 무기로는 방어할 수 없다" 다. 별도 검사를 두지 않는다.
-		ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(GetBlockSourceTag()));
-	}
-}
-
-void AHBPlayerCharacter::StopBlocking()
-{
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
-	{
-		FGameplayEventData Payload;
-		Payload.Instigator = this;
-
-		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, EventTag::TAG_Event_Block_Release, Payload);
-	}
-}
-
-void AHBPlayerCharacter::ToggleBlocking()
+void AHBPlayerCharacter::TryParry()
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
 	if (!ASC)
@@ -381,14 +353,28 @@ void AHBPlayerCharacter::ToggleBlocking()
 		return;
 	}
 
-	if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
+	// 방패가 없으면 아무 일도 일어나지 않는다. 별도 실패 피드백을 두지 않는다 —
+	// 방패 슬롯이 비어 있다는 것은 HUD 에서 이미 보인다.
+	//
+	// 무기 폴백(Block.Sword 등)은 없앴다. 기획 19.1 이 "방패를 장착한 경우에만"
+	// 이고, 방패만 보면 직업 검사 없이도 전사와 단검 궁수만 남는다.
+	if (!HasShieldEquipped())
 	{
-		StopBlocking();
+		return;
 	}
-	else
-	{
-		StartBlocking();
-	}
+
+	StopSprint();
+
+	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_Parry));
+}
+
+void AHBPlayerCharacter::ReleaseParryInput()
+{
+	// 방어태세가 이 이벤트를 기다린다. 패링만 돌고 있으면 받는 쪽이 없어 무해하다.
+	FGameplayEventData Payload;
+	Payload.Instigator = this;
+
+	UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, EventTag::TAG_Event_Block_Release, Payload);
 }
 
 void AHBPlayerCharacter::ActivateSkill1()
@@ -422,6 +408,20 @@ void AHBPlayerCharacter::PossessedBy(AController* NewController)
 					GrantAbilityIfMissing(ASC, AbilityClass);
 				}
 			}
+
+			// 패링은 DefaultAbilities 를 거치지 않고 여기서 직접 부여한다.
+			//
+			// 왜 배열에 안 넣나: DefaultAbilities 는 BP 가 직렬화해 들고 있어서,
+			// C++ 생성자에서 Add 해도 이미 만들어진 BP 에는 반영되지 않는다.
+			// 실제로 그렇게 넣었다가 어빌리티가 부여되지 않아 R 이 조용히 죽었다.
+			//
+			// 왜 BP 를 안 만드나: 패링 GA 는 BP 에서 채울 칸이 WindowDuration 하나뿐이고
+			// 그 기본값(0.2)이 곧 기획값이다. 빈 BP 는 꽂는 것을 빠뜨릴 여지만 만든다.
+			//
+			// 쳐낼 조건: 패링에 몽타주를 붙이면 BP 가 필요해진다. 그때 이 줄을 지우고
+			// BP_GA_PlayerParry 를 BP 의 DefaultAbilities 에 넣는다. 둘을 같이 두면
+			// Ability.Parry 를 가진 어빌리티가 둘 부여되어 발동이 엇갈린다.
+			GrantAbilityIfMissing(ASC, UGA_PlayerParry::StaticClass());
 		}
 
 		OnAbilitySystemInitialized(ASC);
@@ -517,59 +517,48 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	// 지역 변수라 복제 대상이 늘지 않는다.
 	bool bParried = false;
 
+	// 막았는가. 피해를 0 으로 만들지, 화면을 붉게 칠할지가 이것으로 갈린다.
+	bool bGuarded = false;
+
 	float BlockMultiplier = 1.f;
 	if (InstigatorActor)
 	{
-		if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
-		{
-			BlockMultiplier = 1.f - FMath::Clamp(GetBlockDamageReduction(), 0.f, 1.f);
+		const bool bInParryWindow = ASC->HasMatchingGameplayTag(StateTag::TAG_State_ParryWindow);
+		const bool bInGuardStance = ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking);
 
-			// 방패는 "공격을 막음"이 조건. 막기 각도 안에 들어온 공격을 성공적으로
-			// 막아냈을 때 1 깎는다. 방패가 없으면 슬롯이 비어 있어 조용히 무시된다.
-			if (UEquipmentComponent* Equipment = GetEquipment())
-			{
-				bool bJustBroke = false;
-				Equipment->DamageEquippedItemDurability(EEquipSlotType::SecondaryEquip, 1.f, bJustBroke);
-			}
-				const FVector ToAttacker = (InstigatorActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
-				const float FacingDot = FMath::Clamp(FVector::DotProduct(GetActorForwardVector(), ToAttacker), -1.f, 1.f);
-				const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FacingDot));
-			
+		if (bInParryWindow || bInGuardStance)
+		{
+			const FVector ToAttacker = (InstigatorActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+			const float FacingDot = FMath::Clamp(FVector::DotProduct(GetActorForwardVector(), ToAttacker), -1.f, 1.f);
+			const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FacingDot));
+
 			if (AngleDeg <= GetBlockAngle() * 0.5f)
 			{
-				// 방어 각도 안이면 일단 기본 감소율. 패링이 성립하면 그 값으로 덮는다.
-				//
-				// 작동방식: State.Warrior.ParryWindow 는 방어 진입 직후 짧게 붙는 GE 태그이고,
-				// GetParryPassive() 는 패링 패시브를 배웠을 때만 설정을 돌려준다.
-				// 둘 다여야 패링이고, 감소율은 그 패시브 애셋에 적혀 있다.
-				float Reduction = GetBlockDamageReduction();
+				// 감소가 아니라 무효다. 패링과 방어태세의 차이는 스태거뿐이다.
+				BlockMultiplier = 0.f;
+				bGuarded = true;
+				bParried = bInParryWindow;
 
-				// bDebugAlwaysParry 가 켜져 있으면 창 검사를 건너뛴다. 검증용 스위치다.
-				// 패시브는 건너뛰지 않는다. 수치를 거기서 읽어야 하기 때문이다.
-				bool bInParryWindow = bDebugAlwaysParry;
-				if (!bInParryWindow)
+				// 실제로 막아냈을 때만 방패가 닳는다. 각도 밖이면 깎지 않는다.
+				// 방어가 완전 무효가 되면서 내구도가 유일한 소모 대가로 남았다.
+				if (UEquipmentComponent* Equipment = GetEquipment())
 				{
-					bInParryWindow = ASC->HasMatchingGameplayTag(WarriorTag::TAG_State_ParryWindow);
+					bool bJustBroke = false;
+					Equipment->DamageEquippedItemDurability(EEquipSlotType::SecondaryEquip, 1.f, bJustBroke);
 				}
 
-				const UGA_WarriorParry* ParryPassive = nullptr;
-				if (bInParryWindow)
+				if (bParried)
 				{
-					ParryPassive = GetParryPassive();
+					FGameplayEventData ParryPayload;
+					ParryPayload.Instigator = InstigatorActor;
+					UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
+						this, EventTag::TAG_Event_Parry_Success, ParryPayload);
 				}
 
-				if (ParryPassive)
-				{
-					Reduction = ParryPassive->GetDamageReduction();
-					bParried = true;
-
-					UE_LOG(LogTemp, Warning,
-						TEXT("[Parry] 성립 | Blocker=%s Instigator=%s Angle=%.1f Reduction=%.2f Debug=%d"),
-						*GetNameSafe(this), *GetNameSafe(InstigatorActor),
-						AngleDeg, Reduction, bDebugAlwaysParry ? 1 : 0);
-				}
-
-				BlockMultiplier = 1.f - FMath::Clamp(Reduction, 0.f, 1.f);
+				UE_LOG(LogTemp, Warning,
+					TEXT("[Parry] %s | Blocker=%s Instigator=%s Angle=%.1f"),
+					bParried ? TEXT("패링 성립") : TEXT("방어태세 무효화"),
+					*GetNameSafe(this), *GetNameSafe(InstigatorActor), AngleDeg);
 			}
 		}
 	}
@@ -577,7 +566,12 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	const UHB_PlayerAttributeSet* Attributes = HB_PlayerState ? HB_PlayerState->GetPlayerAttributeSet() : nullptr;
 	const float TargetDefense = Attributes ? Attributes->GetPlayer_Defense() : 0.f;
 	const float HitMultiplier = HBDamage::IsHeadshot(Hit) ? 2.f : 1.f;
-	const float FinalDamage = HBDamage::CalculateFinalDamage(RawDamage, TargetDefense, HitMultiplier, BlockMultiplier, AdditionalMultiplier);
+
+	// 막았으면 0 이다. CalculateFinalDamage 가 FMath::Max(1.f, ...) 로 최소 1 을
+	// 보장하므로, 배율을 0 으로 넣는 것만으로는 1 이 들어간다.
+	const float FinalDamage = bGuarded
+		? 0.f
+		: HBDamage::CalculateFinalDamage(RawDamage, TargetDefense, HitMultiplier, BlockMultiplier, AdditionalMultiplier);
 
 	LastDamageInstigator = InstigatorActor;
 	LastDamageReceivedTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
@@ -1976,7 +1970,7 @@ void AHBPlayerCharacter::StopManaActionsAtZero()
 	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
 		ASC && ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
 	{
-		StopBlocking();
+		ReleaseParryInput();
 	}
 }
 
