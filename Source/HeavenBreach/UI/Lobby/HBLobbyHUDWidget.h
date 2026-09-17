@@ -10,6 +10,7 @@
 class UButton;
 class UWidget;
 class UWidgetSwitcher;
+class UHBSettingsWidget;
 
 UENUM(BlueprintType)
 enum class EHBLobbyHUDMenu : uint8
@@ -29,6 +30,20 @@ class HEAVENBREACH_API UHBLobbyHUDWidget : public UUserWidget
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+
+#pragma region SettingsMenu
+	UPROPERTY(EditDefaultsOnly, Category="Lobby HUD|Settings")
+	TSubclassOf<UHBSettingsWidget> SettingsWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHBSettingsWidget> SettingsWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> SettingsButton;
+
+	UFUNCTION()
+	void OpenSettings();
+#pragma endregion
 
 #pragma region LobbyActionButtons
 	UPROPERTY(meta = (BindWidgetOptional))

@@ -17,6 +17,12 @@
 	],
 	"Plugins": [
 		{
+			"Name": "DLSS",
+			"Enabled": true,
+			"PlatformAllowList": ["Win64"],
+			"TargetDenyList": ["Server"]
+		},
+		{
 			"Name": "GameplayAbilities",
 			"Enabled": true
 		},

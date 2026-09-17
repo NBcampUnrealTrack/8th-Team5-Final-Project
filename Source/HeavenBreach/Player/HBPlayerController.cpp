@@ -21,6 +21,7 @@
 #include "UI/Skill/HB_SkillAugment.h"
 #include "Core/GameFlow/HBMatchResultSubsystem.h"
 #include "Blueprint/UserWidget.h"
+#include "UI/Settings/HBSettingsSubsystem.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -511,8 +512,10 @@ void AHBPlayerController::HandleMove(const FInputActionValue& Value)
 void AHBPlayerController::HandleLook(const FInputActionValue& Value)
 {
 	const FVector2D LookInput = Value.Get<FVector2D>();
-	AddYawInput(LookInput.X);
-	AddPitchInput(LookInput.Y);
+	const UHBSettingsSubsystem* Settings = GetGameInstance()->GetSubsystem<UHBSettingsSubsystem>();
+	const float Sensitivity = Settings ? Settings->GetMouseSensitivity() : 1.0f;
+	AddYawInput(LookInput.X * Sensitivity);
+	AddPitchInput(LookInput.Y * Sensitivity);
 }
 
 void AHBPlayerController::StartJump()
@@ -626,6 +629,11 @@ void AHBPlayerController::ActivateSkill2()
 
 void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCameraShakeBase> ShakeClass)
 {
+	const UHBSettingsSubsystem* Settings = GetGameInstance()->GetSubsystem<UHBSettingsSubsystem>();
+	if (Settings && !Settings->IsCombatCameraShakeEnabled())
+	{
+		return;
+	}
 	if (ShakeClass && PlayerCameraManager)
 	{
 		PlayerCameraManager->StartCameraShake(ShakeClass);

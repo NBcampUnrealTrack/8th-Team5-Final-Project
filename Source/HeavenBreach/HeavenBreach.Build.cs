@@ -37,6 +37,14 @@ public class HeavenBreach : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
+		// DLSS is a client rendering feature; dedicated servers do not link the plugin.
+		bool bWithDLSS = Target.Platform == UnrealTargetPlatform.Win64 && Target.Type != TargetType.Server;
+		PublicDefinitions.Add("HB_WITH_DLSS=" + (bWithDLSS ? "1" : "0"));
+		if (bWithDLSS)
+		{
+			PrivateDependencyModuleNames.Add("DLSSBlueprint");
+		}
+
 		PublicIncludePaths.AddRange(new string[] {
 			"HeavenBreach",
 			"HeavenBreach/Interaction",
