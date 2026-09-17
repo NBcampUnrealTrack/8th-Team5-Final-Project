@@ -31,13 +31,32 @@ protected:
 		const FGameplayAbilityActivationInfo ActivationInfo,
 		const FGameplayEventData* TriggerEventData) override;
 
-	// 창이 닫히는 시점. Task 4 가 여기에 후딜을, Task 5 가 인계를 얹는다.
+	// 창이 닫히는 시점. 여기서 후딜을 걸지 말지 갈린다.
 	UFUNCTION()
 	void OnWindowExpired();
+
+	// 패링이 성립하면 후딜을 면제한다. 성공에까지 벌을 주면 쓸 이유가 없다.
+	// 신호는 AHBPlayerCharacter::ApplyMeleeHit 이 판정 직후에 보낸다.
+	UFUNCTION()
+	void OnParrySuccess(FGameplayEventData Payload);
 
 	// 패링 창 길이. 기획 지정값 0.2초.
 	UPROPERTY(EditDefaultsOnly, Category = "Parry", meta = (ClampMin = "0.05"))
 	float WindowDuration = 0.2f;
+
+	// 헛쳤을 때 굳는 시간. 패링 연타를 막는 유일한 장치다.
+	//
+	// 공격은 막지 않는다. 후딜의 목적은 연타 방지이고, 그건 이 어빌리티가
+	// State.ParryRecovery 로 스스로 막히는 것만으로 충분하다. 공격까지 묶는 것은
+	// 별개의 밸런스 판단이라 플레이해 보고 정한다.
+	//
+	// 쳐낼 조건: 헛친 대가가 약하다고 판단되면 GA_PlayerAttack 의
+	// ActivationBlockedTags 에 State.ParryRecovery 를 추가한다.
+	UPROPERTY(EditDefaultsOnly, Category = "Parry", meta = (ClampMin = "0.0"))
+	float RecoveryDuration = 0.5f;
+
+private:
+	bool bParrySucceeded = false;
 
 	// 창을 여는 GE 프로퍼티는 두지 않는다.
 	// HBEffects::ApplyTaggedDuration 이 UGE_WarriorTaggedDuration 으로
