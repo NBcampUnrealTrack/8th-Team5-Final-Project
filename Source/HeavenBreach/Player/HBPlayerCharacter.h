@@ -565,9 +565,25 @@ public:
 	UFUNCTION(Exec, Category = "Debug")
 	void TestBreakEquipment(int32 Slot);
 
+	// 테스트용: 패시브를 증강 없이 즉시 부여한다.
+	//   예) TestGrantPassive Warrior.GuardStance
+	//
+	// 왜 필요한가: 패시브를 얻는 정상 경로는 레벨업 → 증강 카드 선택인데,
+	// 증강 UI(WBP_AugmentMain/Card)가 아직 서버 API 와 연결돼 있지 않다.
+	// 그래서 방어태세처럼 증강으로만 얻는 것을 검증할 방법이 없다.
+	//
+	// 직업 데이터의 PassiveSkills 에 있는 ID 만 통한다. 이미 가진 것은 무시된다.
+	//
+	// 쳐낼 조건: 증강 UI 가 RequestSelectUpgrade 까지 연결되면 지운다.
+	UFUNCTION(Exec, Category = "Debug")
+	void TestGrantPassive(FName PassiveSkillId);
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerTestBreakEquipment(int32 Slot);
+
+	UFUNCTION(Server, Reliable)
+	void ServerTestGrantPassive(FName PassiveSkillId);
 
 	// C++에서 호출하면 블루프린트에서 실행되는 이벤트
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI")

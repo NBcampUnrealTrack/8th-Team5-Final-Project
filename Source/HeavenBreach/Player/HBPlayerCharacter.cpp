@@ -1491,6 +1491,43 @@ void AHBPlayerCharacter::ServerTestBreakEquipment_Implementation(int32 Slot)
 	TestBreakEquipment(Slot);
 }
 
+void AHBPlayerCharacter::TestGrantPassive(const FName PassiveSkillId)
+{
+	// 부여는 서버 권한에서만 유효하다. 내구도 테스트와 같은 구조다.
+	if (!HasAuthority())
+	{
+		ServerTestGrantPassive(PassiveSkillId);
+		return;
+	}
+
+	if (PassiveSkillId.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TestGrantPassive] 스킬 ID 를 적어야 한다. 예) TestGrantPassive Warrior.GuardStance"));
+		return;
+	}
+
+	const bool bResult = AddPassiveSkillFromUpgrade(PassiveSkillId);
+
+	// 실패 원인이 셋이라 구분해서 찍는다. 안 그러면 오타인지 중복인지 알 수 없다.
+	if (!bResult)
+	{
+		const bool bAlreadyOwned = SelectedPassiveSkillIds.Contains(PassiveSkillId);
+		const bool bInCatalog = JobData && JobData->FindPassiveSkill(PassiveSkillId) != nullptr;
+
+		UE_LOG(LogTemp, Warning,
+			TEXT("[TestGrantPassive] 실패 | Id=%s 보유중=%d 카탈로그에있음=%d"),
+			*PassiveSkillId.ToString(), bAlreadyOwned ? 1 : 0, bInCatalog ? 1 : 0);
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[TestGrantPassive] 부여 | Id=%s"), *PassiveSkillId.ToString());
+}
+
+void AHBPlayerCharacter::ServerTestGrantPassive_Implementation(const FName PassiveSkillId)
+{
+	TestGrantPassive(PassiveSkillId);
+}
+
 void AHBPlayerCharacter::HandleItemUsed(FName ItemId, float HealAmount)
 {
 	if (AHB_PlayerState* PS = GetPlayerCurrentState())
