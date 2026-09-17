@@ -7,6 +7,7 @@
 #include "HBLobbyWidget.generated.h"
 
 class UButton;
+class AHBLobbyPlayerState;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBLobbyActionRequested);
 /**
  * 
@@ -59,6 +60,12 @@ protected:
 #pragma endregion
 	
 private:
+	UPROPERTY(Transient)
+	TObjectPtr<AHBLobbyPlayerState> AudioPlayerState;
+
+	UFUNCTION()
+	void HandleReadyAudio(bool bReady);
+
 	UFUNCTION()
 	void HandleFindRoomClicked();
 	

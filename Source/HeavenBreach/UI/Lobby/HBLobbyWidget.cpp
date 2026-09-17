@@ -1,4 +1,6 @@
 #include "UI/Lobby/HBLobbyWidget.h"
+#include "UI/Audio/HBUIAudioLibrary.h"
+#include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
 
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
@@ -14,6 +16,8 @@ void UHBLobbyWidget::NativePreConstruct()
 void UHBLobbyWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	AudioPlayerState = GetOwningPlayerState<AHBLobbyPlayerState>();
+	if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.AddUniqueDynamic(this, &ThisClass::HandleReadyAudio);
 
 	// Keep the existing widget names so the assembled Blueprint retains its layout.
 	if (ReadyButtonModule)
@@ -31,12 +35,20 @@ void UHBLobbyWidget::NativeConstruct()
 	if (StartMatchButton)
 	{
 		StartMatchButton->OnClicked.AddUniqueDynamic(this, &UHBLobbyWidget::HandlePrimaryActionClicked);
+		if (!IsLocalLobbyHost())
+		{
+			FButtonStyle Style = StartMatchButton->GetStyle();
+			Style.PressedSlateSound.SetResourceObject(nullptr);
+			StartMatchButton->SetStyle(Style);
+		}
 	}
 	RefreshLobbyActions();
 }
 
 void UHBLobbyWidget::NativeDestruct()
 {
+	if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.RemoveDynamic(this, &ThisClass::HandleReadyAudio);
+	AudioPlayerState = nullptr;
 	if (ReadyButton)
 	{
 		ReadyButton->OnClicked.RemoveDynamic(this, &UHBLobbyWidget::HandleFindRoomClicked);
@@ -82,6 +94,11 @@ void UHBLobbyWidget::RefreshLobbyActions()
 		Text->SetText(Label);
 	}
 	StartMatchButtonModule->SetToolTipText(Label);
+}
+
+void UHBLobbyWidget::HandleReadyAudio(bool bReady)
+{
+	UHBUIAudioLibrary::PlayForOwner(this, bReady ? EHBUIAudioEvent::LobbyReady : EHBUIAudioEvent::Cancel);
 }
 
 void UHBLobbyWidget::HandleFindRoomClicked()

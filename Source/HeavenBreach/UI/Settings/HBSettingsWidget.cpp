@@ -1,4 +1,5 @@
 #include "UI/Settings/HBSettingsWidget.h"
+#include "UI/Audio/HBUIAudioLibrary.h"
 
 #include "UI/Settings/HBSettingsSubsystem.h"
 #include "Components/Button.h"
@@ -57,6 +58,7 @@ void UHBSettingsWidget::NativeOnInitialized()
 void UHBSettingsWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Open);
 	VideoConfirmation->SetVisibility(ESlateVisibility::Collapsed);
 	LoadValues();
 	Text_Status->SetText(LOCTEXT("PendingHint", "변경 후 적용을 눌러 저장하세요."));
@@ -342,6 +344,7 @@ void UHBSettingsWidget::CommitChanges()
 	Graphics->SaveSettings();
 	Settings->SavePreferences(Slider_Master->GetValue(), Slider_Music->GetValue(), Slider_Effects->GetValue(),
 		Slider_Sensitivity->GetValue(), Check_CameraShake->IsChecked());
+	UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Confirm);
 	Text_Status->SetText(LOCTEXT("Saved", "설정을 적용하고 저장했습니다."));
 }
 
@@ -356,6 +359,7 @@ FReply UHBSettingsWidget::NativeOnPreviewKeyDown(const FGeometry& Geometry, cons
 {
 	if (KeyEvent.GetKey() == EKeys::Escape)
 	{
+		UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Cancel);
 		if (bVideoPending) RevertVideo();
 		else CloseSettings();
 		return FReply::Handled();

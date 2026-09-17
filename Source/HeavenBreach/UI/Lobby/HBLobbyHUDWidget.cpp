@@ -19,6 +19,10 @@ void UHBLobbyHUDWidget::NativeConstruct()
 			SettingsButton = Cast<UButton>(SettingsIcon->GetWidgetFromName(TEXT("Button_Icon")));
 			if (SettingsButton)
 			{
+				// Opening the settings widget supplies its own sound.
+				FButtonStyle Style = SettingsButton->GetStyle();
+				Style.PressedSlateSound.SetResourceObject(nullptr);
+				SettingsButton->SetStyle(Style);
 				SettingsButton->OnClicked.AddUniqueDynamic(this, &ThisClass::OpenSettings);
 			}
 		}
