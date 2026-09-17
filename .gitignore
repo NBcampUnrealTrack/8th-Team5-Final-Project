@@ -1,4 +1,8 @@
 Binaries/
+# NVIDIA redistributables are plugin inputs, not locally generated build output.
+!Plugins/NVIDIA/DLSS/Binaries/
+Plugins/NVIDIA/DLSS/Binaries/*
+!Plugins/NVIDIA/DLSS/Binaries/ThirdParty/
 Build/
 DerivedDataCache/
 Intermediate/
