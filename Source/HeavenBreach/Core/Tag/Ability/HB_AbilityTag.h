@@ -12,6 +12,10 @@ namespace AbilityTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_Death);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_HitReact);
 
+	// 패링 어빌리티 식별. 패링 BP 가 AssetTag 로 갖는다.
+	// TryParry 가 이 태그로 발동시키므로, 이 태그가 없는 BP 는 R 에 반응하지 않는다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_Parry);
+
 	// 이 비용 요청이 일반공격에서 왔다는 표식.
 	//
 	// 왜 필요한가: 전투 호흡이 일반공격 마나만 줄인다. 스킬·달리기·방어는 안 줄인다.

@@ -8,4 +8,5 @@ namespace EventTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Ranged_Fire, "Event.Ranged.Fire", "��Ÿ�� �߻� ������ ��ȣ")
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Leap_Launch, "Event.Leap.Launch", "��Ÿ�� ���� �����ܰ� ���ư��� ��ȣ")
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Block_Release, "Event.Block.Release", "��� ���� �̺�Ʈ. �÷��̾ ���")
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Event_Parry_Success, "Event.Parry.Success", "패링 성립. 패링 GA 가 받아 후딜을 면제한다");
 }
