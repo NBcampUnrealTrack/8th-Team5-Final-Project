@@ -11,6 +11,7 @@ namespace WarriorTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_StrongBody);        // 강인한 육체
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_BerserkerRage);     // 전사의 분노
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_WeaponMaster);      // 무기의 달인
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_GuardStance);      // 방어태세. 증강으로 획득
 
 	// ---------------- 부여된 상태 ----------------
 

@@ -9,6 +9,7 @@
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
+#include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Block/GA_PlayerParry.h"
 #include "Combat/Damage/HBDamageCalculation.h"
 #include "Combat/GameplayCue/HitCuePlay.h"
@@ -390,6 +391,10 @@ void AHBPlayerCharacter::PossessedBy(AController* NewController)
 			// BP_GA_PlayerParry 를 BP 의 DefaultAbilities 에 넣는다. 둘을 같이 두면
 			// Ability.Parry 를 가진 어빌리티가 둘 부여되어 발동이 엇갈린다.
 			GrantAbilityIfMissing(ASC, UGA_PlayerParry::StaticClass());
+
+			// 방어태세도 같은 이유로 여기서 부여한다. 발동은 패링만 시키고,
+			// 증강을 안 먹었으면 ActivationRequiredTags 가 알아서 막는다.
+			GrantAbilityIfMissing(ASC, UGA_GuardStance::StaticClass());
 		}
 
 		OnAbilitySystemInitialized(ASC);

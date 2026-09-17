@@ -3,6 +3,7 @@
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
+#include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Effect/HBEffectLibrary.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Event/HB_EventTag.h"
@@ -81,6 +82,14 @@ void UGA_PlayerParry::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	WaitSuccess->EventReceived.AddDynamic(this, &UGA_PlayerParry::OnParrySuccess);
 	WaitSuccess->ReadyForActivation();
 
+	// R 을 뗐는지도 같이 본다. 창이 끝날 때 이 값으로 탭/홀드가 갈린다.
+	bInputReleased = false;
+
+	UAbilityTask_WaitGameplayEvent* WaitRelease = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(
+		this, EventTag::TAG_Event_Block_Release, nullptr, false, false);
+	WaitRelease->EventReceived.AddDynamic(this, &UGA_PlayerParry::OnReleaseReceived);
+	WaitRelease->ReadyForActivation();
+
 	UAbilityTask_WaitDelay* WaitWindow = UAbilityTask_WaitDelay::WaitDelay(this, WindowDuration);
 	WaitWindow->OnFinish.AddDynamic(this, &UGA_PlayerParry::OnWindowExpired);
 	WaitWindow->ReadyForActivation();
@@ -94,9 +103,33 @@ void UGA_PlayerParry::OnParrySuccess(FGameplayEventData Payload)
 		*GetNameSafe(GetAvatarActorFromActorInfo()));
 }
 
+void UGA_PlayerParry::OnReleaseReceived(FGameplayEventData Payload)
+{
+	bInputReleased = true;
+}
+
 void UGA_PlayerParry::OnWindowExpired()
 {
 	const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
+
+	// R 을 아직 쥐고 있으면 방어태세로 넘긴다.
+	//
+	// 방어태세를 안 배웠으면 ActivationRequiredTags 에서 발동이 실패하고
+	// 그대로 아래 후딜로 떨어진다. 여기서 증강 보유를 따로 검사하지 않는 이유다.
+	if (!bInputReleased)
+	{
+		if (UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr)
+		{
+			if (ASC->TryActivateAbilityByClass(UGA_GuardStance::StaticClass()))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[Parry] 방어태세로 인계 | Actor=%s"),
+					*GetNameSafe(GetAvatarActorFromActorInfo()));
+
+				EndAbility(GetCurrentAbilitySpecHandle(), ActorInfo, GetCurrentActivationInfo(), true, false);
+				return;
+			}
+		}
+	}
 
 	// 헛쳤을 때만 굳는다. 막아냈으면 곧바로 다시 쓸 수 있다.
 	if (!bParrySucceeded && ActorInfo && ActorInfo->IsNetAuthority())

@@ -40,6 +40,10 @@ protected:
 	UFUNCTION()
 	void OnParrySuccess(FGameplayEventData Payload);
 
+	// R 을 뗐다는 신호. 창이 끝날 때 인계할지 후딜로 갈지가 이걸로 갈린다.
+	UFUNCTION()
+	void OnReleaseReceived(FGameplayEventData Payload);
+
 	// 패링 창 길이. 기획 지정값 0.2초.
 	UPROPERTY(EditDefaultsOnly, Category = "Parry", meta = (ClampMin = "0.05"))
 	float WindowDuration = 0.2f;
@@ -57,6 +61,9 @@ protected:
 
 private:
 	bool bParrySucceeded = false;
+
+	// R 을 이미 뗐는가. 창이 끝나는 시점에 이것만 보면 탭인지 홀드인지 알 수 있다.
+	bool bInputReleased = false;
 
 	// 창을 여는 GE 프로퍼티는 두지 않는다.
 	// HBEffects::ApplyTaggedDuration 이 UGE_WarriorTaggedDuration 으로

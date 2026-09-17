@@ -7,6 +7,7 @@ namespace WarriorTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Passive_StrongBody, "Passive.Warrior.StrongBody");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Passive_BerserkerRage, "Passive.Warrior.BerserkerRage");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Passive_WeaponMaster, "Passive.Warrior.WeaponMaster");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Passive_GuardStance, "Passive.Warrior.GuardStance", "방어태세 보유. 패링 창이 끝나도 R 을 쥐고 있으면 방어가 이어진다");
 
 	// ---------------- 상태 ----------------
 	UE_DEFINE_GAMEPLAY_TAG(TAG_State_BloodFrenzy, "State.Warrior.BloodFrenzy");
