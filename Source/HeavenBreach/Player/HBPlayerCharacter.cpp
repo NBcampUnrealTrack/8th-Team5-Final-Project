@@ -596,7 +596,10 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 		// 혈흔 연출과 HP 바도 같은 시점에 보낸다.
 		// 복제를 기다리면 PlayerState 주기(1Hz) 때문에 쉐이크/사운드보다
 		// 최대 1초 늦게 반응한다. 여기서 보내는 값이 데미지 적용 직후의 서버 값이다
-		PC->ClientPlayHitEffect(ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute()), ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute()));
+		PC->ClientPlayHitEffect(
+			ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute()),
+			ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute()),
+			bGuarded);
 	}
 
 	// 타격 연출. 큐를 쏘는 책임이 맞는 쪽에 있다.

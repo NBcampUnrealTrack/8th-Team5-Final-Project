@@ -136,13 +136,23 @@ void AHBPlayerController::CreateUILayout()
 	}
 }
 
-void AHBPlayerController::ClientPlayHitEffect_Implementation(float NewHP, float NewMaxHP)
+void AHBPlayerController::ClientPlayHitEffect_Implementation(float NewHP, float NewMaxHP, bool bSuppressScreenEffect)
 {
-	if (HUDLayer)
+	if (!HUDLayer)
 	{
-		HUDLayer->UpdateHPBar(NewHP, NewMaxHP);
-		HUDLayer->PlayHitEffect();
+		return;
 	}
+
+	// HP 바는 막았든 안 막았든 갱신한다. 서버가 보낸 값이 항상 최신이다.
+	HUDLayer->UpdateHPBar(NewHP, NewMaxHP);
+
+	// 막아냈으면 붉은 화면은 건너뛴다.
+	if (bSuppressScreenEffect)
+	{
+		return;
+	}
+
+	HUDLayer->PlayHitEffect();
 }
 
 void AHBPlayerController::OpenContainer(UInventoryComponent* InContainer)
