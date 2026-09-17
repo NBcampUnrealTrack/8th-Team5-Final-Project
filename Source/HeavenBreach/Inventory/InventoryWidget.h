@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Styling/SlateBrush.h"
 #include "UI/HB_ActivatableWidget.h"
+#include "Inventory/InventoryTypes.h"
 #include "InventoryWidget.generated.h"
 
 class UCanvasPanel;
@@ -16,6 +17,7 @@ class UInventoryCellWidget;
 class UInventoryItemWidget;
 class UInventoryDragDropOperation;
 class UShopComponent;
+struct FItemInstance;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInventoryItemActivated, FGuid, InstanceId);
@@ -208,6 +210,17 @@ private:
 	UPROPERTY()
 	TObjectPtr<UItemInfoPopupWidget> ActiveInfoPopup;
 	FVector2D PressedScreenPosition = FVector2D::ZeroVector;
+
+	UPROPERTY()
+	TObjectPtr<UItemInfoPopupWidget> HoverInfoPopup;
+
+	// 같은 아이템 위에서 마우스만 움직이는 매 틱마다 팝업을 다시 만들지 않기 위한 추적용.
+	FGuid HoveredItemInstanceId;
+
+	void UpdateHoverInfoPopup(FIntPoint InCell);
+	void ClearHoverInfoPopup();
+
+	FString BuildStatTextForItem(const FItemInstance& InItem) const;
 
 	UPROPERTY()
 	TObjectPtr<UUserWidget> ParentContainerWidget;

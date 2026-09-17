@@ -53,6 +53,9 @@ struct FItemViewData
 	int32 SellValue = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FString Description;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	TObjectPtr<UTexture2D> Icon = nullptr;
 
 	bool IsStackable() const { return MaxStack > 1; }
@@ -99,9 +102,9 @@ struct FItemInstance
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	bool bIsFavorite = false;
 
-	// Àåºñ ³»±¸µµ. -1ÀÌ¸é "ÀÌ ÀÎ½ºÅÏ½º´Â ¾ÆÁ÷ ³»±¸µµ°¡ ÃÊ±âÈ­µÇÁö ¾ÊÀ½"À» ÀÇ¹ÌÇÏ°í,
-	// Á¦ÀÛ/ÆÄ¹ÖÀ¸·Î ¾ÆÀÌÅÛÀÌ Ã³À½ »ý¼ºµÇ´Â ½ÃÁ¡¿¡ µî±Þº° ÃÖ´ëÄ¡·Î Ã¤¿öÁà¾ß ÇÑ´Ù.
-	// 0ÀÌ µÇ¸é ÆÄ¼Õ »óÅÂ(ÀåÂø/ÀüÅõ »ç¿ë/Àç°¢ÀÎ ºÒ°¡, º¸°ü/ÆÇ¸Å/ºÐÇØ¸¸ °¡´É).
+	// ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½. -1ï¿½Ì¸ï¿½ "ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½È­ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½"ï¿½ï¿½ ï¿½Ç¹ï¿½ï¿½Ï°ï¿½,
+	// ï¿½ï¿½ï¿½ï¿½/ï¿½Ä¹ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ã³ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Þºï¿½ ï¿½Ö´ï¿½Ä¡ï¿½ï¿½ Ã¤ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ñ´ï¿½.
+	// 0ï¿½ï¿½ ï¿½Ç¸ï¿½ ï¿½Ä¼ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½/ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½/ï¿½ç°¢ï¿½ï¿½ ï¿½Ò°ï¿½, ï¿½ï¿½ï¿½ï¿½/ï¿½Ç¸ï¿½/ï¿½ï¿½ï¿½Ø¸ï¿½ ï¿½ï¿½ï¿½ï¿½).
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	float CurrentDurability = -1.f;
 
@@ -131,13 +134,15 @@ HEAVENBREACH_API bool ResolveItemViewData(const FDataTableRowHandle& InRow, FIte
 
 HEAVENBREACH_API FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InViewData);
 
-// µî±Þº° ÃÖ´ë ³»±¸µµ(±âÈ¹¼­ 10.2 ±âÁØ: ÀÏ¹Ý 100 / Èñ±Í 150 / ¿µ¿õ 200 / Ãµ»ó 250).
-// ¹ë·±½º Á¶Á¤Àº ¿©±â ÇÑ °÷¸¸ °íÄ¡¸é µÈ´Ù.
+// ï¿½ï¿½Þºï¿½ ï¿½Ö´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½È¹ï¿½ï¿½ 10.2 ï¿½ï¿½ï¿½ï¿½: ï¿½Ï¹ï¿½ 100 / ï¿½ï¿½ï¿½ 150 / ï¿½ï¿½ï¿½ï¿½ 200 / Ãµï¿½ï¿½ 250).
+// ï¿½ë·±ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½È´ï¿½.
 HEAVENBREACH_API float GetMaxDurabilityForGrade(EItemGrade InGrade);
 
-// µî±Þº° ¹è°æ ±×¶óµ¥ÀÌ¼Ç »ö»ó(ÀÎº¥Åä¸® Ä­/ÀåÂø ½½·Ô °ø¿ë). »ö Á¶Á¤Àº ¿©±â ÇÑ °÷¸¸
-// °íÄ¡¸é InventoryItemWidget, EquipmentSlotWidget ¾çÂÊ¿¡ ´Ù ¹Ý¿µµÈ´Ù.
+// ï¿½ï¿½Þºï¿½ ï¿½ï¿½ï¿½ ï¿½×¶ï¿½ï¿½Ì¼ï¿½ ï¿½ï¿½ï¿½ï¿½(ï¿½Îºï¿½ï¿½ä¸® Ä­/ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½). ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+// ï¿½ï¿½Ä¡ï¿½ï¿½ InventoryItemWidget, EquipmentSlotWidget ï¿½ï¿½ï¿½Ê¿ï¿½ ï¿½ï¿½ ï¿½Ý¿ï¿½ï¿½È´ï¿½.
 HEAVENBREACH_API FLinearColor GetGradeTopColor(EItemGrade InGrade);
 HEAVENBREACH_API FLinearColor GetGradeBottomColor(EItemGrade InGrade);
 
 HEAVENBREACH_API UTexture2D* LoadItemIcon(const FString& InIconPath);
+
+HEAVENBREACH_API FString GetEquipSlotDisplayName(EEquipSlotType InSlot);

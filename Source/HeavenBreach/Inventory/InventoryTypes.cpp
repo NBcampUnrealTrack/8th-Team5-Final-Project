@@ -1,4 +1,4 @@
-#include "InventoryTypes.h"
+ï»¿#include "InventoryTypes.h"
 #include "Item/Item.h"
 #include "Engine/Texture2D.h"
 #include "AbilitySystemComponent.h"
@@ -42,6 +42,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
 		OutViewData.HealAmount = ItemRow->HealAmount;
 		OutViewData.SellValue = ItemRow->SellValue;
+		OutViewData.Description = ItemRow->Description;
 		OutViewData.Icon = ItemRow->Icon;
 		OutViewData.bIsRelic = ItemRow->bIsRelic;
 		OutViewData.BenefitDescription = ItemRow->BenefitDescription;
@@ -66,6 +67,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.DisplayName = WeaponRow->WeaponName;
 		OutViewData.IconPath = WeaponRow->Icon ? WeaponRow->Icon->GetPathName() : FString();
 		OutViewData.SellValue = WeaponRow->SellValue;
+		OutViewData.Description = WeaponRow->Description;
 		OutViewData.Icon = WeaponRow->Icon;
 		return true;
 	}
@@ -85,11 +87,27 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.DisplayName = ShieldRow->ShieldName;
 		OutViewData.IconPath = ShieldRow->Icon ? ShieldRow->Icon->GetPathName() : FString();
 		OutViewData.SellValue = ShieldRow->SellValue;
+		OutViewData.Description = ShieldRow->Description;
 		OutViewData.Icon = ShieldRow->Icon;
 		return true;
 	}
 
 	return false;
+}
+
+FString GetEquipSlotDisplayName(EEquipSlotType InSlot)
+{
+	switch (InSlot)
+	{
+	case EEquipSlotType::PrimaryWeapon:  return TEXT("ì£¼ë¬´ê¸°");
+	case EEquipSlotType::SecondaryEquip: return TEXT("ë³´ì¡° ì¥ë¹„");
+	case EEquipSlotType::Helmet:         return TEXT("ë¨¸ë¦¬");
+	case EEquipSlotType::Chest:          return TEXT("ìƒì˜");
+	case EEquipSlotType::Legs:           return TEXT("í•˜ì˜");
+	case EEquipSlotType::Accessory:      return TEXT("ì¥ì‹ êµ¬");
+	case EEquipSlotType::None:
+	default:                             return FString();
+	}
 }
 
 FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InViewData)
@@ -104,9 +122,9 @@ FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InVi
 
 float GetMaxDurabilityForGrade(EItemGrade InGrade)
 {
-	// ±âÈ¹¼­ 10.2 ±âÁØ: ÀÏ¹İ 100 / Èñ±Í 150 / ¿µ¿õ 200 / Ãµ»ó(Legend) 250.
-	// Relic/Ancient´Â ÇöÀç À¯¹° Àü¿ë µî±ŞÀÌ¶ó º°µµ ±ÔÄ¢ÀÌ Á¤ÇØÁö±â Àü±îÁö´Â
-	// Ãµ»ó°ú µ¿ÀÏÇÏ°Ô Ã³¸®ÇÑ´Ù.
+	// ê¸°íšì„œ 10.2 ê¸°ì¤€: ì¼ë°˜ 100 / í¬ê·€ 150 / ì˜ì›… 200 / ì²œìƒ(Legend) 250.
+	// Relic/AncientëŠ” í˜„ì¬ ìœ ë¬¼ ì „ìš© ë“±ê¸‰ì´ë¼ ë³„ë„ ê·œì¹™ì´ ì •í•´ì§€ê¸° ì „ê¹Œì§€ëŠ”
+	// ì²œìƒê³¼ ë™ì¼í•˜ê²Œ ì²˜ë¦¬í•œë‹¤.
 	switch (InGrade)
 	{
 	case EItemGrade::Normal:
