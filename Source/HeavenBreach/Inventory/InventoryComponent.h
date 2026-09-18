@@ -157,6 +157,9 @@ protected:
 	void OnRep_Entries();
 
 private:
+	UFUNCTION(Client, Reliable)
+	void Client_PlayActionResult(bool bSuccess, bool bEquipment);
+
 	void RebuildCache();
 
 	void MarkCells(int32 InEntryIndex, FIntPoint InPosition, FIntPoint InSize);

@@ -1,4 +1,5 @@
 #include "ShopComponent.h"
+#include "UI/Audio/HBUIAudioLibrary.h"
 
 #include "Engine/DataTable.h"
 #include "InventoryComponent.h"
@@ -227,6 +228,7 @@ void UShopComponent::Client_TradeResult_Implementation(bool bSuccess, const FStr
 		ClearBasket();
 	}
 
+	UHBUIAudioLibrary::PlayForOwner(this, bSuccess ? EHBUIAudioEvent::TradeSuccess : EHBUIAudioEvent::Error);
 	OnTradeCompleted.Broadcast(bSuccess, InMessage);
 }
 

@@ -128,6 +128,9 @@ protected:
 	FDataTableRowHandle GoldItemRow;
 
 private:
+	UFUNCTION(Client, Reliable)
+	void Client_PlayCraftResult(bool bSuccess);
+
 	bool ReturnSlotToStash(int32 InSlotIndex);
 	bool ConsumeRecipeItemIfLimited(const FCraftRecipeRow& InRecipe);
 

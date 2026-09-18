@@ -1,4 +1,5 @@
 #include "InventoryComponent.h"
+#include "UI/Audio/HBUIAudioLibrary.h"
 #include "Engine/DataTable.h"
 #include "Net/UnrealNetwork.h"
 #include "EquipmentComponent.h"
@@ -22,7 +23,7 @@ void UInventoryComponent::Server_MoveItemIn_Implementation(UInventoryComponent* 
 		return;
 	}
 
-	InTarget->MoveItem(InInstanceId, InNewPosition, InRotated);
+	Client_PlayActionResult(InTarget->MoveItem(InInstanceId, InNewPosition, InRotated), false);
 }
 
 void UInventoryComponent::BeginPlay()
@@ -1012,7 +1013,7 @@ void UInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 
 void UInventoryComponent::Server_MoveItem_Implementation(FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated)
 {
-	MoveItem(InInstanceId, InNewPosition, InRotated);
+	Client_PlayActionResult(MoveItem(InInstanceId, InNewPosition, InRotated), false);
 }
 
 void UInventoryComponent::Server_TransferItem_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated)
@@ -1022,7 +1023,7 @@ void UInventoryComponent::Server_TransferItem_Implementation(UInventoryComponent
 		return;
 	}
 
-	InTarget->TransferItemFrom(this, InInstanceId, InTargetPosition, InRotated);
+	Client_PlayActionResult(InTarget->TransferItemFrom(this, InInstanceId, InTargetPosition, InRotated), false);
 }
 
 void UInventoryComponent::Server_TransferItemAuto_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId)
@@ -1032,7 +1033,7 @@ void UInventoryComponent::Server_TransferItemAuto_Implementation(UInventoryCompo
 		return;
 	}
 
-	InTarget->TransferItemFromAuto(this, InInstanceId);
+	Client_PlayActionResult(InTarget->TransferItemFromAuto(this, InInstanceId), false);
 }
 
 void UInventoryComponent::Server_EquipItem_Implementation(UEquipmentComponent* InEquipment, FGuid InInstanceId, EEquipSlotType InSlot)
@@ -1042,7 +1043,7 @@ void UInventoryComponent::Server_EquipItem_Implementation(UEquipmentComponent* I
 		return;
 	}
 
-	InEquipment->EquipFromInventory(this, InInstanceId, InSlot);
+	Client_PlayActionResult(InEquipment->EquipFromInventory(this, InInstanceId, InSlot), true);
 }
 
 void UInventoryComponent::Server_UnequipItem_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, FIntPoint InTargetPosition)
@@ -1052,7 +1053,7 @@ void UInventoryComponent::Server_UnequipItem_Implementation(UEquipmentComponent*
 		return;
 	}
 
-	InEquipment->UnequipToInventoryAt(InSlot, this, InTargetPosition);
+	Client_PlayActionResult(InEquipment->UnequipToInventoryAt(InSlot, this, InTargetPosition), true);
 }
 
 void UInventoryComponent::Server_TransferItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId, FIntPoint InTargetPosition, bool InRotated)
@@ -1062,7 +1063,7 @@ void UInventoryComponent::Server_TransferItemFrom_Implementation(UInventoryCompo
 		return;
 	}
 
-	TransferItemFrom(InSource, InInstanceId, InTargetPosition, InRotated);
+	Client_PlayActionResult(TransferItemFrom(InSource, InInstanceId, InTargetPosition, InRotated), false);
 }
 
 void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)
@@ -1071,7 +1072,7 @@ void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryC
 	{
 		return;
 	}
-	TransferItemFromAuto(InSource, InInstanceId);
+	Client_PlayActionResult(TransferItemFromAuto(InSource, InInstanceId), false);
 }
 
 void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition)
@@ -1080,7 +1081,7 @@ void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponen
 	{
 		return;
 	}
-	InEquipment->UnequipToInventoryAt(InSlot, InTarget, InTargetPosition);
+	Client_PlayActionResult(InEquipment->UnequipToInventoryAt(InSlot, InTarget, InTargetPosition), true);
 }
 
 void UInventoryComponent::Server_UseItem_Implementation(FGuid InInstanceId)
@@ -1144,7 +1145,7 @@ void UInventoryComponent::Server_SplitStack_Implementation(FGuid InInstanceId, i
 }
 void UInventoryComponent::Server_MergeStack_Implementation(FGuid InSourceId, FGuid InTargetId)
 {
-	MergeStack(InSourceId, InTargetId);
+	Client_PlayActionResult(MergeStack(InSourceId, InTargetId), false);
 }
 
 void UInventoryComponent::Server_MergeStackFrom_Implementation(UInventoryComponent* InSource, FGuid InSourceId, FGuid InTargetId)
@@ -1153,11 +1154,17 @@ void UInventoryComponent::Server_MergeStackFrom_Implementation(UInventoryCompone
 	{
 		return;
 	}
-	MergeStackFrom(InSource, InSourceId, InTargetId);
+	Client_PlayActionResult(MergeStackFrom(InSource, InSourceId, InTargetId), false);
 }
 void UInventoryComponent::Server_DropItem_Implementation(FGuid InInstanceId)
 {
 	DropItem(InInstanceId);
+}
+
+void UInventoryComponent::Client_PlayActionResult_Implementation(bool bSuccess, bool bEquipment)
+{
+	UHBUIAudioLibrary::PlayForOwner(this, !bSuccess ? EHBUIAudioEvent::Error
+		: (bEquipment ? EHBUIAudioEvent::ItemEquip : EHBUIAudioEvent::ItemMove));
 }
 
 void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)

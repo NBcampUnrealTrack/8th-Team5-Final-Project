@@ -1,4 +1,5 @@
 #include "InventoryUIComponent.h"
+#include "UI/Audio/HBUIAudioLibrary.h"
 
 #include "StashComponent.h"
 #include "Player/PlayerState/HB_PlayerState.h"
@@ -80,10 +81,12 @@ void UInventoryUIComponent::OpenInventory()
 
 	if (InventoryWidget != nullptr)
 	{
+		UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Open);
 		// ESC 처럼 위젯이 스스로 닫히는 경로가 있으므로 참조를 여기서 정리한다.
 		// 이걸 놓치면 이미 닫힌 인벤토리를 열려 있다고 오판해서 다음 Tab 이 먹지 않는다
 		InventoryWidget->OnDeactivated().AddWeakLambda(this, [this]()
 		{
+			UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Close);
 			InventoryWidget = nullptr;
 		});
 	}
@@ -110,6 +113,7 @@ void UInventoryUIComponent::OpenStash()
 		return;
 	}
 
+	const bool bWasOpen = StashWidget && StashWidget->IsVisible();
 	if (StashWidget == nullptr)
 	{
 		StashWidget = CreateWidget<UUserWidget>(OwningController, StashWidgetClass);
@@ -122,6 +126,7 @@ void UInventoryUIComponent::OpenStash()
 	}
 
 	StashWidget->SetVisibility(ESlateVisibility::Visible);
+	if (!bWasOpen) UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Open);
 
 	FInputModeGameAndUI InputMode;
 	InputMode.SetWidgetToFocus(StashWidget->TakeWidget());
@@ -148,6 +153,7 @@ void UInventoryUIComponent::CloseStash()
 		}
 	}
 
+	if (StashWidget->IsVisible()) UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Close);
 	StashWidget->SetVisibility(ESlateVisibility::Collapsed);
 
 	OwningController->SetInputMode(FInputModeGameOnly());

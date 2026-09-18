@@ -1,4 +1,5 @@
 #include "CraftComponent.h"
+#include "UI/Audio/HBUIAudioLibrary.h"
 
 #include "InventoryComponent.h"
 #include "Item.h"
@@ -419,6 +420,7 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 
 	if (TargetStash == nullptr)
 	{
+		Client_PlayCraftResult(false);
 		OnCraftCompleted.Broadcast(false);
 		return;
 	}
@@ -426,12 +428,14 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 	FCraftRecipeRow Recipe;
 	if (!GetSelectedRecipe(Recipe))
 	{
+		Client_PlayCraftResult(false);
 		OnCraftCompleted.Broadcast(false);
 		return;
 	}
 
 	if (!CanCraft())
 	{
+		Client_PlayCraftResult(false);
 		OnCraftCompleted.Broadcast(false);
 		return;
 	}
@@ -449,12 +453,14 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 
 	if (!TargetStash->CanFitItem(Result))
 	{
+		Client_PlayCraftResult(false);
 		OnCraftCompleted.Broadcast(false);
 		return;
 	}
 
 	if (Recipe.GoldCost > 0 && !TargetStash->ConsumeGold(GoldItemRow, Recipe.GoldCost))
 	{
+		Client_PlayCraftResult(false);
 		OnCraftCompleted.Broadcast(false);
 		return;
 	}
@@ -474,7 +480,13 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 	}
 
 	OnRep_Slots();
+	Client_PlayCraftResult(true);
 	OnCraftCompleted.Broadcast(true);
+}
+
+void UCraftComponent::Client_PlayCraftResult_Implementation(bool bSuccess)
+{
+	UHBUIAudioLibrary::PlayForOwner(this, bSuccess ? EHBUIAudioEvent::CraftSuccess : EHBUIAudioEvent::Error);
 }
 
 void UCraftComponent::Server_ReturnAllToStash_Implementation()
