@@ -42,7 +42,7 @@ struct HEAVENBREACH_API FHBSkillAugment
 	FText DisplayName;
 
 	// 항목 이름을 중괄호로 감싸면 Params 의 값으로 치환된다.
-	// 예) "쿨타임이 {Cooldown} 배가 됩니다" + Params[Augment.Param.Cooldown]=0.5
+	// 예) "쿨타임이 {Cooldown} 배가 됩니다" + Params[SkillParam.Cooldown]=0.5
 	// 숫자를 글에 직접 적지 말 것. 밸런스를 고칠 때 두 곳을 고치게 되고,
 	// 한쪽을 빠뜨리면 UI 가 거짓말을 한다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment", meta = (MultiLine = "true"))
@@ -52,7 +52,7 @@ struct HEAVENBREACH_API FHBSkillAugment
 	TSoftObjectPtr<UTexture2D> Icon;
 
 	// 이 스킬에만 걸리는 수치들. 키는 무엇을, 값은 얼마나.
-	// 예) Augment.Param.Cooldown → 0.5,  Augment.Param.ManaCost → 0.7
+	// 예) SkillParam.Cooldown → 0.5,  SkillParam.ManaCost → 0.7
 	//
 	// 왜 맵인가: 증강 하나가 여러 수치를 동시에 바꿀 수 있어야 한다.
 	// 값 하나짜리 칸으로는 "쿨 50% + 마나 30%" 같은 증강을 못 담는다.
@@ -89,6 +89,6 @@ struct HEAVENBREACH_API FHBSkillAugment
 
 	// 설명의 치환자를 Params 의 실제 수치로 바꾼 것.
 	// 치환자 이름은 항목 태그의 마지막 조각이다.
-	// Augment.Param.Cooldown → {Cooldown}
+	// SkillParam.Cooldown → {Cooldown}
 	FText GetFormattedDescription() const;
 };

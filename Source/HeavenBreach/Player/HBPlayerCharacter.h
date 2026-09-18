@@ -605,9 +605,18 @@ public:
 	UFUNCTION(Exec, Category = "Debug")
 	void TestBreakEquipment(int32 Slot);
 
+	// 테스트용: 경험치를 즉시 지급한다. 레벨이 오르면 서버가 증강 후보를 뽑으므로
+	// 적을 잡지 않고도 증강 선택 화면을 열어볼 수 있다.
+	// 클라이언트 창 콘솔에서 쳐도 서버로 전달되어 실제로 적용된다.
+	UFUNCTION(Exec, Category = "Debug")
+	void TestAddExp(int32 Amount);
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerTestBreakEquipment(int32 Slot);
+
+	UFUNCTION(Server, Reliable)
+	void ServerTestAddExp(int32 Amount);
 
 	// C++에서 호출하면 블루프린트에서 실행되는 이벤트
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI")

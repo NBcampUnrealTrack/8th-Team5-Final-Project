@@ -1580,6 +1580,36 @@ void AHBPlayerCharacter::ServerTestBreakEquipment_Implementation(int32 Slot)
 	TestBreakEquipment(Slot);
 }
 
+void AHBPlayerCharacter::TestAddExp(int32 Amount)
+{
+	// 경험치는 서버 권한에서만 늘어난다(AddExperience가 !HasAuthority면 조용히 리턴).
+	// 클라이언트 창 콘솔에서 친 경우 여기서 서버로 넘긴다.
+	if (!HasAuthority())
+	{
+		ServerTestAddExp(Amount);
+		return;
+	}
+
+	AHB_PlayerState* PS = GetPlayerCurrentState();
+	if (!PS)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TestAddExp] PlayerState 없음"));
+		return;
+	}
+
+	PS->AddExperience(Amount);
+
+	// 후보 수까지 같이 찍는다. 레벨은 올랐는데 후보가 0장이면
+	// 증강 데이터(스킬 GA의 Augments)가 비어 있다는 뜻이다.
+	UE_LOG(LogTemp, Warning, TEXT("[TestAddExp] Amount=%d Level=%d Pending=%d Candidates=%d"),
+		Amount, PS->GetPlayerLevel(), PS->GetPendingUpgradeChoices(), PS->GetCurrentUpgradeCandidates().Num());
+}
+
+void AHBPlayerCharacter::ServerTestAddExp_Implementation(int32 Amount)
+{
+	TestAddExp(Amount);
+}
+
 void AHBPlayerCharacter::HandleItemUsed(FName ItemId, float HealAmount)
 {
 	if (AHB_PlayerState* PS = GetPlayerCurrentState())

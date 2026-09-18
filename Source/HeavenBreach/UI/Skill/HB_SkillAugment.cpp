@@ -3,143 +3,135 @@
 
 #include "UI/Skill/HB_SkillAugment.h"
 #include "Player/HBPlayerController.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 #include "UI/HB_UILayout.h"
-#include "Core/Tag/UI/HB_UITag.h"
-#include "Math/UnrealMathUtility.h"
-#include "Components/HorizontalBox.h" 
-#include "HB_AugmentData.h"
 #include "UI/Skill/HB_AugmentCard.h"
-
+#include "Core/Tag/UI/HB_UITag.h"
+#include "Components/HorizontalBox.h"
 
 UHB_SkillAugment::UHB_SkillAugment()
 {
-    InputMode = EHBWidgetInputMode::Menu;
+	InputMode = EHBWidgetInputMode::Menu;
 
-    bIsBackHandler = true;
-}
-
-void UHB_SkillAugment::NativeOnActivated()
-{
-}
-
-UWidget* UHB_SkillAugment::NativeGetDesiredFocusTarget() const
-{
-    return nullptr;
+	bIsBackHandler = true;
 }
 
 void UHB_SkillAugment::NativeConstruct()
 {
-    Super::NativeConstruct();
-    SetIsFocusable(true);
+	Super::NativeConstruct();
+
+	SetIsFocusable(true);
+
+	if (AHB_PlayerState* HBPS = GetHBPlayerState())
+	{
+		HBPS->OnUpgradeCandidatesChanged.AddDynamic(this, &UHB_SkillAugment::HandleUpgradeCandidatesChanged);
+	}
+
+	RebuildCards();
+}
+
+void UHB_SkillAugment::NativeDestruct()
+{
+	// PlayerState ëŠ” ì´ ìœ„ì ¯ë³´ë‹¤ ì˜¤ëž˜ ì‚°ë‹¤. í’€ì–´ì£¼ì§€ ì•Šìœ¼ë©´ ì£½ì€ ìœ„ì ¯ìœ¼ë¡œ ë°©ì†¡ëœë‹¤.
+	if (AHB_PlayerState* HBPS = GetHBPlayerState())
+	{
+		HBPS->OnUpgradeCandidatesChanged.RemoveDynamic(this, &UHB_SkillAugment::HandleUpgradeCandidatesChanged);
+	}
+
+	Super::NativeDestruct();
+}
+
+UWidget* UHB_SkillAugment::NativeGetDesiredFocusTarget() const
+{
+	// Menu ìž…ë ¥ ëª¨ë“œë¼ í¬ì»¤ìŠ¤ ëŒ€ìƒì´ ìžˆì–´ì•¼ í‚¤ë³´ë“œ/íŒ¨ë“œë¡œ ê³ ë¥¼ ìˆ˜ ìžˆë‹¤.
+	if (CardContainer && CardContainer->GetChildrenCount() > 0)
+	{
+		return CardContainer->GetChildAt(0);
+	}
+
+	return Super::NativeGetDesiredFocusTarget();
 }
 
 FReply UHB_SkillAugment::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
-    if (InKeyEvent.GetKey() == EKeys::K)
-    {
-        if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
-        {
-            PC->ToggleSkillAugment(); // ÀÌ¹Ì ¿­·ÁÀÖ´Â »óÅÂÀÌ¹Ç·Î ToggleSkillAugmentÀÇ "´Ý±â" ºÐ±â°¡ ½ÇÇàµÊ
-        }
-        return FReply::Handled();
-    }
+	if (InKeyEvent.GetKey() == EKeys::K)
+	{
+		if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+		{
+			PC->ToggleSkillAugment(); // ì´ë¯¸ ì—´ë ¤ìžˆëŠ” ìƒíƒœì´ë¯€ë¡œ ToggleSkillAugment ëŠ” "ë‹«ê¸°" ë¶„ê¸°ë¡œ ê°„ë‹¤
+		}
+		return FReply::Handled();
+	}
 
-    return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
-void UHB_SkillAugment::OnAugmentCardClicked(FName ClickedAugmentId)
+AHB_PlayerState* UHB_SkillAugment::GetHBPlayerState() const
 {
-    if (!AugmentDataTable) return;
-
-    FAugmentCardData* SelectedAugment = AugmentDataTable->FindRow<FAugmentCardData>(ClickedAugmentId, TEXT("AugmentContext"));
-    if (!SelectedAugment) return;
-
-    // TODO: ½ÇÁ¦ Áõ°­ È¿°ú Àû¿ë (½ºÅ³ ÄÄÆ÷³ÍÆ®/AttributeSet¿¡ SelectedAugment ¹Ý¿µ)
-
-    if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
-    {
-        PC->ToggleSkillAugment(); // ¼±ÅÃ ¿Ï·á -> È­¸é ´Ý±â
-    }
+	const APlayerController* PC = GetOwningPlayer();
+	return PC ? PC->GetPlayerState<AHB_PlayerState>() : nullptr;
 }
 
-void UHB_SkillAugment::GenerateRandomAugments(FName EquippedSlotQ, FName EquippedSlotE, TArray<FName> EquippedPassives)
+void UHB_SkillAugment::HandleUpgradeCandidatesChanged()
 {
-    if (!AugmentDataTable || !CardContainer || !AugmentCardClass) return;
+	RebuildCards();
+}
 
-    CardContainer->ClearChildren();
+void UHB_SkillAugment::RebuildCards()
+{
+	if (!CardContainer || !AugmentCardClass)
+	{
+		return;
+	}
 
-    TArray<FAugmentCardData*> AllAugments;
-    AugmentDataTable->GetAllRows<FAugmentCardData>(TEXT("AugmentContext"), AllAugments);
+	// ë””ìžì¸ íƒ€ìž„ì— ë°°ì¹˜ëœ ì¹´ë“œë„ ì—¬ê¸°ì„œ ê°™ì´ ê±·ížŒë‹¤.
+	CardContainer->ClearChildren();
 
-    TArray<FAugmentCardData*> ValidAugmentPool;
+	AHB_PlayerState* HBPS = GetHBPlayerState();
+	if (!HBPS)
+	{
+		return;
+	}
 
-    // 1. ÇÃ·¹ÀÌ¾î »óÅÂ¿¡ ¸Â´Â À¯È¿ÇÑ Áõ°­¸¸ Ç®(Pool)¿¡ Ãß°¡
-    for (FAugmentCardData* Augment : AllAugments)
-    {
-        if (!Augment) continue;
+	for (const FHBUpgradeCandidate& Candidate : HBPS->GetCurrentUpgradeCandidates())
+	{
+		UHB_AugmentCard* NewCard = CreateWidget<UHB_AugmentCard>(this, AugmentCardClass);
+		if (!NewCard)
+		{
+			continue;
+		}
 
-        if (Augment->AugmentType == EAugmentType::ActiveUpgrade)
-        {
-            // Å¸°Ù ½ºÅ³ÀÌ ÇöÀç ÀåÂøÇÑ Q ¶Ç´Â E ½ºÅ³°ú ÀÏÄ¡ÇÒ ¶§¸¸ µîÀå
-            if (Augment->TargetSkillId == EquippedSlotQ || Augment->TargetSkillId == EquippedSlotE)
-            {
-                ValidAugmentPool.Add(Augment);
-            }
-        }
-        else if (Augment->AugmentType == EAugmentType::NewPassive)
-        {
-            // ÀÌ¹Ì º¸À¯ÇÑ ÆÐ½Ãºê°¡ ¾Æ´Ò ¶§¸¸ µîÀå
-            if (!EquippedPassives.Contains(Augment->TargetSkillId))
-            {
-                ValidAugmentPool.Add(Augment);
-            }
-        }
-    }
+		NewCard->InitCard(Candidate);
+		NewCard->OnAugmentCardClickedDelegate.AddDynamic(this, &UHB_SkillAugment::OnAugmentCardClicked);
+		CardContainer->AddChild(NewCard);
+	}
+}
 
-    // 2. À¯È¿ÇÑ Áõ°­ Ç®ÀÌ 3°³ ¹Ì¸¸ÀÏ °æ¿ìÀÇ ¿¹¿Ü Ã³¸®
-    int32 MaxCards = FMath::Min(3, ValidAugmentPool.Num());
-    if (MaxCards == 0) return;
+void UHB_SkillAugment::OnAugmentCardClicked(FName ClickedCandidateId)
+{
+	// ì ìš©ì€ ì„œë²„ê°€ í•œë‹¤. í´ë¼ëŠ” ê³ ë¥¸ í›„ë³´ì˜ ì´ë¦„ë§Œ ë³´ë‚¸ë‹¤.
+	if (AHB_PlayerState* HBPS = GetHBPlayerState())
+	{
+		HBPS->RequestSelectUpgrade(ClickedCandidateId);
+	}
 
-    // 3. ÇÇ¼Å-¿¹ÀÌÃ÷ ¼ÅÇÃ(Fisher-Yates Shuffle)·Î ¹è¿­ ¹«ÀÛÀ§ ¼¯±â
-    for (int32 i = ValidAugmentPool.Num() - 1; i > 0; i--)
-    {
-        int32 j = FMath::RandRange(0, i);
-        ValidAugmentPool.Swap(i, j);
-    }
-
-    // 4. ¼¯ÀÎ Ç®¿¡¼­ ¾Õ¿¡¼­ºÎÅÍ 3°³(MaxCards)¸¦ »Ì¾Æ UI »ý¼º
-    for (int32 i = 0; i < MaxCards; i++)
-    {
-        FAugmentCardData* SelectedData = ValidAugmentPool[i];
-
-        UHB_AugmentCard* NewCard = CreateWidget<UHB_AugmentCard>(GetWorld(), AugmentCardClass);
-        if (NewCard)
-        {
-            NewCard->InitCard(*SelectedData);
-            NewCard->OnAugmentCardClickedDelegate.AddDynamic(this, &UHB_SkillAugment::OnAugmentCardClicked); // ÀÌ ÁÙ Ãß°¡
-            CardContainer->AddChild(NewCard);
-        }
-    }
+	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+	{
+		PC->ToggleSkillAugment(); // ì„ íƒ ì™„ë£Œ -> í™”ë©´ ë‹«ê¸°
+	}
 }
 
 UHB_SkillAugment* UHB_SkillAugment::OpenOn(
-    AHBPlayerController* OwningPC,
-    TSubclassOf<UHB_SkillAugment> ScreenClass)
+	AHBPlayerController* OwningPC,
+	TSubclassOf<UHB_SkillAugment> ScreenClass)
 {
-    UE_LOG(LogTemp, Warning, TEXT("OwningPC=%s ScreenClass=%s UILayout=%s"),
-        OwningPC ? TEXT("valid") : TEXT("null"),
-        *GetNameSafe(ScreenClass),
-        (OwningPC && OwningPC->GetUILayout()) ? TEXT("valid") : TEXT("null"));
-    if (OwningPC == nullptr || ScreenClass == nullptr || OwningPC->GetUILayout() == nullptr)
-    {
-        return nullptr;
-    }
+	if (OwningPC == nullptr || ScreenClass == nullptr || OwningPC->GetUILayout() == nullptr)
+	{
+		return nullptr;
+	}
 
-    return OwningPC->GetUILayout()->PushWidgetToLayer<UHB_SkillAugment>(
-        UITag::TAG_UI_Layer_Menu, ScreenClass,
-        [](UHB_SkillAugment& Screen)
-        {
-            // TODO: ½ÇÁ¦ ÀåÂøµÈ Q/E ½ºÅ³, ÆÐ½Ãºê ¸ñ·ÏÀ¸·Î ±³Ã¼
-            Screen.GenerateRandomAugments(TEXT("SkillQ"), TEXT("SkillE"), TArray<FName>{});
-        });
+	// ì¹´ë“œ êµ¬ì„±ì€ NativeConstruct ê°€ í•œë‹¤. ìœ„ì ¯ íŠ¸ë¦¬ê°€ ë§Œë“¤ì–´ì§„ ë’¤ë¼ì•¼
+	// CardContainer ê°€ ìœ íš¨í•˜ë‹¤.
+	return OwningPC->GetUILayout()->PushWidgetToLayer<UHB_SkillAugment>(
+		UITag::TAG_UI_Layer_Menu, ScreenClass);
 }
