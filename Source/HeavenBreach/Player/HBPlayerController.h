@@ -233,7 +233,9 @@ private:
 #pragma region CameraShake
 public:
 	UFUNCTION(Client,Reliable)
-	void ClientPlayCameraShake(TSubclassOf<UCameraShakeBase> ShakeClass);
+	// Scale 은 흔들림 세기 배율이다. 1.0 이 애셋에 적힌 그대로.
+	// 상황마다 클래스를 나누지 않고 이 값으로 세기를 가른다.
+	void ClientPlayCameraShake(TSubclassOf<UCameraShakeBase> ShakeClass, float Scale = 1.f);
 
 	/**
 	 * 피격 혈흔 연출을 재생하고 HP 바를 서버 값으로 즉시 맞춘다.
@@ -246,7 +248,16 @@ public:
 	 * 뒤늦게 도착하는 OnHPChanged 는 같은 값을 다시 넣으므로 화면상 변화가 없다.
 	 * 회복 / 리스폰 등 피격 이외의 HP 변화는 여전히 복제 경로를 탄다.
 	 */
+	/**
+	 * bSuppressScreenEffect: 패링·방어태세로 피해가 0이면 참.
+	 *
+	 * HP 바는 그대로 갱신하고 붉은 화면 연출만 건너뛴다. 막아냈는데 피가
+	 * 튀는 화면이 나오면 성공한 건지 맞은 건지 구분이 안 된다.
+	 * 기획서 19.3 도 "화면 전체를 붉게 덮는 피격 연출은 사용하지 않는다" 다.
+	 *
+	 * 일반 피격의 붉은 효과는 그대로 둔다. 그쪽까지 없앨지는 별도 판단이다.
+	 */
 	UFUNCTION(Client,Reliable)
-	void ClientPlayHitEffect(float NewHP, float NewMaxHP);
+	void ClientPlayHitEffect(float NewHP, float NewMaxHP, bool bSuppressScreenEffect);
 #pragma endregion
 };

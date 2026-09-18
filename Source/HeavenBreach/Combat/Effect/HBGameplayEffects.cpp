@@ -75,3 +75,11 @@ UGE_WarriorStrongBodyPassive::UGE_WarriorStrongBodyPassive()
 	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_HPAttribute(),
 		EGameplayModOp::Multiplicitive, 1.2f);
 }
+
+UGE_GuardStanceSlow::UGE_GuardStanceSlow()
+{
+	// 방어를 놓는 시점을 GE 가 모르므로 무한이고, GA 가 직접 뗀다.
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_MoveSpeedMultiplierAttribute(),
+		EGameplayModOp::Multiplicitive, 0.5f);
+}
