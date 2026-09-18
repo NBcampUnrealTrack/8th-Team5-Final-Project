@@ -5,11 +5,28 @@
 #include "Components/Button.h"
 #include "Components/Widget.h"
 #include "Components/WidgetSwitcher.h"
+#include "UI/Settings/HBSettingsWidget.h"
 
 void UHBLobbyHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	InitializeNavigation();
+
+	if (UUserWidget* NavigationBar = Cast<UUserWidget>(GetWidgetFromName(TEXT("WBP_MainLobby_NaviBar"))))
+	{
+		if (UUserWidget* SettingsIcon = Cast<UUserWidget>(NavigationBar->GetWidgetFromName(TEXT("IconButton_Settings"))))
+		{
+			SettingsButton = Cast<UButton>(SettingsIcon->GetWidgetFromName(TEXT("Button_Icon")));
+			if (SettingsButton)
+			{
+				// Opening the settings widget supplies its own sound.
+				FButtonStyle Style = SettingsButton->GetStyle();
+				Style.PressedSlateSound.SetResourceObject(nullptr);
+				SettingsButton->SetStyle(Style);
+				SettingsButton->OnClicked.AddUniqueDynamic(this, &ThisClass::OpenSettings);
+			}
+		}
+	}
 
 	if (Button_Lobby)
 	{
@@ -45,6 +62,15 @@ void UHBLobbyHUDWidget::NativeConstruct()
 
 void UHBLobbyHUDWidget::NativeDestruct()
 {
+	if (SettingsButton)
+	{
+		SettingsButton->OnClicked.RemoveDynamic(this, &ThisClass::OpenSettings);
+	}
+	if (SettingsWidget)
+	{
+		SettingsWidget->CloseSettings();
+		SettingsWidget = nullptr;
+	}
 	if (Button_Lobby)
 	{
 		Button_Lobby->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleLobbyClicked);
@@ -70,6 +96,21 @@ void UHBLobbyHUDWidget::NativeDestruct()
 		Button_Craft->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleCraftClicked);
 	}
 	Super::NativeDestruct();
+}
+
+void UHBLobbyHUDWidget::OpenSettings()
+{
+	if (!SettingsWidgetClass || !GetOwningPlayer()) return;
+	if (!SettingsWidget)
+	{
+		SettingsWidget = CreateWidget<UHBSettingsWidget>(GetOwningPlayer(), SettingsWidgetClass);
+	}
+	if (SettingsWidget && !SettingsWidget->IsInViewport())
+	{
+		SettingsWidget->AddToViewport(100);
+		SettingsWidget->SetReturnFocusWidget(SettingsButton);
+		SettingsWidget->SetKeyboardFocus();
+	}
 }
 
 void UHBLobbyHUDWidget::HandleLobbyClicked()
