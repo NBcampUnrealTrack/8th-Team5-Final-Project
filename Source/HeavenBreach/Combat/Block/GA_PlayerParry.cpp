@@ -1,12 +1,14 @@
 ﻿#include "Combat/Block/GA_PlayerParry.h"
 
 #include "AbilitySystemComponent.h"
+#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Effect/HBEffectLibrary.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Event/HB_EventTag.h"
+#include "Animation/AnimMontage.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Player/HBPlayerCharacter.h"
@@ -62,6 +64,23 @@ void UGA_PlayerParry::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
+	}
+
+	// 방패를 올리는 동작. 연출이라 없어도 판정은 그대로 돈다.
+	//
+	// 몽타주 완료를 기다리지 않는다. 판정의 주인은 창(0.2초)이고 애니메이션
+	// 길이와 무관해야 한다. 어빌리티가 끝나면 태스크가 몽타주를 멈추므로
+	// (bStopWhenAbilityEnds 기본값) 블렌드 아웃으로 자연스럽게 내려온다.
+	//
+	// 섹션을 지정하지 않으면 처음(Start)부터 재생된다. 그게 방패를 드는 동작이다.
+	if (UAnimMontage* Montage = Player->GetGuardMontage())
+	{
+		if (UAbilityTask_PlayMontageAndWait* MontageTask =
+			UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+				this, NAME_None, Montage, MontagePlayRate))
+		{
+			MontageTask->ReadyForActivation();
+		}
 	}
 
 	// 창은 서버에서만 연다. 판정도 서버에서만 돌기 때문이다.

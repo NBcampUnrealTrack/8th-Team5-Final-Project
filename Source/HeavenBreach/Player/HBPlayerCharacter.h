@@ -316,7 +316,32 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Shake", meta=(ClampMin="0.0"))
 	float ShakeScale_Guard = 0.25f;
 
+	/**
+	 * 방패를 들어올리는 동작. 패링과 방어태세가 같은 것을 쓴다.
+	 *
+	 * 왜 캐릭터에 두나: 두 어빌리티(GA_PlayerArry / GA_GuardStance)가 같은 몽타주를
+	 * 쓰는데 둘 다 BP 없이 C++ 로 부여된다. 각자 들면 경로가 두 곳에 박히고
+	 * 한쪽만 바꾸는 사고가 난다. 값의 주인을 여기 하나로 둔다.
+	 *
+	 * 기본값을 C++ 에서 박는 이유: 이 캐릭터 BP 가 셋(BP_HBPlayerCharacter,
+	 * BP_HB_Warrior, BP_HB_Warrior_Figure)이라 BP 에서 지정하면 세 곳에 꽂아야 하고
+	 * 하나만 비면 그 캐릭터만 동작이 안 나온다. 같은 파일의 ModularBodySourceMesh 가
+	 * 이미 같은 방식이다.
+	 *
+	 * 임시 애셋이다. 설계상 패링은 "방패를 휘두르는" 동작인데 지금 있는 것은
+	 * 구 방어가 쓰던 "들어올리는" 루프다.
+	 *
+	 * 쳐낼 조건: 전용 패링 동작이 만들어지면 패링과 방어태세의 몽타주를 나누고,
+	 * 그때는 GA 별 BP 를 만들어 거기서 지정한다.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Combat")
+	TSoftObjectPtr<UAnimMontage> GuardMontage;
+
 public:
+	// 패링·방어태세 GA 가 부른다. 둘 다 캐릭터 밖이라 public 이어야 한다.
+	UFUNCTION(BlueprintPure, Category="Player|Combat")
+	UAnimMontage* GetGuardMontage() const;
+
 	// 경직 쉐이크는 GA_PlayerStagger 가 쏜다. 경직이 확정된 시점을 그쪽만 알기 때문이다.
 	UFUNCTION(BlueprintPure, Category="Player|Combat|Shake")
 	TSubclassOf<UCameraShakeBase> GetHitShakeClass() const { return CS_HitReact; }

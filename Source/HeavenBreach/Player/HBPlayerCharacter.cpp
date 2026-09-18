@@ -141,6 +141,17 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 #pragma endregion
 
 	MeleeTraceComp = CreateDefaultSubobject<UMeleeTraceComponent>(TEXT("MeleeTraceComp"));
+
+	// 구 방어(BP_GA_PlayerBlock)가 쓰던 몽타주를 그대로 가져왔다. 임시다.
+	GuardMontage = TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(
+		TEXT("/Game/Characters/Warrior/Animations/UpperBody/Combat/Guard/AM_Warrior_Block_Loop.AM_Warrior_Block_Loop")));
+}
+
+UAnimMontage* AHBPlayerCharacter::GetGuardMontage() const
+{
+	// 동기 로드다. 몽타주 하나라 가볍고, 한 번 로드되면 캐시에 남는다.
+	// 비동기로 바꾸면 첫 패링이 한 프레임 늦게 보이는데 그게 더 나쁘다.
+	return GuardMontage.IsNull() ? nullptr : GuardMontage.LoadSynchronous();
 }
 
 void AHBPlayerCharacter::BeginPlay()

@@ -1,12 +1,15 @@
 ﻿#include "Combat/Block/GA_GuardStance.h"
 
 #include "AbilitySystemComponent.h"
+#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Event/HB_EventTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
+#include "Animation/AnimMontage.h"
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
+#include "Player/HBPlayerCharacter.h"
 
 UGA_GuardStance::UGA_GuardStance()
 {
@@ -39,6 +42,37 @@ void UGA_GuardStance::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		this, EventTag::TAG_Event_Block_Release, nullptr, false, false);
 	WaitRelease->EventReceived.AddDynamic(this, &UGA_GuardStance::OnReleaseReceived);
 	WaitRelease->ReadyForActivation();
+
+	// 방패를 든 자세를 유지한다. 패링과 같은 몽타주이고 캐릭터가 주인이다.
+	//
+	// 몽타주는 Start(드는 동작) → Loop(유지) 구조다. 섹션을 지정하지 않으면
+	// 처음부터 재생되고 Loop 에서 자기 자신을 물어 R 을 뗄 때까지 유지된다.
+	//
+	// End 섹션(AN_Warrior_Block_Out, 내리는 동작)은 쓰지 않는다.
+	//
+	// 왜: 구 GA_PlayerBlock 은 방어 해제 때 MontageJumpToSection("End") 로
+	// 내리는 동작을 다 보여주고 그것이 끝난 뒤에 EndAbility 를 불렀다. 그러면
+	// 내리는 동안에도 State.Blocking 이 붙어 있는데, 구 방어는 70% 감소라
+	// 그 구간이 크게 문제되지 않았다. 지금은 완전 무효다. 방패를 내리는
+	// 0.3~0.5초 동안 무적이면 R 을 떼는 것으로 무적을 늘릴 수 있다.
+	//
+	// 그래서 R 을 떼는 즉시 어빌리티를 끝내고(무적·감속 해제), 내려오는 모습은
+	// 태스크의 블렌드 아웃에 맡긴다. 게임 상태가 연출을 기다리지 않는다.
+	//
+	// 쳐낼 조건: 내리는 동작을 꼭 보여줘야 하면, EndAbility 로 태그를 먼저
+	// 떼고 몽타주만 따로 End 섹션으로 보내는 방법이 있다. 어빌리티 수명과
+	// 연출 수명을 분리하는 작업이라 그때 따로 설계한다.
+	if (const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetAvatarActorFromActorInfo()))
+	{
+		if (UAnimMontage* Montage = Player->GetGuardMontage())
+		{
+			if (UAbilityTask_PlayMontageAndWait* MontageTask =
+				UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Montage, 1.f))
+			{
+				MontageTask->ReadyForActivation();
+			}
+		}
+	}
 
 	// 감속은 서버에서만 건다. 어트리뷰트 복제로 클라가 따라온다.
 	if (ActorInfo && ActorInfo->IsNetAuthority())

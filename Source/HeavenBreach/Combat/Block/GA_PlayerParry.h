@@ -48,6 +48,19 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Parry", meta = (ClampMin = "0.05"))
 	float WindowDuration = 0.2f;
 
+	/**
+	 * 방패 올리는 동작의 재생 속도.
+	 *
+	 * 왜 1.0 이 아닌가: 몽타주(AM_Warrior_Block_Loop)의 Start 섹션은 원래
+	 * 느긋하게 방패를 드는 방어 진입 동작이다. 패링 창은 0.2초뿐이라
+	 * 1.0 으로 틀면 드는 도중에 잘려 경련처럼 보인다. 빠르게 틀어
+	 * "탁 올렸다 내리는" 스냅으로 읽히게 한다.
+	 *
+	 * 쳐낼 조건: 전용 패링 동작(방패 휘두르기)이 만들어지면 1.0 으로 되돌린다.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Parry", meta = (ClampMin = "0.1"))
+	float MontagePlayRate = 3.0f;
+
 	// 헛쳤을 때 굳는 시간. 패링 연타를 막는 유일한 장치다.
 	//
 	// 공격은 막지 않는다. 후딜의 목적은 연타 방지이고, 그건 이 어빌리티가
