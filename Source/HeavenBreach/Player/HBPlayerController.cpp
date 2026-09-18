@@ -636,11 +636,11 @@ void AHBPlayerController::ActivateSkill2()
 	}
 }
 
-void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCameraShakeBase> ShakeClass)
+void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCameraShakeBase> ShakeClass, float Scale)
 {
 	if (ShakeClass && PlayerCameraManager)
 	{
-		PlayerCameraManager->StartCameraShake(ShakeClass);
+		PlayerCameraManager->StartCameraShake(ShakeClass, FMath::Max(0.f, Scale));
 	}
 }
 

@@ -591,7 +591,8 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	
 	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetController()))
 	{
-		PC->ClientPlayCameraShake(CS_HitReact);
+		// 막았으면 약하게, 그냥 맞았으면 보통. 경직은 GA_PlayerStagger 가 더 세게 쏜다.
+		PC->ClientPlayCameraShake(CS_HitReact, bGuarded ? ShakeScale_Guard : ShakeScale_Hit);
 
 		// 혈흔 연출과 HP 바도 같은 시점에 보낸다.
 		// 복제를 기다리면 PlayerState 주기(1Hz) 때문에 쉐이크/사운드보다

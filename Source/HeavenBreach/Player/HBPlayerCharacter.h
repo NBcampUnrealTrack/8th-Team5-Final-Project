@@ -294,8 +294,37 @@ protected:
 	TSubclassOf<UGameplayEffect> GE_PlayerDamage;
 	
 	/****CameraShake***/
+	// 흔들림 클래스는 하나이고, 세기는 아래 배율로 가른다.
+	//
+	// 왜 클래스를 셋으로 안 나눴나: 요구가 "세기를 조절 가능하게, 스태거 > 피격 > 방어"
+	// 였고 그건 배율만으로 충족된다. 클래스를 셋으로 두면 BP 3개(BP_HBPlayerCharacter,
+	// BP_HB_Warrior, BP_HB_Warrior_Figure)에 각각 꽂아야 하고, 하나라도 비면
+	// 그 상황만 흔들리지 않는다.
+	//
+	// 쳐낼 조건: 상황마다 흔들림의 '결'이 달라야 하면(주기, 감쇠, 회전축)
+	// 배율로는 안 된다. 그때 클래스를 상황별로 나눈다.
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
 	TSubclassOf<UCameraShakeBase> CS_HitReact;
+
+	// 세기 순서: 스태거 > 피격 > 방어. 기본값이 곧 그 순서다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Shake", meta=(ClampMin="0.0"))
+	float ShakeScale_Stagger = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Shake", meta=(ClampMin="0.0"))
+	float ShakeScale_Hit = 0.6f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Shake", meta=(ClampMin="0.0"))
+	float ShakeScale_Guard = 0.25f;
+
+public:
+	// 경직 쉐이크는 GA_PlayerStagger 가 쏜다. 경직이 확정된 시점을 그쪽만 알기 때문이다.
+	UFUNCTION(BlueprintPure, Category="Player|Combat|Shake")
+	TSubclassOf<UCameraShakeBase> GetHitShakeClass() const { return CS_HitReact; }
+
+	UFUNCTION(BlueprintPure, Category="Player|Combat|Shake")
+	float GetStaggerShakeScale() const { return ShakeScale_Stagger; }
+
+protected:
 	
 	/****BaseAbilities Stat Value***/
 	// TODO:: Temp변수 데이터테이블로 변경 or AttributeData변경

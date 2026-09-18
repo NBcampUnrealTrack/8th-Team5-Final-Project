@@ -233,7 +233,9 @@ private:
 #pragma region CameraShake
 public:
 	UFUNCTION(Client,Reliable)
-	void ClientPlayCameraShake(TSubclassOf<UCameraShakeBase> ShakeClass);
+	// Scale 은 흔들림 세기 배율이다. 1.0 이 애셋에 적힌 그대로.
+	// 상황마다 클래스를 나누지 않고 이 값으로 세기를 가른다.
+	void ClientPlayCameraShake(TSubclassOf<UCameraShakeBase> ShakeClass, float Scale = 1.f);
 
 	/**
 	 * 피격 혈흔 연출을 재생하고 HP 바를 서버 값으로 즉시 맞춘다.
