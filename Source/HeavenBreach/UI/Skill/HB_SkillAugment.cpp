@@ -8,6 +8,7 @@
 #include "UI/Skill/HB_AugmentCard.h"
 #include "Core/Tag/UI/HB_UITag.h"
 #include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
 
 UHB_SkillAugment::UHB_SkillAugment()
 {
@@ -103,7 +104,18 @@ void UHB_SkillAugment::RebuildCards()
 
 		NewCard->InitCard(Candidate);
 		NewCard->OnAugmentCardClickedDelegate.AddDynamic(this, &UHB_SkillAugment::OnAugmentCardClicked);
-		CardContainer->AddChild(NewCard);
+
+		// 슬롯을 균등 분할로 못 박는다.
+		//
+		// 왜 필요한가: 기본값인 Auto 는 카드가 원하는 만큼 가져간다. 카드 배경이
+		// 화면만 해서 첫 장이 가로를 다 먹고 나머지 두 장은 오른쪽으로 밀려 잘렸다.
+		// 카드가 몇 장이든 폭을 1/N 로 나눠 갖게 한다.
+		if (UHorizontalBoxSlot* CardSlot = Cast<UHorizontalBoxSlot>(CardContainer->AddChild(NewCard)))
+		{
+			CardSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			CardSlot->SetHorizontalAlignment(HAlign_Fill);
+			CardSlot->SetVerticalAlignment(VAlign_Fill);
+		}
 	}
 }
 
