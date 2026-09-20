@@ -176,25 +176,21 @@ FHBStartingLoadout UHB_SkillMainWidget::GetCurrentLoadout() const
     return State->GetStartingLoadout();
 }
 
-bool UHB_SkillMainWidget::IsSkillAlreadySelected(FName SkillId) const
+FName UHB_SkillMainWidget::GetEquippedSkillIdForSlot(ESkillSlotType SlotType) const
 {
-    // 빈 슬롯끼리 맞아떨어져 "없음" 카드가 선택된 것처럼 보이는 것을 막는다.
-    if (SkillId.IsNone())
-    {
-        return false;
-    }
-
     const FHBStartingLoadout Loadout = GetCurrentLoadout();
 
-    if (SkillId == Loadout.SkillQId)
+    switch (SlotType)
     {
-        return true;
+    case ESkillSlotType::Active_Q:
+        return Loadout.SkillQId;
+    case ESkillSlotType::Active_E:
+        return Loadout.SkillEId;
+    case ESkillSlotType::Passive:
+        return Loadout.PassiveSkillId;
+    default:
+        return NAME_None;
     }
-    if (SkillId == Loadout.SkillEId)
-    {
-        return true;
-    }
-    return SkillId == Loadout.PassiveSkillId;
 }
 
 void UHB_SkillMainWidget::OnSkillSlotClicked(ESkillSlotType ClickedSlotType)
@@ -205,6 +201,22 @@ void UHB_SkillMainWidget::OnSkillSlotClicked(ESkillSlotType ClickedSlotType)
     UE_LOG(LogTemp, Log, TEXT("SkillMain | 슬롯 클릭됨: %d"), static_cast<int32>(ClickedSlotType));
 
     CurrentEditingSlotType = ClickedSlotType;
+
+    // 클릭한 슬롯만 선택 글로우를 켜고 나머지는 끈다. 셋 중 하나만 켜지는
+    // 배타적 처리를 여기서 한 번에 맡는다 - 그리드 아이콘 쪽 SetPreviewSelected 와
+    // 같은 패턴이다.
+    if (Slot_Q)
+    {
+        Slot_Q->SetSlotSelected(ClickedSlotType == ESkillSlotType::Active_Q);
+    }
+    if (Slot_E)
+    {
+        Slot_E->SetSlotSelected(ClickedSlotType == ESkillSlotType::Active_E);
+    }
+    if (Slot_Passive)
+    {
+        Slot_Passive->SetSlotSelected(ClickedSlotType == ESkillSlotType::Passive);
+    }
 
     // 위쪽 "장착됨" 카드는 슬롯이 바뀌는 즉시 그 슬롯 기준으로 다시 그린다.
     RefreshEquippedCard();
@@ -257,12 +269,25 @@ void UHB_SkillMainWidget::PopulateSkillList(bool bIsPassive)
         Skills = Job->GetPassiveSkillCatalog();
     }
 
-    // 슬롯을 비우는 유일한 방법이다. 슬롯 위젯에는 버튼이 하나뿐이라 우클릭
-    // 같은 취소 입구가 없고, WBP 는 건드리지 않기로 했다.
-    AddSkillIconCard(MakeEmptyCardData(Type));
+    // 지금 이 슬롯에 이미 들어있는 것(스킬이면 그 스킬, 빈 슬롯이면 "없음")은
+    // 다시 골라도 아무 의미가 없으니 목록에서 아예 뺀다.
+    const FName EquippedInThisSlot = GetEquippedSkillIdForSlot(CurrentEditingSlotType);
+
+    // "없음" 카드는 슬롯을 비우는 유일한 방법이다. 슬롯 위젯에는 버튼이 하나뿐이라
+    // 우클릭 같은 취소 입구가 없고, WBP 는 건드리지 않기로 했다. 단, 슬롯이 이미
+    // 비어 있으면(=EquippedInThisSlot 이 None) 이 카드 자체가 "지금 상태"이므로 뺀다.
+    if (!EquippedInThisSlot.IsNone())
+    {
+        AddSkillIconCard(MakeEmptyCardData(Type));
+    }
 
     for (const FHBJobSkillData& Skill : Skills)
     {
+        if (Skill.SkillId == EquippedInThisSlot)
+        {
+            continue;
+        }
+
         FSkillCardData CardData;
 
         if (!MakeCardData(Skill, Type, CardData))
@@ -296,7 +321,7 @@ void UHB_SkillMainWidget::AddSkillIconCard(const FSkillCardData& InCardData)
         return;
     }
 
-    NewCard->InitIconCard(InCardData, IsSkillAlreadySelected(InCardData.SkillId));
+    NewCard->InitIconCard(InCardData);
     NewCard->OnIconClickedDelegate.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillIconClicked);
 
     const int32 Columns = FMath::Max(1, GridColumnCount);
@@ -427,7 +452,8 @@ void UHB_SkillMainWidget::RefreshPreviewDisplay()
             }
         }
 
-        PreviewSkillCard->InitCard(CardData, IsSkillAlreadySelected(CurrentPreviewSkillId));
+        PreviewSkillCard->InitCard(CardData);
+        PreviewSkillCard->SetHeaderText(NSLOCTEXT("SkillMain", "PreviewHeader", "선택한 스킬"));
         PreviewSkillCard->SetVisibility(ESlateVisibility::Visible);
     }
 
@@ -458,26 +484,8 @@ void UHB_SkillMainWidget::RefreshEquipButtonState()
         return;
     }
 
-    const FHBStartingLoadout Loadout = GetCurrentLoadout();
-    FName EquippedInSlot = NAME_None;
-
-    switch (CurrentEditingSlotType)
-    {
-    case ESkillSlotType::Active_Q:
-        EquippedInSlot = Loadout.SkillQId;
-        break;
-    case ESkillSlotType::Active_E:
-        EquippedInSlot = Loadout.SkillEId;
-        break;
-    case ESkillSlotType::Passive:
-        EquippedInSlot = Loadout.PassiveSkillId;
-        break;
-    default:
-        break;
-    }
-
     // 지금 이 슬롯에 이미 장착된 것과 같은 걸 미리보는 중이면 누를 이유가 없다.
-    EquipButton->SetIsEnabled(CurrentPreviewSkillId != EquippedInSlot);
+    EquipButton->SetIsEnabled(CurrentPreviewSkillId != GetEquippedSkillIdForSlot(CurrentEditingSlotType));
 }
 
 void UHB_SkillMainWidget::ClearPreview()
@@ -607,23 +615,7 @@ void UHB_SkillMainWidget::RefreshEquippedCard()
         return;
     }
 
-    const FHBStartingLoadout Loadout = GetCurrentLoadout();
-    FName EquippedSkillId = NAME_None;
-
-    switch (CurrentEditingSlotType)
-    {
-    case ESkillSlotType::Active_Q:
-        EquippedSkillId = Loadout.SkillQId;
-        break;
-    case ESkillSlotType::Active_E:
-        EquippedSkillId = Loadout.SkillEId;
-        break;
-    case ESkillSlotType::Passive:
-        EquippedSkillId = Loadout.PassiveSkillId;
-        break;
-    default:
-        break;
-    }
+    const FName EquippedSkillId = GetEquippedSkillIdForSlot(CurrentEditingSlotType);
 
     const ESkillType Type =
         (CurrentEditingSlotType == ESkillSlotType::Passive) ? ESkillType::Passive : ESkillType::Active;
@@ -639,6 +631,7 @@ void UHB_SkillMainWidget::RefreshEquippedCard()
     }
 
     // 지금 실제로 장착된 걸 보여주는 카드다. "이미 선택됨" 흐림 처리를 할 이유가 없다.
-    EquippedSkillCard->InitCard(CardData, false);
+    EquippedSkillCard->InitCard(CardData);
+    EquippedSkillCard->SetHeaderText(NSLOCTEXT("SkillMain", "EquippedHeader", "장착 중인 스킬"));
     EquippedSkillCard->SetVisibility(ESlateVisibility::Visible);
 }

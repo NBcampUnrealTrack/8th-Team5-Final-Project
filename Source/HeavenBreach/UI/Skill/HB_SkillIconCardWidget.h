@@ -27,7 +27,7 @@ class HEAVENBREACH_API UHB_SkillIconCardWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	void InitIconCard(const FSkillCardData& SkillData, bool bIsEquipped);
+	void InitIconCard(const FSkillCardData& SkillData);
 
 	/** 지금 오른쪽 상세정보 패널에 미리보기로 떠 있는 카드인지 표시한다. */
 	void SetPreviewSelected(bool bSelected);
@@ -45,10 +45,6 @@ protected:
 
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UImage> IconImage;
-
-	/** 이 스킬이 (다른 슬롯 포함) 이미 장착 중일 때만 보여줄 뱃지. 없어도 동작엔 문제없다. */
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UWidget> EquippedBadge;
 
 	/** 미리보기로 선택됐을 때 켜지는 테두리/글로우. 없어도 동작엔 문제없다. */
 	UPROPERTY(meta = (BindWidgetOptional))

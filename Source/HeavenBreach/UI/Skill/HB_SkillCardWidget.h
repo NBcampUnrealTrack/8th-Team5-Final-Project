@@ -20,7 +20,16 @@ class HEAVENBREACH_API UHB_SkillCardWidget : public UUserWidget
 
 public:
     UFUNCTION(BlueprintCallable, Category = "Skill Card")
-    void InitCard(const FSkillCardData& SkillData, bool bIsAlreadySelected);
+    void InitCard(const FSkillCardData& SkillData);
+
+    /**
+     * 같은 WBP_SkillCard 를 "장착 중인 스킬"/"선택한 스킬" 두 군데에 재사용하면서,
+     * 어느 쪽인지 구분해 줄 라벨을 바깥(HB_SkillMainWidget)에서 지정할 수 있게 한다.
+     * InitCard 와 달리 SkillData 에 속한 값이 아니라 "이 카드가 무슨 역할인지"를
+     * 나타내는 고정 문구라 별도 함수로 뺐다.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Skill Card")
+    void SetHeaderText(const FText& InHeaderText);
 
     UPROPERTY(BlueprintAssignable, Category = "Skill Card|Events")
     FOnSkillCardClicked OnCardClickedDelegate;
@@ -30,6 +39,10 @@ protected:
 
     UPROPERTY(meta = (BindWidget))
     TObjectPtr<UButton> CardButton;
+
+    /** "장착 중인 스킬" / "선택한 스킬" 같은 구분 라벨. 없어도 동작엔 문제없다. */
+    UPROPERTY(meta = (BindWidgetOptional))
+    TObjectPtr<UTextBlock> HeaderText;
 
     UPROPERTY(meta = (BindWidget))
     TObjectPtr<UTextBlock> DisplayNameText;

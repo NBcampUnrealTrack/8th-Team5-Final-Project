@@ -16,7 +16,7 @@ void UHB_SkillCardWidget::NativeConstruct()
     }
 }
 
-void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData, bool bIsAlreadySelected)
+void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData)
 {
     // 1. 데이터 캐싱 및 UI 텍스트/이미지 적용
     CurrentSkillId = SkillData.SkillId;
@@ -38,21 +38,15 @@ void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData, bool bIsAlre
             ? FText::FromString(TEXT("–"))
             : FText::Format(NSLOCTEXT("SkillCard", "CooldownSeconds", "{0}초"), FText::AsNumber(SkillData.DisplayCooldown)));
     }
-    // 2. 이미 선택된 스킬은 흐리게만 표시하고 클릭은 막지 않는다.
-    //
-    // 왜 안 막나: Q 에 있는 스킬을 E 에서 눌러 서로 맞바꾸는 조작이 있다.
-    // 막으면 두 액티브를 교환할 방법이 사라진다.
+    // 이 카드는 이제 "장착 중" / "선택한 스킬" 정보 패널 전용이라 (그리드 목록 행이
+    // 아님) 항상 클릭 가능하고 항상 완전 불투명하다. "이미 장착됨" 흐림 처리는
+    // 그리드 쪽 아이콘 카드(HB_SkillIconCardWidget)로 옮겼다.
     if (CardButton)
     {
         CardButton->SetIsEnabled(true);
     }
 
     SetRenderOpacity(1.0f);
-
-    if (bIsAlreadySelected)
-    {
-        SetRenderOpacity(0.5f);
-    }
 
     // 패시브에는 마나·쿨 개념이 없다. 0 을 보여주면 잘못된 정보다.
     ESlateVisibility CostVisibility = ESlateVisibility::Visible;
@@ -69,6 +63,14 @@ void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData, bool bIsAlre
     if (CooldownText)
     {
         CooldownText->SetVisibility(CostVisibility);
+    }
+}
+
+void UHB_SkillCardWidget::SetHeaderText(const FText& InHeaderText)
+{
+    if (HeaderText)
+    {
+        HeaderText->SetText(InHeaderText);
     }
 }
 

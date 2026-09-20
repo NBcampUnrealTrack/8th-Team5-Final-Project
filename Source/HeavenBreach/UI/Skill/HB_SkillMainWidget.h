@@ -130,7 +130,9 @@ private:
     AHB_PlayerState*   GetOwningHBPlayerState() const;
     UHBJobData*        GetEditingJob() const;
     FHBStartingLoadout GetCurrentLoadout() const;
-    bool               IsSkillAlreadySelected(FName SkillId) const;
+
+    /** 지정한 슬롯(Q/E/Passive)에 지금 장착된 스킬 ID. 빈 슬롯이면 NAME_None. */
+    FName GetEquippedSkillIdForSlot(ESkillSlotType SlotType) const;
 
     // ---- 목록 ----
 

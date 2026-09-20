@@ -28,7 +28,7 @@ void UHB_SkillIconCardWidget::NativeConstruct()
 	SetPreviewSelected(false);
 }
 
-void UHB_SkillIconCardWidget::InitIconCard(const FSkillCardData& SkillData, bool bIsEquipped)
+void UHB_SkillIconCardWidget::InitIconCard(const FSkillCardData& SkillData)
 {
 	CurrentSkillId = SkillData.SkillId;
 
@@ -45,11 +45,6 @@ void UHB_SkillIconCardWidget::InitIconCard(const FSkillCardData& SkillData, bool
 		}
 
 		IconImage->SetVisibility(ESlateVisibility::Visible);
-	}
-
-	if (EquippedBadge)
-	{
-		EquippedBadge->SetVisibility(bIsEquipped ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
 
 	if (CardButton)

@@ -29,6 +29,17 @@ void UHB_SkillSlotWidget::HandleSlotButtonClicked()
 	OnSlotClicked.Broadcast(SlotType);
 }
 
+void UHB_SkillSlotWidget::SetSlotSelected(bool bSelected)
+{
+    if (bIsSlotSelected == bSelected)
+    {
+        return;
+    }
+
+    bIsSlotSelected = bSelected;
+    OnSlotSelectedChanged(bIsSlotSelected);
+}
+
 void UHB_SkillSlotWidget::SetSkillIcon(UTexture2D* NewIcon)
 {
     if (!SkillIconImage)
