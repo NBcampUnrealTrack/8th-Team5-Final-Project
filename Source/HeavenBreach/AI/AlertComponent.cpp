@@ -146,6 +146,46 @@ void UAlertComponent::DamageSensed(const FVector& InstigatorLocation)
 	OnAlertUpdated.Broadcast();
 }
 
+void UAlertComponent::RequestRetarget()
+{
+	PruneSensedTargets();
+
+	// 후보가 하나뿐이면 바꿀 게 없다
+	if (SensedTargets.Num() <= 1)
+	{
+		return;
+	}
+
+	// 현재 타겟을 목록 맨 뒤로 보낸다. 그러면 PickTarget 이 다음 후보를 집는다.
+	AActor* Old = CurrentTarget.Get();
+	if (Old)
+	{
+		const int32 Index = SensedTargets.IndexOfByKey(TWeakObjectPtr<AActor>(Old));
+		if (Index != INDEX_NONE)
+		{
+			SensedTargets.RemoveAt(Index);
+			SensedTargets.Add(Old);
+		}
+	}
+
+	AActor* NewTarget = PickTarget();
+	if (!NewTarget)
+	{
+		return;
+	}
+
+	// 후보가 여럿이어도 나머지가 전부 무효면 같은 놈이 다시 나온다
+	if (NewTarget == Old)
+	{
+		return;
+	}
+
+	CurrentTarget = NewTarget;
+	UE_LOG(LogEnemyAI, Log, TEXT("[Alert] 타겟 교체: %s → %s"), *GetNameSafe(Old), *GetNameSafe(NewTarget));
+
+	OnAlertUpdated.Broadcast();
+}
+
 bool UAlertComponent::IsTargetAlive(const AActor* Actor)
 {
 	if (!Actor)
