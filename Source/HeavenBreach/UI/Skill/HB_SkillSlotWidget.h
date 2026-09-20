@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Styling/SlateBrush.h"
 #include "HB_SkillSlotWidget.generated.h"
 
 /**
@@ -58,5 +59,7 @@ private:
 	// 버튼이 클릭되었을 때 실행될 내부 함수
 	UFUNCTION()
 	void HandleSlotButtonClicked();
-	
+
+	/** WBP 디자이너가 SkillIconImage 에 세팅해 둔 기본(빈 슬롯) 브러시. NativeConstruct 에서 캐싱한다. */
+	FSlateBrush DefaultIconBrush;
 };

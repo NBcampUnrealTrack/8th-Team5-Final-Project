@@ -8,7 +8,6 @@
 #include "HB_SkillCardWidget.generated.h"
 
 class UButton;
-class UImage;
 class UTextBlock;
 class URichTextBlock;
 
@@ -31,9 +30,6 @@ protected:
 
     UPROPERTY(meta = (BindWidget))
     TObjectPtr<UButton> CardButton;
-
-    UPROPERTY(meta = (BindWidget))
-    TObjectPtr<UImage> IconImage;
 
     UPROPERTY(meta = (BindWidget))
     TObjectPtr<UTextBlock> DisplayNameText;

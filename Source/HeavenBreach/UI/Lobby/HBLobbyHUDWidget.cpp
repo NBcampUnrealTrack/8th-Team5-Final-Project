@@ -34,10 +34,10 @@ void UHBLobbyHUDWidget::NativeConstruct()
 		Button_Lobby->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleLobbyClicked);
 	}
 
-	if (Button_ChoiceJob)
+	if (Button_ChoiceSkill)
 	{
-		ChoiceJobButtonStyle = Button_ChoiceJob->GetStyle();
-		Button_ChoiceJob->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleChoiceJobClicked);
+		ChoiceSkillButtonStyle = Button_ChoiceSkill->GetStyle();
+		Button_ChoiceSkill->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleChoiceSkillClicked);
 	}
 
 	if (Button_Storage)
@@ -76,9 +76,9 @@ void UHBLobbyHUDWidget::NativeDestruct()
 		Button_Lobby->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleLobbyClicked);
 	}
 
-	if (Button_ChoiceJob)
+	if (Button_ChoiceSkill)
 	{
-		Button_ChoiceJob->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleChoiceJobClicked);
+		Button_ChoiceSkill->OnClicked.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleChoiceSkillClicked);
 	}
 
 	if (Button_Storage)
@@ -118,9 +118,9 @@ void UHBLobbyHUDWidget::HandleLobbyClicked()
 	SelectMenu(EHBLobbyHUDMenu::Lobby);
 }
 
-void UHBLobbyHUDWidget::HandleChoiceJobClicked()
+void UHBLobbyHUDWidget::HandleChoiceSkillClicked()
 {
-	SelectMenu(EHBLobbyHUDMenu::ChoiceJob);
+	SelectMenu(EHBLobbyHUDMenu::ChoiceSkill);
 }
 
 void UHBLobbyHUDWidget::HandleStorageClicked()
@@ -161,9 +161,9 @@ void UHBLobbyHUDWidget::UpdateButtonStyles()
 		Button_Lobby->SetStyle(LobbyButtonStyle);
 	}
 
-	if (Button_ChoiceJob)
+	if (Button_ChoiceSkill)
 	{
-		Button_ChoiceJob->SetStyle(ChoiceJobButtonStyle);
+		Button_ChoiceSkill->SetStyle(ChoiceSkillButtonStyle);
 	}
 
 	if (Button_Storage)
@@ -186,8 +186,8 @@ void UHBLobbyHUDWidget::UpdateButtonStyles()
 	case EHBLobbyHUDMenu::Lobby:
 		ApplySelectedStyle(Button_Lobby, LobbyButtonStyle);
 		break;
-	case EHBLobbyHUDMenu::ChoiceJob:
-		ApplySelectedStyle(Button_ChoiceJob, ChoiceJobButtonStyle);
+	case EHBLobbyHUDMenu::ChoiceSkill:
+		ApplySelectedStyle(Button_ChoiceSkill, ChoiceSkillButtonStyle);
 		break;
 	case EHBLobbyHUDMenu::Storage:
 		ApplySelectedStyle(Button_Storage, StorageButtonStyle);
@@ -221,8 +221,8 @@ UWidget* UHBLobbyHUDWidget::GetContentWidget(EHBLobbyHUDMenu Menu) const
 	{
 	case EHBLobbyHUDMenu::Lobby:
 		return Widget_Lobby;
-	case EHBLobbyHUDMenu::ChoiceJob:
-		return Widget_ChoiceJob;
+	case EHBLobbyHUDMenu::ChoiceSkill:
+		return Widget_ChoiceSkill;
 	case EHBLobbyHUDMenu::Storage:
 		return Widget_Storage;
 	case EHBLobbyHUDMenu::Shop:
