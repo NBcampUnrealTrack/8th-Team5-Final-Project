@@ -1,0 +1,10 @@
+{
+  "unchanged_maps": [
+    "Content\\Levels\\Test_CW\\TestPCG.umap",
+    "Content\\Levels\\Test_CW\\Maps\\TestPCG.umap",
+    "Content\\Levels\\Test_CW\\Maps\\Test_Adventure01.umap",
+    "Content\\Levels\\Test_CW\\Maps\\Test_Boss.umap",
+    "Content\\Levels\\Test_CW\\Prototype\\Modules\\LI_Adventure01.umap",
+    "Content\\Levels\\Test_CW\\Prototype\\Modules\\LI_Boss.umap"
+  ]
+}

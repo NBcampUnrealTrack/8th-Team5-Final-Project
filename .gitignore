@@ -28,3 +28,6 @@ Saved/
 # Visual Studio cache
 .vs/
 *.ipch
+
+# Unreal Engine MCP
+Plugins/Monolith/

@@ -1,0 +1,7 @@
+{
+  "door": "/Game/Levels/Test_CW/Prototype/Modules/UEDPIE_0_HBPreview_HBPCGPreviewGenerator_0_G1_R0.LI_Adventure01:PersistentLevel.BP_Metal_Door_01_C_1",
+  "door_collision_profile": "BlockAll",
+  "crossed_mesh_bounds": true,
+  "distance_cm": 342.64283180236816,
+  "note": "Door did not block complex Visibility trace; blocking wall crossing is separately verified."
+}
