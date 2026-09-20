@@ -10,13 +10,12 @@ namespace WarriorTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_CombatBreath);      // 전투 호흡
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_StrongBody);        // 강인한 육체
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_BerserkerRage);     // 전사의 분노
-	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_Parry);             // 패링
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_WeaponMaster);      // 무기의 달인
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Passive_GuardStance);      // 방어태세. 증강으로 획득
 
 	// ---------------- 부여된 상태 ----------------
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_BloodFrenzy);         // 피의 광란 지속 중. 흡혈 판정이 본다
-	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_ParryWindow);         // 패링 유효 구간. 방어 몽타주의 ANS 가 붙인다
 
 	// ---------------- 쿨타임 ----------------
 	// 각각 쿨다운 GE 애셋 하나가 이 태그를 Granted Tag 로 갖는다.
@@ -53,7 +52,6 @@ namespace WarriorTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_CombatBreath_Free);       // 전투 호흡의 일반 공격 마나 0
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_StrongBody_Defense);      // 강인한 육체의 방어력도 증가
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Rage_AttackSpeed);        // 분노의 공격의 속도도 상승
-	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Parry_Mitigate);          // 패링의 성공 시 피해 대폭 감소
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_WeaponMaster_Damage);     // 무기의 달인 공격력 상승
 
 	// ================ 폐기 예정 ================

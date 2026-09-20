@@ -14,4 +14,6 @@ namespace StateTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_SuperArmor, "State.SuperArmor", "경직으로 끊기지 않는 구간");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_AfterDelay, "State.AfterDelay", "공격후 가만히 있을 후딜레이");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Grabbed, "State.Grabbed", "그랩 상태");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_ParryWindow, "State.ParryWindow", "패링 판정 창. 이 동안 정면 근접 피격은 무효 + 상대 스태거");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_ParryRecovery, "State.ParryRecovery", "패링 실패 후딜. 이 동안 재패링 불가. 공격은 막지 않는다");
 }
