@@ -923,36 +923,11 @@
 					BoundInventory->Server_ToggleFavorite(InstanceId);
 				}
 			});
-		ActiveContextMenu->OnInfoRequested.AddLambda([this, Item, ViewData]()
-			{
-				if (ItemInfoPopupClass == nullptr)
-				{
-					return;
-				}
-				if (ActiveInfoPopup != nullptr)
-				{
-					ActiveInfoPopup->RemoveFromParent();
-					ActiveInfoPopup = nullptr;
-				}
-				ActiveInfoPopup = CreateWidget<UItemInfoPopupWidget>(GetOwningPlayer(), ItemInfoPopupClass);
-				if (ActiveInfoPopup == nullptr)
-				{
-					return;
-				}
-				UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
-				FString StatText = BuildStatTextForItem(Item);
-
-				FString EquipSlotLabel = GetEquipSlotDisplayName(ViewData.EquipSlotType);
-
-				ActiveInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, ViewData.Description,
-					ViewData.bIsRelic, ViewData.BenefitDescription, ViewData.RiskDescription,
-					ViewData.SellValue, IconTexture, StatText, /*bInCompact=*/false,
-					EquipSlotLabel, Item.CurrentDurability, GetMaxDurabilityForGrade(ViewData.Grade));
-				ActiveInfoPopup->AddToViewport(100);
-				ActiveInfoPopup->SetKeyboardFocus();
-				const FVector2D InfoViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
-				ActiveInfoPopup->SetPositionInViewport(InfoViewportPosition, false);
-			});
+		// "아이템 정보"는 더 이상 Ctrl+우클릭 메뉴에서 따로 열지 않는다 — 이제 마우스를
+		// 올리기만 해도(UpdateHoverInfoPopup) 상세 정보가 그대로 보이기 때문에 중복이라
+		// OnInfoRequested는 바인딩하지 않는다. (컨텍스트 메뉴 WBP에 "정보" 버튼이 아직
+		// 남아있다면 눌러도 아무 반응이 없을 뿐 에러는 나지 않는다 — 버튼 자체를 지우고
+		// 싶으면 Designer에서 직접 제거해줘야 한다.)
 		ActiveContextMenu->AddToViewport(100);
 		ActiveContextMenu->SetKeyboardFocus();
 		const FVector2D ViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
@@ -1006,11 +981,14 @@
 
 		UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
 
-		// 호버 툴팁은 "간편 정보" — 이름/핵심 스탯/판매가만 3줄로 보여준다.
+		// 이제 Ctrl+우클릭 전용 상세 팝업이 없어졌으니, 호버만으로도 예전 "상세 정보"와
+		// 동일한 내용(기본 효과/각인 효과/내구도/설명 등)을 그대로 보여준다.
 		const FString StatText = BuildStatTextForItem(Item);
-		HoverInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, TEXT(""),
+		const FString EquipSlotLabel = GetEquipSlotDisplayName(ViewData.EquipSlotType);
+		HoverInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, ViewData.Description,
 			ViewData.bIsRelic, ViewData.BenefitDescription, ViewData.RiskDescription,
-			ViewData.SellValue, IconTexture, StatText, /*bInCompact=*/true);
+			ViewData.SellValue, IconTexture, StatText, /*bInCompact=*/false,
+			EquipSlotLabel, Item.CurrentDurability, GetMaxDurabilityForGrade(ViewData.Grade));
 
 		HoverInfoPopup->AddToViewport(100);
 		// 클릭형 정보 팝업과 달리 포커스를 가져가면 안 된다 (마우스 이동만으로 키/드래그 입력이

@@ -31,6 +31,11 @@ public:
 		FIntPoint InItemSize,
 		float InCellSize);
 
+	// 드래그 중 T키로 회전을 토글했을 때, 이 위젯이 드래그 미리보기(UMG DefaultDragVisual)로
+	// 쓰이고 있는 복제본이라면 아이콘 회전만 갱신한다. InitializeItem 전체를 다시 부르지 않고
+	// 아이콘 크기/회전 각도만 바꿔서 드래그 도중 매번 다시 세팅하는 비용을 피한다.
+	void SetPreviewRotated(bool bInRotated);
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
