@@ -5,6 +5,8 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
+#include "Player/HBPlayerCharacter.h"
+#include "Player/HBPlayerController.h"
 
 UGA_PlayerStagger::UGA_PlayerStagger()
 {
@@ -85,6 +87,18 @@ void UGA_PlayerStagger::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	// 몽타주 태스크를 만든 뒤에 붙인다. 태스크 생성이 실패해 위에서 반환하면
 	// 감속만 남는 상황이 생기기 때문이다.
 	ApplySlow(ActorInfo);
+
+	// 경직 쉐이크. 세기 순서는 스태거 > 피격 > 방어이고, 여기가 가장 세다.
+	//
+	// 왜 여기인가: 몽타주 태스크 생성이 실패하면 위에서 반환하므로,
+	// 이 자리는 "경직이 확정된 뒤" 다. 감속과 같은 이유로 여기 둔다.
+	if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()))
+	{
+		if (AHBPlayerController* PC = Cast<AHBPlayerController>(Player->GetController()))
+		{
+			PC->ClientPlayCameraShake(Player->GetHitShakeClass(), Player->GetStaggerShakeScale());
+		}
+	}
 
 	// 네 경로 모두 종료로 묶는다. 하나라도 빠지면 경직이 안 풀린다.
 	Task->OnCompleted.AddDynamic(this, &UGA_PlayerStagger::OnMontageEnded);
