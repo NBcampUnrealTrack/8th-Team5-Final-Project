@@ -129,6 +129,9 @@ protected:
 
 private:
 	UFUNCTION(Client, Reliable)
+	void Client_PlayIngredientPlaced();
+
+	UFUNCTION(Client, Reliable)
 	void Client_PlayCraftResult(bool bSuccess);
 
 	bool ReturnSlotToStash(int32 InSlotIndex);

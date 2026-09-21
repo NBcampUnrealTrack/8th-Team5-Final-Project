@@ -137,13 +137,23 @@ void AHBPlayerController::CreateUILayout()
 	}
 }
 
-void AHBPlayerController::ClientPlayHitEffect_Implementation(float NewHP, float NewMaxHP)
+void AHBPlayerController::ClientPlayHitEffect_Implementation(float NewHP, float NewMaxHP, bool bSuppressScreenEffect)
 {
-	if (HUDLayer)
+	if (!HUDLayer)
 	{
-		HUDLayer->UpdateHPBar(NewHP, NewMaxHP);
-		HUDLayer->PlayHitEffect();
+		return;
 	}
+
+	// HP 바는 막았든 안 막았든 갱신한다. 서버가 보낸 값이 항상 최신이다.
+	HUDLayer->UpdateHPBar(NewHP, NewMaxHP);
+
+	// 막아냈으면 붉은 화면은 건너뛴다.
+	if (bSuppressScreenEffect)
+	{
+		return;
+	}
+
+	HUDLayer->PlayHitEffect();
 }
 
 void AHBPlayerController::OpenContainer(UInventoryComponent* InContainer)
@@ -302,6 +312,7 @@ void AHBPlayerController::SetupInputComponent()
 
 	}
 }
+
 
 /////////// Lobby Test /////////////////////////
 void AHBPlayerController::TestCreateSteamLobby()
@@ -558,11 +569,13 @@ void AHBPlayerController::Attack()
 	}
 }
 
+// 함수 이름과 입력 액션 애셋(BlockAction)은 그대로 둔다.
+// 개명하면 입력 매핑 애셋과 BP 참조가 깨진다. 하는 일만 패링으로 바뀌었다.
 void AHBPlayerController::Block()
 {
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
-		PlayerCharacter->StartBlocking();
+		PlayerCharacter->TryParry();
 	}
 }
 
@@ -570,7 +583,7 @@ void AHBPlayerController::StopBlock()
 {
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
-		PlayerCharacter->StopBlocking();
+		PlayerCharacter->ReleaseParryInput();
 	}
 }
 
@@ -627,7 +640,7 @@ void AHBPlayerController::ActivateSkill2()
 	}
 }
 
-void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCameraShakeBase> ShakeClass)
+void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCameraShakeBase> ShakeClass, float Scale)
 {
 	const UHBSettingsSubsystem* Settings = GetGameInstance()->GetSubsystem<UHBSettingsSubsystem>();
 	if (Settings && !Settings->IsCombatCameraShakeEnabled())
@@ -636,7 +649,7 @@ void AHBPlayerController::ClientPlayCameraShake_Implementation(TSubclassOf<UCame
 	}
 	if (ShakeClass && PlayerCameraManager)
 	{
-		PlayerCameraManager->StartCameraShake(ShakeClass);
+		PlayerCameraManager->StartCameraShake(ShakeClass, FMath::Max(0.f, Scale));
 	}
 }
 
@@ -697,17 +710,22 @@ void AHBPlayerController::UseQuickSlot4()
 
 void AHBPlayerController::ToggleSkillAugment()
 {
-	UE_LOG(LogTemp, Warning, TEXT("ToggleSkillAugment called"));
 	if (SkillAugmentScreen != nullptr)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Already open -> closing"));
 		SkillAugmentScreen->DeactivateWidget();
 		SkillAugmentScreen = nullptr;
 		return;
 	}
 
+	// 남은 선택권이 없으면 열지 않는다. 후보는 레벨업 때만 생기므로
+	// 가드가 없으면 카드 0장짜리 빈 화면이 뜬다.
+	const AHB_PlayerState* HBPS = GetPlayerState<AHB_PlayerState>();
+	if (HBPS == nullptr || HBPS->GetPendingUpgradeChoices() <= 0)
+	{
+		return;
+	}
+
 	SkillAugmentScreen = UHB_SkillAugment::OpenOn(this, SkillAugmentScreenClass);
-	UE_LOG(LogTemp, Warning, TEXT("OpenOn result: %s"), SkillAugmentScreen ? TEXT("valid") : TEXT("null"));
 	if (SkillAugmentScreen != nullptr)
 	{
 		SkillAugmentScreen->OnDeactivated().AddWeakLambda(this, [this]()

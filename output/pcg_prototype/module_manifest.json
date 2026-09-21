@@ -1,0 +1,60 @@
+{
+  "Adventure01": {
+    "asset": "/Game/Levels/Test_CW/Prototype/Modules/LI_Adventure01",
+    "source": "/Game/Levels/Test_CW/Maps/Test_Adventure01",
+    "min": [
+      -4500.500000000007,
+      -4059.3750000000146,
+      -801.5412902832031
+    ],
+    "max": [
+      4500.500000000007,
+      4059.3750000000155,
+      1812.0
+    ],
+    "removed_environment": [
+      "DirectionalLight",
+      "SkyAtmosphere",
+      "SkyLight",
+      "ExponentialHeightFog",
+      "VolumetricCloud",
+      "PlayerStart",
+      "SM_SkySphere"
+    ],
+    "actor_count": 336,
+    "source_origin_offset": [
+      -1045.1249999999925,
+      300.9999999999998,
+      0
+    ]
+  },
+  "Boss": {
+    "asset": "/Game/Levels/Test_CW/Prototype/Modules/LI_Boss",
+    "source": "/Game/Levels/Test_CW/Maps/Test_Boss",
+    "min": [
+      -5965.000029971578,
+      -6899.5,
+      -97.025390625
+    ],
+    "max": [
+      5965.0000299715775,
+      6899.5,
+      1723.563232421875
+    ],
+    "removed_environment": [
+      "DirectionalLight",
+      "SkyAtmosphere",
+      "SkyLight",
+      "ExponentialHeightFog",
+      "VolumetricCloud",
+      "PlayerStart",
+      "SM_SkySphere"
+    ],
+    "actor_count": 746,
+    "source_origin_offset": [
+      -432.000029971578,
+      416.5,
+      0
+    ]
+  }
+}

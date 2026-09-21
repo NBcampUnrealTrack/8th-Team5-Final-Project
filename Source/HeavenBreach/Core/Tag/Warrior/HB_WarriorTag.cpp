@@ -6,12 +6,11 @@ namespace WarriorTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Passive_CombatBreath, "Passive.Warrior.CombatBreath");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Passive_StrongBody, "Passive.Warrior.StrongBody");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Passive_BerserkerRage, "Passive.Warrior.BerserkerRage");
-	UE_DEFINE_GAMEPLAY_TAG(TAG_Passive_Parry, "Passive.Warrior.Parry");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Passive_WeaponMaster, "Passive.Warrior.WeaponMaster");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Passive_GuardStance, "Passive.Warrior.GuardStance", "방어태세 보유. 패링 창이 끝나도 R 을 쥐고 있으면 방어가 이어진다");
 
 	// ---------------- 상태 ----------------
 	UE_DEFINE_GAMEPLAY_TAG(TAG_State_BloodFrenzy, "State.Warrior.BloodFrenzy");
-	UE_DEFINE_GAMEPLAY_TAG(TAG_State_ParryWindow, "State.Warrior.ParryWindow");
 
 	// ---------------- 쿨타임 ----------------
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Cooldown_BattleCry, "Cooldown.Warrior.BattleCry");
@@ -40,7 +39,6 @@ namespace WarriorTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_CombatBreath_Free, "Augment.Warrior.CombatBreath.Free");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_StrongBody_Defense, "Augment.Warrior.StrongBody.Defense");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_Rage_AttackSpeed, "Augment.Warrior.Rage.AttackSpeed");
-	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_Parry_Mitigate, "Augment.Warrior.Parry.Mitigate");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_WeaponMaster_Damage, "Augment.Warrior.WeaponMaster.Damage");
 
 	// ================ 폐기 예정 ================

@@ -120,6 +120,7 @@ bool UShopComponent::AddToBuyBasket(const FDataTableRowHandle& InItemRow, int32 
 		{
 			Entry.Quantity += InQuantity;
 			OnBasketChanged.Broadcast();
+			UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::ItemMove);
 			return true;
 		}
 	}
@@ -133,6 +134,7 @@ bool UShopComponent::AddToBuyBasket(const FDataTableRowHandle& InItemRow, int32 
 	Basket.Add(NewEntry);
 
 	OnBasketChanged.Broadcast();
+	UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::ItemMove);
 
 	return true;
 }
@@ -176,6 +178,7 @@ bool UShopComponent::AddToSellBasket(FGuid InInstanceId)
 	Basket.Add(NewEntry);
 
 	OnBasketChanged.Broadcast();
+	UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::ItemMove);
 
 	return true;
 }
@@ -197,6 +200,7 @@ void UShopComponent::RemoveFromBasket(int32 InIndex)
 	}
 
 	OnBasketChanged.Broadcast();
+	UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Cancel);
 }
 
 void UShopComponent::ClearBasket()

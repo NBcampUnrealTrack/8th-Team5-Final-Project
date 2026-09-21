@@ -96,8 +96,34 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Tactics")
 	bool bStayAtHome = false;
 
-	// 쿨다운 동안 포위/후퇴한다. false 면 제자리 대기
-	// 더미데이터
+	// 쿨다운 동안 포위 · 후퇴한다. false 면 제자리 대기.
+	// 이 적에게 전술 이동 기능 전체를 켜는 스위치다. 기존 적은 false 로 둔다.
 	UPROPERTY(EditAnywhere, Category = "Tactics")
 	bool bUseSpacing = false;
+
+	// 타겟과 유지하려는 간격. 이보다 가까우면 확률과 무관하게 물러난다.
+	//
+	// 왜 필요한가: 선회 반지름을 "지금 거리" 로만 쓰면, 붙어 있을 때 선회 지점이
+	// AcceptanceRadius 안에 들어와 MoveTo 가 즉시 완료되고 제자리에 선다.
+	// 그리고 전술을 확률로만 뽑으면 붙은 채로 계속 도는 구간이 생긴다.
+	//
+	// 쳐낼 조건: 붙어서 싸우는 게 맞는 적이면 0 으로 두면 예전 동작이 된다.
+	UPROPERTY(EditAnywhere, Category = "Tactics", meta = (ClampMin = "0.0"))
+	float KeepDistance = 350.f;
+
+	// 선회 한 번에 도는 각도. 작을수록 원에 가깝지만 그만큼 자주 갱신해야 한다
+	UPROPERTY(EditAnywhere, Category = "Tactics", meta = (ClampMin = "1.0", ClampMax = "180.0"))
+	float OrbitStepDegrees = 35.f;
+
+	// 선회 대신 뒤로 물러날 확률
+	UPROPERTY(EditAnywhere, Category = "Tactics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float RetreatChance = 0.3f;
+
+	// 뒤로 물러날 거리
+	UPROPERTY(EditAnywhere, Category = "Tactics", meta = (ClampMin = "0.0"))
+	float BackstepDistance = 400.f;
+
+	// 전술을 새로 고를 때 타겟도 바꿀 확률. 0 이면 절대 안 바꾼다
+	UPROPERTY(EditAnywhere, Category = "Tactics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float RetargetChance = 0.f;
 };
