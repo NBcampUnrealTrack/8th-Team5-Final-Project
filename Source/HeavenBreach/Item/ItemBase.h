@@ -81,6 +81,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
 	int32 StackCount = 1;
 
+	// 즐겨찾기한 아이템을 버렸을 때(필드에 떨어뜨렸을 때) 즐겨찾기 상태를 잃지 않도록,
+	// 드롭된 월드 액터에도 값을 함께 들고 다닌다. TryPickUp에서 다시 인벤토리로
+	// 넣을 때 이 값을 새 FItemInstance에 그대로 복사한다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
+	bool bIsFavorite = false;
+
 	// ----- 함수 -----
 	// ItemID / SourceTable 기준으로 해당 DataTable에서 값을 읽어와 캐시 필드를 채우고,
 	// EquipMeshPath(무기/방패) 또는 WorldMeshPath(잡템)를 로드해서 MeshComponent/SkeletalMeshComponent에 적용한다.

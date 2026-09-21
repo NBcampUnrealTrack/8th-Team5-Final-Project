@@ -39,6 +39,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.MaxStack = FMath::Max(1, ItemRow->MaxStack);
 		OutViewData.Grade = ItemRow->Grade;
 		OutViewData.DisplayName = ItemRow->ItemName;
+		OutViewData.ItemType = ItemRow->ItemType;
 		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
 		OutViewData.HealAmount = ItemRow->HealAmount;
 		OutViewData.SellValue = ItemRow->SellValue;

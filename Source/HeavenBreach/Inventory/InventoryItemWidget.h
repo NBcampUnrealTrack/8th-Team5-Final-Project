@@ -92,6 +92,13 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_FavoriteStar;
 
+	// 제작 재료 아이템을 일반 잡템과 구분하기 위한 표시. 즐겨찾기 별(우측 하단)과 대칭되는
+	// 좌측 하단에 작은 아이콘으로 표시한다. 아이콘 텍스처 자체는 즐겨찾기 별과 같은 방식으로
+	// WBP_InventoryItem 디자이너에서 이 Image의 Brush에 직접 지정한다 - 코드에서는
+	// ItemType == "Material"일 때만 보이도록 표시 여부만 토글한다.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UImage> Image_MaterialBadge;
+
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UBorder> Border_GradeFrame;
 	UPROPERTY(Transient, meta = (BindWidgetAnimOptional))

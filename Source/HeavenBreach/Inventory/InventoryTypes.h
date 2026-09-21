@@ -50,6 +50,8 @@ struct FItemViewData
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString IconPath;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FString ItemType;
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	int32 SellValue = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")

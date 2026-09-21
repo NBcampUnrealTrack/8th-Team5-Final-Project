@@ -202,6 +202,17 @@ void UInventoryItemWidget::InitializeItem(
 			? ESlateVisibility::HitTestInvisible
 			: ESlateVisibility::Hidden);
 	}
+	// 제작 재료 아이템 구분용 표시 - 일반 잡템과 헷갈린다는 피드백으로 추가.
+	// 즐겨찾기 별(우측 하단)과 대칭되는 좌측 하단에 작은 아이콘으로 표시. 아이콘 텍스처는
+	// Image_FavoriteStar와 동일한 방식으로 WBP_InventoryItem 디자이너에서 이미 지정되어
+	// 있으므로, 코드에서는 ItemType == "Material"일 때만 보이도록 표시 여부만 토글한다.
+	if (Image_MaterialBadge != nullptr)
+	{
+		const bool bIsCraftMaterial = bHasViewData && ViewData.ItemType == TEXT("Material");
+		Image_MaterialBadge->SetVisibility(bIsCraftMaterial
+			? ESlateVisibility::HitTestInvisible
+			: ESlateVisibility::Hidden);
+	}
 	SetVisibility(ESlateVisibility::Visible);
 }
 
