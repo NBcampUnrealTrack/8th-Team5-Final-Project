@@ -16,7 +16,7 @@ UENUM(BlueprintType)
 enum class EHBLobbyHUDMenu : uint8
 {
 	Lobby,
-	ChoiceJob,
+	ChoiceSkill,
 	Storage,
 	Shop,
 	Craft
@@ -50,7 +50,7 @@ protected:
 	TObjectPtr<UButton> Button_Lobby;
 
 	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UButton> Button_ChoiceJob;
+	TObjectPtr<UButton> Button_ChoiceSkill;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> Button_Storage;
@@ -70,7 +70,7 @@ protected:
 	TObjectPtr<UWidget> Widget_Lobby;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
-	TObjectPtr<UWidget> Widget_ChoiceJob;
+	TObjectPtr<UWidget> Widget_ChoiceSkill;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UWidget> Widget_Storage;
@@ -102,7 +102,7 @@ private:
 	void HandleLobbyClicked();
 
 	UFUNCTION()
-	void HandleChoiceJobClicked();
+	void HandleChoiceSkillClicked();
 
 	UFUNCTION()
 	void HandleStorageClicked();
@@ -119,7 +119,7 @@ private:
 	UWidget* GetContentWidget(EHBLobbyHUDMenu Menu) const;
 
 	FButtonStyle LobbyButtonStyle;
-	FButtonStyle ChoiceJobButtonStyle;
+	FButtonStyle ChoiceSkillButtonStyle;
 	FButtonStyle StorageButtonStyle;
 	FButtonStyle ShopButtonStyle;
 	FButtonStyle CraftButtonStyle;
