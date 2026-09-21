@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Styling/SlateBrush.h"
 #include "HB_SkillSlotWidget.generated.h"
 
 /**
@@ -44,6 +45,27 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Skill Slot")
 	void SetSkillIcon(UTexture2D* NewIcon);
 
+	/**
+	 * 이 슬롯이 지금 "편집 중"(클릭해서 고정된) 상태인지 설정한다.
+	 * 호버와는 별개의 상태다 - 호버는 마우스를 떼면 풀리지만, 이건 다른 슬롯을
+	 * 클릭하기 전까지 계속 켜져 있어야 한다. Q/E/Passive 중 셋 중 하나만 켜지는
+	 * 배타적 처리는 UHB_SkillMainWidget 이 세 슬롯에 각각 이 함수를 불러서 맡는다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Skill Slot")
+	void SetSlotSelected(bool bSelected);
+
+	UFUNCTION(BlueprintPure, Category = "Skill Slot")
+	bool IsSlotSelected() const { return bIsSlotSelected; }
+
+	/**
+	 * bIsSlotSelected 가 바뀔 때마다 불린다. WBP 그래프에서 이걸 구현해서
+	 * 글로우 애니메이션을 켜고 끈다 (true 면 Play Animation, false 면 Play
+	 * Animation Reverse). OnUnhovered 쪽에서는 IsSlotSelected() 가 true 인
+	 * 동안은 글로우를 끄지 않도록 분기해야 호버가 끝나도 선택 글로우가 유지된다.
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Skill Slot|Events")
+	void OnSlotSelectedChanged(bool bSelected);
+
 protected:
 	virtual void NativeConstruct() override;
 
@@ -58,5 +80,10 @@ private:
 	// 버튼이 클릭되었을 때 실행될 내부 함수
 	UFUNCTION()
 	void HandleSlotButtonClicked();
-	
+
+	/** WBP 디자이너가 SkillIconImage 에 세팅해 둔 기본(빈 슬롯) 브러시. NativeConstruct 에서 캐싱한다. */
+	FSlateBrush DefaultIconBrush;
+
+	/** 지금 이 슬롯이 클릭으로 고정 선택된 상태인가. */
+	bool bIsSlotSelected = false;
 };

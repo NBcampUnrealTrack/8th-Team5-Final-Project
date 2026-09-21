@@ -17,7 +17,17 @@ class AEnemyCharacterBase;
 class UStateTreeAIComponent;
 
 /**
- * 
+ * 후딜 구간에 무엇을 할지. PickTacticalMove 가 정하고 GetStrafePoint 가 읽는다.
+ */
+UENUM(BlueprintType)
+enum class EEnemyTactic : uint8
+{
+	Orbit    UMETA(DisplayName = "선회"),
+	Backstep UMETA(DisplayName = "후퇴"),
+};
+
+/**
+ *
  */
 UCLASS()
 class HEAVENBREACH_API AEnemyAIControllerBase : public AAIController
@@ -58,10 +68,48 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI")
 	bool ShouldUseSpacing() const;
 
-	// 포위 또는 후퇴 지점. 둘 중 하나를 랜덤으로 고른다
-	// StateTree측에서 딜레이를 주며 호출받아 Moveto로 이동할 것
+	// 타겟과의 평면 거리. 타겟이 없으면 -1.
+	// 전술 선택이 거리를 보게 되면서 필요해졌다
+	UFUNCTION(BlueprintPure, Category = "AI")
+	float GetDistanceToTarget() const;
+
+	// 지금 정해진 전술에 맞는 다음 이동 지점.
+	// StateTree 측에서 짧은 딜레이(0.3초 정도)로 반복 호출해 MoveTo 로 이동할 것.
+	// 길게 잡으면 도착해서 멈췄다 다시 출발해 뚝뚝 끊긴다.
 	UFUNCTION(BlueprintPure, Category = "AI")
 	FVector GetStrafePoint() const;
+
+	// 이동 중에 타겟을 바라보게 한다. 이동 태스크가 EnterState/ExitState 에서 부른다.
+	//
+	// 왜 회전 태스크를 안 쓰나: SetActorRotation 은 이동 중에 무브먼트의 회전과
+	// 매 틱 싸우고, 이겨도 몸이 항상 속도 방향을 향하게 되어 AnimBP 의 Direction 이
+	// 0 으로 고정된다. 그러면 좌우 이동 블렌드스페이스가 영영 안 나온다.
+	// 포커스로 돌리면 이동과 회전이 한 시스템 안에서 정리되고 Direction 이 산다.
+	//
+	// 쳐낼 조건: 좌우 이동 애니메이션을 안 쓰기로 하면 이 함수는 필요 없다.
+	UFUNCTION(BlueprintCallable, Category = "AI")
+	void SetStrafeFacing(bool bEnable);
+
+	// 전술을 새로 고른다. 후딜 구간에 들어올 때 한 번 부른다.
+	// 지점 갱신(GetStrafePoint)보다 훨씬 긴 주기로 불러야 한다.
+	// 같은 주기로 부르면 후퇴와 선회가 매번 뒤집혀 제자리에서 떤다.
+	UFUNCTION(BlueprintCallable, Category = "AI")
+	void PickTacticalMove();
+
+	// 스탯의 RetargetChance 로 굴려서 타겟을 다시 고른다.
+	// 공격이 정상적으로 끝난 시점에 한 번만 부를 것. (ST_Attack 의 Retarget 상태)
+	//
+	// 왜 전술 갱신에서 분리했나: 2초 주기에 얹어두니 후딜 한 번에 여러 번 굴려서
+	// 타겟이 두 사람 사이를 왔다갔다 했고, 선회 중심이 그때마다 순간이동해
+	// 이동이 망가졌다. 호출 시점을 한 곳으로 좁힌다.
+	//
+	// 왜 확률을 트리 조건이 아니라 여기서 굴리나: StateTree 조건은 선택 · 재선택 ·
+	// 활성화 검사에서 여러 번 평가될 수 있다. 조건 안에서 굴리면 한 공격에
+	// 두세 번 굴려져 같은 문제가 재현된다.
+	//
+	// 쳐낼 조건: 어그로 수치 시스템이 생기면 이 함수는 그쪽으로 흡수된다.
+	UFUNCTION(BlueprintCallable, Category = "AI")
+	void TryRetarget();
 
 protected:
 	// 데이터 에셋. 값을 복사하는 게 아니라 애셋 포인터만 들고 있는다.
@@ -78,6 +126,14 @@ protected:
 	// 감각 컴포넌트에 감각들을 연결한다.
 	// 혹시 나중에 시야나 청각이 필요하거나 없늕적이 나올지도모르니까
 	void ApplySenses(const FEnemyStatRow* Stats);
+
+	// 네비 투사 허용 오차. 좁은 방이면 줄인다
+	UPROPERTY(EditDefaultsOnly, Category = "AI|Tactics")
+	FVector StrafeNavExtent = FVector(150.f, 150.f, 300.f);
+
+	// 계산한 지점을 네비메시 위로 끌어올린다. 못 올리면 false.
+	// 이게 없으면 벽 안이나 절벽 밖이 나와 MoveTo 가 즉시 실패한다
+	bool ProjectStrafePoint(const FVector& RawPoint, FVector& OutPoint) const;
 
 	// 감각컴포넌트에서 누군가 발견시 델리게이트 구독시키는 함수
 	UFUNCTION()
@@ -148,5 +204,15 @@ protected:
 
 
 private:
+	// 선회 방향. 개체마다 고정한다. 매번 고르면 좌우로 덜덜 떤다
+	bool bOrbitClockwise = true;
 
+	// 지금 무슨 전술인가. PickTacticalMove 가 정하고 GetStrafePoint 가 읽는다
+	EEnemyTactic CurrentTactic = EEnemyTactic::Orbit;
+
+	// 선회 조준 중인가. 중복 진입 시 원래 값을 덮어쓰지 않으려고 둔다
+	bool bStrafeFacing = false;
+
+	// 켜기 전의 회전 속도. 끌 때 그대로 되돌린다
+	FRotator SavedRotationRate = FRotator(0.f, 360.f, 0.f);
 };

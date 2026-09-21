@@ -2,7 +2,6 @@
 
 #include "UI/Skill/HB_SkillCardWidget.h"
 #include "Components/Button.h"
-#include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Components/RichTextBlock.h"
 
@@ -17,46 +16,37 @@ void UHB_SkillCardWidget::NativeConstruct()
     }
 }
 
-void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData, bool bIsAlreadySelected)
+void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData)
 {
     // 1. 데이터 캐싱 및 UI 텍스트/이미지 적용
     CurrentSkillId = SkillData.SkillId;
 
     if (DisplayNameText) DisplayNameText->SetText(SkillData.DisplayName);
     ApplyDescription(SkillData);
-    if (ManaCostText) ManaCostText->SetText(FText::AsNumber(SkillData.ManaCost));
-    if (CooldownText) CooldownText->SetText(FText::AsNumber(SkillData.DisplayCooldown));
-    // 아이콘이 없으면 ("없음" 카드, 또는 아이콘 미설정) 빈 브러시가 흰 네모로
-    // 보인다. 이미지를 숨겨서 자리만 비운다.
-    if (IconImage)
+
+    // "없음" 카드(SkillId 없음)는 0/0 이 아니라 "값 자체가 없다"는 뜻이라 "–" 로 보여준다.
+    // 0 은 "마나를 0 쓰는 스킬"로 오해될 수 있다. 단위(MP/초)도 여기서 붙인다.
+    if (ManaCostText)
     {
-        IconImage->SetBrushFromTexture(SkillData.Icon);
-
-        ESlateVisibility IconVisibility = ESlateVisibility::Visible;
-
-        if (!SkillData.Icon)
-        {
-            IconVisibility = ESlateVisibility::Hidden;
-        }
-
-        IconImage->SetVisibility(IconVisibility);
+        ManaCostText->SetText(SkillData.SkillId.IsNone()
+            ? FText::FromString(TEXT("–"))
+            : FText::FromString(FString::Printf(TEXT("%d MP"), SkillData.ManaCost)));
     }
-
-    // 2. 이미 선택된 스킬은 흐리게만 표시하고 클릭은 막지 않는다.
-    //
-    // 왜 안 막나: Q 에 있는 스킬을 E 에서 눌러 서로 맞바꾸는 조작이 있다.
-    // 막으면 두 액티브를 교환할 방법이 사라진다.
+    if (CooldownText)
+    {
+        CooldownText->SetText(SkillData.SkillId.IsNone()
+            ? FText::FromString(TEXT("–"))
+            : FText::Format(NSLOCTEXT("SkillCard", "CooldownSeconds", "{0}초"), FText::AsNumber(SkillData.DisplayCooldown)));
+    }
+    // 이 카드는 이제 "장착 중" / "선택한 스킬" 정보 패널 전용이라 (그리드 목록 행이
+    // 아님) 항상 클릭 가능하고 항상 완전 불투명하다. "이미 장착됨" 흐림 처리는
+    // 그리드 쪽 아이콘 카드(HB_SkillIconCardWidget)로 옮겼다.
     if (CardButton)
     {
         CardButton->SetIsEnabled(true);
     }
 
     SetRenderOpacity(1.0f);
-
-    if (bIsAlreadySelected)
-    {
-        SetRenderOpacity(0.5f);
-    }
 
     // 패시브에는 마나·쿨 개념이 없다. 0 을 보여주면 잘못된 정보다.
     ESlateVisibility CostVisibility = ESlateVisibility::Visible;
@@ -73,6 +63,14 @@ void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData, bool bIsAlre
     if (CooldownText)
     {
         CooldownText->SetVisibility(CostVisibility);
+    }
+}
+
+void UHB_SkillCardWidget::SetHeaderText(const FText& InHeaderText)
+{
+    if (HeaderText)
+    {
+        HeaderText->SetText(InHeaderText);
     }
 }
 

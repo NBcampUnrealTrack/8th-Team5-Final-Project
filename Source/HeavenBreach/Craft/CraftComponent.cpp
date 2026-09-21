@@ -268,6 +268,7 @@ void UCraftComponent::Server_SelectRecipe_Implementation(FName InRowName)
 
 void UCraftComponent::Server_AutoFillFromStash_Implementation()
 {
+	bool bAnyIngredientPlaced = false;
 	if (!TargetStash)
 	{
 		return;
@@ -326,7 +327,10 @@ void UCraftComponent::Server_AutoFillFromStash_Implementation()
 				bSlotInitialized = true;
 			}
 
-			TargetStash->RemoveStackCount(Pair.Key, TakeCount);
+			if (TargetStash->RemoveStackCount(Pair.Key, TakeCount) && TakeCount > 0)
+			{
+				bAnyIngredientPlaced = true;
+			}
 			SlotItem.StackCount += TakeCount;
 			Remaining -= TakeCount;
 
@@ -342,6 +346,11 @@ void UCraftComponent::Server_AutoFillFromStash_Implementation()
 		}
 	}
 	OnRep_Slots();
+	// One owner-only cue per fill action, even when several ingredient slots change.
+	if (bAnyIngredientPlaced)
+	{
+		Client_PlayIngredientPlaced();
+	}
 }
 
 void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 InSlotIndex)
@@ -397,6 +406,10 @@ void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 
 	}
 
 	OnRep_Slots();
+	if (TakeCount > 0)
+	{
+		Client_PlayIngredientPlaced();
+	}
 }
 
 void UCraftComponent::Server_RemoveItem_Implementation(int32 InSlotIndex)
@@ -482,6 +495,11 @@ void UCraftComponent::Server_ExecuteCraft_Implementation()
 	OnRep_Slots();
 	Client_PlayCraftResult(true);
 	OnCraftCompleted.Broadcast(true);
+}
+
+void UCraftComponent::Client_PlayIngredientPlaced_Implementation()
+{
+	UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::ItemMove);
 }
 
 void UCraftComponent::Client_PlayCraftResult_Implementation(bool bSuccess)

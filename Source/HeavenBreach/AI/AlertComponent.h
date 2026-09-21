@@ -43,6 +43,16 @@ public:
 	// lost상태 기간 설정
 	void SetLostMemoryDuration(float Duration) { LostMemoryDuration = FMath::Max(0.f, Duration); }
 
+	// 후보 중에서 타겟을 다시 고른다.
+	//
+	// 왜 정책을 안 건드리나: PickTarget 의 "맨 처음 발견된 플레이어" 를 바꾸면
+	// 모든 적의 어그로가 같이 흔들린다. 순서만 돌려서 다음 후보가 앞에 오게 한다.
+	// 결과적으로 코옵 두 명 사이를 번갈아 가게 된다.
+	//
+	// 쳐낼 조건: 어그로 수치 시스템이 생기면 이 함수는 그쪽으로 흡수된다.
+	UFUNCTION(BlueprintCallable, Category = "Alert")
+	void RequestRetarget();
+
 	// 대상이 살았는지 죽었는지 판단하기
 	bool IsTargetAlive(const AActor* Actor);
 

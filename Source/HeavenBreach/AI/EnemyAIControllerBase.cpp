@@ -4,6 +4,9 @@
 #include "AI/EnemyAIControllerBase.h"
 
 #include "DrawDebugHelpers.h"
+#include "NavigationSystem.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISenseConfig_Sight.h"
@@ -51,6 +54,10 @@ void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
 
 	HomeLocation = InPawn->GetActorLocation();
 
+	// 선회 방향을 개체마다 고정한다.
+	// 호출할 때마다 고르면 지점을 갱신할 때마다 좌우가 뒤집혀 제자리에서 떤다.
+	bOrbitClockwise = FMath::RandBool();
+
 	// 폰이 붙은 뒤여야 감각의 기준이 정해진다.
 	// 데이터 에셋 기반으로 가게되는데 여기서 시야 거리까지 넣게된다면 여기서 해야한다.
 	ApplyArchetype(Enemy);
@@ -88,6 +95,22 @@ void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
 	//	UE_LOG(LogEnemyAI, Error, TEXT("[AI] %s 트리 실행 실패 — BehaviorTreeAsset 확인"),
 	//		*GetNameSafe(InPawn));
 	//}
+
+	// 빙의가 끝난 뒤에 트리를 다시 시작한다.
+	//
+	// 왜 필요한가: 런타임에 SpawnActor 로 꺼낸 적은 StateTree 컴포넌트가 빙의보다
+	// 먼저 StartTree 를 타서 컨텍스트 액터(EnemyCharacterBase)를 못 찾는다.
+	// 그러면 "Context Requirements failed — Component tick is disabled" 가 되고
+	// 스스로 다시 시도하지 않아 로직이 영영 안 돈다. 감각은 컨트롤러 소속이라
+	// 멀쩡히 돌기 때문에 "플레이어는 보는데 안 움직이는" 상태가 된다.
+	//
+	// 레벨에 배치된 적은 순서가 맞아떨어져서 지금까지 드러나지 않았다.
+	//
+	// 쳐낼 조건: 스폰 경로가 전부 "빙의 후 컴포넌트 등록" 으로 바뀌면 필요 없다.
+	if (StateTreeComponent)
+	{
+		StateTreeComponent->RestartLogic();
+	}
 
 	UE_LOG(LogEnemyAI, Log, TEXT("[AI] %s 준비 완료"), *GetNameSafe(InPawn));
 }
@@ -177,6 +200,136 @@ bool AEnemyAIControllerBase::ShouldUseSpacing() const
 	return CachedArchetype ? CachedArchetype->GetStats().bUseSpacing : false;
 }
 
+void AEnemyAIControllerBase::SetStrafeFacing(bool bEnable)
+{
+	// 스페이싱을 안 쓰는 적은 이 기능 자체가 없다.
+	//
+	// 왜 여기서도 막나: 이동 태스크는 전 적이 공유한다. StateTree 조건만 믿으면
+	// 누군가 다른 상태에 이 태스크를 달았을 때 기존 적의 회전이 조용히 바뀐다.
+	if (!ShouldUseSpacing())
+	{
+		return;
+	}
+
+	ACharacter* Char = Cast<ACharacter>(GetPawn());
+	if (!Char)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* Move = Char->GetCharacterMovement();
+	if (!Move)
+	{
+		return;
+	}
+
+	if (!bEnable)
+	{
+		// 안 켰으면 되돌릴 것도 없다
+		if (!bStrafeFacing)
+		{
+			return;
+		}
+
+		ClearFocus(EAIFocusPriority::Gameplay);
+		Move->bUseControllerDesiredRotation = false;
+		Move->bOrientRotationToMovement = true;
+		Move->RotationRate = SavedRotationRate;
+		bStrafeFacing = false;
+		return;
+	}
+
+	// 이미 켜져 있으면 원래 회전 속도를 덮어쓰지 않는다.
+	// 이 가드가 없으면 두 번째 진입에서 SavedRotationRate 에 TurnSpeed 가 들어가
+	// 영영 복원이 안 된다.
+	if (bStrafeFacing)
+	{
+		return;
+	}
+
+	AActor* Target = AlertComponent ? AlertComponent->GetCurrentTarget() : nullptr;
+	if (!Target)
+	{
+		// 볼 대상이 없으면 평소 동작을 그대로 둔다.
+		// 여기서 플래그만 바꾸면 타겟이 생길 때까지 몸이 안 돈다.
+		return;
+	}
+
+	SavedRotationRate = Move->RotationRate;
+
+	SetFocus(Target, EAIFocusPriority::Gameplay);
+	Move->bOrientRotationToMovement = false;
+	Move->bUseControllerDesiredRotation = true;
+	Move->RotationRate = FRotator(0.f, GetTurnSpeed(), 0.f);
+	bStrafeFacing = true;
+}
+
+float AEnemyAIControllerBase::GetDistanceToTarget() const
+{
+	APawn* MyPawn = GetPawn();
+	if (!MyPawn)
+	{
+		return -1.f;
+	}
+
+	AActor* Target = AlertComponent ? AlertComponent->GetCurrentTarget() : nullptr;
+	if (!Target)
+	{
+		return -1.f;
+	}
+
+	return FVector::Dist2D(MyPawn->GetActorLocation(), Target->GetActorLocation());
+}
+
+void AEnemyAIControllerBase::TryRetarget()
+{
+	if (!AlertComponent)
+	{
+		return;
+	}
+
+	const FEnemyStatRow* S = CachedArchetype ? &CachedArchetype->GetStats() : nullptr;
+	const float RetargetChance = S ? S->RetargetChance : 0.f;
+
+	if (FMath::FRand() >= RetargetChance)
+	{
+		return;
+	}
+
+	AlertComponent->RequestRetarget();
+}
+
+void AEnemyAIControllerBase::PickTacticalMove()
+{
+	const FEnemyStatRow* S = CachedArchetype ? &CachedArchetype->GetStats() : nullptr;
+
+	const float RetreatChance = S ? S->RetreatChance : 0.3f;
+	const float KeepDistance = S ? S->KeepDistance : 350.f;
+
+	// 너무 붙었으면 확률과 무관하게 물러난다.
+	//
+	// 왜 거리를 먼저 보나: 확률로만 뽑으면 붙은 채로 계속 도는 구간이 생기고,
+	// 그 거리에서는 선회 지점이 AcceptanceRadius 안에 들어와 아예 안 움직인다.
+	// 그리고 후퇴와 선회가 번갈아 뽑히면 방향이 정반대라 지그재그로 떤다.
+	const float Distance = GetDistanceToTarget();
+	if (Distance >= 0.f)
+	{
+		if (Distance < KeepDistance)
+		{
+			CurrentTactic = EEnemyTactic::Backstep;
+			return;
+		}
+	}
+
+	if (FMath::FRand() < RetreatChance)
+	{
+		CurrentTactic = EEnemyTactic::Backstep;
+		return;
+	}
+
+	CurrentTactic = EEnemyTactic::Orbit;
+}
+
 FVector AEnemyAIControllerBase::GetStrafePoint() const
 {
 	APawn* MyPawn = GetPawn();
@@ -192,33 +345,85 @@ FVector AEnemyAIControllerBase::GetStrafePoint() const
 		return MyPawn->GetActorLocation();
 	}
 
-	FVector MyLoc = MyPawn->GetActorLocation();
-	FVector TargetLoc = Target->GetActorLocation();
-	FVector FinalPos;
+	const FVector MyLoc = MyPawn->GetActorLocation();
+	const FVector TargetLoc = Target->GetActorLocation();
 
-	// 타겟에서 나를 향하는 방향
-	FVector FleeDir = (MyLoc - TargetLoc).GetSafeNormal();
+	// 타겟에서 나를 향하는 수평 방향
+	FVector FleeDir = MyLoc - TargetLoc;
+	FleeDir.Z = 0.f;
+	FleeDir = FleeDir.GetSafeNormal();
 
-	// 포위와 후퇴를 반반으로 고른다.
-	float Rand = FMath::RandRange(0, 1);
-	if (Rand <= 0.3)
+	// 정확히 겹쳐 서 있으면 방향을 만들 수 없다
+	if (FleeDir.IsNearlyZero())
 	{
-		// 후퇴 — 타겟 반대방향으로 이동
-		FinalPos = MyLoc + FleeDir * 500.f;
-	}
-	else
-	{
-		// 포위 — 좌우 랜덤으로 이동
-		// 현재 거리를 반지름으로 그대로 쓴다.
-		float Radius = FVector::Dist(MyLoc, TargetLoc);
-		// 방향벡터와 Z축을 외적하여 타겟을 바라보는 기준 수직으로 이동방향결정
-		FVector TangentDir = FVector::CrossProduct(FVector::UpVector, FleeDir);
-		// 좌로돌지 우로돌지 결정
-		float Side = FMath::RandBool() ? 1.f : -1.f;
-		FinalPos = TargetLoc + (FleeDir + TangentDir * Side).GetSafeNormal() * Radius;
+		return MyLoc;
 	}
 
-	return FinalPos;
+	const FEnemyStatRow* S = CachedArchetype ? &CachedArchetype->GetStats() : nullptr;
+	const float StepDegrees = S ? S->OrbitStepDegrees : 35.f;
+	const float BackDistance = S ? S->BackstepDistance : 400.f;
+	const float KeepDistance = S ? S->KeepDistance : 350.f;
+
+	FVector Projected = FVector::ZeroVector;
+
+	// 후퇴 — 타겟 반대방향으로
+	//
+	// 왜 여기서 확률을 안 굴리나: 예전에는 여기서 RandRange(0, 1) 로 굴렸는데
+	// 이건 정수 버전이라 0 아니면 1만 나왔다. 0 <= 0.3 은 참, 1 <= 0.3 은 거짓이라
+	// 적어둔 확률과 무관하게 언제나 50% 였다. 이제 결정은 PickTacticalMove 가 한다.
+	if (CurrentTactic == EEnemyTactic::Backstep)
+	{
+		if (ProjectStrafePoint(MyLoc + FleeDir * BackDistance, Projected))
+		{
+			return Projected;
+		}
+
+		return MyLoc;
+	}
+
+	// 선회 — 타겟을 중심으로 StepDegrees 만큼 돈다.
+	//
+	// 반지름에 하한을 두는 이유: 지금 거리를 그대로 쓰면 붙어 있을 때 선회 지점이
+	// AcceptanceRadius 안에 들어와 MoveTo 가 즉시 완료되고 제자리에 선다.
+	// 하한을 걸면 붙은 상태에서도 바깥으로 돌아 나가게 된다.
+	const float Radius = FMath::Max(FVector::Dist2D(MyLoc, TargetLoc), KeepDistance);
+	const float Sign = bOrbitClockwise ? 1.f : -1.f;
+
+	// 한쪽이 막히면 반대쪽으로 한 번만 더 본다.
+	// 방향 자체를 뒤집지는 않는다. 매번 뒤집으면 좌우로 흔들린다.
+	for (int32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		const float Flip = (Attempt == 0) ? 1.f : -1.f;
+		const FVector Dir = FleeDir.RotateAngleAxis(StepDegrees * Sign * Flip, FVector::UpVector);
+
+		if (ProjectStrafePoint(TargetLoc + Dir * Radius, Projected))
+		{
+			return Projected;
+		}
+	}
+
+	// 갈 곳이 없다. 제자리를 주면 MoveTo 가 즉시 끝난다
+	return MyLoc;
+}
+
+bool AEnemyAIControllerBase::ProjectStrafePoint(const FVector& RawPoint, FVector& OutPoint) const
+{
+	UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(GetWorld());
+	if (!Nav)
+	{
+		// 네비가 없으면 검증할 방법이 없다. 계산값을 그대로 쓴다.
+		OutPoint = RawPoint;
+		return true;
+	}
+
+	FNavLocation Projected;
+	if (!Nav->ProjectPointToNavigation(RawPoint, Projected, StrafeNavExtent))
+	{
+		return false;
+	}
+
+	OutPoint = Projected.Location;
+	return true;
 }
 
 void AEnemyAIControllerBase::ApplyArchetype(AEnemyCharacterBase* Char)

@@ -16,6 +16,13 @@ class UGameplayEffect;
 struct FGameplayTag;
 struct FDataTableRowHandle;
 class ULootComponent;
+class AEnemyCharacterBase;
+
+// 죽었다. 소환 명부처럼 남의 사망을 알아야 하는 쪽이 구독한다.
+//
+// 왜 델리게이트인가: BecomeDead 안에 구독자를 직접 호출로 박으면 적 베이스가
+// 소환 · 연출 · 퀘스트를 전부 알게 된다. 알리기만 하고 끝낸다.
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEnemyDied, AEnemyCharacterBase*);
 
 UCLASS()
 class HEAVENBREACH_API AEnemyCharacterBase : public ACharacter, public IAbilitySystemInterface, public IDamageableInterface, public IInteractableInterface
@@ -59,6 +66,20 @@ public:
 	// 드랍 테이블의 행을 루트 컴포넌트에 전달한다.
 	// 스탯 DT 에서 주입되므로 적 BP 마다 따로 설정하지 않는다.
 	void SetLootRow(const FDataTableRowHandle& InRow);
+
+	// 이 개체를 임시 소환체로 만든다. 드랍을 만들지 않고, 시체를 열 수 없고,
+	// 죽은 뒤 InDespawnDelay 초 뒤에 사라진다. 경험치는 그대로 준다.
+	//
+	// 왜 베이스가 갖나: 이 세 성질은 소환뿐 아니라 이벤트로 잠깐 나오는 적에게도
+	// 똑같이 필요하다. 소환 어빌리티가 들고 있으면 그때 가서 또 만들게 된다.
+	//
+	// 쳐낼 조건: 임시 개체가 영원히 소환수뿐이면 소환 컴포넌트로 옮겨도 된다.
+	void MarkAsSummoned(float InDespawnDelay);
+
+	bool IsSummoned() const { return bSummoned; }
+
+	// 사망 알림. 서버에서만 브로드캐스트된다
+	FOnEnemyDied OnDied;
 
 	UFUNCTION(BlueprintCallable)
 	void BecomeDead();
@@ -115,6 +136,33 @@ protected:
 	// 사망 확인
 	UPROPERTY(ReplicatedUsing = OnRep_Dead, VisibleAnywhere, BlueprintReadOnly)
 	bool bDead = false;
+
+	// 사망 후 컨트롤러를 치우기까지의 시간.
+	// 죽기 직전에 돌던 몽타주가 전부 끝날 만큼은 길어야 한다.
+	UPROPERTY(EditDefaultsOnly, Category = "AI", meta = (ClampMin = "0.0"))
+	float ControllerCleanupDelay = 3.f;
+
+	FTimerHandle ControllerCleanupTimer;
+
+	// 타이머가 부른다. 컨트롤러를 치워 AI 로직을 끊는다
+	void ShutdownAI();
+
+	// ----- 임시 진단 -----
+	// 시체가 스스로 움직이는 원인을 찾기 위한 것. 원인을 잡으면 지운다.
+	FTimerHandle DeadDebugTimer;
+	void DebugDeadTick();
+
+	// 소환된 임시 개체인가. MarkAsSummoned 로만 켜진다
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI")
+	bool bSummoned = false;
+
+	// 죽고 나서 사라지기까지. 소환체만 쓴다
+	float DespawnDelay = 3.f;
+
+	FTimerHandle DespawnTimer;
+
+	// 타이머가 부른다. 시체를 치운다
+	void DespawnSelf();
 
 	// 달리기 확인
 	bool bRunning = false;

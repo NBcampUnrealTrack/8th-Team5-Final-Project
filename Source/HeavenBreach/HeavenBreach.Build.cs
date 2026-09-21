@@ -14,6 +14,7 @@ public class HeavenBreach : ModuleRules
 			"CoreOnline",
 			"CoreUObject",
 			"Engine",
+			"PCG",
 			"InputCore",
 			"EnhancedInput",
 			"AIModule",

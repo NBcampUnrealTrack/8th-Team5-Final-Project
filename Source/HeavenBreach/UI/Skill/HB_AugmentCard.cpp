@@ -5,37 +5,34 @@
 #include "Components/TextBlock.h"
 #include "Components/Image.h"
 
-void UHB_AugmentCard::NativeOnInitialized()
-{
-    Super::NativeOnInitialized();
-}
-
 void UHB_AugmentCard::NativeOnClicked()
 {
-    Super::NativeOnClicked();
+	Super::NativeOnClicked();
 
-    if (OnAugmentCardClickedDelegate.IsBound())
-    {
-        OnAugmentCardClickedDelegate.Broadcast(CachedAugmentData.AugmentId);
-    }
+	OnAugmentCardClickedDelegate.Broadcast(CachedCandidate.CandidateId);
 }
 
-void UHB_AugmentCard::InitCard(const FAugmentCardData& InData)
+void UHB_AugmentCard::InitCard(const FHBUpgradeCandidate& InCandidate)
 {
-    CachedAugmentData = InData;
+	CachedCandidate = InCandidate;
 
-    if (TitleText)
-    {
-        TitleText->SetText(InData.DisplayName);
-    }
+	if (TitleText)
+	{
+		TitleText->SetText(InCandidate.DisplayName);
+	}
 
-    if (DescriptionText)
-    {
-        DescriptionText->SetText(InData.Description);
-    }
+	if (DescriptionText)
+	{
+		DescriptionText->SetText(InCandidate.Description);
+	}
 
-    if (IconImage && InData.Icon)
-    {
-        IconImage->SetBrushFromTexture(InData.Icon);
-    }
+	if (IconImage)
+	{
+		// 아이콘은 소프트 참조라 여기서 꺼낸다. 화면이 열릴 때 최대 3장이라
+		// 동기 로드로 충분하다. 카드 수가 늘면 비동기로 바꿀 것.
+		if (UTexture2D* Icon = InCandidate.Icon.LoadSynchronous())
+		{
+			IconImage->SetBrushFromTexture(Icon);
+		}
+	}
 }

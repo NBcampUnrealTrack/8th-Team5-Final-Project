@@ -1,6 +1,7 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "HeavenBreach_UE_5.7.4",
+	"EngineAssociation": "5.7",
+	"Category": "",
 	"Description": "",
 	"Modules": [
 		{
@@ -47,6 +48,10 @@
 		},
 		{
 			"Name": "CommonUI",
+			"Enabled": true
+		},
+		{
+			"Name": "PCG",
 			"Enabled": true
 		}
 	]

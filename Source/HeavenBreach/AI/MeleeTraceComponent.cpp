@@ -114,33 +114,35 @@ void UMeleeTraceComponent::UpdateTrace()
 			continue;
 		}
 
-		float MontagePos = -1.f;
-		float MontageRate = -1.f;
-		if (CachedMesh)
-		{
-			if (UAnimInstance* Anim = CachedMesh->GetAnimInstance())
-			{
-				if (UAnimMontage* Cur = Anim->GetCurrentActiveMontage())
-				{
-					MontagePos = Anim->Montage_GetPosition(Cur);
-					MontageRate = Anim->Montage_GetPlayRate(Cur);
-				}
-			}
-		}
+		// 아래 [Sweep] 로그에만 쓰던 값이라 같이 꺼둔다. 로그를 되살릴 때 함께 푼다.
+		//float MontagePos = -1.f;
+		//float MontageRate = -1.f;
+		//if (CachedMesh)
+		//{
+		//	if (UAnimInstance* Anim = CachedMesh->GetAnimInstance())
+		//	{
+		//		if (UAnimMontage* Cur = Anim->GetCurrentActiveMontage())
+		//		{
+		//			MontagePos = Anim->Montage_GetPosition(Cur);
+		//			MontageRate = Anim->Montage_GetPlayRate(Cur);
+		//		}
+		//	}
+		//}
 
 		const FVector SweepStart = SocketSource->GetSocketLocation(StartSocket);
 		const FVector SweepEnd = SocketSource->GetSocketLocation(EndSocket);
 
-		UE_LOG(LogEnemyAI, Warning,
-			TEXT("[Sweep] 소스=%s(%s) %s→%s 길이=%.0f 몸까지=%.0f/%.0f R=%.0f 몽타주 Pos=%.3f Rate=%.2f"),
-			*GetNameSafe(SocketSource),
-			*GetNameSafe(SocketSource->GetClass()),
-			*StartSocket.ToString(), *EndSocket.ToString(),
-			(SweepEnd - SweepStart).Size(),
-			FVector::Dist(Owner->GetActorLocation(), SweepStart),
-			FVector::Dist(Owner->GetActorLocation(), SweepEnd),
-			TraceRadius,
-			MontagePos, MontageRate);
+		// 매 틱 · 소켓마다 찍혀서 다른 로그를 전부 덮는다. 사거리 문제를 볼 때만 켠다.
+		//UE_LOG(LogEnemyAI, Warning,
+		//	TEXT("[Sweep] 소스=%s(%s) %s→%s 길이=%.0f 몸까지=%.0f/%.0f R=%.0f 몽타주 Pos=%.3f Rate=%.2f"),
+		//	*GetNameSafe(SocketSource),
+		//	*GetNameSafe(SocketSource->GetClass()),
+		//	*StartSocket.ToString(), *EndSocket.ToString(),
+		//	(SweepEnd - SweepStart).Size(),
+		//	FVector::Dist(Owner->GetActorLocation(), SweepStart),
+		//	FVector::Dist(Owner->GetActorLocation(), SweepEnd),
+		//	TraceRadius,
+		//	MontagePos, MontageRate);
 
 		TArray<FHitResult> OutHits;
 
