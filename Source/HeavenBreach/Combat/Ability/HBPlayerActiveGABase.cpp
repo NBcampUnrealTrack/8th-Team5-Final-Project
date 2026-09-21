@@ -200,6 +200,14 @@ void UHBPlayerActiveGABase::ApplyCost(const FGameplayAbilitySpecHandle Handle, c
 
 	// 활성화 예측 키로 붙기 때문에 클라 마나 바가 즉시 줄어든다.
 	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, Spec);
+
+	// 재생 지연을 다시 건다. 빼먹으면 쓰자마자 차오르기 시작해서
+	// 마나를 안 쓴 것처럼 보인다. 기본공격/달리기/방어와 같은 규칙이다.
+	// (AHBPlayerCharacter::NotifyManaActivity 호출부의 주석 참조)
+	if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
+	{
+		Player->NotifyManaActivity();
+	}
 }
 
 void UHBPlayerActiveGABase::ApplyAdditionalCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
