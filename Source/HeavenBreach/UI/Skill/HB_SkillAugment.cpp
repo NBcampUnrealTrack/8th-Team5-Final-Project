@@ -115,6 +115,7 @@ void UHB_SkillAugment::RebuildCards()
 			CardSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
 			CardSlot->SetHorizontalAlignment(HAlign_Fill);
 			CardSlot->SetVerticalAlignment(VAlign_Fill);
+			CardSlot->SetPadding(FMargin(CardSpacing * 0.5f, 0.f));
 		}
 	}
 }
