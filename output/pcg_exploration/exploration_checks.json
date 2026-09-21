@@ -1,0 +1,13 @@
+{
+  "summary": "Seed=1272190408 Valid=1 Ready=1 Rooms=13 Loaded=13 Streams=13 Retiring=0 Pawns=1 Error=",
+  "pawn_name": "HBPCGExplorerPawn_0",
+  "signature": "0:-1:1:0:X=32000.000 Y=16000.000 Z=0.000:0;1:0:1:0:X=32000.000 Y=0.000 Z=0.000:180;2:1:1:1:X=16000.000 Y=0.000 Z=0.000:90;3:2:1:0:X=0.000 Y=0.000 Z=0.000:0;4:3:1:0:X=0.000 Y=16000.000 Z=0.000:180;5:1:1:2:X=48000.000 Y=0.000 Z=0.000:-90;6:4:2:0:X=128000.000 Y=0.000 Z=5000.000:90;7:6:2:1:X=128000.000 Y=16000.000 Z=5000.000:0;8:7:2:0:X=112000.000 Y=16000.000 Z=5000.000:180;9:8:2:0:X=96000.000 Y=16000.000 Z=5000.000:90;10:9:2:3:X=96000.000 Y=32000.000 Z=5000.000:180;11:7:2:2:X=144000.000 Y=16000.000 Z=5000.000:90;12:7:2:0:X=128000.000 Y=32000.000 Z=5000.000:90;",
+  "blocking_hit": "(FaceIndex=151,Time=0.069751,Distance=697.506287,Location=(X=33507.251715,Y=18502.500002,Z=160.000000),ImpactPoint=(X=33507.251725,Y=18502.500015,Z=160.000015),Normal=(X=-0.000000,Y=1.000000,Z=0.000000),ImpactNormal=(X=-0.000000,Y=1.000000,Z=0.000000),TraceStart=(X=33867.125000,Y=19100.000000,Z=160.000000),TraceEnd=(X=28707.697929,Y=10533.769073,Z=160.000000),PenetrationDepth=0.000000,MyItem=-1,Item=-1,ElementIndex=2,bBlockingHit=True,bStartPenetrating=False,PhysMaterial=\"/Script/PhysicsCore.PhysicalMaterial'/Engine/EngineMaterials/DefaultPhysicalMaterial.DefaultPhysicalMaterial'\",HitObjectHandle=(ReferenceObject=\"/Script/Engine.StaticMeshComponent'/Game/Levels/Test_CW/Prototype/Modules/UEDPIE_0_HBPreview_HBPCGPreviewGenerator_0_G1_R0.LI_Adventure01:PersistentLevel.Wall_Corner_Preset_03_C_1.StaticMeshComponent0'\"),Component=\"/Script/Engine.StaticMeshComponent'/Game/Levels/Test_CW/Prototype/Modules/UEDPIE_0_HBPreview_HBPCGPreviewGenerator_0_G1_R0.LI_Adventure01:PersistentLevel.Wall_Corner_Preset_03_C_1.StaticMeshComponent0'\",BoneName=\"\",MyBoneName=\"\")",
+  "hit_distance": 697.506287,
+  "travel_through_surface": 997.506287,
+  "look_input": true,
+  "vertical_fast_move": true,
+  "overview_round_trip": true,
+  "room_shortcuts_checked": 13,
+  "collision": false
+}

@@ -1,0 +1,27 @@
+{
+  "map": "/Game/Levels/Test_CW/Maps/TestPCG.TestPCG",
+  "generator_count": 1,
+  "game_mode": "HBPCGPreviewGameMode",
+  "random_seed_on_start": true,
+  "auto_editor_regeneration": false,
+  "graph_nodes": [
+    {
+      "class": "HBDungeonPlanSettings",
+      "outputs": [
+        {
+          "pin": "Rooms",
+          "edges": 1
+        }
+      ]
+    },
+    {
+      "class": "HBDungeonLoadSettings",
+      "outputs": [
+        {
+          "pin": "Out",
+          "edges": 1
+        }
+      ]
+    }
+  ]
+}
