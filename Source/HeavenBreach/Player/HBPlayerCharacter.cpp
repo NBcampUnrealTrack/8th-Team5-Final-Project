@@ -6,6 +6,7 @@
 #include "Item/Item.h"
 #include "HBPlayerController.h"
 #include "Inventory/InventoryComponent.h"
+#include "Engine/DataTable.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
@@ -2466,6 +2467,113 @@ UEquipmentComponent* AHBPlayerCharacter::GetEquipment() const
 {
 	const AHB_PlayerState* PS = GetPlayerState<AHB_PlayerState>();
 	return PS ? PS->GetEquipment() : nullptr;
+}
+
+// ================ 디버그 ================
+
+void AHBPlayerCharacter::ServerDebugEquip_Implementation(FName RowName)
+{
+	DebugEquip(RowName);
+}
+
+void AHBPlayerCharacter::DebugEquip(FName RowName)
+{
+	// 아이템 생성과 장착은 서버가 해야 한다. 클라 콘솔에서 쳤으면 넘긴다.
+	if (!HasAuthority())
+	{
+		ServerDebugEquip(RowName);
+		return;
+	}
+
+	if (RowName.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] 행 이름이 비었다. 예) DebugEquip WPN_001"));
+		return;
+	}
+
+	UInventoryComponent* Inventory = GetInventory();
+	UEquipmentComponent* Equipment = GetEquipment();
+	if (!Inventory || !Equipment)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] 인벤토리/장비 컴포넌트가 없다"));
+		return;
+	}
+
+	// 테이블 경로를 코드에 박는다. BP 기본값에 칸을 만들면 팀 공용 애셋에
+	// 변경이 남는데, 디버그 편의 때문에 그럴 이유가 없다.
+	// 경로가 바뀌면 아래 로그로 드러난다.
+	static const TCHAR* TablePaths[] = {
+		TEXT("/Game/Items/DataTables/DT_Weapon"),
+		TEXT("/Game/Items/DataTables/DT_Shield"),
+	};
+
+	UDataTable* FoundTable = nullptr;
+	for (const TCHAR* Path : TablePaths)
+	{
+		UDataTable* Table = LoadObject<UDataTable>(nullptr, Path);
+		if (!Table)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] 테이블을 못 찾았다: %s"), Path);
+			continue;
+		}
+		if (Table->GetRowMap().Contains(RowName))
+		{
+			FoundTable = Table;
+			break;
+		}
+	}
+
+	if (!FoundTable)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[DebugEquip] '%s' 를 DT_Weapon/DT_Shield 어디에서도 못 찾았다"),
+			*RowName.ToString());
+		return;
+	}
+
+	FItemInstance NewItem;
+	NewItem.ItemRow.DataTable = FoundTable;
+	NewItem.ItemRow.RowName = RowName;
+	NewItem.InstanceId = FGuid::NewGuid();
+	NewItem.StackCount = 1;
+
+	int32 Remainder = 0;
+	if (!Inventory->TryAddItem(NewItem, Remainder))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[DebugEquip] 인벤토리에 못 넣었다. 자리가 없다 (남은 수량 %d)"), Remainder);
+		return;
+	}
+
+	// 슬롯은 아이템이 정한다. CanEquip 이 행 데이터의 EquipSlotType 과 대조한다.
+	for (int32 SlotIndex = static_cast<int32>(EEquipSlotType::PrimaryWeapon);
+		SlotIndex < static_cast<int32>(EEquipSlotType::MAX);
+		++SlotIndex)
+	{
+		const EEquipSlotType Slot = static_cast<EEquipSlotType>(SlotIndex);
+		if (!Equipment->CanEquip(NewItem, Slot))
+		{
+			continue;
+		}
+
+		if (Equipment->EquipFromInventory(Inventory, NewItem.InstanceId, Slot))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] %s 장착 완료. 슬롯=%s 무기태그=%s"),
+				*RowName.ToString(),
+				*StaticEnum<EEquipSlotType>()->GetNameStringByValue(SlotIndex),
+				*GetEquippedWeaponTag().ToString());
+			return;
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] %s 장착 실패. 슬롯=%s"),
+			*RowName.ToString(),
+			*StaticEnum<EEquipSlotType>()->GetNameStringByValue(SlotIndex));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[DebugEquip] '%s' 는 장착 가능한 슬롯이 없다. 인벤토리에는 들어갔다"),
+		*RowName.ToString());
 }
 
 UQuickSlotComponent* AHBPlayerCharacter::GetQuickSlot() const

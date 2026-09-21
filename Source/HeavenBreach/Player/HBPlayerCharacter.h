@@ -97,6 +97,27 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UQuickSlotComponent* GetQuickSlot() const;
 
+	// ================ 디버그 ================
+
+	/**
+	 * 콘솔에서 아이템 하나를 만들어 인벤토리에 넣고 바로 장착한다.
+	 * PIE 에서 무기 없이 스킬을 못 쓰는 상황을 넘기려고 둔 것이다.
+	 *
+	 * 쓰는 법: PIE 중 ` 로 콘솔을 열고  DebugEquip WPN_001
+	 *   DT_Weapon  WPN_001~004(검) / BOW_001~004 / DAG_001~004
+	 *   DT_Shield  SHD_001~004
+	 *
+	 * 슬롯을 인자로 받지 않는 이유: UEquipmentComponent::CanEquip 이 행 데이터의
+	 * EquipSlotType 을 읽어 판정한다. 아이템이 자기 자리를 알고 있다.
+	 *
+	 * 쳐낼 조건: 로비를 거치는 테스트 경로가 안정되면 지운다.
+	 */
+	UFUNCTION(Exec, Category = "Player|Debug")
+	void DebugEquip(FName RowName);
+
+	UFUNCTION(Server, Reliable)
+	void ServerDebugEquip(FName RowName);
+
 	// 장착 무기의 WeaponType을 태그로 변환한다. 올바르지 않거나 타입이 없으면 Weapon.Unarmed.
 	UFUNCTION(BlueprintPure, Category = "Player|Combat")
 	FGameplayTag GetEquippedWeaponTag() const;
