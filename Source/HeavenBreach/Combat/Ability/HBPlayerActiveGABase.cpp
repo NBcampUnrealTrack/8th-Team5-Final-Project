@@ -333,7 +333,18 @@ void UHBPlayerActiveGABase::ExecuteActivationCue(const FGameplayAbilityActorInfo
 
 	FGameplayCueParameters CueParams;
 	CueParams.Location = CueLocation;
-	CueParams.Normal = FVector::UpVector;
+
+	// Normal 은 "법선" 이라는 이름과 달리 여기서는 스폰 회전의 재료다.
+	// 엔진의 FGameplayCueNotify_PlacementInfo::FindSpawnTransform 이
+	// Normal.Rotation() 을 그대로 스폰 회전으로 쓴다.
+	// 그리고 FVector::Rotation() 은 "그 벡터가 로컬 +X 가 되는 회전" 을 준다.
+	//
+	// 그래서 UpVector 를 넣으면 안 된다. Pitch 90 이 나와 로컬 +Z 가 옆을 보고,
+	// 바닥에 퍼져야 할 링이 벽처럼 선다.
+	// 캐릭터 정면을 넣으면 Pitch 0 이라 로컬 +Z 가 월드 위쪽과 맞는다.
+	// 타격 큐(HitCuePlay)가 ImpactNormal 을 넣는 것도 같은 이유다.
+	// 그쪽은 로컬 +X 가 벽에서 튀어나오는 방향이 되어야 한다.
+	CueParams.Normal = Player->GetActorForwardVector();
 	CueParams.Instigator = Player;
 	CueParams.EffectCauser = Player;
 
