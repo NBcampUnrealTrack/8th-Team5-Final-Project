@@ -313,6 +313,7 @@ void AHBPlayerController::SetupInputComponent()
 	}
 }
 
+
 /////////// Lobby Test /////////////////////////
 void AHBPlayerController::TestCreateSteamLobby()
 {
@@ -709,17 +710,22 @@ void AHBPlayerController::UseQuickSlot4()
 
 void AHBPlayerController::ToggleSkillAugment()
 {
-	UE_LOG(LogTemp, Warning, TEXT("ToggleSkillAugment called"));
 	if (SkillAugmentScreen != nullptr)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Already open -> closing"));
 		SkillAugmentScreen->DeactivateWidget();
 		SkillAugmentScreen = nullptr;
 		return;
 	}
 
+	// 남은 선택권이 없으면 열지 않는다. 후보는 레벨업 때만 생기므로
+	// 가드가 없으면 카드 0장짜리 빈 화면이 뜬다.
+	const AHB_PlayerState* HBPS = GetPlayerState<AHB_PlayerState>();
+	if (HBPS == nullptr || HBPS->GetPendingUpgradeChoices() <= 0)
+	{
+		return;
+	}
+
 	SkillAugmentScreen = UHB_SkillAugment::OpenOn(this, SkillAugmentScreenClass);
-	UE_LOG(LogTemp, Warning, TEXT("OpenOn result: %s"), SkillAugmentScreen ? TEXT("valid") : TEXT("null"));
 	if (SkillAugmentScreen != nullptr)
 	{
 		SkillAugmentScreen->OnDeactivated().AddWeakLambda(this, [this]()
