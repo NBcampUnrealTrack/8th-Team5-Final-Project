@@ -62,9 +62,13 @@ void UEnemyProjGABase::OnFireEventReceived(FGameplayEventData Payload)
 	FVector SpawnLoc = (Mesh && Mesh->DoesSocketExist(MuzzleSocketName)) ? Mesh->GetSocketLocation(MuzzleSocketName) : ActorLoc;
 	FRotator SpawnRot = Avatar->GetActorRotation();
 
+	// 타겟은 컨트롤러의 감각 컴포넌트가 갖고 있다.
+	//
+	// 왜 전부 검사하나: 죽어서 컨트롤러가 정리된 뒤에 발사 노티파이가 뒤늦게
+	// 도착할 수 있다. 아래 코드는 이미 Target 이 널인 경우를 처리하고 있으므로 여기만 막으면 된다.
 	AEnemyAIControllerBase* AIC = Cast<AEnemyAIControllerBase>(Pawn->GetController());
-	UAlertComponent* Alert = AIC->GetAlertComponent();
-	AActor* Target = Alert->GetCurrentTarget();
+	UAlertComponent* Alert = AIC ? AIC->GetAlertComponent() : nullptr;
+	AActor* Target = Alert ? Alert->GetCurrentTarget() : nullptr;
 
 	// 적이 조준중인 방향
 	FVector Fwd = Avatar->GetActorForwardVector();

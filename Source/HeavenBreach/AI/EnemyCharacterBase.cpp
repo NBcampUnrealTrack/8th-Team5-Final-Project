@@ -15,6 +15,8 @@
 #include "AI/DataRow/EnemyArchetypeData.h"
 #include "Combat/Damage/HBDamageCalculation.h"
 #include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
+#include "AIController.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "Core/Tag/Cue/HB_CueTag.h"
@@ -196,13 +198,30 @@ void AEnemyCharacterBase::BecomeDead()
 	}
 
 	// Moveto로 움직이고 잇엇다면 멈춘다.
+	// 이동은 지금 끊어야 한다. 시체가 미끄러지면 안 된다.
 	if (AAIController* AIC = Cast<AAIController>(GetController()))
 	{
 		AIC->StopMovement();
 	}
 
+	// AI 자체는 잠시 뒤에 끊는다.
+	//
+	// 왜 즉시가 아닌가: 이 시점에 사망 몽타주가 막 시작했고, 죽기 직전에 쓰던
+	// 공격 몽타주도 아직 돌고 있을 수 있다. 그 몽타주의 노티파이가 컨트롤러를
+	// 거쳐 타겟을 조회하므로(EnemyProjGABase 등) 지금 끊으면 널을 잡는다.
+	//
+	// 왜 끊긴 해야 하나: 시체는 되살아나지 않는데 StateTree 와 지각이 계속 돈다.
+	// 방마다 5마리씩 죽어 쌓이면 그대로 서버 부하가 된다.
+	//
+	// 쳐낼 조건: 부활이나 시체 조종 기믹이 생기면 빙의만 풀고 컨트롤러는 남겨야 한다.
+	GetWorldTimerManager().SetTimer(ControllerCleanupTimer, this, &AEnemyCharacterBase::ShutdownAI, ControllerCleanupDelay, false);
+
+	// 임시 진단. 시체가 왜 움직이는지 찾으면 지운다
+	GetWorldTimerManager().SetTimer(DeadDebugTimer, this, &AEnemyCharacterBase::DebugDeadTick, 1.f, true);
+
 	// 파밍될 아이템들을 인벤토리에 생성한다.
-	if (LootComponent)
+	// 소환체는 만들지 않는다. 만들면 보스를 안 잡고 소환만 반복하는 파밍이 생긴다.
+	if (LootComponent && !bSummoned)
 	{
 		LootComponent->GenerateLoot();
 	}
@@ -212,6 +231,16 @@ void AEnemyCharacterBase::BecomeDead()
 
 	// 서버에서도 직접불러준다. Multicast로 해보려햇는데 반응속도문제땜시...
 	OnRep_Dead();
+
+	// 소환 명부 같은 구독자에게 알린다.
+	// OnRep_Dead 뒤인 이유는 구독자가 이 시체의 최종 상태를 보게 하려는 것이다.
+	OnDied.Broadcast(this);
+
+	// 소환체는 시체를 남기지 않는다
+	if (bSummoned)
+	{
+		GetWorldTimerManager().SetTimer(DespawnTimer, this, &AEnemyCharacterBase::DespawnSelf, DespawnDelay, false);
+	}
 }
 
 // Called when the game starts or when spawned
@@ -269,6 +298,12 @@ UAbilitySystemComponent* AEnemyCharacterBase::GetAbilitySystemComponent() const
 
 bool AEnemyCharacterBase::CanInteract_Implementation(AActor* Interactor) const
 {
+	// 소환체는 열 수 없다. 시체는 보이되 F 가 뜨지 않는다
+	if (bSummoned)
+	{
+		return false;
+	}
+
 	// 상호작용 조건 : 죽었으며 인벤이 존재해야한다.
 	return Interactor != nullptr && bDead && LootComponent != nullptr;
 }
@@ -286,6 +321,58 @@ void AEnemyCharacterBase::Interact_Implementation(AActor* Interactor)
 FText AEnemyCharacterBase::GetInteractPrompt_Implementation() const
 {
 	return LootComponent ? LootComponent->GetPrompt() : FText::GetEmpty();
+}
+
+void AEnemyCharacterBase::MarkAsSummoned(float InDespawnDelay)
+{
+	bSummoned = true;
+	DespawnDelay = FMath::Max(0.f, InDespawnDelay);
+}
+
+void AEnemyCharacterBase::DespawnSelf()
+{
+	// 컨트롤러 정리 타이머보다 먼저 사라지는 게 보통이라 여기서도 치운다.
+	// 이미 치워졌으면 컨트롤러가 없으니 아무 일도 일어나지 않는다.
+	if (AController* C = GetController())
+	{
+		C->Destroy();
+	}
+
+	Destroy();
+}
+
+void AEnemyCharacterBase::DebugDeadTick()
+{
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	AAIController* AIC = Cast<AAIController>(GetController());
+	UPathFollowingComponent* PF = AIC ? AIC->GetPathFollowingComponent() : nullptr;
+
+	// PF: 0=Idle 1=Waiting 2=Paused 3=Moving
+	UE_LOG(LogEnemyAI, Warning,
+		TEXT("[DeadTick] %s  Mode=%d  Vel=%s  PF=%d  Focus=%s  DeadTag=%d  Orient=%d  Desired=%d"),
+		*GetName(),
+		Move ? static_cast<int32>(Move->MovementMode.GetValue()) : -1,
+		Move ? *Move->Velocity.ToCompactString() : TEXT("-"),
+		PF ? static_cast<int32>(PF->GetStatus()) : -1,
+		*GetNameSafe(AIC ? AIC->GetFocusActor() : nullptr),
+		(AbilitySystemComp && AbilitySystemComp->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead)) ? 1 : 0,
+		Move ? (Move->bOrientRotationToMovement ? 1 : 0) : -1,
+		Move ? (Move->bUseControllerDesiredRotation ? 1 : 0) : -1);
+}
+
+void AEnemyCharacterBase::ShutdownAI()
+{
+	// Destroy 가 내부에서 UnPossess 까지 한다.
+	// 이미 치워진 뒤라면 컨트롤러가 없으니 아무 일도 일어나지 않는다.
+	if (AController* C = GetController())
+	{
+		C->Destroy();
+	}
+
+	// 임시 진단 타이머도 같이 끈다
+	GetWorldTimerManager().ClearTimer(DeadDebugTimer);
+
+	UE_LOG(LogEnemyAI, Log, TEXT("[AI] %s 컨트롤러 정리"), *GetName());
 }
 
 void AEnemyCharacterBase::OnRep_Dead()
