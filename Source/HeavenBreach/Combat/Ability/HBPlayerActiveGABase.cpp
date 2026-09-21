@@ -11,6 +11,8 @@
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Components/CapsuleComponent.h"
+#include "Core/Tag/Cue/HB_CueTag.h"
 #include "AbilitySystemGlobals.h"
 #include "HBPlayerPassiveGABase.h"
 
@@ -260,6 +262,10 @@ void UHBPlayerActiveGABase::ActivateAbility(const FGameplayAbilitySpecHandle Han
 	ApplySelfBuff(ActorInfo);
 	ApplyDuringAbilityEffect(ActorInfo);
 
+	// CommitAbility 를 통과한 뒤에만 연출을 낸다. 마나가 모자라 튕긴 발동에서
+	// 이펙트만 터지면 쓴 줄 알고 또 누른다.
+	ExecuteActivationCue(ActorInfo);
+
 	// 몽타주 없는 스킬도 있다. 즉발 버프 같은 것.
 	// 비용과 쿨타임과 버프는 CommitAbility로 이미 적용되었다.
 	// 여기서 안 끝내면 몽타주가 null 이라 델리게이트가 하나도 안 오고
@@ -301,6 +307,42 @@ void UHBPlayerActiveGABase::ActivateAbility(const FGameplayAbilitySpecHandle Han
 }
 
 // ---------------- 자기 버프 ----------------
+
+void UHBPlayerActiveGABase::ExecuteActivationCue(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!ActivationCueTag.IsValid())
+	{
+		return;
+	}
+
+	AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
+	if (!Player)
+	{
+		return;
+	}
+
+	FVector CueLocation = Player->GetActorLocation();
+	if (bActivationCueAtFeet)
+	{
+		// 액터 위치는 캡슐 중심이다. 그대로 쓰면 바닥에 퍼지는 연출이 공중에 뜬다.
+		if (const UCapsuleComponent* Capsule = Player->GetCapsuleComponent())
+		{
+			CueLocation.Z -= Capsule->GetScaledCapsuleHalfHeight();
+		}
+	}
+
+	FGameplayCueParameters CueParams;
+	CueParams.Location = CueLocation;
+	CueParams.Normal = FVector::UpVector;
+	CueParams.Instigator = Player;
+	CueParams.EffectCauser = Player;
+
+	// HitCuePlay 와 달리 서버 검사를 하지 않는다.
+	// ExecuteGameplayCue 가 안에서 갈라준다. 서버면 멀티캐스트하고, 예측 중인
+	// 클라면 자기 화면에서만 미리 재생한다. 멀티캐스트는 그 클라를 건너뛰므로
+	// 두 번 터지지 않는다. 자기가 누른 스킬이라 서버 왕복을 기다리면 늦다.
+	K2_ExecuteGameplayCueWithParams(ActivationCueTag, CueParams);
+}
 
 void UHBPlayerActiveGABase::ApplySelfBuff(const FGameplayAbilityActorInfo* ActorInfo)
 {
