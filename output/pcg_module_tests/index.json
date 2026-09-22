@@ -1,0 +1,89 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-FPQ748Q",
+			"instance": "6D89AC6C4C51D7A8F176218DBCA7183B",
+			"instanceName": "DESKTOP-FPQ748Q-65340",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 10 (22H2) [10.0.19045.6456] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 3060 Laptop GPU",
+			"cPUModel": "AMD Ryzen 7 6800H with Radeon Graphics         ",
+			"rAMInGB": 32,
+			"renderMode": "SM6",
+			"rHI": "",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.09.22-10.40.53",
+	"succeeded": 4,
+	"succeededWithWarnings": 0,
+	"failed": 0,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.072682298719882965,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "ModuleCoordinates",
+			"fullTestPath": "HeavenBreach.PCGModule.ModuleCoordinates",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"6D89AC6C4C51D7A8F176218DBCA7183B"
+			],
+			"duration": 0.017194699496030807,
+			"dateTime": "2026.09.22-10.40.53",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "Validation",
+			"fullTestPath": "HeavenBreach.PCGModule.Validation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"6D89AC6C4C51D7A8F176218DBCA7183B"
+			],
+			"duration": 0.018046900629997253,
+			"dateTime": "2026.09.22-10.40.53",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RejectInvalidLayouts",
+			"fullTestPath": "HeavenBreach.PCGPrototype.RejectInvalidLayouts",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"6D89AC6C4C51D7A8F176218DBCA7183B"
+			],
+			"duration": 0.016485098749399185,
+			"dateTime": "2026.09.22-10.40.53",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "SeedsAndRules",
+			"fullTestPath": "HeavenBreach.PCGPrototype.SeedsAndRules",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"6D89AC6C4C51D7A8F176218DBCA7183B"
+			],
+			"duration": 0.020955599844455719,
+			"dateTime": "2026.09.22-10.40.53",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}

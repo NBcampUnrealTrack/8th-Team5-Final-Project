@@ -30,16 +30,19 @@ namespace
 			auto* Parent = Data->Metadata->CreateAttribute<int32>(TEXT("ParentId"), -1, false, true);
 			auto* Floor = Data->Metadata->CreateAttribute<int32>(TEXT("Floor"), 1, false, true);
 			auto* Role = Data->Metadata->CreateAttribute<FString>(TEXT("Role"), TEXT(""), false, true);
+            auto* Module = Data->Metadata->CreateAttribute<FString>(TEXT("ModuleId"), TEXT(""), false, true);
+            auto* Map = Data->Metadata->CreateAttribute<FString>(TEXT("ModuleMap"), TEXT(""), false, true);
 			for (const auto& Room : G->Rooms)
 			{
 				FPCGPoint& P = Data->GetMutablePoints().AddDefaulted_GetRef();
 				P.Transform = Room.Transform; P.Density = 1; P.Seed = G->ActiveSeed + Room.Id;
-				P.BoundsMin = (Room.Role == EHBPrototypeRoomRole::Boss ? G->BossBounds : G->AdventureBounds).Min;
-				P.BoundsMax = (Room.Role == EHBPrototypeRoomRole::Boss ? G->BossBounds : G->AdventureBounds).Max;
+				P.BoundsMin = Room.LocalBounds.Min;
+				P.BoundsMax = Room.LocalBounds.Max;
 				P.Color = FVector4(FLinearColor(HBDungeonLayout::RoleColor(Room.Role)));
 				P.MetadataEntry = Data->Metadata->AddEntry();
 				Id->SetValue(P.MetadataEntry, Room.Id); Parent->SetValue(P.MetadataEntry, Room.ParentId);
 				Floor->SetValue(P.MetadataEntry, Room.Floor); Role->SetValue(P.MetadataEntry, HBDungeonLayout::RoleName(Room.Role));
+                Module->SetValue(P.MetadataEntry, Room.ModuleId.ToString()); Map->SetValue(P.MetadataEntry, Room.ModuleMap.ToString());
 			}
 			FPCGTaggedData& Out = Context->OutputData.TaggedData.AddDefaulted_GetRef();
 			Out.Data = Data; Out.Pin = TEXT("Rooms");

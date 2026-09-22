@@ -6,6 +6,7 @@
 #include "GameFramework/HUD.h"
 #include "GameFramework/Pawn.h"
 #include "PCGPrototype/HBDungeonLayout.h"
+#include "PCGModule/HBDungeonModuleCatalog.h"
 #include "HBPCGPreview.generated.h"
 
 class UPCGComponent;
@@ -58,10 +59,16 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview") TObjectPtr<UPCGComponent> PCG;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview") TObjectPtr<UCameraComponent> PreviewCamera;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview") TObjectPtr<UPCGGraphInterface> Graph;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Modules") TSoftObjectPtr<UWorld> AdventureModule;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Modules") TSoftObjectPtr<UWorld> BossModule;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Modules") FBox AdventureBounds;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Modules") FBox BossBounds;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Modules") TArray<TSoftObjectPtr<UWorld>> RoomModules;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Modules") TArray<TSoftObjectPtr<UWorld>> CorridorModules;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="PCG Preview|Modules") TArray<FHBModuleCatalogEntry> ModuleCatalog;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="PCG Preview|Modules") TArray<FString> CatalogErrors;
+    /** Reads each map's definition/components. Rebuilt again before runtime generation. */
+    UFUNCTION(CallInEditor, BlueprintCallable, Category="PCG Preview|Modules") void RefreshModuleCatalog();
+    virtual void PostLoad() override;
+    // Serialized only to migrate old assets. Hidden from both Details and Blueprint access.
+    UPROPERTY() TSoftObjectPtr<UWorld> AdventureModule;
+    UPROPERTY() TSoftObjectPtr<UWorld> BossModule;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation") bool bRandomSeedOnStart = true;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation") int32 Seed = 12345;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="1",ClampMax="1024")) int32 MaxAttempts = 64;
@@ -69,9 +76,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="3000")) float FloorHeight = 5000;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="5")) float LoadTimeoutSeconds = 120;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Exploration") bool bStartInExploration = true;
-	// Original PlayerStart positions, adjusted for module recentering and eye height.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Exploration") FVector AdventureEntry = FVector(1867.125,3100,160);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Exploration") FVector BossEntry = FVector(2663,3045.5,985);
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") TObjectPtr<AHBPCGExplorerPawn> Explorer;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") bool bExploring = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") int32 InspectionRoom = 0;

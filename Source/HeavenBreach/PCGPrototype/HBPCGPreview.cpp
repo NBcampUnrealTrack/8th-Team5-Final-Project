@@ -13,6 +13,7 @@
 #include "InputCoreTypes.h"
 #include "PCGComponent.h"
 #include "PCGGraph.h"
+#include "Logging/MessageLog.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogHBPCGPreview, Log, All);
 
@@ -174,9 +175,38 @@ AHBPCGPreviewGenerator::AHBPCGPreviewGenerator()
 	PreviewCamera->PostProcessSettings.AutoExposureApplyPhysicalCameraExposure = false;
 	PreviewCamera->PostProcessSettings.bOverride_AutoExposureBias = true;
 	PreviewCamera->PostProcessSettings.AutoExposureBias = 5;
-	const HBDungeonLayout::FSettings Defaults;
-	AdventureBounds = Defaults.AdventureBounds;
-	BossBounds = Defaults.BossBounds;
+
+}
+
+void AHBPCGPreviewGenerator::PostLoad()
+{
+    Super::PostLoad();
+    // Preserve old references once; clearing the new array later must stay cleared.
+    if (RoomModules.IsEmpty())
+    {
+        if (!AdventureModule.IsNull()) { RoomModules.AddUnique(AdventureModule); }
+        if (!BossModule.IsNull()) { RoomModules.AddUnique(BossModule); }
+    }
+    AdventureModule.Reset(); BossModule.Reset();
+}
+
+void AHBPCGPreviewGenerator::RefreshModuleCatalog()
+{
+    if (GetWorld() && GetWorld()->IsGameWorld())
+    {
+        Status = TEXT("Catalog refresh is editor-only; regenerate to refresh runtime data.");
+        return;
+    }
+    const bool bValid = HBDungeonModuleCatalog::Build(RoomModules, CorridorModules, ModuleCatalog, CatalogErrors);
+    Status = bValid ? FString::Printf(TEXT("Catalog ready: %d modules. Corridor placement is not implemented."), ModuleCatalog.Num())
+        : FString::Join(CatalogErrors, TEXT("\n"));
+#if WITH_EDITOR
+    FMessageLog Log(TEXT("MapCheck"));
+    Log.NewPage(FText::FromString(TEXT("PCG Module Catalog")));
+    for (const FString& Error : CatalogErrors) { Log.Error(FText::FromString(Error)); }
+    if (bValid) { Log.Info(FText::FromString(Status)); }
+    Log.Open(EMessageSeverity::Info, true);
+#endif
 }
 
 void AHBPCGPreviewGenerator::BeginPlay()
@@ -207,7 +237,9 @@ void AHBPCGPreviewGenerator::Regenerate(bool bNewSeed)
 void AHBPCGPreviewGenerator::BeginGeneration()
 {
 	bRegeneratePending = false;
-	if (!Graph || AdventureModule.IsNull() || BossModule.IsNull()) { Fail(TEXT("Missing PCG graph or module map references.")); return; }
+	if (!Graph) { Fail(TEXT("Missing PCG graph.")); return; }
+    if (!HBDungeonModuleCatalog::Build(RoomModules, CorridorModules, ModuleCatalog, CatalogErrors))
+    { Fail(FString::Join(CatalogErrors, TEXT("\n"))); return; }
 	ActiveSeed = bNextSeedIsNew ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
 	Seed = ActiveSeed;
 	++GenerationSerial;
@@ -226,9 +258,8 @@ bool AHBPCGPreviewGenerator::PlanLayout()
 	if (!bAwaitingGeneration || !Streams.IsEmpty()) return false;
 	HBDungeonLayout::FSettings S;
 	S.Seed = ActiveSeed; S.MaxAttempts = MaxAttempts; S.CellSize = CellSize; S.FloorHeight = FloorHeight;
-	S.AdventureBounds = AdventureBounds; S.BossBounds = BossBounds;
 	FString Error;
-	if (!HBDungeonLayout::Generate(S, Rooms, Error)) { Fail(Error); return false; }
+	if (!HBDungeonModuleCatalog::Generate(ModuleCatalog, S, Rooms, Error)) { Fail(Error); return false; }
 	// Keep planner coordinates local so changing the generator position is supported.
 	for (auto& R : Rooms)
 	{
@@ -250,7 +281,7 @@ void AHBPCGPreviewGenerator::MaterializeLayout(int32 PointCount)
 		bool bSuccess = false;
 		const FString Name = FString::Printf(TEXT("HBPreview_%s_G%d_R%d"), *GetName(), GenerationSerial, Room.Id);
 		ULevelStreamingDynamic* Stream = ULevelStreamingDynamic::LoadLevelInstanceBySoftObjectPtr(this,
-			Room.Role == EHBPrototypeRoomRole::Boss ? BossModule : AdventureModule, Room.Transform, bSuccess, Name);
+			Room.ModuleMap, Room.Transform, bSuccess, Name);
 		if (!bSuccess || !Stream) { Fail(FString::Printf(TEXT("Could not load module for room %d."), Room.Id)); return; }
 		Streams.Add(Stream);
 	}
@@ -333,8 +364,8 @@ void AHBPCGPreviewGenerator::SetExploration(bool bEnabled)
 		Explorer = GetWorld()->SpawnActor<AHBPCGExplorerPawn>();
 		if (!Explorer) { Status = TEXT("Could not create inspection pawn."); return; }
 		InspectionRoom = 0;
-		Explorer->SetActorLocation(Rooms[0].Transform.TransformPosition(AdventureEntry), false);
-		Explorer->SetActorRotation(Rooms[0].Transform.TransformVectorNoScale(FVector(-AdventureEntry.X,-AdventureEntry.Y,0)).Rotation());
+		Explorer->SetActorLocation(Rooms[0].Transform.TransformPosition(Rooms[0].InspectionEntry), false);
+		Explorer->SetActorRotation(Rooms[0].Transform.TransformVectorNoScale(FVector(-Rooms[0].InspectionEntry.X,-Rooms[0].InspectionEntry.Y,0)).Rotation());
 		PC->Possess(Explorer);
 		PC->SetInputMode(FInputModeGameOnly());
 		PC->bShowMouseCursor = false;
@@ -352,7 +383,7 @@ void AHBPCGPreviewGenerator::FocusRoom(int32 RoomIndex)
 	if (!IsValid(Explorer)) return;
 	InspectionRoom = (RoomIndex % Rooms.Num() + Rooms.Num()) % Rooms.Num();
 	const auto& Room = Rooms[InspectionRoom];
-	const FVector Entry = Room.Role == EHBPrototypeRoomRole::Boss ? BossEntry : AdventureEntry;
+	const FVector Entry = Room.InspectionEntry;
 	Explorer->SetActorLocation(Room.Transform.TransformPosition(Entry), false);
 	Explorer->SetActorRotation(Room.Transform.TransformVectorNoScale(FVector(-Entry.X,-Entry.Y,0)).Rotation());
 }
@@ -387,7 +418,12 @@ void AHBPCGPreviewGenerator::EndPlay(const EEndPlayReason::Type Reason)
 	Super::EndPlay(Reason);
 }
 
-FString AHBPCGPreviewGenerator::GetLayoutSignature() const { return HBDungeonLayout::Signature(Rooms); }
+FString AHBPCGPreviewGenerator::GetLayoutSignature() const
+{
+    FString Result = HBDungeonLayout::Signature(Rooms);
+    for (const auto& Room : Rooms) { Result += Room.ModuleId.ToString() + TEXT("=") + Room.ModuleMap.ToString() + TEXT(";"); }
+    return Result;
+}
 
 FString AHBPCGPreviewGenerator::GetVerificationSummary() const
 {

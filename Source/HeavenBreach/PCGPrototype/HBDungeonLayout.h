@@ -4,7 +4,7 @@
 #include "HBDungeonLayout.generated.h"
 
 UENUM(BlueprintType)
-enum class EHBPrototypeRoomRole : uint8 { Adventure, Recovery, Upgrade, Boss };
+enum class EHBPrototypeRoomRole : uint8 { Adventure, Recovery, Upgrade, Boss, Unassigned = 255 };
 
 USTRUCT(BlueprintType)
 struct FHBPrototypeRoom
@@ -17,7 +17,11 @@ struct FHBPrototypeRoom
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bBranch = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bFloorExit = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FTransform Transform;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FBox Bounds = FBox(ForceInit);
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FBox Bounds = FBox(ForceInit);
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FName ModuleId;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TSoftObjectPtr<UWorld> ModuleMap;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FBox LocalBounds = FBox(ForceInit);
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector InspectionEntry = FVector::ZeroVector;
 };
 
 /** Pure planner. Edges describe intended connections, not physical door/corridor geometry. */
