@@ -14,6 +14,8 @@
 #include "PCGComponent.h"
 #include "PCGGraph.h"
 #include "Logging/MessageLog.h"
+#include "PCGModule/HBConnectorLayout.h"
+#include "DrawDebugHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogHBPCGPreview, Log, All);
 
@@ -139,7 +141,7 @@ void AHBPCGPreviewHUD::DrawHUD()
 		DrawText(G->bExploring ? TEXT("EXPLORE | Mouse: look  WASD: fly  Q/E: down/up  Shift: fast  Tab: overview") :
 			TEXT("OVERVIEW | Tab: explore  1: all  2: floor 1  3: floor 2  WASD: pan  Q/E: zoom"), FLinearColor::White, 24, 74);
 		DrawText(TEXT("R: new seed  T: replay seed  Home: starting room  PgUp/PgDn: previous/next room"), FLinearColor::White, 24, 96);
-		DrawText(TEXT("Lines = planned links. Door openings, boss corridor and stairs are NOT generated."), FLinearColor(1,0.65f,0.25f), 24, 118);
+		DrawText(TEXT("Direct connector test | Unused doors are NOT sealed. Free-fly does not prove walkability."), FLinearColor(1,0.65f,0.25f), 24, 118);
 		DrawText(G->bExploring ? FString::Printf(TEXT("NO COLLISION | Room shortcut: R%02d | Walls and doors can be crossed freely."),G->InspectionRoom) :
 			TEXT("Blue: adventure  Green: recovery  Gold: upgrade  Red: boss"),FLinearColor(0.4f,0.85f,1),24,140);
 		break;
@@ -238,7 +240,7 @@ void AHBPCGPreviewGenerator::BeginGeneration()
 {
 	bRegeneratePending = false;
 	if (!Graph) { Fail(TEXT("Missing PCG graph.")); return; }
-    if (!HBDungeonModuleCatalog::Build(RoomModules, CorridorModules, ModuleCatalog, CatalogErrors))
+    if (!HBDungeonModuleCatalog::Build(RoomModules, {}, ModuleCatalog, CatalogErrors))
     { Fail(FString::Join(CatalogErrors, TEXT("\n"))); return; }
 	ActiveSeed = bNextSeedIsNew ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
 	Seed = ActiveSeed;
@@ -247,7 +249,7 @@ void AHBPCGPreviewGenerator::BeginGeneration()
 	bAwaitingGeneration = true;
 	PCG->Seed = ActiveSeed;
 	PCG->SetGraphLocal(Graph);
-	Status = TEXT("PCG: planning and validating layout...");
+	Status = TEXT("PCG: fitting rooms at connectors...");
 	PCG->GenerateLocal(true);
 }
 
@@ -256,16 +258,14 @@ bool AHBPCGPreviewGenerator::PlanLayout()
 	// Editor property notifications can execute the graph outside our explicit
 	// regeneration lifecycle. They must not replace an already loaded layout.
 	if (!bAwaitingGeneration || !Streams.IsEmpty()) return false;
-	HBDungeonLayout::FSettings S;
-	S.Seed = ActiveSeed; S.MaxAttempts = MaxAttempts; S.CellSize = CellSize; S.FloorHeight = FloorHeight;
-	FString Error;
-	if (!HBDungeonModuleCatalog::Generate(ModuleCatalog, S, Rooms, Error)) { Fail(Error); return false; }
-	// Keep planner coordinates local so changing the generator position is supported.
-	for (auto& R : Rooms)
-	{
-		R.Transform = R.Transform * GetActorTransform();
-		R.Bounds = R.Bounds.TransformBy(GetActorTransform());
-	}
+    HBConnectorLayout::FSettings Settings;
+    Settings.Seed = ActiveSeed; Settings.RoomCount = TestRoomCount;
+    Settings.bAllowModuleReuse = bAllowModuleReuse;
+    Settings.MaxSearchSteps = MaxConnectionAttempts; Settings.MaxSearchSeconds = ConnectionSearchSeconds;
+    Settings.Origin = GetActorTransform();
+    FString Error;
+    if (!HBConnectorLayout::Generate(ModuleCatalog, Settings, Rooms, Error)) { Fail(Error); return false; }
+    SetPreviewView(0);
 	UE_LOG(LogHBPCGPreview, Display, TEXT("PLAN Seed=%d Rooms=%d Signature=%s"), ActiveSeed, Rooms.Num(), *GetLayoutSignature());
 	return true;
 }
@@ -275,7 +275,7 @@ void AHBPCGPreviewGenerator::MaterializeLayout(int32 PointCount)
 	if (!bAwaitingGeneration || !Streams.IsEmpty()) return;
 	if (Rooms.IsEmpty() || PointCount != Rooms.Num()) { Fail(TEXT("PCG room point data does not match the layout.")); return; }
 	FString Error;
-	if (!HBDungeonLayout::Validate(Rooms, Error)) { Fail(Error); return; }
+	if (!HBConnectorLayout::Validate(ModuleCatalog, Rooms, Error)) { Fail(Error); return; }
 	for (const auto& Room : Rooms)
 	{
 		bool bSuccess = false;
@@ -306,12 +306,27 @@ void AHBPCGPreviewGenerator::Tick(float Dt)
 		if (!Streams.IsEmpty() && LoadedRooms == Rooms.Num() && !PCG->IsGenerating())
 		{
 			bAwaitingGeneration = false; bReady = true;
-			Status = TEXT("READY - layout valid; all modules visible. Connections are annotations only.");
+			Status = TEXT("READY - room connectors aligned; occupancy checked. Unused doors remain open.");
 			UE_LOG(LogHBPCGPreview, Display, TEXT("READY Seed=%d Rooms=%d Loaded=%d Elapsed=%.2fs"), ActiveSeed, Rooms.Num(), LoadedRooms, FPlatformTime::Seconds()-GenerationStartTime);
 			if (bStartInExploration) FocusRoom(0);
 		}
 		else if (FPlatformTime::Seconds()-GenerationStartTime > LoadTimeoutSeconds) Fail(TEXT("Generation/loading timed out. Check module references and PCG graph."));
 	}
+    if (bReady && bShowConnectionDebug)
+    {
+        for (const auto& Room : Rooms)
+        {
+            const auto* Module = ModuleCatalog.FindByPredicate([&](const auto& M) { return M.ModuleId == Room.ModuleId; });
+            if (!Module) { continue; }
+            for (const auto& Connector : Module->Connectors)
+            {
+                const FTransform T = Connector.LocalTransform * Room.Transform;
+                const FColor Color = Room.UsedConnectorIds.Contains(Connector.ConnectorId) ? FColor::Green : FColor::Orange;
+                const FVector Position = T.GetLocation() + FVector(0,0,10);
+                DrawDebugDirectionalArrow(GetWorld(), Position, Position + T.GetRotation().GetForwardVector()*120, 25, Color, false, -1, 0, 2);
+            }
+        }
+    }
 	if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 	{
 		if (PC->WasInputKeyJustPressed(EKeys::R)) Regenerate(true);
@@ -340,17 +355,28 @@ void AHBPCGPreviewGenerator::Tick(float Dt)
 		if (PC->IsInputKeyDown(EKeys::A)) Pan.X -= 1;
 		PreviewCamera->AddWorldOffset(Pan * Dt * PreviewCamera->OrthoWidth * 0.35f);
 		const float Zoom = (PC->IsInputKeyDown(EKeys::E) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Q) ? 1.f : 0.f);
-		PreviewCamera->OrthoWidth = FMath::Clamp(PreviewCamera->OrthoWidth * (1+Zoom*Dt), 6000.f, 300000.f);
+		PreviewCamera->OrthoWidth = FMath::Clamp(PreviewCamera->OrthoWidth * (1+Zoom*Dt), 500.f, 1000000.f);
 	}
 }
 
 void AHBPCGPreviewGenerator::SetPreviewView(int32 Floor)
 {
 	SetExploration(false);
-	const FVector Center(Floor == 1 ? CellSize*1.5 : Floor == 2 ? CellSize*7.5 : CellSize*4.5, CellSize*1.5, 0);
-	PreviewCamera->SetWorldLocation(GetActorTransform().TransformPosition(Center + FVector(0,0,100000)));
-	PreviewCamera->SetWorldRotation(FRotator(-90,-90,0));
-	PreviewCamera->OrthoWidth = Floor == 0 ? CellSize*11.5f : CellSize*5.5f;
+    FBox ViewBounds(ForceInit);
+    for (const auto& Room : Rooms)
+        if (Floor == 0 || Room.Floor == Floor) { ViewBounds += Room.Bounds; }
+    if (!ViewBounds.IsValid)
+        for (const auto& Room : Rooms) { ViewBounds += Room.Bounds; }
+    if (!ViewBounds.IsValid)
+        ViewBounds = FBox(GetActorLocation()-FVector(1000), GetActorLocation()+FVector(1000));
+    const FVector Size = ViewBounds.GetSize();
+    const double Span = FMath::Max3(Size.X, Size.Y, 1000.0);
+    PreviewCamera->SetWorldLocation(FVector(ViewBounds.GetCenter().X, ViewBounds.GetCenter().Y, ViewBounds.Max.Z + Span + 2000));
+    PreviewCamera->SetWorldRotation(FRotator(-90,-90,0));
+    // Camera right is world -X here; allow extra vertical room for a 16:9 viewport and HUD.
+    PreviewCamera->OrthoWidth = FMath::Max(1000.0, FMath::Max(Size.X, Size.Y * 1.9) * 1.25);
+    PreviewCamera->SetOrthoFarClipPlane(FMath::Max(200000.0, Span * 4 + Size.Z + 10000));
+
 }
 
 void AHBPCGPreviewGenerator::SetExploration(bool bEnabled)
@@ -421,14 +447,18 @@ void AHBPCGPreviewGenerator::EndPlay(const EEndPlayReason::Type Reason)
 FString AHBPCGPreviewGenerator::GetLayoutSignature() const
 {
     FString Result = HBDungeonLayout::Signature(Rooms);
-    for (const auto& Room : Rooms) { Result += Room.ModuleId.ToString() + TEXT("=") + Room.ModuleMap.ToString() + TEXT(";"); }
+    for (const auto& Room : Rooms)
+    {
+        Result += Room.ModuleId.ToString() + TEXT("=") + Room.ModuleMap.ToString() + TEXT("[")
+            + Room.ParentConnectorId.ToString() + TEXT("->") + Room.EntryConnectorId.ToString() + TEXT("];");
+    }
     return Result;
 }
 
 FString AHBPCGPreviewGenerator::GetVerificationSummary() const
 {
 	FString Error;
-	const bool bValid = HBDungeonLayout::Validate(Rooms, Error);
+	const bool bValid = HBConnectorLayout::Validate(ModuleCatalog, Rooms, Error);
 	int32 PawnCount = 0;
 	for (TActorIterator<APawn> It(GetWorld()); It; ++It) ++PawnCount;
 	return FString::Printf(TEXT("Seed=%d Valid=%d Ready=%d Rooms=%d Loaded=%d Streams=%d Retiring=%d Pawns=%d Error=%s"),

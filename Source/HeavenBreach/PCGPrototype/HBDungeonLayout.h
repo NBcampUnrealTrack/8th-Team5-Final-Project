@@ -22,6 +22,10 @@ struct FHBPrototypeRoom
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TSoftObjectPtr<UWorld> ModuleMap;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FBox LocalBounds = FBox(ForceInit);
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector InspectionEntry = FVector::ZeroVector;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FName ParentConnectorId;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FName EntryConnectorId;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TArray<FName> UsedConnectorIds;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TArray<FName> UnusedConnectorIds;
 };
 
 /** Pure planner. Edges describe intended connections, not physical door/corridor geometry. */

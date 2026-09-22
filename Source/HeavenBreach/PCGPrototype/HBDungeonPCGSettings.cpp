@@ -32,6 +32,8 @@ namespace
 			auto* Role = Data->Metadata->CreateAttribute<FString>(TEXT("Role"), TEXT(""), false, true);
             auto* Module = Data->Metadata->CreateAttribute<FString>(TEXT("ModuleId"), TEXT(""), false, true);
             auto* Map = Data->Metadata->CreateAttribute<FString>(TEXT("ModuleMap"), TEXT(""), false, true);
+            auto* ParentConnector = Data->Metadata->CreateAttribute<FString>(TEXT("ParentConnectorId"), TEXT(""), false, true);
+            auto* EntryConnector = Data->Metadata->CreateAttribute<FString>(TEXT("EntryConnectorId"), TEXT(""), false, true);
 			for (const auto& Room : G->Rooms)
 			{
 				FPCGPoint& P = Data->GetMutablePoints().AddDefaulted_GetRef();
@@ -43,6 +45,8 @@ namespace
 				Id->SetValue(P.MetadataEntry, Room.Id); Parent->SetValue(P.MetadataEntry, Room.ParentId);
 				Floor->SetValue(P.MetadataEntry, Room.Floor); Role->SetValue(P.MetadataEntry, HBDungeonLayout::RoleName(Room.Role));
                 Module->SetValue(P.MetadataEntry, Room.ModuleId.ToString()); Map->SetValue(P.MetadataEntry, Room.ModuleMap.ToString());
+                ParentConnector->SetValue(P.MetadataEntry, Room.ParentConnectorId.ToString());
+                EntryConnector->SetValue(P.MetadataEntry, Room.EntryConnectorId.ToString());
 			}
 			FPCGTaggedData& Out = Context->OutputData.TaggedData.AddDefaulted_GetRef();
 			Out.Data = Data; Out.Pin = TEXT("Rooms");

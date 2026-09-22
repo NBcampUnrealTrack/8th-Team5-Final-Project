@@ -71,9 +71,16 @@ public:
     UPROPERTY() TSoftObjectPtr<UWorld> BossModule;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation") bool bRandomSeedOnStart = true;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation") int32 Seed = 12345;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="1",ClampMax="1024")) int32 MaxAttempts = 64;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="15000")) float CellSize = 16000;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="3000")) float FloorHeight = 5000;
+	/** LD connection test: fixed module roles are preserved, gameplay role quotas are not applied. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test", meta=(ClampMin="1", ClampMax="64")) int32 TestRoomCount = 6;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test") bool bAllowModuleReuse = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test", meta=(ClampMin="1", ClampMax="1000000")) int32 MaxConnectionAttempts = 20000;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test", meta=(ClampMin="0.1", ClampMax="10", Units="s")) float ConnectionSearchSeconds = 2;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test") bool bShowConnectionDebug = false;
+	// Serialized legacy grid settings. Direct connection tests derive spacing/height from connectors.
+	UPROPERTY() int32 MaxAttempts = 64;
+	UPROPERTY() float CellSize = 16000;
+	UPROPERTY() float FloorHeight = 5000;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="5")) float LoadTimeoutSeconds = 120;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Exploration") bool bStartInExploration = true;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") TObjectPtr<AHBPCGExplorerPawn> Explorer;

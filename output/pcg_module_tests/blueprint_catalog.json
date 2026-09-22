@@ -1,0 +1,20 @@
+{
+  "BP_PCGPreviewGameMode": {
+    "path": "/Game/Levels/Test_CW/Prototype/Blueprints/BP_PCGPreviewGameMode.BP_PCGPreviewGameMode",
+    "class": "/Game/Levels/Test_CW/Prototype/Blueprints/BP_PCGPreviewGameMode.BP_PCGPreviewGameMode_C"
+  },
+  "BP_PCGPreviewGenerator": {
+    "path": "/Game/Levels/Test_CW/Prototype/Blueprints/BP_PCGPreviewGenerator.BP_PCGPreviewGenerator",
+    "class": "/Game/Levels/Test_CW/Prototype/Blueprints/BP_PCGPreviewGenerator.BP_PCGPreviewGenerator_C",
+    "room_modules": [
+      "<Object '/Game/Levels/Test_CW/Prototype/Modules/LI_Adventure01.LI_Adventure01' (0x0000022826E06200) Class 'World'>",
+      "<Object '/Game/Levels/Test_CW/Prototype/Modules/LI_Boss.LI_Boss' (0x000002282ADF3800) Class 'World'>"
+    ],
+    "corridor_modules": [],
+    "catalog_errors": [
+      "Room Modules[0] /Game/Levels/Test_CW/Prototype/Modules/LI_Adventure01.LI_Adventure01: DefinitionCount: Expected exactly one module definition in this level; found 0.",
+      "Room Modules[1] /Game/Levels/Test_CW/Prototype/Modules/LI_Boss.LI_Boss: DefinitionCount: Expected exactly one module definition in this level; found 0."
+    ],
+    "catalog_count": 0
+  }
+}

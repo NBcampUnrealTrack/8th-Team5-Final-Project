@@ -2,8 +2,8 @@
 	"devices": [
 		{
 			"deviceName": "DESKTOP-FPQ748Q",
-			"instance": "6D89AC6C4C51D7A8F176218DBCA7183B",
-			"instanceName": "DESKTOP-FPQ748Q-65340",
+			"instance": "F181E5CA47CA1B8C93B0C9BB72B543C8",
+			"instanceName": "DESKTOP-FPQ748Q-87912",
 			"platform": "WindowsEditor",
 			"oSVersion": "Windows 10 (22H2) [10.0.19045.6456] ",
 			"model": "Default",
@@ -15,26 +15,101 @@
 			"appInstanceLog": ""
 		}
 	],
-	"reportCreatedOn": "2026.09.22-10.40.53",
-	"succeeded": 4,
+	"reportCreatedOn": "2026.09.22-12.03.27",
+	"succeeded": 9,
 	"succeededWithWarnings": 0,
 	"failed": 0,
 	"notRun": 0,
 	"inProcess": 0,
-	"totalDuration": 0.072682298719882965,
+	"totalDuration": 0.16723538935184479,
 	"comparisonExported": false,
 	"comparisonExportDirectory": "",
 	"tests": [
+		{
+			"testDisplayName": "CatalogRead",
+			"fullTestPath": "HeavenBreach.PCGModule.CatalogRead",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.018095497041940689,
+			"dateTime": "2026.09.22-12.03.26",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CatalogSelection",
+			"fullTestPath": "HeavenBreach.PCGModule.CatalogSelection",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.019738096743822098,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DirectAlignment",
+			"fullTestPath": "HeavenBreach.PCGModule.DirectAlignment",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.016479898244142532,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DirectOccupancy",
+			"fullTestPath": "HeavenBreach.PCGModule.DirectOccupancy",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.016443099826574326,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DirectSearch",
+			"fullTestPath": "HeavenBreach.PCGModule.DirectSearch",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.016596000641584396,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
 		{
 			"testDisplayName": "ModuleCoordinates",
 			"fullTestPath": "HeavenBreach.PCGModule.ModuleCoordinates",
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"6D89AC6C4C51D7A8F176218DBCA7183B"
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
 			],
-			"duration": 0.017194699496030807,
-			"dateTime": "2026.09.22-10.40.53",
+			"duration": 0.017155099660158157,
+			"dateTime": "2026.09.22-12.03.27",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
@@ -46,10 +121,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"6D89AC6C4C51D7A8F176218DBCA7183B"
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
 			],
-			"duration": 0.018046900629997253,
-			"dateTime": "2026.09.22-10.40.53",
+			"duration": 0.018004201352596283,
+			"dateTime": "2026.09.22-12.03.27",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
@@ -61,10 +136,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"6D89AC6C4C51D7A8F176218DBCA7183B"
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
 			],
-			"duration": 0.016485098749399185,
-			"dateTime": "2026.09.22-10.40.53",
+			"duration": 0.016579598188400269,
+			"dateTime": "2026.09.22-12.03.27",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
@@ -76,10 +151,10 @@
 			"tags": [],
 			"state": "Success",
 			"deviceInstance": [
-				"6D89AC6C4C51D7A8F176218DBCA7183B"
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
 			],
-			"duration": 0.020955599844455719,
-			"dateTime": "2026.09.22-10.40.53",
+			"duration": 0.028143901377916336,
+			"dateTime": "2026.09.22-12.03.27",
 			"entries": [],
 			"warnings": 0,
 			"errors": 0,
