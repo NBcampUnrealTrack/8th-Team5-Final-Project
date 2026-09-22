@@ -90,6 +90,14 @@ void UAlertComponent::SightForgotten(AActor* Actor)
 	SensedTargets.Remove(TWeakObjectPtr<AActor>(Actor));
 	PruneSensedTargets();
 
+	// 후보가 없을 때 수색할 자리는 이 액터가 있던 곳이다.
+	// 액터가 이미 사라졌으면 마지막으로 본 자리를 그대로 쓴다.
+	const FVector Fallback = Actor ? Actor->GetActorLocation() : LastKnownLocation;
+	LoseCurrentTarget(Fallback);
+}
+
+void UAlertComponent::LoseCurrentTarget(const FVector& FallbackLocation)
+{
 	// 다음타겟으로 변경
 	if (AActor* NextTarget = PickTarget())
 	{
@@ -103,22 +111,20 @@ void UAlertComponent::SightForgotten(AActor* Actor)
 		OnAlertUpdated.Broadcast();
 		return;
 	}
+
 	// 다음 타겟이 없음
-	else
+	LastKnownLocation = FallbackLocation;
+	CurrentTarget.Reset();
+	UE_LOG(LogEnemyAI, Log, TEXT("[Sight] 놓침 -> 마지막 위치 %s"), *LastKnownLocation.ToCompactString());
+
+	// 마지막 위치로 향하는 놓침상태
+	SetState(EAlertState::Lost);
+	OnAlertUpdated.Broadcast();
+
+	if (UWorld* World = GetWorld())
 	{
-		LastKnownLocation = Actor->GetActorLocation();
-		CurrentTarget.Reset();
-		UE_LOG(LogEnemyAI, Log, TEXT("[Sight] 놓침 -> 마지막 위치 %s"),*LastKnownLocation.ToCompactString());
-
-		// 마지막 위치로 향하는 놓침상태
-		SetState(EAlertState::Lost);
-		OnAlertUpdated.Broadcast();
-
-		if (UWorld* World = GetWorld())
-		{
-			// 시간이 지나면 idle로 돌아가도록 설정
-			World->GetTimerManager().SetTimer(LostMemoryTimer, this, &UAlertComponent::OnLostMemoryExpired, LostMemoryDuration, false);
-		}
+		// 시간이 지나면 idle로 돌아가도록 설정
+		World->GetTimerManager().SetTimer(LostMemoryTimer, this, &UAlertComponent::OnLostMemoryExpired, LostMemoryDuration, false);
 	}
 }
 
@@ -186,9 +192,11 @@ void UAlertComponent::RequestRetarget()
 	OnAlertUpdated.Broadcast();
 }
 
-bool UAlertComponent::IsTargetAlive(const AActor* Actor)
+bool UAlertComponent::IsTargetAlive(const AActor* Actor) const
 {
-	if (!Actor)
+	// 파괴 예정이거나 이미 파괴된 액터도 여기서 걸러진다.
+	// 플레이어가 죽으면 결과 맵으로 트래블하면서 폰이 이 상태를 거친다.
+	if (!IsValid(Actor))
 	{
 		return false;
 	}
@@ -224,10 +232,20 @@ AActor* UAlertComponent::PickTarget() const
 	// 현재 우선순위 = 맨처음 발견된 플레이어
 	for (const TWeakObjectPtr<AActor>& Candidate : SensedTargets)
 	{
-		if (AActor* Actor = Candidate.Get())
+		AActor* Actor = Candidate.Get();
+		if (!Actor)
 		{
-			return Actor;
+			continue;
 		}
+
+		// 목록 청소(ValidTargets)는 1초 주기라 그 사이에 죽거나 사라진 놈이 남아 있다.
+		// 고르는 순간에 한 번 더 보면 그 창이 통째로 닫힌다.
+		if (!IsTargetAlive(Actor))
+		{
+			continue;
+		}
+
+		return Actor;
 	}
 	return nullptr;
 }
@@ -236,8 +254,8 @@ void UAlertComponent::PruneSensedTargets()
 {
 	for (auto It = SensedTargets.CreateIterator(); It; ++It)
 	{
-		// 유효성 검사
-		if (!It->IsValid())
+		// 유효성 검사. IsValid 로 봐야 파괴 예정인 액터까지 걸린다.
+		if (!::IsValid(It->Get()))
 		{
 			// 해당 노드를 제거
 			It.RemoveCurrent();
@@ -274,30 +292,14 @@ void UAlertComponent::OnLostMemoryExpired()
 
 void UAlertComponent::ValidTargets()
 {
-	// 죽은 대상을 후보 목록에서 뺀다.
+	// 죽었거나 사라진 대상을 후보 목록에서 뺀다.
 	// 뒤에서부터 도는 이유는 중간을 지워도 인덱스가 안 밀리기 때문이다.
+	//
+	// IsTargetAlive 하나로 통일한 이유: 안에서 IsValid(존재) → 사망 태그 순으로 보므로
+	// "없어졌다" 와 "죽었다" 를 따로 쓸 필요가 없다. 판단 기준을 한 곳에만 둔다.
 	for (int32 i = SensedTargets.Num() - 1; i >= 0; --i)
 	{
-		AActor* SensedActor = SensedTargets[i].Get();
-
-		// SensedActor가 nullptr이거나 사망태그를 가졋다면 죽음 
-		bool bIsDead = true;
-
-		if (SensedActor)
-		{
-			// ASC를 가져와서 사망 태그가 있는지 검사
-			if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(SensedActor))
-			{
-				bIsDead = ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
-			}
-			else
-			{
-				// ASC가 없는 오브젝트라면 유효한지만 확인
-				bIsDead = !IsTargetAlive(SensedActor);
-			}
-		}
-
-		if (bIsDead)
+		if (!IsTargetAlive(SensedTargets[i].Get()))
 		{
 			SensedTargets.RemoveAt(i);
 		}
@@ -305,9 +307,18 @@ void UAlertComponent::ValidTargets()
 
 	AActor* Target = CurrentTarget.Get();
 
-	// 타겟이 없으면 할 일이 없다.
+	// 타겟 액터가 통째로 사라진 경우다. 플레이어가 죽으면 결과 맵으로 트래블하면서
+	// 폰이 파괴되고, 접속을 끊어도 같다. 여기서 그냥 나가면 상태가 Engaged 에 굳어
+	// 적이 허공을 보고 선 채로 공격도 수색도 하지 않는다.
 	if (!Target)
 	{
+		// Lost 면 이미 정리된 상태다. 여기서 또 부르면 수색 타이머가 매초 갱신되어
+		// 영원히 Idle 로 못 내려간다.
+		if (State == EAlertState::Engaged)
+		{
+			// 시체 위치를 못 구하니 마지막으로 본 자리를 그대로 쓴다.
+			LoseCurrentTarget(LastKnownLocation);
+		}
 		return;
 	}
 
@@ -316,12 +327,7 @@ void UAlertComponent::ValidTargets()
 	{
 		return;
 	}
-	else
-	{
-		// 마지막으로 기억한 자리를 시체의 위치를 기억한다.
-		LastKnownLocation = Target->GetActorLocation();
 
-		// 대상은 잊어버려야하는타겟으로 정리
-		SightForgotten(Target);
-	}
+	// 대상은 잊어버려야하는타겟으로 정리. 시체 자리를 수색 지점으로 기억한다.
+	SightForgotten(Target);
 }
