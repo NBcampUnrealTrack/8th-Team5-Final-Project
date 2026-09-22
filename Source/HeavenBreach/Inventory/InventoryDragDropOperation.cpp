@@ -8,6 +8,8 @@
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBox.h"
 #include "Math/TransformCalculus2D.h"
+#include "Components/SizeBox.h"
+#include "Inventory/InventoryItemWidget.h"
 
 void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTexture2D* IconTexture, const FVector2D& VisualSize)
 {
@@ -133,7 +135,44 @@ void UInventoryDragDropOperation::SetRotated(bool bInRotated)
 		DragImageWidget->SetRenderTransform(FSlateRenderTransform(FQuat2D(FMath::DegreesToRadians(AngleDegrees))));
 	}
 
+	// 인벤토리 그리드에서 드래그 중인 경우(UMG DefaultDragVisual 경로) - 위 DragBoxWidget/
+	// DragImageWidget과는 별개의 비주얼이라 여기서 따로 갱신해줘야 한다.
+	if (DefaultVisualBox != nullptr)
+	{
+		const FVector2D NewBoxSize = bRotated
+			? FVector2D(BaseVisualSize.Y, BaseVisualSize.X)
+			: BaseVisualSize;
+		DefaultVisualBox->SetWidthOverride(NewBoxSize.X);
+		DefaultVisualBox->SetHeightOverride(NewBoxSize.Y);
+	}
+	if (DefaultVisualItemWidget != nullptr)
+	{
+		DefaultVisualItemWidget->SetPreviewRotated(bRotated);
+	}
+
 	UpdateVisualPosition();
+}
+
+void UInventoryDragDropOperation::SetDefaultVisual(USizeBox* InVisualBox, UInventoryItemWidget* InVisualItemWidget, const FVector2D& InBaseSize)
+{
+	DefaultVisualBox = InVisualBox;
+	DefaultVisualItemWidget = InVisualItemWidget;
+	BaseVisualSize = InBaseSize;
+
+	// 드래그를 시작한 시점에 이미 회전된 상태로 집은 아이템일 수 있으니(CreateVisual()의
+	// 초기 상태 보정과 동일한 이유), 등록 즉시 한 번 현재 bRotated 값으로 맞춰준다.
+	if (bRotated)
+	{
+		if (DefaultVisualBox != nullptr)
+		{
+			DefaultVisualBox->SetWidthOverride(BaseVisualSize.Y);
+			DefaultVisualBox->SetHeightOverride(BaseVisualSize.X);
+		}
+		if (DefaultVisualItemWidget != nullptr)
+		{
+			DefaultVisualItemWidget->SetPreviewRotated(true);
+		}
+	}
 }
 
 void UInventoryDragDropOperation::HandleDragged(UDragDropOperation* Operation)

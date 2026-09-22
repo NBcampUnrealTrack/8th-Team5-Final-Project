@@ -45,6 +45,15 @@ protected:
 	UPROPERTY(EditDefaultsOnly)
 	TSubclassOf<class UHB_AugmentCard> AugmentCardClass;
 
+	/**
+	 * 카드 사이 간격(좌우 합). RebuildCards 가 매번 새로 만드는 런타임 카드에
+	 * 직접 적용한다 - 디자이너에 배치해 둔 카드는 RebuildCards 에서 전부
+	 * ClearChildren 으로 걷어내고 새로 만들기 때문에, 디자이너에서 Padding을
+	 * 만져도 게임에는 반영되지 않는다. 간격은 반드시 여기서 조절할 것.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "UI Setup")
+	float CardSpacing = 20.0f;
+
 private:
 	// 서버가 준 후보로 카드를 다시 만든다. 기존 카드는 전부 걷어낸다.
 	void RebuildCards();
