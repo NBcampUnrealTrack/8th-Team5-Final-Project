@@ -53,8 +53,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Alert")
 	void RequestRetarget();
 
-	// 대상이 살았는지 죽었는지 판단하기
-	bool IsTargetAlive(const AActor* Actor);
+	// 대상이 아직 존재하는지 · 살았는지 판단하기
+	bool IsTargetAlive(const AActor* Actor) const;
 
 	// 구독자는 이걸 받아 게터로 현재 값을 읽는다.
 	FOnAlertUpdated OnAlertUpdated;
@@ -90,8 +90,18 @@ protected:
 	// 타겟을 잃을때 하는것
 	void OnLostMemoryExpired();
 
-	// 타겟 검사(사망된타겟인가)
+	// 타겟 검사(죽었는가 · 아직 존재하는가)
 	void ValidTargets();
+
+	// 현재 타겟을 잃었을 때의 공통 처리.
+	// 남은 후보가 있으면 그놈으로 교전을 잇고, 없으면 Lost 로 내려 수색시킨다.
+	//
+	// 왜 함수로 뺐나: "죽었다"(ValidTargets)와 "액터가 사라졌다"(폰 파괴)는 결말이 같은데,
+	// SightForgotten 은 Actor 포인터가 있어야 해서 null 인 경우에 재사용할 수 없었다.
+	// 그 탓에 플레이어가 죽어 결과 맵으로 트래블하면 상태가 Engaged 에 굳었다.
+	//
+	// FallbackLocation: 후보가 하나도 없을 때 수색할 지점. 호출 측이 정한다.
+	void LoseCurrentTarget(const FVector& FallbackLocation);
 
 private:
 	// 큰로직 구별을 담당을 이곳에 뺀이유 : 함부로 건들지 말라고

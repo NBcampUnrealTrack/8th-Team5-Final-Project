@@ -17,6 +17,9 @@
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "AIController.h"
+#include "PhysicsEngine/PhysicsAsset.h"
+#include "PhysicsEngine/SkeletalBodySetup.h"
+#include "PhysicsEngine/BodyInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "Core/Tag/Cue/HB_CueTag.h"
@@ -113,11 +116,14 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 		PartMult = *Found;
 	}
 
-	const float TargetDefense = ArchetypeData
-		? ArchetypeData->GetStats().Defense
+	// DT 가 아니라 어트리뷰트에서 읽는다. 스폰 시 InitStats 가 DT 값을 넣어주고,
+	// 그 뒤로는 GE 가 올리고 내릴 수 있다. 방어구 파괴 · 페이즈별 방어력이 여기로 온다.
+	//
+	// 쳐낼 조건: 없다. DT 직독으로 돌아가면 GE 를 못 쓴다.
+	const float TargetDefense = AbilitySystemComp
+		? AbilitySystemComp->GetNumericAttribute(UEnemyAttributeSetBase::GetDefenseAttribute())
 		: 0.f;
-	const float FinalDamage = HBDamage::CalculateFinalDamage(
-		RawDamage, TargetDefense, PartMult);
+	const float FinalDamage = HBDamage::CalculateFinalDamage(RawDamage, TargetDefense, PartMult);
 
 	UE_LOG(LogEnemyAI, Warning,
 		TEXT("[Hit] Bone=%s Comp=%s Raw=%.2f Defense=%.2f HitMult=%.2f Final=%.2f"),
@@ -327,6 +333,80 @@ void AEnemyCharacterBase::MarkAsSummoned(float InDespawnDelay)
 {
 	bSummoned = true;
 	DespawnDelay = FMath::Max(0.f, InDespawnDelay);
+}
+
+void AEnemyCharacterBase::StartRagdoll()
+{
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->StopMovementImmediately();
+		Move->DisableMovement();
+	}
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp)
+	{
+		return;
+	}
+
+	// 프로파일을 통째로 갈지 않고 응답을 직접 적는다.
+	//
+	// 왜: "Ragdoll" 프로파일을 쓰면 OnRep_Dead 가 걸어둔 Visibility=Block 이 덮여
+	// 시체를 조준해도 루팅이 안 잡힌다. 그리고 공격 채널을 막게 되면
+	// SphereTraceMulti 가 첫 블로킹 히트에서 멈추므로 시체가 방패가 되어
+	// 뒤에 있는 적을 못 때린다.
+	//
+	// 쳐낼 조건: 시체를 밀치거나 타격하는 연출이 생기면 그 채널만 열어준다.
+	MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	MeshComp->SetCollisionObjectType(ECC_PhysicsBody);
+	MeshComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+	MeshComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);    // 바닥에 눕는다
+	MeshComp->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	MeshComp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);     // 루팅 트레이스
+
+	MeshComp->SetSimulatePhysics(true);
+	MeshComp->WakeAllRigidBodies();
+	MeshComp->SetPhysicsBlendWeight(1.f);
+
+	// ----- 임시 진단 -----
+	// 사지가 안 움직이는 원인을 찾기 위한 것. 잡으면 지운다.
+	//
+	// SetSimulatePhysics 는 PhysicsType 이 Default 인 바디만 켜준다.
+	// Kinematic 으로 박힌 바디는 애니메이션 자세를 그대로 붙들고 있는다.
+	UPhysicsAsset* PhysAsset = MeshComp->GetPhysicsAsset();
+
+	UE_LOG(LogEnemyAI, Warning, TEXT("[Ragdoll] %s  RootSim=%d  PhysAsset=%s  Auth=%d"),
+		*GetName(),
+		MeshComp->IsSimulatingPhysics() ? 1 : 0,
+		*GetNameSafe(PhysAsset),
+		HasAuthority() ? 1 : 0);
+
+	if (!PhysAsset)
+	{
+		return;
+	}
+
+	// Type: 0=Default 1=Kinematic 2=Simulated
+	for (int32 i = 0; i < PhysAsset->SkeletalBodySetups.Num(); ++i)
+	{
+		USkeletalBodySetup* Setup = PhysAsset->SkeletalBodySetups[i];
+		if (!Setup)
+		{
+			continue;
+		}
+
+		FBodyInstance* Inst = MeshComp->Bodies.IsValidIndex(i) ? MeshComp->Bodies[i] : nullptr;
+
+		UE_LOG(LogEnemyAI, Warning, TEXT("[Ragdoll]   %-24s Type=%d  Sim=%d"),
+			*Setup->BoneName.ToString(),
+			static_cast<int32>(Setup->PhysicsType),
+			Inst ? (Inst->bSimulatePhysics ? 1 : 0) : -1);
+	}
 }
 
 void AEnemyCharacterBase::DespawnSelf()
