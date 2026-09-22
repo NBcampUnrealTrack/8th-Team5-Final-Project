@@ -15,18 +15,18 @@ namespace
 	{
 		return !V.ContainsNaN() && V.X > 0 && V.Y > 0 && V.Z > 0;
 	}
-	struct FOrientedBox
+	struct FHBConnectorOccupancyBox
 	{
 		FVector Center;
 		FVector Axis[3];
 		FVector Extent;
 	};
-	FOrientedBox WorldBox(const FHBDungeonOccupancyDefinition& Box, const FTransform& Room)
+	FHBConnectorOccupancyBox WorldBox(const FHBDungeonOccupancyDefinition& Box, const FTransform& Room)
 	{
 		const FTransform T = Box.LocalTransform * Room;
 		return { T.GetLocation(), { T.GetUnitAxis(EAxis::X), T.GetUnitAxis(EAxis::Y), T.GetUnitAxis(EAxis::Z) }, Box.Extent };
 	}
-	bool BoxesOverlap(const FOrientedBox& A, const FOrientedBox& B)
+	bool BoxesOverlap(const FHBConnectorOccupancyBox& A, const FHBConnectorOccupancyBox& B)
 	{
 		const FVector Delta = B.Center - A.Center;
 		auto Separated = [&](FVector Axis)
