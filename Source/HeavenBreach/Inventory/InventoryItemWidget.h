@@ -31,13 +31,14 @@ public:
 		FIntPoint InItemSize,
 		float InCellSize);
 
-	// µå·¡±× Áß TÅ°·Î È¸ÀüÀ» Åä±ÛÇßÀ» ¶§, ÀÌ À§Á¬ÀÌ µå·¡±× ¹Ì¸®º¸±â(UMG DefaultDragVisual)·Î
-	// ¾²ÀÌ°í ÀÖ´Â º¹Á¦º»ÀÌ¶ó¸é ¾ÆÀÌÄÜ È¸Àü¸¸ °»½ÅÇÑ´Ù. InitializeItem ÀüÃ¼¸¦ ´Ù½Ã ºÎ¸£Áö ¾Ê°í
-	// ¾ÆÀÌÄÜ Å©±â/È¸Àü °¢µµ¸¸ ¹Ù²ã¼­ µå·¡±× µµÁß ¸Å¹ø ´Ù½Ã ¼¼ÆÃÇÏ´Â ºñ¿ëÀ» ÇÇÇÑ´Ù.
+	// ï¿½å·¡ï¿½ï¿½ ï¿½ï¿½ TÅ°ï¿½ï¿½ È¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½å·¡ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ï¿½ï¿½(UMG DefaultDragVisual)ï¿½ï¿½
+	// ï¿½ï¿½ï¿½Ì°ï¿½ ï¿½Ö´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì¶ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½. InitializeItem ï¿½ï¿½Ã¼ï¿½ï¿½ ï¿½Ù½ï¿½ ï¿½Î¸ï¿½ï¿½ï¿½ ï¿½Ê°ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Å©ï¿½ï¿½/È¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ù²ã¼­ ï¿½å·¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Å¹ï¿½ ï¿½Ù½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ñ´ï¿½.
 	void SetPreviewRotated(bool bInRotated);
 
 protected:
 	virtual void NativeOnInitialized() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(
 		const FGeometry& InGeometry,
@@ -57,14 +58,21 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<USizeBox> SizeBox_Icon;
 
-	// ¾ÆÀÌÄÜ È¸Àü°ú ¹«°üÇÏ°Ô Ç×»ó Ä­ ÇÏ´Ü¿¡ °íÁ¤µÇ¾î¾ß ÇØ¼­ SizeBox_Icon ¹Û(Overlay Á÷¼Ó)¿¡ µÐ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½×»ï¿½ Ä­ ï¿½Ï´Ü¿ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½ï¿½ ï¿½Ø¼ï¿½ SizeBox_Icon ï¿½ï¿½(Overlay ï¿½ï¿½ï¿½ï¿½)ï¿½ï¿½ ï¿½Ð´ï¿½.
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UProgressBar> ProgressBar_Durability;
 
-	// 1x2, 1x3Ã³·³ Á¤»ç°¢ÇüÀÌ ¾Æ´Ñ(±æÂßÇÑ) ¾ÆÀÌÅÛÀº ¾ÆÀÌÄÜ ¾ÆÆ® ÀÚÃ¼¿¡ ¿©¹éÀÌ ÀÖ¾î¼­
-	// Ä­À» ´Ù ¸ø Ã¤¿ì°í Âª¾Æ º¸ÀÌ´Â °æ¿ì°¡ ¸¹´Ù. ±×·± ¾ÆÀÌÅÛ¿¡¸¸ ÀÌ ¹èÀ²¸¸Å­ ¾ÆÀÌÄÜ
-	// ¹Ú½º¸¦ »ìÂ¦ Å°¿ö¼­ º¸Á¤ÇÑ´Ù. 1.0ÀÌ¸é º¸Á¤ ¾øÀ½. °ªÀº µðÀÚÀÌ³Ê°¡ ´«À¸·Î º¸¸é¼­
-	// WBP Å¬·¡½º µðÆúÆ®¿¡¼­ ¹Ù·Î Á¶Á¤ °¡´ÉÇÏ´Ù.
+	// í¬ì…˜ ë“± ì†Œë¹„ ì•„ì´í…œ ì „ìš© ì‚¬ìš© ì¿¨íƒ€ìž„ ì§„í–‰ë°”. SizeBox_Icon ìœ„(Overlay)ì— ê²¹ì³ ë†“ëŠ”ë‹¤.
+	// ProgressBar_Durabilityì™€ ë§ˆì°¬ê°€ì§€ë¡œ ìœ„ì ¯ Styleì˜ Fill Typeì„ Radial/Linearë¡œ ë°”ê¾¸ëŠ” ê±´
+	// WBP ìª½ ëª«ì´ê³ , ì½”ë“œëŠ” Percentë§Œ ë§¤ í‹± ì±„ìš´ë‹¤. ì¿¨íƒ€ìž„ì€ ì•„ì´í…œ ì¢…ë¥˜(RowName)ë³„ë¡œ ë…ë¦½ì´ë¼
+	// ê°™ì€ ì¢…ë¥˜ì˜ í¬ì…˜ ì¹¸ë“¤ë§Œ ê°™ì´ ì±„ì›Œì§€ê³ , ë‹¤ë¥¸ ì¢…ë¥˜ì˜ ì†Œë¹„ ì•„ì´í…œì€ ì„œë¡œ ì˜í–¥ì„ ì£¼ì§€ ì•ŠëŠ”ë‹¤.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UProgressBar> ProgressBar_Cooldown;
+
+	// 1x2, 1x3Ã³ï¿½ï¿½ ï¿½ï¿½ï¿½ç°¢ï¿½ï¿½ï¿½ï¿½ ï¿½Æ´ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ® ï¿½ï¿½Ã¼ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ö¾î¼­
+	// Ä­ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ Ã¤ï¿½ï¿½ï¿½ Âªï¿½ï¿½ ï¿½ï¿½ï¿½Ì´ï¿½ ï¿½ï¿½ì°¡ ï¿½ï¿½ï¿½ï¿½. ï¿½×·ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Û¿ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Å­ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	// ï¿½Ú½ï¿½ï¿½ï¿½ ï¿½ï¿½Â¦ Å°ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½. 1.0ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½. ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ì³Ê°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½é¼­
+	// WBP Å¬ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½Ù·ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "1.0", ClampMax = "2.0", AllowPrivateAccess = "true"))
 	float ElongatedIconOverscale = 1.15f;
 
@@ -74,13 +82,13 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> Text_StackCount;
 
-	// ÆÄ¼ÕµÈ Àåºñ·ù ¾ÆÀÌÅÛ¿¡¸¸ º¸ÀÌ´Â ÅØ½ºÆ®. UMG¿¡¼­ À§Á¬À» Áö¿ö¼­ Áö±ÝÀº ¾È ¾¸ ?
-	// ¹ÙÀÎµùÀº ³²°ÜµÖµµ ¹«ÇØÇÏ´Ù(¸ÅÄªµÇ´Â À§Á¬ ¾øÀ¸¸é nullptr).
+	// ï¿½Ä¼Õµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Û¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ì´ï¿½ ï¿½Ø½ï¿½Æ®. UMGï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ?
+	// ï¿½ï¿½ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ÜµÖµï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½(ï¿½ï¿½Äªï¿½Ç´ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ nullptr).
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> Text_Broken;
 
-	// ÆÄ¼Õ ½Ã ¾ÆÀÌÄÜ µÚ¿¡ ±ò¸®´Â ¹ÝÅõ¸í »¡°£ ¹è°æ. UMG¿¡ °°Àº ÀÌ¸§ÀÇ Image¸¦
-	// Ãß°¡ÇÏ¸é ÀÚµ¿ ¹ÙÀÎµùµÈ´Ù(¾ø¾îµµ ¿¡·¯ ¾È ³²).
+	// ï¿½Ä¼ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ú¿ï¿½ ï¿½ò¸®´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½. UMGï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ Imageï¿½ï¿½
+	// ï¿½ß°ï¿½ï¿½Ï¸ï¿½ ï¿½Úµï¿½ ï¿½ï¿½ï¿½Îµï¿½ï¿½È´ï¿½(ï¿½ï¿½ï¿½îµµ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½).
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_BrokenBG;
 
@@ -92,10 +100,10 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_FavoriteStar;
 
-	// Á¦ÀÛ Àç·á ¾ÆÀÌÅÛÀ» ÀÏ¹Ý ÀâÅÛ°ú ±¸ºÐÇÏ±â À§ÇÑ Ç¥½Ã. Áñ°ÜÃ£±â º°(¿ìÃø ÇÏ´Ü)°ú ´ëÄªµÇ´Â
-	// ÁÂÃø ÇÏ´Ü¿¡ ÀÛÀº ¾ÆÀÌÄÜÀ¸·Î Ç¥½ÃÇÑ´Ù. ¾ÆÀÌÄÜ ÅØ½ºÃ³ ÀÚÃ¼´Â Áñ°ÜÃ£±â º°°ú °°Àº ¹æ½ÄÀ¸·Î
-	// WBP_InventoryItem µðÀÚÀÌ³Ê¿¡¼­ ÀÌ ImageÀÇ Brush¿¡ Á÷Á¢ ÁöÁ¤ÇÑ´Ù - ÄÚµå¿¡¼­´Â
-	// ItemType == "Material"ÀÏ ¶§¸¸ º¸ÀÌµµ·Ï Ç¥½Ã ¿©ºÎ¸¸ Åä±ÛÇÑ´Ù.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ï¹ï¿½ ï¿½ï¿½ï¿½Û°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ Ç¥ï¿½ï¿½. ï¿½ï¿½ï¿½Ã£ï¿½ï¿½ ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ ï¿½Ï´ï¿½)ï¿½ï¿½ ï¿½ï¿½Äªï¿½Ç´ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ï´Ü¿ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ç¥ï¿½ï¿½ï¿½Ñ´ï¿½. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ø½ï¿½Ã³ ï¿½ï¿½Ã¼ï¿½ï¿½ ï¿½ï¿½ï¿½Ã£ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	// WBP_InventoryItem ï¿½ï¿½ï¿½ï¿½ï¿½Ì³Ê¿ï¿½ï¿½ï¿½ ï¿½ï¿½ Imageï¿½ï¿½ Brushï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½ - ï¿½Úµå¿¡ï¿½ï¿½ï¿½ï¿½
+	// ItemType == "Material"ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ìµï¿½ï¿½ï¿½ Ç¥ï¿½ï¿½ ï¿½ï¿½ï¿½Î¸ï¿½ ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_MaterialBadge;
 
@@ -111,7 +119,19 @@ private:
 	TObjectPtr<UInventoryComponent> SourceInventory;
 
 	FItemInstance Item;
+	// InitializeItemì—ì„œ í•œ ë²ˆë§Œ ê³„ì‚°í•´ë‘ê³  NativeTick(ì¿¨íƒ€ìž„ ì§„í–‰ë°” ê°±ì‹ )ì—ì„œ ë§¤ í”„ë ˆìž„ ìž¬ì‚¬ìš© -
+	// ì†Œë¹„ ì•„ì´í…œì´ ì•„ë‹Œ ì¹¸ì€ ë§¤ í‹± ResolveItemViewDataë¥¼ ë‹¤ì‹œ ë¶€ë¥¼ í•„ìš”ê°€ ì—†ë‹¤.
+	bool bIsConsumableItem = false;
 	FIntPoint ItemSize = FIntPoint(1, 1);
+
+	// íšŒì „ì— ì˜í–¥ë°›ì§€ ì•ŠëŠ” ì•„ì´í…œì˜ "ì›ëž˜(íšŒì „ ì „)" ì¹¸ í¬ê¸°. InitializeItemì—ì„œ ItemSize(í˜„ìž¬
+	// íšŒì „ ìƒíƒœ ê¸°ì¤€ ì ìœ  í¬ê¸°)ì™€ Item.bRotatedë¥¼ ë³´ê³  í•œ ë²ˆë§Œ ì—­ì‚°í•´ì„œ ì €ìž¥í•´ë‘”ë‹¤.
+	// Tí‚¤ ë“œëž˜ê·¸ í”„ë¦¬ë·° íšŒì „(SetPreviewRotated)ì´ Item.bRotatedë§Œ ë°”ê¾¸ê³  ItemSizeëŠ” ê°±ì‹ í•˜ì§€
+	// ì•Šê¸° ë•Œë¬¸ì—, ì•„ì´ì½˜ ìžì—° í¬ê¸° ê³„ì‚°ì€ í•­ìƒ ì´ ê°’(íšŒì „ê³¼ ë¬´ê´€í•˜ê²Œ ê³ ì •)ì„ ì¨ì•¼ í•œë‹¤ -
+	// ì˜ˆì „ì—ëŠ” ItemSizeë¥¼ ê·¸ ìžë¦¬ì—ì„œ ë‹¤ì‹œ ìŠ¤ì™‘í•´ì„œ ê³„ì‚°í–ˆëŠ”ë°, í”„ë¦¬ë·° íšŒì „ ì¤‘ì—ëŠ” ItemSizeê°€
+	// ì´ë¯¸ ë‚¡ì€ ê°’ì´ë¼ ì•„ì´ì½˜ì´ ì´ì¤‘ìœ¼ë¡œ íšŒì „ëœ ê²ƒì²˜ëŸ¼ ë¹„ìœ¨ì´ ê¹¨ì ¸ ë³´ì´ëŠ” ë²„ê·¸ê°€ ìžˆì—ˆë‹¤.
+	FIntPoint NaturalGridSize = FIntPoint(1, 1);
+
 	FVector2D GrabPixelOffset = FVector2D::ZeroVector;
 	float CellSize = 64.0f;
 	bool bSplitRequested = false;

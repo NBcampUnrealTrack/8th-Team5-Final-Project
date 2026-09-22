@@ -262,6 +262,9 @@ int32 ULootComponent::AddLootItem(const FDataTableRowHandle& Row, int32 Count)
 	Item.ItemRow = Row;
 	Item.InstanceId = FGuid::NewGuid();
 	Item.StackCount = 1;
+	// 시체에 갓 생성된 아이템은 아직 서칭 전 - 화면이 열린 뒤 BeginItemRevealSequence()가
+	// 순서대로 공개해줄 때까지 "?"로 보인다.
+	Item.bRevealed = false;
 
 	if (ViewData.IsEquippable())
 	{
@@ -303,6 +306,11 @@ void ULootComponent::HandleInteract(AActor* Interactor)
 	{
 		return;
 	}
+
+	// 서칭 안 된(bRevealed=false) 아이템이 있으면 하나씩 공개하는 타이머를 시작한다.
+	// 이미 돌고 있거나 전부 공개된 상태면 아무것도 안 하므로 매번 호출해도 안전 -
+	// 화면을 닫았다가 다시 열어도 처음부터 다시 돌지 않고 이어서 진행된다.
+	BeginItemRevealSequence();
 
 	// 플레이어의 인벤토리 UI열기위해 상호작용 컴포넌트에 보낸다.
 	if (UInteractionComponent* InteractionComp = Interactor->FindComponentByClass<UInteractionComponent>())

@@ -60,6 +60,15 @@ public:
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual FText GetInteractPrompt_Implementation() const override;
 
+	/** 미탐색 상자는 SearchDurationSeconds 만큼 홀드해야 열린다. 이미 탐색한 상자는 즉시(0초) 재오픈된다. */
+	virtual float GetInteractHoldSeconds_Implementation() const override;
+
+	/** 탐색(홀드) 시작 시 서버에서 호출. 연출/사운드용 BP 훅을 호출한다. */
+	virtual bool OnHoldBegin_Implementation(AActor* Interactor) override;
+
+	/** 탐색이 중간에 끊겼을 때 서버에서 호출. 연출/사운드용 BP 훅을 호출한다. */
+	virtual void OnHoldCancel_Implementation(AActor* Interactor) override;
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -81,6 +90,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box")
 	FText InteractPrompt = FText::FromString(TEXT("상자 열기 [F]"));
+
+	/** 미탐색 상자를 열기 위해 상호작용 키를 눌러야 하는 시간(초). 이미 탐색한 상자는 이 값과 무관하게 즉시 열린다. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box", meta = (ClampMin = 0, Units = "s"))
+	float SearchDurationSeconds = 3.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box|Loot")
 	TObjectPtr<UDataTable> ItemDataTable;
@@ -114,6 +127,12 @@ protected:
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Box", meta = (DisplayName = "On Grade Changed"))
 	void BP_OnGradeChanged(EBoxGrade NewGrade);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Box", meta = (DisplayName = "On Search Begin"))
+	void BP_OnSearchBegin();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Box", meta = (DisplayName = "On Search Cancel"))
+	void BP_OnSearchCancel();
 
 	void GenerateLoot();
 
