@@ -1,0 +1,18 @@
+{
+  "BP_PCGPreviewGameMode": {
+    "class": "/Game/Levels/Test_CW/Prototype/Blueprints/BP_PCGPreviewGameMode.BP_PCGPreviewGameMode_C"
+  },
+  "BP_PCGPreviewGenerator": {
+    "class": "/Game/Levels/Test_CW/Prototype/Blueprints/BP_PCGPreviewGenerator.BP_PCGPreviewGenerator_C",
+    "test_room_count": 6,
+    "allow_module_reuse": true,
+    "max_connection_attempts": 20000,
+    "connection_search_seconds": 2.0,
+    "show_connection_debug": false,
+    "room_modules": [
+      "<Object '/Game/Levels/Test_CW/Prototype/Modules/LI_Adventure01.LI_Adventure01' (0x000002551FD26200) Class 'World'>",
+      "<Object '/Game/Levels/Test_CW/Prototype/Modules/LI_Boss.LI_Boss' (0x0000025522CC3800) Class 'World'>"
+    ],
+    "graph": "<Object '/Game/Levels/Test_CW/Prototype/PCG_DungeonPrototype.PCG_DungeonPrototype' (0x0000025505F81E00) Class 'PCGGraph'>"
+  }
+}

@@ -31,3 +31,7 @@ Saved/
 
 # Unreal Engine MCP
 Plugins/Monolith/
+
+# PCG Outputs
+output/pcg_exploration
+output/pcg_prototype
