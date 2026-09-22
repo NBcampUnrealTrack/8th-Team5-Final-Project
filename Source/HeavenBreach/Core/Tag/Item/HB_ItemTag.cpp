@@ -16,4 +16,7 @@ namespace ItemTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Block_Staff, "Block.Staff")
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Block_Bow, "Block.Bow")
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Block_Unarmed, "Block.Unarmed")
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Data_Equipment_Defense, "Data.Equipment.Defense", "장착 방어구 방어력 합계")
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Data_Equipment_AttackPower, "Data.Equipment.AttackPower", "장착 무기 공격력 합계")
 }

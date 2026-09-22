@@ -62,3 +62,28 @@ class HEAVENBREACH_API UGE_GuardStanceSlow : public UGameplayEffect
 public:
 	UGE_GuardStanceSlow();
 };
+
+/**
+ * 장착 장비가 주는 어트리뷰트 보정. 방어구 방어력 + 무기 공격력.
+ *
+ * Infinite + Additive 다. 직업 GE 는 Instant Override 라 BaseValue 를 직접 박는데,
+ * 이건 그 위에 얹히는 모디파이어라 나중에 직업 GE 가 와도 살아남는다.
+ * 덕분에 세이브 복원이 직업 초기화보다 먼저 와도 값이 사라지지 않는다.
+ *
+ * 값은 UEquipmentComponent::RefreshEquipmentStats 가 SetByCaller 로 채운다.
+ * 슬롯 하나가 바뀌면 이 GE 를 통째로 떼고 다시 붙인다 — 슬롯별 핸들을 들면
+ * 교체·파손·복원마다 어느 걸 떼야 하는지가 갈라져서 언젠가 하나를 빠뜨린다.
+ *
+ * 주의: Additive 라 전투의 함성(Multiplicitive)이 장비까지 곱한다.
+ * (기본 + 무기) × 배율 이다. 무기가 좋을수록 버프가 세진다.
+ *
+ * 쳐낼 조건: 악세서리를 붙일 때 MaxHP / MoveSpeed 모디파이어를 여기 더한다.
+ * 값이 0 이면 0 을 더할 뿐이라 호출부에 분기가 생기지 않는다.
+ */
+UCLASS()
+class HEAVENBREACH_API UGE_EquipmentStats : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_EquipmentStats();
+};
