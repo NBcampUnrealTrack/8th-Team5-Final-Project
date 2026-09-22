@@ -33,7 +33,9 @@ protected:
 	TObjectPtr<UButton> UseButton;
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UButton> SplitButton;
-	UPROPERTY(meta = (BindWidget))
+	// "아이템 정보" 버튼은 이제 안 쓴다(호버만으로 상세 정보가 보이므로) — WBP에서 지워도
+	// 컴파일이 깨지지 않도록 필수(BindWidget)에서 선택(BindWidgetOptional)으로 낮춰둔다.
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> InfoButton;
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UButton> DiscardButton;

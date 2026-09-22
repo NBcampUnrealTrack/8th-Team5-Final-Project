@@ -31,6 +31,11 @@ public:
 		FIntPoint InItemSize,
 		float InCellSize);
 
+	// 드래그 중 T키로 회전을 토글했을 때, 이 위젯이 드래그 미리보기(UMG DefaultDragVisual)로
+	// 쓰이고 있는 복제본이라면 아이콘 회전만 갱신한다. InitializeItem 전체를 다시 부르지 않고
+	// 아이콘 크기/회전 각도만 바꿔서 드래그 도중 매번 다시 세팅하는 비용을 피한다.
+	void SetPreviewRotated(bool bInRotated);
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
@@ -86,6 +91,13 @@ private:
 	TObjectPtr<UBorder> Border_ItemFrame;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_FavoriteStar;
+
+	// 제작 재료 아이템을 일반 잡템과 구분하기 위한 표시. 즐겨찾기 별(우측 하단)과 대칭되는
+	// 좌측 하단에 작은 아이콘으로 표시한다. 아이콘 텍스처 자체는 즐겨찾기 별과 같은 방식으로
+	// WBP_InventoryItem 디자이너에서 이 Image의 Brush에 직접 지정한다 - 코드에서는
+	// ItemType == "Material"일 때만 보이도록 표시 여부만 토글한다.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UImage> Image_MaterialBadge;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UBorder> Border_GradeFrame;
