@@ -41,8 +41,6 @@ void UInventoryItemWidget::InitializeItem(
 	UTexture2D* IconTexture = bHasViewData ? LoadItemIcon(ViewData.IconPath) : nullptr;
 	const EItemGrade Grade = bHasViewData ? ViewData.Grade : EItemGrade::Normal;
 
-	// 장비류이고 내구도가 0까지 닳은(파손) 상태인지. 아래 ProgressBar 계산이랑
-	// 동일한 조건이라 아이콘 틴트/파손 텍스트 둘 다 여기 하나로 처리한다.
 	const bool bIsBroken = bHasViewData && ViewData.IsEquippable() && Item.CurrentDurability == 0.f;
 	if (Image_ItemBackground != nullptr)
 	{
@@ -61,17 +59,18 @@ void UInventoryItemWidget::InitializeItem(
 		}
 		if (BackgroundMID != nullptr)
 		{
-			// 등급별 배경 그라데이션 색상 (InventoryTypes.h 공용 함수 ? EquipmentSlotWidget도
-			// 같은 함수를 써서 색을 맞춘다. 색 조정은 InventoryTypes.cpp 한 곳만 고치면 됨)
-			const FLinearColor TopColor = GetGradeTopColor(Grade);
-			const FLinearColor BottomColor = GetGradeBottomColor(Grade);
+			const FLinearColor TopColor = GetInventoryIconTopColor(Grade);
+			const FLinearColor MidColor = GetInventoryIconMidColor(Grade);
+			const FLinearColor BottomColor = GetInventoryIconBottomColor(Grade);
 			BackgroundMID->SetVectorParameterValue(TEXT("TopColor"), TopColor);
+			BackgroundMID->SetVectorParameterValue(TEXT("MidColor"), MidColor);
 			BackgroundMID->SetVectorParameterValue(TEXT("BottomColor"), BottomColor);
 
-			// 테두리는 표시하지 않고 배경색만으로 등급을 표현
 			if (Border_GradeFrame != nullptr)
 			{
-				Border_GradeFrame->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+				FLinearColor FrameColor = GetGradeTopColor(Grade);
+				FrameColor.A = 0.45f;
+				Border_GradeFrame->SetBrushColor(FrameColor);
 			}
 		}
 	}
@@ -193,25 +192,26 @@ void UInventoryItemWidget::InitializeItem(
 			Text_StackCount->SetVisibility(ESlateVisibility::Hidden);
 		}
 	}
+	// 즐겨찾기 표시를 단순화: 칸 전체를 감싸는 테두리 펄스(Border_ItemFrame +
+	// Anim_FavoritePulse)는 너무 화려해서 뺐고, 우측 하단의 작은 별 아이콘
+	// (Image_FavoriteStar) 하나만 켜고 끈다. Border_ItemFrame/Anim_FavoritePulse는
+	// 더 이상 즐겨찾기용으로 쓰지 않는다(다른 용도로 남겨두되 여기서는 건드리지 않음).
 	if (Image_FavoriteStar != nullptr)
 	{
 		Image_FavoriteStar->SetVisibility(Item.bIsFavorite
 			? ESlateVisibility::HitTestInvisible
 			: ESlateVisibility::Hidden);
 	}
-	if (Border_ItemFrame != nullptr)
+	// 제작 재료 아이템 구분용 표시 - 일반 잡템과 헷갈린다는 피드백으로 추가.
+	// 즐겨찾기 별(우측 하단)과 대칭되는 좌측 하단에 작은 아이콘으로 표시. 아이콘 텍스처는
+	// Image_FavoriteStar와 동일한 방식으로 WBP_InventoryItem 디자이너에서 이미 지정되어
+	// 있으므로, 코드에서는 ItemType == "Material"일 때만 보이도록 표시 여부만 토글한다.
+	if (Image_MaterialBadge != nullptr)
 	{
-		Border_ItemFrame->SetVisibility(Item.bIsFavorite
+		const bool bIsCraftMaterial = bHasViewData && ViewData.ItemType == TEXT("Material");
+		Image_MaterialBadge->SetVisibility(bIsCraftMaterial
 			? ESlateVisibility::HitTestInvisible
 			: ESlateVisibility::Hidden);
-	}
-	if (Item.bIsFavorite && Anim_FavoritePulse != nullptr)
-	{
-		PlayAnimation(Anim_FavoritePulse, 0.0f, 0, EUMGSequencePlayMode::PingPong);
-	}
-	else if (Anim_FavoritePulse != nullptr)
-	{
-		StopAnimation(Anim_FavoritePulse);
 	}
 	SetVisibility(ESlateVisibility::Visible);
 }
@@ -276,6 +276,10 @@ void UInventoryItemWidget::NativeOnDragDetected(
 	Operation->OnDrop.AddDynamic(this, &UInventoryItemWidget::HandleDragFinished);
 	Operation->OnDragCancelled.AddDynamic(this, &UInventoryItemWidget::HandleDragFinished);
 
+	// 그리드 드래그의 실제 화면 비주얼(UMG DefaultDragVisual)을 Operation에 등록해서,
+	// 드래그 중 T키 회전(SetRotated())이 이 SizeBox/복제 위젯도 함께 갱신하게 한다.
+	Operation->SetDefaultVisual(DragVisualContainer, DragItemWidget, VisualSize);
+
 	SetVisibility(ESlateVisibility::Hidden);
 	OutOperation = Operation;
 }
@@ -283,4 +287,35 @@ void UInventoryItemWidget::NativeOnDragDetected(
 void UInventoryItemWidget::HandleDragFinished(UDragDropOperation* Operation)
 {
 	SetVisibility(ESlateVisibility::Visible);
+}
+
+void UInventoryItemWidget::SetPreviewRotated(bool bInRotated)
+{
+	if (Item.bRotated == bInRotated)
+	{
+		return;
+	}
+	Item.bRotated = bInRotated;
+
+	if (SizeBox_Icon == nullptr)
+	{
+		return;
+	}
+
+	// InitializeItem()의 아이콘 회전 로직과 동일하다 - 칸에 맞춘 크기(ItemSize)로부터
+	// 회전 전 "원래" 세로/가로 비율을 복원한 뒤, 그 박스 자체를 통째로 90도 돌린다.
+	// (박스 크기를 미리 바꾼 채로 돌리면 아이콘이 눌려서 테두리가 비뚤어져 보인다.)
+	const FVector2D NaturalIconSize = Item.bRotated
+		? FVector2D(ItemSize.Y * CellSize, ItemSize.X * CellSize)
+		: FVector2D(ItemSize.X * CellSize, ItemSize.Y * CellSize);
+
+	const bool bIsElongated = !FMath::IsNearlyEqual(NaturalIconSize.X, NaturalIconSize.Y);
+	const FVector2D ScaledIconSize = bIsElongated
+		? NaturalIconSize * ElongatedIconOverscale
+		: NaturalIconSize;
+
+	SizeBox_Icon->SetWidthOverride(ScaledIconSize.X);
+	SizeBox_Icon->SetHeightOverride(ScaledIconSize.Y);
+	SizeBox_Icon->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	SizeBox_Icon->SetRenderTransformAngle(Item.bRotated ? 90.0f : 0.0f);
 }

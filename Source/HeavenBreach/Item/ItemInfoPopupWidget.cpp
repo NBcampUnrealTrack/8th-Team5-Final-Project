@@ -48,6 +48,13 @@ namespace
 	const FLinearColor MutedTextColor    = HexColor(0x6E, 0x68, 0x5E); // #6E685E — 설명/플레이스홀더(어두운 무채 톤)
 	const FLinearColor DurabilityColor   = HexColor(0xB9, 0xB2, 0xA6); // #B9B2A6 — 내구도
 
+	// 아이템 이름 전용 고정 색상. 예전엔 이름 텍스트에도 등급색(GetGradeColor)을 그대로
+	// 써서 이름이 등급마다 쨍하게 물들어 있었는데, 이제는 이름은 "그냥 무채색"으로 고정하고
+	// 등급 구분은 배지(GradeBadgeBorder)/아이콘 테두리(IconBorder)/카드 링 색으로만 표현한다.
+	// 배경(PanelBackground)이 거의 검은색이라 이름 자체를 진짜 검은색으로 두면 안 보이니,
+	// "무채색으로 튀지 않는다"는 의도를 살려 밝은 오프화이트로 고정한다.
+	const FLinearColor NameTextColor = HexColor(0xF0, 0xEC, 0xE2); // #F0ECE2 — 아이템 이름(등급 무관 고정)
+
 	// 텍스트 블록의 기존 폰트(에셋/타입페이스)는 그대로 두고 크기만 바꿔서, 시안처럼
 	// 이름 > 스탯/판매가 > 라벨/설명 순으로 위계가 드러나게 한다. Designer에서 폰트를
 	// 하나하나 바꿀 필요 없이 코드 한 곳에서 전체 크기 밸런스를 관리할 수 있다.
@@ -100,7 +107,7 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
     if (NameText != nullptr)
     {
         NameText->SetText(FText::FromString(InDisplayName));
-        NameText->SetColorAndOpacity(FSlateColor(GradeColor));
+        NameText->SetColorAndOpacity(FSlateColor(NameTextColor));
         ApplyFontSize(NameText, bInCompact ? 16 : 20);
     }
 
@@ -176,7 +183,9 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
             SubtitleString = GradeName.IsEmpty() ? InEquipSlotLabel : GradeName;
         }
         SubtitleText->SetText(FText::FromString(SubtitleString));
-        SubtitleText->SetColorAndOpacity(FSlateColor(SectionLabelColor));
+        // "에픽 등급 · 머리"처럼 등급을 직접 언급하는 줄이라, 무채색 라벨 톤(SectionLabelColor)
+        // 대신 등급색(GradeColor)을 써서 등급이 한눈에 보이게 한다.
+        SubtitleText->SetColorAndOpacity(FSlateColor(GradeColor));
         SubtitleText->SetVisibility((bInCompact || SubtitleString.IsEmpty()) ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
         ApplyFontSize(SubtitleText, 12);
     }

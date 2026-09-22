@@ -13,6 +13,8 @@ class UUserWidget;
 class SWidget;
 class SBox;
 class SImage;
+class USizeBox;
+class UInventoryItemWidget;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryDragDropOperation : public UDragDropOperation
@@ -36,6 +38,15 @@ public:
 
 	// 드래그 중 T키 회전 시 아이콘/박스를 실시간으로 갱신하기 위해 호출한다.
 	void SetRotated(bool bInRotated);
+
+	// 인벤토리 그리드에서 드래그를 시작한 경우(UInventoryItemWidget::NativeOnDragDetected)에는
+	// CreateVisual()의 로우레벨 Slate 비주얼이 아니라 UMG DefaultDragVisual(이 SizeBox +
+	// InventoryItemWidget 복제본)이 실제로 화면에 보이는 드래그 미리보기다. 그런데 SetRotated()는
+	// DragBoxWidget/DragImageWidget(=EquipmentSlotWidget 쪽 CreateVisual 경로)만 갱신하고 있어서,
+	// 그리드에서 드래그하다 T키로 회전을 토글해도 미리보기의 테두리/아이콘 모양이 그대로 남아
+	// 실제로 놓일 모양과 어긋나 보이는 버그가 있었다. 이 함수로 그 SizeBox/위젯을 등록해두면
+	// SetRotated()가 이 경로도 함께 갱신한다.
+	void SetDefaultVisual(USizeBox* InVisualBox, UInventoryItemWidget* InVisualItemWidget, const FVector2D& InBaseSize);
 
 	UPROPERTY()
 	FVector2D GrabPixelOffset = FVector2D::ZeroVector;
@@ -71,6 +82,12 @@ private:
 	TSharedPtr<SBox> DragBoxWidget;
 	TSharedPtr<SImage> DragImageWidget;
 	FVector2D BaseVisualSize = FVector2D::ZeroVector;
+
+	// SetDefaultVisual()로 등록된, 인벤토리 그리드 드래그의 UMG 비주얼(SetRotated()에서 같이 갱신됨).
+	UPROPERTY()
+	TObjectPtr<USizeBox> DefaultVisualBox;
+	UPROPERTY()
+	TObjectPtr<UInventoryItemWidget> DefaultVisualItemWidget;
 
 	UPROPERTY()
 	FSlateBrush DragVisualBrush;

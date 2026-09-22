@@ -793,6 +793,9 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 
 	const FDataTableRowHandle ItemRow = Entries[EntryIndex].Item.ItemRow;
 	const int32 DroppedStackCount = Entries[EntryIndex].Item.StackCount;
+	// 즐겨찾기한 아이템을 버렸다가 다시 주우면 즐겨찾기가 풀려있던 문제 수정:
+	// 드롭 시점에 즐겨찾기 여부를 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
+	const bool bWasFavorite = Entries[EntryIndex].Item.bIsFavorite;
 	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
 	{
 		return false;
@@ -871,6 +874,7 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	}
 
 	NewItemActor->StackCount = FMath::Max(1, DroppedStackCount);
+	NewItemActor->bIsFavorite = bWasFavorite;
 	NewItemActor->FinishSpawning(SpawnTransform);
 
 	// 던진 사람과는 한동안 충돌 무시해서 스폰 직후 캐릭터에 끼어서 튕기는 걸 방지.

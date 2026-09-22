@@ -3,7 +3,11 @@
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
 #include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Item/Item.h"
+#include "Combat/Effect/HBGameplayEffects.h"
+#include "Core/Tag/Item/HB_ItemTag.h"
 
 UEquipmentComponent::UEquipmentComponent()
 {
@@ -14,12 +18,11 @@ UEquipmentComponent::UEquipmentComponent()
 
 UAbilitySystemComponent* UEquipmentComponent::GetOwnerASC() const
 {
-	if (AHBPlayerCharacter* OwnerCharacter = Cast<AHBPlayerCharacter>(GetOwner()))
-	{
-		return OwnerCharacter->GetAbilitySystemComponent();
-	}
+	// 이 컴포넌트는 AHB_PlayerState 의 서브오브젝트다. GetOwner() 는 PlayerState 이지
+	// 캐릭터가 아니다. AHBPlayerCharacter 로 캐스팅하면 항상 실패해서 ASC 를 못 찾았고,
+	// 그 탓에 유물 GE 도 장비 스탯 GE 도 조용히 붙지 않았다.
 
-	return nullptr;
+	return UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner());
 }
 
 void UEquipmentComponent::ApplyRelicEffects(const FItemInstance& InItem)
@@ -95,11 +98,129 @@ void UEquipmentComponent::BeginPlay()
 	{
 		Slots.SetNum(static_cast<int32>(EEquipSlotType::MAX));
 	}
+
+	// 델리게이트에 물려 둔다. 장착·해제·교체·내구도·세이브 복원이 전부 이걸 쏘므로
+	// 새 경로가 생겨도 자동으로 따라온다. 호출부마다 손으로 부르면 언젠가 하나를 빠뜨린다.
+	OnEquipmentChanged.AddUniqueDynamic(this, &UEquipmentComponent::RefreshEquipmentStats);
+
+	// 이미 채워진 채로 시작하는 경우(세이브 복원이 BeginPlay 보다 빨랐을 때)를 위해 한 번 돈다.
+	RefreshEquipmentStats();
 }
 
 void UEquipmentComponent::OnRep_Slots()
 {
 	OnEquipmentChanged.Broadcast();
+}
+
+float UEquipmentComponent::SumArmorDefense() const
+{
+	// DT_Item 의 방어구는 이 세 슬롯이 전부다. HELM_* / CHEST_* / LEGS_* 가 여기 들어간다.
+	// 피격 시 내구도를 깎는 목록과 같아야 한다 — 다르면 "안 닳는데 방어는 되는" 칸이 생긴다.
+	static const EEquipSlotType ArmorSlots[] =
+	{
+		EEquipSlotType::Helmet,
+		EEquipSlotType::Chest,
+		EEquipSlotType::Legs
+	};
+
+	float Total = 0.f;
+
+	for (const EEquipSlotType ArmorSlot : ArmorSlots)
+	{
+		// 부서진 방어구는 껴 있어도 없는 것과 같다.
+		if (IsEquippedItemBroken(ArmorSlot))
+		{
+			continue;
+		}
+
+		FItemInstance ArmorItem;
+		if (!GetItemInSlot(ArmorSlot, ArmorItem))
+		{
+			continue;
+		}
+
+		// 방어구는 무기(FWeaponData)·방패(FShieldData)와 달리 전용 행 구조체가 없다.
+		// 일반 아이템 표에 BonusStatValue 로 들어 있다.
+		const FItemData* ArmorRow = ArmorItem.ItemRow.GetRow<FItemData>(TEXT("SumArmorDefense"));
+		if (!ArmorRow)
+		{
+			continue;
+		}
+
+		// BonusStatType 문자열은 보지 않는다.
+		// 슬롯이 이미 종류를 말해주고, FString 비교는 "방어력"/"DefenseRate" 같은
+		// 표기 차이를 경고 없이 삼켜서 방어력이 조용히 0 이 되는 사고를 낸다.
+		Total += ArmorRow->BonusStatValue;
+	}
+
+	return Total;
+}
+
+float UEquipmentComponent::SumWeaponAttackPower() const
+{
+	// 부서진 무기로는 공격 자체가 안 나가므로(각 공격 GA 가 막는다) 공격력도 0 으로 둔다.
+	if (IsEquippedItemBroken(EEquipSlotType::PrimaryWeapon))
+	{
+		return 0.f;
+	}
+
+	FItemInstance WeaponItem;
+	if (!GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
+	{
+		return 0.f;
+	}
+
+	const FWeaponData* WeaponRow = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("SumWeaponAttackPower"));
+	if (!WeaponRow)
+	{
+		return 0.f;
+	}
+
+	return WeaponRow->AttackPower;
+}
+
+void UEquipmentComponent::RefreshEquipmentStats()
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority())
+	{
+		return;   // 클라도 OnRep_Slots 로 여기 들어온다. 어트리뷰트 변경은 서버 권위
+	}
+
+	UAbilitySystemComponent* ASC = GetOwnerASC();
+	if (!ASC)
+	{
+		// BeginPlay 시점에는 아직 없을 수 있다. 그 경우 다음 OnEquipmentChanged 때 들어와 채워진다.
+		// 장착을 해도 계속 이 줄만 뜨면 소유자에게 ASC 가 없는 것이다 — 조용히 넘기지 않는다.
+		UE_LOG(LogTemp, Warning, TEXT("[Equip] ASC 없음 — 스탯 갱신 건너뜀 | Owner=%s"),
+			*GetNameSafe(GetOwner()));
+		return;
+	}
+
+	// 묵은 것을 먼저 뗀다. 안 떼면 갈아입을 때마다 겹쳐 쌓인다.
+	if (EquipmentStatsHandle.IsValid())
+	{
+		ASC->RemoveActiveGameplayEffect(EquipmentStatsHandle);
+		EquipmentStatsHandle.Invalidate();
+	}
+
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
+		UGE_EquipmentStats::StaticClass(), 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+
+	const float TotalDefense = SumArmorDefense();
+	const float TotalAttackPower = SumWeaponAttackPower();
+
+	Spec.Data->SetSetByCallerMagnitude(ItemTag::TAG_Data_Equipment_Defense, TotalDefense);
+	Spec.Data->SetSetByCallerMagnitude(ItemTag::TAG_Data_Equipment_AttackPower, TotalAttackPower);
+
+	EquipmentStatsHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+
+	UE_LOG(LogTemp, Log, TEXT("[Equip] 스탯 갱신 | Defense=%.2f AttackPower=%.2f"),
+		TotalDefense, TotalAttackPower);
 }
 
 bool UEquipmentComponent::IsSlotOccupied(EEquipSlotType InSlot) const
@@ -146,7 +267,6 @@ bool UEquipmentComponent::DamageEquippedItemDurability(EEquipSlotType InSlot, fl
 		return false;
 	}
 
-	// ���ſ� ��������� �������� ���� �ʱ�ȭ �� �� �ν��Ͻ���� ���⼭�� ä���ش�.
 	if (Item.CurrentDurability < 0.f)
 	{
 		Item.CurrentDurability = GetMaxDurabilityForGrade(ViewData.Grade);
@@ -154,8 +274,6 @@ bool UEquipmentComponent::DamageEquippedItemDurability(EEquipSlotType InSlot, fl
 
 	if (Item.CurrentDurability <= 0.f)
 	{
-		// �̹� �ļյ� ���� - �� ���� �� ����. ���ʿ� �ļյ� ����δ� ���� ��ü��
-		// ������ �ϴ�, ������� ȣ��ƴٸ� ���� �� üũ�� ���� ���� �� �ִ�.
 		return false;
 	}
 
@@ -252,9 +370,6 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 		return false;
 	}
 
-	// ȸ���� �κ��丮 �׸��� �ȿ��� ������ �����ϴ� ����� ���̶� ��� ����(���� 1ĭ)����
-	// �ǹ̰� ����. �����ϴ� ���� �ʱ�ȭ����� ���߿� �������� �� ȸ���� ä�� �� Ƣ�����
-	// ������� ��������.
 	RemovedItem.bRotated = false;
 
 	if (PreviousItem.IsValid())

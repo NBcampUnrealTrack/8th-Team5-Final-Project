@@ -694,24 +694,16 @@ float AHBPlayerCharacter::GetAttackPower() const
 		Attributes = HB_PlayerState->GetPlayerAttributeSet();
 	}
 
+	// 직업 기본값 + 장비(UGE_EquipmentStats) + 버프가 전부 어트리뷰트에 모여 있다.
+	//
+	// 무기 공격력을 여기서 또 더하지 않는다. UEquipmentComponent::RefreshEquipmentStats 가
+	// 장착 시 GE 로 넣어 두므로 이중 계산이 된다.
 	float TotalAttackPower = BaseAttackPower;
 	if (Attributes)
 	{
 		TotalAttackPower = Attributes->GetPlayer_AttackPower();
 	}
 
-	if (GetEquipment())
-	{
-		FItemInstance WeaponItem;
-		if (GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
-		{
-			if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetAttackPower")))
-			{
-				TotalAttackPower += WeaponData->AttackPower;
-			}
-		}
-	}
-	
 	if (!Attributes)
 	{
 		return TotalAttackPower;
