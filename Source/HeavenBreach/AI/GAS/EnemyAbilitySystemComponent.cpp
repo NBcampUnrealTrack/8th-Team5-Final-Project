@@ -33,7 +33,7 @@
 //
 //}
 
-void UEnemyAbilitySystemComponent::InitStats(float InMaxHP, float InAttackPower, float InAttackSpeedRate)
+void UEnemyAbilitySystemComponent::InitStats(float InMaxHP, float InAttackPower, float InAttackSpeedRate, float InDefense)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority())
@@ -46,6 +46,9 @@ void UEnemyAbilitySystemComponent::InitStats(float InMaxHP, float InAttackPower,
 	SetNumericAttributeBase(UEnemyAttributeSetBase::GetHPAttribute(), InMaxHP);
 	SetNumericAttributeBase(UEnemyAttributeSetBase::GetAttackPowerAttribute(), InAttackPower);
 	SetNumericAttributeBase(UEnemyAttributeSetBase::GetAttackSpeedRateAttribute(), InAttackSpeedRate);
+
+	// 방어력은 다른 값에 의존하지 않아 순서가 자유롭다.
+	SetNumericAttributeBase(UEnemyAttributeSetBase::GetDefenseAttribute(), InDefense);
 }
 
 void UEnemyAbilitySystemComponent::SetupAbilities(const TArray<TSubclassOf<UGameplayAbility>>& InAbilities)

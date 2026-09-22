@@ -1,0 +1,164 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-FPQ748Q",
+			"instance": "F181E5CA47CA1B8C93B0C9BB72B543C8",
+			"instanceName": "DESKTOP-FPQ748Q-87912",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 10 (22H2) [10.0.19045.6456] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 3060 Laptop GPU",
+			"cPUModel": "AMD Ryzen 7 6800H with Radeon Graphics         ",
+			"rAMInGB": 32,
+			"renderMode": "SM6",
+			"rHI": "",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.09.22-12.03.27",
+	"succeeded": 9,
+	"succeededWithWarnings": 0,
+	"failed": 0,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.16723538935184479,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "CatalogRead",
+			"fullTestPath": "HeavenBreach.PCGModule.CatalogRead",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.018095497041940689,
+			"dateTime": "2026.09.22-12.03.26",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CatalogSelection",
+			"fullTestPath": "HeavenBreach.PCGModule.CatalogSelection",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.019738096743822098,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DirectAlignment",
+			"fullTestPath": "HeavenBreach.PCGModule.DirectAlignment",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.016479898244142532,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DirectOccupancy",
+			"fullTestPath": "HeavenBreach.PCGModule.DirectOccupancy",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.016443099826574326,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DirectSearch",
+			"fullTestPath": "HeavenBreach.PCGModule.DirectSearch",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.016596000641584396,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ModuleCoordinates",
+			"fullTestPath": "HeavenBreach.PCGModule.ModuleCoordinates",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.017155099660158157,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "Validation",
+			"fullTestPath": "HeavenBreach.PCGModule.Validation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.018004201352596283,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RejectInvalidLayouts",
+			"fullTestPath": "HeavenBreach.PCGPrototype.RejectInvalidLayouts",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.016579598188400269,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "SeedsAndRules",
+			"fullTestPath": "HeavenBreach.PCGPrototype.SeedsAndRules",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"F181E5CA47CA1B8C93B0C9BB72B543C8"
+			],
+			"duration": 0.028143901377916336,
+			"dateTime": "2026.09.22-12.03.27",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}

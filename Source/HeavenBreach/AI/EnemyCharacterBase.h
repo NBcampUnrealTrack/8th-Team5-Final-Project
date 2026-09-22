@@ -78,6 +78,15 @@ public:
 
 	bool IsSummoned() const { return bSummoned; }
 
+	// 시체를 물리로 넘긴다. 사망 몽타주 끝의 AN_StartRagdoll 이 부른다.
+	//
+	// 왜 BecomeDead 가 아닌가: 거기서 켜면 사망 애니가 아예 안 나오고
+	// 그 자리에서 폭삭 주저앉는다. 애니메이션이 끝나는 프레임이어야 한다.
+	//
+	// 쳐낼 조건: 물리 애셋이 없는 적은 몽타주에 노티파이를 안 넣으면 된다.
+	UFUNCTION(BlueprintCallable, Category = "AI")
+	void StartRagdoll();
+
 	// 사망 알림. 서버에서만 브로드캐스트된다
 	FOnEnemyDied OnDied;
 

@@ -32,4 +32,16 @@ namespace ItemTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Block_Staff)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Block_Bow)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Block_Unarmed)
+
+	// ---------------- 장비가 주는 스탯 ----------------
+	// UGE_EquipmentStats 에 합계를 실어 보내는 통로.
+	// UEquipmentComponent::RefreshEquipmentStats 가 슬롯이 바뀔 때마다 다시 채운다.
+	//
+	// 왜 태그인가: SetByCaller 는 태그로 값을 찾는다. 문자열이었다면 DT 의
+	// BonusStatType 처럼 오타가 런타임에 조용히 0 이 되는 사고가 여기서도 났다.
+	//
+	// 쳐낼 조건: 악세서리까지 붙일 때 MaxHP / MoveSpeed 태그를 여기 더한다.
+
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_Defense)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_AttackPower)
 }
