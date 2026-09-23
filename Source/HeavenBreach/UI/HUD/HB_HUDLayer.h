@@ -13,6 +13,8 @@ class UHB_HitEffectWidget;
 class UTextBlock;
 class UTextureRenderTarget2D;
 class UInventoryWidget;
+class UHB_NotificationWidget;
+class UBorder;
 
 /**
  * 인게임 HUD 루트. UI.Layer.Game 스택에 항상 활성 상태로 올라간다.
@@ -60,6 +62,14 @@ public:
 	 */
 	UFUNCTION()
 	void UpdateLevel(int32 NewLevel);
+
+	/**
+	 * 좌하단 주무기/보조무기 표시 갱신. 두 칸을 항상 같이 보여주되, 지금 든 무기
+	 * 쪽만 배경/아이콘을 진하게, 키 뱃지를 밝게 강조하고 반대쪽은 흐리게 만든다.
+	 * true 면 주무기 강조, false 면 보조무기 강조.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "UI|Weapon")
+	void SetActiveWeaponSlot(bool bIsMainActive);
 
 	/** 경험치 바 갱신. Percent 는 0~1 */
 	UFUNCTION()
@@ -167,6 +177,43 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UInventoryWidget> WBP_Inventory;
 
+	/** 레벨업 등 잠깐 떴다 사라지는 알림. 없어도 HUD 는 정상 동작하고 알림만 생략된다. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UHB_NotificationWidget> WBP_Notification;
+
+	// ---- 주무기/보조무기 표시 ----
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_MainBackground;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_SubBackground;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> MainWeapon_key;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> SubWeapon_Key;
+
+	/** 강조된 쪽 배경 이미지 알파. 반대쪽은 InactiveBackgroundAlpha 를 쓴다. */
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	float ActiveBackgroundAlpha = 0.8f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	float InactiveBackgroundAlpha = 0.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	float ActiveIconAlpha = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	float InactiveIconAlpha = 0.3f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	FLinearColor ActiveKeyColor = FLinearColor(0.713542f, 0.713542f, 0.713542f, 0.965217f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	FLinearColor InactiveKeyColor = FLinearColor(0.307292f, 0.307292f, 0.307292f, 0.965217f);
+
 private:
 	// -2: 초기 갱신 전, -1: 타이머 정보 대기 중.
 	int32 LastDisplayedRemainingSeconds = -2;
@@ -191,6 +238,13 @@ private:
 	float InterpSpeed = 5.0f;
 
 	bool bIsInitialized = false;
+
+	/**
+	 * UpdateLevel 이 "진짜로 레벨이 올랐을 때"와 "HUD 가 막 떠서 현재 레벨을 처음
+	 * 동기화할 때"를 구분하기 위한 값. -1 이면 아직 한 번도 안 받아온 상태라는 뜻이라,
+	 * 이때는 알림을 띄우지 않는다.
+	 */
+	int32 LastKnownLevel = -1;
 
 	FTimerHandle BindRetryTimerHandle;
 
