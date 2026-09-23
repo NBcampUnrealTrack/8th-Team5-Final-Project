@@ -104,6 +104,17 @@ struct FItemInstance
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	bool bIsFavorite = false;
 
+	// 상자/몬스터 시체 같은 루팅 컨테이너에서 아직 "서칭"되지 않은 아이템인지.
+	// 기본값 true(공개된 상태) - 플레이어 인벤토리로 들어오는 일반 아이템(픽업/제작/구매 등)은
+	// 전부 이 기본값을 그대로 쓴다. 루팅 컨테이너가 아이템을 생성할 때(BoxActor::GenerateLoot,
+	// ULootComponent::AddLootItem)만 명시적으로 false로 만들어서, 컨테이너 화면이 열려 있는 동안
+	// UInventoryComponent::BeginItemRevealSequence()가 하나씩 순서대로 true로 뒤집어준다.
+	// false인 동안에는 UI가 "?"로 표시하고(InventoryItemWidget::InitializeItem), 다른 인벤토리로의
+	// 이동/병합도 막는다(TransferItemFrom/TransferItemFromAuto/MergeStackFrom) - 아직 뭔지 모르는
+	// 아이템을 미리 가져갈 수 없게 하기 위함.
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	bool bRevealed = true;
+
 	// ��� ������. -1�̸� "�� �ν��Ͻ��� ���� �������� �ʱ�ȭ���� ����"�� �ǹ��ϰ�,
 	// ����/�Ĺ����� �������� ó�� �����Ǵ� ������ ��޺� �ִ�ġ�� ä����� �Ѵ�.
 	// 0�� �Ǹ� �ļ� ����(����/���� ���/�簢�� �Ұ�, ����/�Ǹ�/���ظ� ����).

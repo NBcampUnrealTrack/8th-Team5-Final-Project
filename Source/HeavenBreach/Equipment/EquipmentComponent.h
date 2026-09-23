@@ -96,4 +96,14 @@ private:
 	// 장비 보정 GE 의 핸들. 하나만 든다 — 슬롯이 바뀌면 통째로 새로 만든다.
 	UPROPERTY()
 	FActiveGameplayEffectHandle EquipmentStatsHandle;
+
+	// 마지막으로 GE 에 실어 보낸 값. 같으면 다시 붙이지 않는다.
+	//
+	// 왜 필요한가: 내구도는 피격마다 방어구 세 칸이 깎이는데 방어력 합계는 그대로다.
+	// 그때마다 GE 를 떼고 붙이면 어트리뷰트가 67 → 0 → 67 로 튄다. 지금은 이 값을
+	// 구독하는 코드가 없어 무해하지만, 스탯 UI 가 붙는 순간 맞을 때마다 숫자가 깜빡인다.
+	//
+	// 쳐낼 조건: 장비에 옵션이 붙어 합계가 구조체가 되면 비교도 그 구조체로 옮긴다.
+	float LastAppliedDefense = -1.f;
+	float LastAppliedAttackPower = -1.f;
 };

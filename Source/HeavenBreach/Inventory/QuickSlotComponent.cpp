@@ -55,6 +55,19 @@ bool UQuickSlotComponent::SetSlot(int32 InSlotIndex, FGuid InInstanceId)
 		return false;
 	}
 
+	// 같은 아이템이 이미 다른 퀵슬롯(예: 3번/4번)에 중복으로 등록돼 있으면 거기서는 빼준다.
+	// 안 그러면 포션 하나를 3번에 올린 다음 4번에도 올렸을 때 두 슬롯에 동시에 표시되는 문제가 생긴다.
+	if (InInstanceId.IsValid())
+	{
+		for (int32 Index = 0; Index < Slots.Num(); ++Index)
+		{
+			if (Index != InSlotIndex && Slots[Index] == InInstanceId)
+			{
+				Slots[Index].Invalidate();
+			}
+		}
+	}
+
 	Slots[InSlotIndex] = InInstanceId;
 	OnRep_Slots();
 
