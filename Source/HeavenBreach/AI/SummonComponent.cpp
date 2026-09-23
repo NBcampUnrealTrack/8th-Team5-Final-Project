@@ -63,6 +63,29 @@ int32 USummonComponent::GetAliveCount()
 	return Alive.Num();
 }
 
+int32 USummonComponent::CountAlive() const
+{
+	int32 Count = 0;
+
+	for (const TWeakObjectPtr<AEnemyCharacterBase>& Ptr : Alive)
+	{
+		const AEnemyCharacterBase* S = Ptr.Get();
+		if (!S)
+		{
+			continue;
+		}
+
+		if (S->IsDead())
+		{
+			continue;
+		}
+
+		++Count;
+	}
+
+	return Count;
+}
+
 void USummonComponent::Register(AEnemyCharacterBase* Summoned)
 {
 	if (!Summoned)
