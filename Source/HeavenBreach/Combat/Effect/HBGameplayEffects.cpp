@@ -2,6 +2,7 @@
 
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
+#include "Core/Tag/Item/HB_ItemTag.h"
 
 namespace
 {
@@ -82,4 +83,15 @@ UGE_GuardStanceSlow::UGE_GuardStanceSlow()
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
 	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_MoveSpeedMultiplierAttribute(),
 		EGameplayModOp::Multiplicitive, 0.5f);
+}
+
+UGE_EquipmentStats::UGE_EquipmentStats()
+{
+	// 벗을 때까지 유지된다. 떼는 것은 RefreshEquipmentStats 가 핸들로 한다.
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_DefenseAttribute(),
+		EGameplayModOp::Additive, ItemTag::TAG_Data_Equipment_Defense);
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_AttackPowerAttribute(),
+		EGameplayModOp::Additive, ItemTag::TAG_Data_Equipment_AttackPower);
 }

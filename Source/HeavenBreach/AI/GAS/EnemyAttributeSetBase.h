@@ -8,7 +8,7 @@
 #include "EnemyAttributeSetBase.generated.h"
 
 
-// getter, setter, initterÀÚµ¿À¸·Î ¸¸µé¾îÁÜ
+// getter, setter, initterï¿½Úµï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 #define ATTRIBUTE_ACCESSORS(ClassName, PropertyName) \
 GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ClassName, PropertyName) \
 GAMEPLAYATTRIBUTE_VALUE_GETTER(PropertyName) \
@@ -28,31 +28,32 @@ public:
 	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, HP);
 	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, MaxHP);
 	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, AttackPower);
+	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, Defense);
 	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, MoveSpeedRate);
 	ATTRIBUTE_ACCESSORS(UEnemyAttributeSetBase, AttackSpeedRate);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	// ====== vv È£Ãâ ¼ø¼­ ¼ø
+	// ====== vv È£ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½
 
-	// ¸í·ÉÀ» ¹ŞÀº Á÷ÈÄ
-	// false : Àß¸øµÈ°Å·Î º¸°í Ãë¼ÒÇÔ(ÇÊÅÍ¸µ, ¹«Àû»óÅÂ°°Àº°Å)
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+	// false : ï¿½ß¸ï¿½ï¿½È°Å·ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½Í¸ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Â°ï¿½ï¿½ï¿½ï¿½ï¿½)
 	virtual bool PreGameplayEffectExecute(struct FGameplayEffectModCallbackData& Data) override;
 
-	// °ªÀÌ ¹Ù²î±â Àü È£Ãâ
-	// Ã¼·ÂÀÌ maxHP¸¦ ³ÑÁö¸øÇÏ°Ô ¸·À»¶§...
-	// Ã¼·ÂÀÌ 0 ¹Ìºv·Î ³»·Á°¡Áö¾Ê°Ô ¸·À» ¶§...
-	// ÀÌµ¿ ¼Óµµ°¡ ³Ê¹« »¡¶óÁöÁö¾Ê°Ô...
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ù²ï¿½ï¿½ ï¿½ï¿½ È£ï¿½ï¿½
+	// Ã¼ï¿½ï¿½ï¿½ï¿½ maxHPï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½...
+	// Ã¼ï¿½ï¿½ï¿½ï¿½ 0 ï¿½Ìºvï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½...
+	// ï¿½Ìµï¿½ ï¿½Óµï¿½ï¿½ï¿½ ï¿½Ê¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê°ï¿½...
 	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
 
-	// °ªÀÌ ¹Ù²ï ÈÄ È£Ãâ
-	// ÇÇ°¡ ±ï¿´À¸´Ï±î UIÃ¼·Â¹Ù °»½ÅÇÏ¶ó...
-	// ÇÇ°¡ ±ï¿³À¸´Ï »ç¿îµå¸¦ Àç»ıÇØ¶ó...
-	// Æ¯Á¤ ½ºÅİÀÌ º¯ÇßÀ¸´Ï±î Ä³¸¯ÅÍ ¿ÜÇüÀ» ¹Ù²ã¶ó...
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ù²ï¿½ ï¿½ï¿½ È£ï¿½ï¿½
+	// ï¿½Ç°ï¿½ ï¿½ï¿´ï¿½ï¿½ï¿½Ï±ï¿½ UIÃ¼ï¿½Â¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¶ï¿½...
+	// ï¿½Ç°ï¿½ ï¿½ï¿³ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½å¸¦ ï¿½ï¿½ï¿½ï¿½Ø¶ï¿½...
+	// Æ¯ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï±ï¿½ Ä³ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ù²ï¿½ï¿½...
 	virtual void PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue) override;
 
-	// ¸í·ÉÀ» ¼öÇàÇÏ°í ³­ ÈÄ
-	// Á×¾ú¾î? °æÇèÄ¡ Áö±Ş? 
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½ï¿½ ï¿½ï¿½
+	// ï¿½×¾ï¿½ï¿½ï¿½? ï¿½ï¿½ï¿½ï¿½Ä¡ ï¿½ï¿½ï¿½ï¿½? 
 	virtual void PostGameplayEffectExecute(const struct FGameplayEffectModCallbackData& Data) override;
 
 	// ====== ^^
@@ -67,13 +68,17 @@ protected:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Attribute")
 	FGameplayAttributeData AttackPower;
 
+	// ë°©ì–´ë ¥. í”¼í•´ ê°ì†ŒëŠ” 100/(100+Defense) ê³¡ì„ ì´ë¼ 100 ì´ë©´ ì ˆë°˜ì´ë‹¤.
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Attribute")
+	FGameplayAttributeData Defense;
+
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Attribute")
 	FGameplayAttributeData MoveSpeedRate;
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Attribute")
 	FGameplayAttributeData AttackSpeedRate;
 
-	// ´õ¹Ìµ¥ÀÌÅÍ
+	// ï¿½ï¿½ï¿½Ìµï¿½ï¿½ï¿½ï¿½ï¿½
 	UFUNCTION()
 	void OnRep_Health(const FGameplayAttributeData& OldValue);
 

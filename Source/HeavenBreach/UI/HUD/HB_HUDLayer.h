@@ -15,6 +15,7 @@ class UTextureRenderTarget2D;
 class UInventoryWidget;
 class UHB_NotificationWidget;
 class UBorder;
+class UProgressBar;
 
 /**
  * 인게임 HUD 루트. UI.Layer.Game 스택에 항상 활성 상태로 올라간다.
@@ -55,6 +56,10 @@ public:
 	void UpdateEquipmentSlots();
 	UFUNCTION()
 	void UpdateQuickSlots();
+
+	/** 퀵슬롯 포션 쿨타임 진행바 갱신. 쿨타임은 아이템 종류(RowName)별로 독립이라 각 슬롯이 들고 있는
+	 * 실제 아이템을 조회해서 따로 갱신한다 - 서로 다른 포션이면 한쪽만 쿨타임이 돌 수 있다. 매 틱 호출됨. */
+	void UpdateQuickSlotCooldown();
 
 	/**
 	 * 레벨 표시 갱신.
@@ -147,6 +152,13 @@ protected:
 	TObjectPtr<UTextBlock> Txt_Potion_1_Num;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> Txt_Potion_2_Num;
+	/** 퀵슬롯 3번(포션) 쿨타임 진행바. WBP에서 아이콘 위에 겹쳐 놓고, 위젯 자체 Style에서 Fill Type을
+	 * Radial(원형)로 설정하면 원형 쿨타임으로, Linear로 두면 바 형태로 보인다 — 코드는 Percent만 채운다. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> ProgressBar_Potion_1_Cooldown;
+	/** 퀵슬롯 4번(포션) 쿨타임 진행바. ProgressBar_Potion_1_Cooldown 참고. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> ProgressBar_Potion_2_Cooldown;
 	/** 경험치 바. Percent 스칼라 파라미터를 가진 머티리얼이 지정돼 있어야 채워진다 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_Experience;

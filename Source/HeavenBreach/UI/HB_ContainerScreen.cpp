@@ -25,6 +25,28 @@ void UHB_ContainerScreen::NativeOnActivated()
 	BindPanels();
 }
 
+void UHB_ContainerScreen::NativeOnDeactivated()
+{
+	Super::NativeOnDeactivated();
+
+	if (Container == nullptr)
+	{
+		return;
+	}
+
+	// 상자 컴포넌트는 내 소유가 아니므로 항상 내 인벤토리를 거쳐 RPC를 보낸다(BindPanels 참고).
+	AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetOwningPlayerPawn());
+	if (PlayerCharacter == nullptr)
+	{
+		return;
+	}
+
+	if (UInventoryComponent* PlayerInventory = PlayerCharacter->GetInventory())
+	{
+		PlayerInventory->Server_PauseContainerReveal(Container);
+	}
+}
+
 void UHB_ContainerScreen::BindPanels()
 {
 	if (Container == nullptr || PlayerPanel == nullptr || BoxPanel == nullptr)

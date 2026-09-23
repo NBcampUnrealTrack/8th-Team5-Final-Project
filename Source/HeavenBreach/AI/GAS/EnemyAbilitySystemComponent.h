@@ -16,7 +16,7 @@ class HEAVENBREACH_API UEnemyAbilitySystemComponent : public UAbilitySystemCompo
 public:
 	// 초기 스탯 GE 적용. 서버 전용.
 	//void ApplyInitStats(TSubclassOf<UGameplayEffect> InitEffect, float InMaxHP);
-	void InitStats(float InMaxHP, float InAttackPower, float InAttackSpeedRate);
+	void InitStats(float InMaxHP, float InAttackPower, float InAttackSpeedRate, float InDefense);
 
 	void SetupAbilities(const TArray<TSubclassOf<UGameplayAbility>>& InAbilities);
 

@@ -3,13 +3,13 @@
 #include "Inventory/InventoryDragDropOperation.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
+#include "Components/SizeBox.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/Texture2D.h"
+#include "Inventory/InventoryItemWidget.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBox.h"
 #include "Math/TransformCalculus2D.h"
-#include "Components/SizeBox.h"
-#include "Inventory/InventoryItemWidget.h"
 
 void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTexture2D* IconTexture, const FVector2D& VisualSize)
 {
@@ -18,7 +18,9 @@ void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTex
 		return;
 	}
 	SourceWidgetContext = InSourceWidget;
-	BaseVisualSize = VisualSize;
+
+	// VisualSizeëŠ” í˜„ì¬(íšŒì „ ë°˜ì˜ëœ) ì ìœ  í¬ê¸°ì´ë¯€ë¡œ, ê³ ì •ê°’ì¸ BaseVisualSizeëŠ” "íšŒì „ ì „" í¬ê¸°ë¡œ ë˜ëŒë ¤ ì €ì¥í•œë‹¤.
+	BaseVisualSize = bRotated ? FVector2D(VisualSize.Y, VisualSize.X) : VisualSize;
 
 	UWorld* World = InSourceWidget->GetWorld();
 	UGameViewportClient* GameViewport = World ? World->GetGameViewport() : nullptr;
@@ -31,7 +33,8 @@ void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTex
 	{
 		DragVisualBrush.SetResourceObject(IconTexture);
 	}
-	DragVisualBrush.ImageSize = VisualSize;
+	// ë¸ŒëŸ¬ì‹œ í¬ê¸°ëŠ” í•­ìƒ BaseVisualSize(ê³ ì •ëœ "ì›ë˜" í¬ê¸°)ë¡œë§Œ ì¡ëŠ”ë‹¤(SetRotatedì—ì„œë„ ì¬ì¡°ì • ì•ˆ í•¨).
+	DragVisualBrush.ImageSize = BaseVisualSize;
 	DragVisualBrush.DrawAs = ESlateBrushDrawType::Image;
 
 	TSharedRef<SImage> NewDragImage =
@@ -40,13 +43,18 @@ void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTex
 		.Image(&DragVisualBrush)
 		.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f));
 	NewDragImage->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	if (bRotated)
+	{
+		NewDragImage->SetRenderTransform(FSlateRenderTransform(FQuat2D(FMath::DegreesToRadians(90.0f))));
+	}
 	DragImageWidget = NewDragImage;
 
+	// Center ì •ë ¬ì´ì–´ì•¼ íšŒì „ í”¼ë²—ì´ í•­ìƒ ë°•ìŠ¤ ì¤‘ì‹¬ì— ë§ëŠ”ë‹¤(Left/Topì´ë©´ íšŒì „ì¶•ì´ ì–´ê¸‹ë‚œë‹¤).
 	TSharedRef<SBox> NewDragBox =
 		SNew(SBox)
 		.Visibility(EVisibility::HitTestInvisible)
-		.HAlign(HAlign_Left)
-		.VAlign(VAlign_Top)
+		.HAlign(HAlign_Center)
+		.VAlign(VAlign_Center)
 		.WidthOverride(VisualSize.X)
 		.HeightOverride(VisualSize.Y)
 		[
@@ -56,30 +64,26 @@ void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTex
 	DragBoxWidget = NewDragBox;
 	DragVisualRoot = NewDragBox;
 
-	// bRotated´Â NativeOnDragDetected¿¡¼­ CreateVisual() È£Ãâ Àü¿¡ ÀÌ¹Ì ¼¼ÆÃµÅ ÀÖ´Ù.
-	// ±×·±µ¥ ÀÌ ÇÔ¼ö´Â Áö±İ±îÁö ±× °ªÀ» ¹«½ÃÇÏ°í Ç×»ó È¸Àü ¾È µÈ ¸ğ¾çÀ¸·Î¸¸ ºñÁÖ¾óÀ»
-	// ¸¸µé°í ÀÖ¾ú´Ù (È¸Àü ¹İ¿µÀº SetRotated()°¡ TÅ°·Î Åä±ÛµÉ ¶§¸¸ ÀÏ¾î³²). ±×·¡¼­
-	// ÀÌ¹Ì È¸ÀüµÈ »óÅÂ·Î ÁıÀº ¾ÆÀÌÅÛÀº µå·¡±× ½ÃÀÛ ½ÃÁ¡¿£ ¹«Á¶°Ç È¸Àü ¾È µÈ ¸ğ¾çÀ¸·Î
-	// º¸ÀÌ´Â ¹ö±×°¡ ÀÖ¾ú´Ù. ¿©±â¼­ ÃÊ±â »óÅÂ¸¦ ÇÑ ¹ø ¸ÂÃçÁØ´Ù.
-	if (bRotated)
-	{
-		const FVector2D RotatedBoxSize(VisualSize.Y, VisualSize.X);
-		NewDragBox->SetWidthOverride(RotatedBoxSize.X);
-		NewDragBox->SetHeightOverride(RotatedBoxSize.Y);
-		NewDragImage->SetRenderTransform(FSlateRenderTransform(FQuat2D(FMath::DegreesToRadians(90.0f))));
-	}
-
-	// ºäÆ÷Æ®¿¡ ¿Ã¸®±â Àü¿¡ ÀÌ¹Ì Ä¿¼­ À§Ä¡·Î ¹èÄ¡ÇØ¼­ Ã¹ ÇÁ·¹ÀÓ¿¡ ¾û¶×ÇÑ °÷¿¡ ³ªÅ¸³ª´Â °É ¸·´Â´Ù.
 	UpdateVisualPosition();
 
 	GameViewport->AddViewportWidgetContent(NewDragBox, 1000);
 
-	// ÀÌ Operation ÀÚÃ¼ÀÇ ÀÌº¥Æ®¿¡ ½º½º·Î ¹ÙÀÎµùÇÑ´Ù.
-	// OnDragged´Â Ä¿¼­°¡ ¾îµğ¿¡ ÀÖµç(ÆĞ³Î ¹ÛÀÌµç, ´Ù¸¥ ÆĞ³ÎÀÌµç) ¸Å ÇÁ·¹ÀÓ È£ÃâµÇ°í,
-	// OnDrop/OnDragCancelled´Â µå·¡±×°¡ ³¡³¯ ¶§ ¹«Á¶°Ç Á¤È®È÷ ÇÑ ¹ø È£ÃâµÈ´Ù.
+	// OnDragged/OnDrop/OnDragCancelled ì½œë°±ì„ ë“±ë¡í•´ ë“œë˜ê·¸ ìœ„ì¹˜ ê°±ì‹ ê³¼ ë“œë¡­/ì·¨ì†Œ ì‹œ ì •ë¦¬ë¥¼ ì²˜ë¦¬í•œë‹¤.
 	OnDragged.AddDynamic(this, &UInventoryDragDropOperation::HandleDragged);
 	OnDrop.AddDynamic(this, &UInventoryDragDropOperation::HandleDrop);
 	OnDragCancelled.AddDynamic(this, &UInventoryDragDropOperation::HandleDragCancelled);
+}
+
+void UInventoryDragDropOperation::SetDefaultVisual(USizeBox* InVisualBox, UInventoryItemWidget* InVisualItemWidget, const FVector2D& InBaseSize)
+{
+	DefaultVisualBox = InVisualBox;
+	DefaultVisualItemWidget = InVisualItemWidget;
+
+	// CreateVisual()ì´ ì´ë¯¸ BaseVisualSizeë¥¼ ì„¸íŒ…í–ˆë‹¤ë©´ ë®ì–´ì“°ì§€ ì•ŠëŠ”ë‹¤(ê°’ì´ ê¼¬ì´ë©´ SetRotatedê°€ í‹€ì–´ì§).
+	if (BaseVisualSize.IsZero())
+	{
+		BaseVisualSize = bRotated ? FVector2D(InBaseSize.Y, InBaseSize.X) : InBaseSize;
+	}
 }
 
 void UInventoryDragDropOperation::UpdateVisualPosition()
@@ -135,8 +139,7 @@ void UInventoryDragDropOperation::SetRotated(bool bInRotated)
 		DragImageWidget->SetRenderTransform(FSlateRenderTransform(FQuat2D(FMath::DegreesToRadians(AngleDegrees))));
 	}
 
-	// ÀÎº¥Åä¸® ±×¸®µå¿¡¼­ µå·¡±× ÁßÀÎ °æ¿ì(UMG DefaultDragVisual °æ·Î) - À§ DragBoxWidget/
-	// DragImageWidget°ú´Â º°°³ÀÇ ºñÁÖ¾óÀÌ¶ó ¿©±â¼­ µû·Î °»½ÅÇØÁà¾ß ÇÑ´Ù.
+	// SetDefaultVisual()ë¡œ ë“±ë¡ëœ UMG ë¯¸ë¦¬ë³´ê¸°(ìˆë‹¤ë©´)ë„ ê°™ì´ ê°±ì‹ í•œë‹¤.
 	if (DefaultVisualBox != nullptr)
 	{
 		const FVector2D NewBoxSize = bRotated
@@ -151,28 +154,6 @@ void UInventoryDragDropOperation::SetRotated(bool bInRotated)
 	}
 
 	UpdateVisualPosition();
-}
-
-void UInventoryDragDropOperation::SetDefaultVisual(USizeBox* InVisualBox, UInventoryItemWidget* InVisualItemWidget, const FVector2D& InBaseSize)
-{
-	DefaultVisualBox = InVisualBox;
-	DefaultVisualItemWidget = InVisualItemWidget;
-	BaseVisualSize = InBaseSize;
-
-	// µå·¡±×¸¦ ½ÃÀÛÇÑ ½ÃÁ¡¿¡ ÀÌ¹Ì È¸ÀüµÈ »óÅÂ·Î ÁıÀº ¾ÆÀÌÅÛÀÏ ¼ö ÀÖÀ¸´Ï(CreateVisual()ÀÇ
-	// ÃÊ±â »óÅÂ º¸Á¤°ú µ¿ÀÏÇÑ ÀÌÀ¯), µî·Ï Áï½Ã ÇÑ ¹ø ÇöÀç bRotated °ªÀ¸·Î ¸ÂÃçÁØ´Ù.
-	if (bRotated)
-	{
-		if (DefaultVisualBox != nullptr)
-		{
-			DefaultVisualBox->SetWidthOverride(BaseVisualSize.Y);
-			DefaultVisualBox->SetHeightOverride(BaseVisualSize.X);
-		}
-		if (DefaultVisualItemWidget != nullptr)
-		{
-			DefaultVisualItemWidget->SetPreviewRotated(true);
-		}
-	}
 }
 
 void UInventoryDragDropOperation::HandleDragged(UDragDropOperation* Operation)

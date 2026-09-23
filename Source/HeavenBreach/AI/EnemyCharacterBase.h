@@ -57,6 +57,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AI")
 	void SetMoveSpeed(bool bRun);
 
+	// MaxWalkSpeed 를 현재 상태(걷기/달리기 × 이동속도 배율)로 다시 맞춘다.
+	//
+	// 왜 public 인가: ANS_MoveForward 가 대시 구간에 속도를 올렸다가 끝날 때 되돌린다.
+	// 노티파이 객체는 몽타주 애셋에 하나뿐이라 여러 적이 공유한다. 원래 값을 멤버에
+	// 저장하면 두 마리가 동시에 대시할 때 서로의 값을 덮어쓴다. 저장하는 대신
+	// 여기서 다시 계산하게 하면 그 문제가 없다.
+	UFUNCTION(BlueprintCallable, Category = "AI|Movement")
+	void RefreshMoveSpeed();
+
 	// setter
 	void SetWalkSpeed(float InWalkSpeed) { WalkSpeed = InWalkSpeed; RefreshMoveSpeed(); }
 	void SetRunSpeed(float InRunSpeed) { RunSpeed = InRunSpeed; RefreshMoveSpeed(); }
@@ -77,6 +86,15 @@ public:
 	void MarkAsSummoned(float InDespawnDelay);
 
 	bool IsSummoned() const { return bSummoned; }
+
+	// 시체를 물리로 넘긴다. 사망 몽타주 끝의 AN_StartRagdoll 이 부른다.
+	//
+	// 왜 BecomeDead 가 아닌가: 거기서 켜면 사망 애니가 아예 안 나오고
+	// 그 자리에서 폭삭 주저앉는다. 애니메이션이 끝나는 프레임이어야 한다.
+	//
+	// 쳐낼 조건: 물리 애셋이 없는 적은 몽타주에 노티파이를 안 넣으면 된다.
+	UFUNCTION(BlueprintCallable, Category = "AI")
+	void StartRagdoll();
 
 	// 사망 알림. 서버에서만 브로드캐스트된다
 	FOnEnemyDied OnDied;
@@ -173,9 +191,6 @@ protected:
 	// 사망변수가 변경되면 해야할것들
 	UFUNCTION()
 	void OnRep_Dead();
-
-	// 이동속도 변경 적용
-	void RefreshMoveSpeed();
 
 	// GAS에서 이동속도 변경 시 연결된 함수
 	void OnMoveSpeedRateChanged(const struct FOnAttributeChangeData& Data);

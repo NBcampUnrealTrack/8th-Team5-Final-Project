@@ -46,6 +46,17 @@ class HEAVENBREACH_API UEnemySummonGABase : public UEnemyMontageGABase
 	GENERATED_BODY()
 
 public:
+	// 정원이 찼으면 발동 자체를 막는다.
+	//
+	// 왜 여기인가: TryActivateWeightedAbilityByTag 가 후보를 추릴 때 이걸 부른다.
+	// 여기서 false 를 주면 소환이 가중치 추첨에 아예 안 들어가 다른 패턴이 대신 나간다.
+	// Mark 노티파이에서 막으면 이미 긴 소환 몽타주가 다 나간 뒤라, 보스가 허공에
+	// 손짓만 하고 쿨타임까지 먹는다.
+	//
+	// 쳐낼 조건: 정원이 차도 연출은 보여주고 싶다면 이 오버라이드를 지우면
+	// 예고가 안 뜨는 기존 동작으로 돌아간다.
+	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr, FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
+
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 

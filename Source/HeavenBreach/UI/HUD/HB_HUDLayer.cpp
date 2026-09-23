@@ -15,6 +15,7 @@
 #include "Player/HBPlayerCharacter.h"
 #include "Components/TextBlock.h"
 #include "Components/Border.h"
+#include "Components/ProgressBar.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "UI/HUD/HB_HitEffectWidget.h"
 #include "UI/HUD/HB_NotificationWidget.h"
@@ -200,6 +201,7 @@ void UHB_HUDLayer::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 	UpdateCompass();
 	UpdateRemainingTime();
+	UpdateQuickSlotCooldown();
 }
 
 void UHB_HUDLayer::UpdateRemainingTime()
@@ -532,6 +534,64 @@ void UHB_HUDLayer::UpdateQuickSlots()
 	// Potion_1 = 퀵슬롯 3번 = QuickSlotComponent 인덱스 2, Potion_2 = 퀵슬롯 4번 = 인덱스 3
 	UpdateSlotImage(2, IMG_Potion_1, Txt_Potion_1_Num, DefaultPotion1Brush);
 	UpdateSlotImage(3, IMG_Potion_2, Txt_Potion_2_Num, DefaultPotion2Brush);
+}
+
+void UHB_HUDLayer::UpdateQuickSlotCooldown()
+{
+	if (!ProgressBar_Potion_1_Cooldown && !ProgressBar_Potion_2_Cooldown)
+	{
+		return;
+	}
+
+	APlayerController* OwningController = GetOwningPlayer();
+	AHB_PlayerState* HBPlayerState = OwningController ? OwningController->GetPlayerState<AHB_PlayerState>() : nullptr;
+	UInventoryComponent* Inventory = HBPlayerState ? HBPlayerState->GetInventory() : nullptr;
+	if (Inventory == nullptr || CachedQuickSlotComp == nullptr)
+	{
+		return;
+	}
+
+	// 쿨타임은 아이템 종류(RowName)별로 독립이라(InventoryComponent::UseItem 참고),
+	// 각 퀵슬롯이 실제로 들고 있는 아이템이 무엇인지부터 찾아서 그 종류의 쿨타임만 조회해야 한다.
+	// Potion_1 = 퀵슬롯 3번 = QuickSlotComponent 인덱스 2, Potion_2 = 퀵슬롯 4번 = 인덱스 3.
+	auto GetSlotCooldownPercent = [Inventory, this](int32 SlotIndex) -> float
+		{
+			const FGuid InstanceId = CachedQuickSlotComp->GetSlotInstanceId(SlotIndex);
+			if (!InstanceId.IsValid())
+			{
+				return 0.f;
+			}
+
+			const int32 EntryIndex = Inventory->FindEntryIndexById(InstanceId);
+			if (!Inventory->GetEntries().IsValidIndex(EntryIndex))
+			{
+				return 0.f;
+			}
+
+			const FName RowName = Inventory->GetEntries()[EntryIndex].Item.ItemRow.RowName;
+			return Inventory->GetItemUseCooldownPercent(RowName);
+		};
+
+	auto UpdateBar = [](UProgressBar* Bar, float Percent)
+		{
+			if (!Bar)
+			{
+				return;
+			}
+
+			if (Percent <= 0.f)
+			{
+				Bar->SetVisibility(ESlateVisibility::Collapsed);
+			}
+			else
+			{
+				Bar->SetPercent(Percent);
+				Bar->SetVisibility(ESlateVisibility::HitTestInvisible);
+			}
+		};
+
+	UpdateBar(ProgressBar_Potion_1_Cooldown, GetSlotCooldownPercent(2));
+	UpdateBar(ProgressBar_Potion_2_Cooldown, GetSlotCooldownPercent(3));
 }
 void UHB_HUDLayer::UpdateHPBar(float CurrentHP, float MaxHP)
 {
