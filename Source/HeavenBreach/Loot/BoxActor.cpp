@@ -119,12 +119,37 @@ void ABoxActor::Interact_Implementation(AActor* Interactor)
 		OnRep_BoxState();
 	}
 
+	// 서칭 안 된(bRevealed=false) 아이템이 있으면 하나씩 공개하는 타이머를 시작한다.
+	// 이미 돌고 있거나 전부 공개된 상태면 아무것도 안 하므로 매번 호출해도 안전 -
+	// 화면을 닫았다가 다시 열어도 처음부터 다시 돌지 않고 이어서 진행된다.
+	if (BoxInventory != nullptr)
+	{
+		BoxInventory->BeginItemRevealSequence();
+	}
+
 	OpenContainerUI(Interactor);
 }
 
 FText ABoxActor::GetInteractPrompt_Implementation() const
 {
 	return InteractPrompt;
+}
+
+float ABoxActor::GetInteractHoldSeconds_Implementation() const
+{
+	// 이미 루팅을 마친 상자는 다시 탐색할 필요 없이 바로 열람 가능해야 한다.
+	return bLootGenerated ? 0.0f : SearchDurationSeconds;
+}
+
+bool ABoxActor::OnHoldBegin_Implementation(AActor* Interactor)
+{
+	BP_OnSearchBegin();
+	return true;
+}
+
+void ABoxActor::OnHoldCancel_Implementation(AActor* Interactor)
+{
+	BP_OnSearchCancel();
 }
 
 void ABoxActor::OnRep_BoxState()
@@ -256,6 +281,9 @@ void ABoxActor::GenerateLoot()
 		Item.ItemRow.RowName = Candidate.RowName;
 		Item.InstanceId = FGuid::NewGuid();
 		Item.StackCount = 1;
+		// 상자에 갓 생성된 아이템은 아직 서칭 전 - 화면이 열린 뒤 BeginItemRevealSequence()가
+		// 순서대로 공개해줄 때까지 "?"로 보인다.
+		Item.bRevealed = false;
 
 		FItemViewData ViewData;
 		if (ResolveItemViewData(Item.ItemRow, ViewData) && ViewData.IsEquippable())
