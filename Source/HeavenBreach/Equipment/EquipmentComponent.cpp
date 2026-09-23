@@ -197,12 +197,35 @@ void UEquipmentComponent::RefreshEquipmentStats()
 		return;
 	}
 
+	// 붙이기 전에 먼저 센다. 값이 그대로면 GE 를 건드릴 이유가 없다.
+	const float TotalDefense = SumArmorDefense();
+	const float TotalAttackPower = SumWeaponAttackPower();
+
+	// 내구도가 깎였을 뿐이면 여기서 끝난다. 파손은 합계가 실제로 달라지므로
+	// 이 비교가 알아서 통과시킨다 — "내구도인가" 를 따로 물을 필요가 없다.
+	if (EquipmentStatsHandle.IsValid())
+	{
+		const bool bUnchanged =
+			FMath::IsNearlyEqual(TotalDefense, LastAppliedDefense)
+			&& FMath::IsNearlyEqual(TotalAttackPower, LastAppliedAttackPower);
+
+		if (bUnchanged)
+		{
+			return;
+		}
+	}
+
 	// 묵은 것을 먼저 뗀다. 안 떼면 갈아입을 때마다 겹쳐 쌓인다.
 	if (EquipmentStatsHandle.IsValid())
 	{
 		ASC->RemoveActiveGameplayEffect(EquipmentStatsHandle);
 		EquipmentStatsHandle.Invalidate();
 	}
+
+	// 여기서 실패하면 묵은 GE 는 이미 떨어진 상태다. 캐시도 같이 버려서
+	// 다음 호출이 무조건 다시 시도하게 둔다.
+	LastAppliedDefense = -1.f;
+	LastAppliedAttackPower = -1.f;
 
 	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
 		UGE_EquipmentStats::StaticClass(), 1.f, ASC->MakeEffectContext());
@@ -211,13 +234,13 @@ void UEquipmentComponent::RefreshEquipmentStats()
 		return;
 	}
 
-	const float TotalDefense = SumArmorDefense();
-	const float TotalAttackPower = SumWeaponAttackPower();
-
 	Spec.Data->SetSetByCallerMagnitude(ItemTag::TAG_Data_Equipment_Defense, TotalDefense);
 	Spec.Data->SetSetByCallerMagnitude(ItemTag::TAG_Data_Equipment_AttackPower, TotalAttackPower);
 
 	EquipmentStatsHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+
+	LastAppliedDefense = TotalDefense;
+	LastAppliedAttackPower = TotalAttackPower;
 
 	UE_LOG(LogTemp, Log, TEXT("[Equip] 스탯 갱신 | Defense=%.2f AttackPower=%.2f"),
 		TotalDefense, TotalAttackPower);
