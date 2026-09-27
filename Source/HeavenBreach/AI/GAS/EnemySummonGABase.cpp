@@ -15,6 +15,38 @@
 #include "AI/Enum/EAlertState.h"
 #include "Core/Tag/Event/HB_EventTag.h"
 
+bool UEnemySummonGABase::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
+{
+	// 쿨타임·차단 태그 같은 기본 조건이 먼저다.
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	{
+		return false;
+	}
+
+	// 꺼낼 것이 없으면 발동할 이유가 없다. 애셋 설정 누락도 여기서 걸린다.
+	if (SummonEntries.Num() == 0)
+	{
+		return false;
+	}
+
+	// GetSummonComp 를 쓰지 않는다. 그쪽은 CurrentActorInfo 를 보는데,
+	// 발동 판정 시점에는 아직 안 채워져 있을 수 있다. 넘어온 것을 그대로 쓴다.
+	const AActor* Avatar = ActorInfo ? ActorInfo->AvatarActor.Get() : nullptr;
+	if (!Avatar)
+	{
+		return false;
+	}
+
+	const USummonComponent* Comp = Avatar->FindComponentByClass<USummonComponent>();
+	if (!Comp)
+	{
+		// 명부가 없으면 정원을 셀 수 없다. 무제한 소환이 되느니 막는다.
+		return false;
+	}
+
+	return Comp->CountAlive() < MaxAlive;
+}
+
 void UEnemySummonGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	// 부모의 몽타주 실행/종료 기능 사용. CommitAbility 도 여기에 있음

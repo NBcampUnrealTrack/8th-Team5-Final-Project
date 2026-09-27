@@ -83,6 +83,8 @@ public:
 	UPROPERTY() float FloorHeight = 5000;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="5")) float LoadTimeoutSeconds = 120;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Exploration") bool bStartInExploration = true;
+	/** Preview look sensitivity multiplier. 1 preserves the original speed; changes apply immediately. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Exploration", meta=(ClampMin="0.1", UIMax="5.0")) float MouseSensitivity = 1.0f;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") TObjectPtr<AHBPCGExplorerPawn> Explorer;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") bool bExploring = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") int32 InspectionRoom = 0;
