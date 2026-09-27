@@ -15,6 +15,8 @@
 #include "PCGGraph.h"
 #include "Logging/MessageLog.h"
 #include "PCGModule/HBConnectorLayout.h"
+#include "PCGModule/HBDungeonPortal.h"
+#include "Components/ArrowComponent.h"
 #include "DrawDebugHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogHBPCGPreview, Log, All);
@@ -126,12 +128,12 @@ void AHBPCGPreviewHUD::DrawHUD()
 			{
 				const auto& R = G->Rooms[I];
 				const auto& B = Boxes[I];
-				const FLinearColor C(HBDungeonLayout::RoleColor(R.Role));
+				const FLinearColor C(R.bCorridor ? FColor::Silver : HBDungeonLayout::RoleColor(R.Role));
 				DrawLine(B.Min.X,B.Min.Y,B.Max.X,B.Min.Y,C,2);
 				DrawLine(B.Max.X,B.Min.Y,B.Max.X,B.Max.Y,C,2);
 				DrawLine(B.Max.X,B.Max.Y,B.Min.X,B.Max.Y,C,2);
 				DrawLine(B.Min.X,B.Max.Y,B.Min.X,B.Min.Y,C,2);
-				DrawText(FString::Printf(TEXT("F%d R%02d %s"),R.Floor,R.Id,HBDungeonLayout::RoleName(R.Role)),
+				DrawText(FString::Printf(TEXT("F%d R%02d %s"),R.Floor,R.Id,R.bCorridor ? TEXT("CORRIDOR") : HBDungeonLayout::RoleName(R.Role)),
 					C,B.Min.X,B.Max.Y+4,nullptr,0.9f);
 			}
 		}
@@ -183,13 +185,23 @@ AHBPCGPreviewGenerator::AHBPCGPreviewGenerator()
 void AHBPCGPreviewGenerator::PostLoad()
 {
     Super::PostLoad();
-    // Preserve old references once; clearing the new array later must stay cleared.
-    if (RoomModules.IsEmpty())
+    if (!bModuleRegistrationMigrated)
     {
-        if (!AdventureModule.IsNull()) { RoomModules.AddUnique(AdventureModule); }
-        if (!BossModule.IsNull()) { RoomModules.AddUnique(BossModule); }
+        for (const auto& Map : RoomModules) ModuleMaps.AddUnique(Map);
+        for (const auto& Map : CorridorModules) ModuleMaps.AddUnique(Map);
+        for (const auto& Map : {AdventureModule, BossModule, DungeonRules.Floor1ExitMap,
+            DungeonRules.Floor2EntryMap, DungeonRules.BossCorridorMap})
+            if (!Map.IsNull()) ModuleMaps.AddUnique(Map);
+        bModuleRegistrationMigrated = true;
     }
+    RoomModules.Reset(); CorridorModules.Reset();
     AdventureModule.Reset(); BossModule.Reset();
+}
+
+void AHBPCGPreviewGenerator::PostActorCreated()
+{
+    Super::PostActorCreated();
+    bModuleRegistrationMigrated = true;
 }
 
 void AHBPCGPreviewGenerator::RefreshModuleCatalog()
@@ -199,8 +211,8 @@ void AHBPCGPreviewGenerator::RefreshModuleCatalog()
         Status = TEXT("Catalog refresh is editor-only; regenerate to refresh runtime data.");
         return;
     }
-    const bool bValid = HBDungeonModuleCatalog::Build(RoomModules, CorridorModules, ModuleCatalog, CatalogErrors);
-    Status = bValid ? FString::Printf(TEXT("Catalog ready: %d modules. Corridor placement is not implemented."), ModuleCatalog.Num())
+    const bool bValid = BuildCatalog();
+    Status = bValid ? FString::Printf(TEXT("Catalog ready: %d modules. Configure Dungeon Rules before generation."), ModuleCatalog.Num())
         : FString::Join(CatalogErrors, TEXT("\n"));
 #if WITH_EDITOR
     FMessageLog Log(TEXT("MapCheck"));
@@ -240,7 +252,7 @@ void AHBPCGPreviewGenerator::BeginGeneration()
 {
 	bRegeneratePending = false;
 	if (!Graph) { Fail(TEXT("Missing PCG graph.")); return; }
-    if (!HBDungeonModuleCatalog::Build(RoomModules, {}, ModuleCatalog, CatalogErrors))
+    if (!BuildCatalog())
     { Fail(FString::Join(CatalogErrors, TEXT("\n"))); return; }
 	ActiveSeed = bNextSeedIsNew ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
 	Seed = ActiveSeed;
@@ -263,10 +275,77 @@ bool AHBPCGPreviewGenerator::PlanLayout()
     Settings.bAllowModuleReuse = bAllowModuleReuse;
     Settings.MaxSearchSteps = MaxConnectionAttempts; Settings.MaxSearchSeconds = ConnectionSearchSeconds;
     Settings.Origin = GetActorTransform();
+    ActiveSettings = Settings; ActiveRules = DungeonRules; bActiveDungeonRules = bUseDungeonRules;
     FString Error;
-    if (!HBConnectorLayout::Generate(ModuleCatalog, Settings, Rooms, Error)) { Fail(Error); return false; }
+    const bool bGenerated = bActiveDungeonRules
+        ? HBDungeonRuleLayout::Generate(ModuleCatalog, ActiveSettings, ActiveRules, Rooms, Error)
+        : HBConnectorLayout::Generate(ModuleCatalog, ActiveSettings, Rooms, Error);
+    if (!bGenerated) { Fail(Error); return false; }
     SetPreviewView(0);
 	UE_LOG(LogHBPCGPreview, Display, TEXT("PLAN Seed=%d Rooms=%d Signature=%s"), ActiveSeed, Rooms.Num(), *GetLayoutSignature());
+	return true;
+}
+
+bool AHBPCGPreviewGenerator::BuildCatalog()
+{
+    return HBDungeonModuleCatalog::Build(ModuleMaps, ModuleCatalog, CatalogErrors);
+}
+
+bool AHBPCGPreviewGenerator::ValidateGeneratedLayout(FString& Error) const
+{
+	return bActiveDungeonRules
+		? HBDungeonRuleLayout::Validate(ModuleCatalog, ActiveSettings, ActiveRules, Rooms, Error)
+		: HBConnectorLayout::Validate(ModuleCatalog, Rooms, Error);
+}
+
+bool AHBPCGPreviewGenerator::LinkGeneratedPortals(FString& Error)
+{
+	if (!ValidateGeneratedLayout(Error)) return false;
+	if (Streams.Num() != Rooms.Num()) { Error = TEXT("Missing streamed room instances for portal binding."); return false; }
+	auto FindPortal = [&](int32 RoomId, FName PortalId) -> AHBDungeonPortal*
+	{
+		ULevel* Level = Streams[RoomId]->GetLoadedLevel();
+		AHBDungeonPortal* Found = AHBDungeonPortal::FindInLevel(Level, PortalId, Error);
+		if (!Found) return nullptr;
+		const auto* M = ModuleCatalog.FindByPredicate([&](const auto& C) { return C.ModuleId == Rooms[RoomId].ModuleId; });
+		const auto* Definition = M ? M->Portals.FindByPredicate([&](const auto& P) { return P.PortalId == PortalId; }) : nullptr;
+		if (!Definition || !Found->Trigger->GetComponentTransform().Equals(Definition->TriggerTransform * Rooms[RoomId].Transform, 0.1)
+			|| !Found->Trigger->GetUnscaledBoxExtent().Equals(Definition->TriggerExtent, 0.1)
+			|| !Found->Arrival->GetComponentTransform().Equals(Definition->ArrivalTransform * Rooms[RoomId].Transform, 0.1)) return nullptr;
+		return Found;
+	};
+	for (const auto& R : Rooms)
+	{
+		if (R.Connection != EHBDungeonConnection::Portal) continue;
+		AHBDungeonPortal* Source = FindPortal(R.ParentId, R.ParentPortalId);
+		AHBDungeonPortal* Target = FindPortal(R.Id, R.EntryPortalId);
+		if (!Source || !Target || !Source->ConnectTo(Target))
+		{
+			Error = FString::Printf(TEXT("Portal binding failed: R%d/%s <-> R%d/%s. Check unique placed actors and unchanged trigger/arrival transforms."),
+				R.ParentId, *R.ParentPortalId.ToString(), R.Id, *R.EntryPortalId.ToString());
+			return false;
+		}
+		LinkedPortals.Add(Source); LinkedPortals.Add(Target);
+	}
+	return ValidatePortalLinks(Error);
+}
+
+bool AHBPCGPreviewGenerator::ValidatePortalLinks(FString& Error) const
+{
+	int32 Pair = 0;
+	for (const auto& R : Rooms)
+	{
+		if (R.Connection != EHBDungeonConnection::Portal) continue;
+		if (!LinkedPortals.IsValidIndex(Pair + 1) || !Streams.IsValidIndex(R.Id) || !Streams.IsValidIndex(R.ParentId))
+		{ Error = TEXT("Missing runtime portal pair."); return false; }
+		const auto* A = LinkedPortals[Pair].Get(); const auto* B = LinkedPortals[Pair + 1].Get();
+		if (!IsValid(A) || !IsValid(B) || A->TargetPortal != B || B->TargetPortal != A
+			|| A->PortalId != R.ParentPortalId || B->PortalId != R.EntryPortalId
+			|| A->GetLevel() != Streams[R.ParentId]->GetLoadedLevel() || B->GetLevel() != Streams[R.Id]->GetLoadedLevel())
+		{ Error = TEXT("Runtime portals must be reciprocally linked in the planned room instances."); return false; }
+		Pair += 2;
+	}
+	if (Pair != LinkedPortals.Num()) { Error = TEXT("Unexpected runtime portal pair."); return false; }
 	return true;
 }
 
@@ -275,7 +354,7 @@ void AHBPCGPreviewGenerator::MaterializeLayout(int32 PointCount)
 	if (!bAwaitingGeneration || !Streams.IsEmpty()) return;
 	if (Rooms.IsEmpty() || PointCount != Rooms.Num()) { Fail(TEXT("PCG room point data does not match the layout.")); return; }
 	FString Error;
-	if (!HBConnectorLayout::Validate(ModuleCatalog, Rooms, Error)) { Fail(Error); return; }
+	if (!ValidateGeneratedLayout(Error)) { Fail(Error); return; }
 	for (const auto& Room : Rooms)
 	{
 		bool bSuccess = false;
@@ -305,8 +384,11 @@ void AHBPCGPreviewGenerator::Tick(float Dt)
 		for (const auto& S : Streams) if (IsValid(S) && S->IsLevelLoaded() && S->IsLevelVisible()) ++LoadedRooms;
 		if (!Streams.IsEmpty() && LoadedRooms == Rooms.Num() && !PCG->IsGenerating())
 		{
+			FString Error;
+			if (!LinkGeneratedPortals(Error)) { Fail(Error); return; }
 			bAwaitingGeneration = false; bReady = true;
-			Status = TEXT("READY - room connectors aligned; occupancy checked. Unused doors remain open.");
+			Status = bActiveDungeonRules ? TEXT("READY - dungeon rules and portal links validated. Inspect authored doorways and arrival clearance.")
+				: TEXT("READY - LD connection test; gameplay rules disabled. Unused doors remain open.");
 			UE_LOG(LogHBPCGPreview, Display, TEXT("READY Seed=%d Rooms=%d Loaded=%d Elapsed=%.2fs"), ActiveSeed, Rooms.Num(), LoadedRooms, FPlatformTime::Seconds()-GenerationStartTime);
 			if (bStartInExploration) FocusRoom(0);
 		}
@@ -417,6 +499,8 @@ void AHBPCGPreviewGenerator::FocusRoom(int32 RoomIndex)
 
 void AHBPCGPreviewGenerator::ClearGenerated()
 {
+	for (AHBDungeonPortal* Portal : LinkedPortals) if (IsValid(Portal)) Portal->Disconnect();
+	LinkedPortals.Reset();
 	SetExploration(false);
 	bReady = false; LoadedRooms = 0;
 	for (auto& S : Streams) if (IsValid(S))
@@ -451,7 +535,9 @@ FString AHBPCGPreviewGenerator::GetLayoutSignature() const
     for (const auto& Room : Rooms)
     {
         Result += Room.ModuleId.ToString() + TEXT("=") + Room.ModuleMap.ToString() + TEXT("[")
-            + Room.ParentConnectorId.ToString() + TEXT("->") + Room.EntryConnectorId.ToString() + TEXT("];");
+            + Room.ParentConnectorId.ToString() + TEXT("->") + Room.EntryConnectorId.ToString() + TEXT("];")
+            + FString::Printf(TEXT("C%d:P%d:%s->%s;"), Room.bCorridor, static_cast<int32>(Room.Connection),
+                *Room.ParentPortalId.ToString(), *Room.EntryPortalId.ToString());
     }
     return Result;
 }
@@ -459,7 +545,7 @@ FString AHBPCGPreviewGenerator::GetLayoutSignature() const
 FString AHBPCGPreviewGenerator::GetVerificationSummary() const
 {
 	FString Error;
-	const bool bValid = HBConnectorLayout::Validate(ModuleCatalog, Rooms, Error);
+	const bool bValid = ValidateGeneratedLayout(Error) && (!bReady || ValidatePortalLinks(Error));
 	int32 PawnCount = 0;
 	for (TActorIterator<APawn> It(GetWorld()); It; ++It) ++PawnCount;
 	return FString::Printf(TEXT("Seed=%d Valid=%d Ready=%d Rooms=%d Loaded=%d Streams=%d Retiring=%d Pawns=%d Error=%s"),

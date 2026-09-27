@@ -37,6 +37,7 @@ public class HeavenBreach : ModuleRules
         });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
+        if (Target.bBuildEditor) PrivateDependencyModuleNames.AddRange(new string[] { "PropertyEditor", "UnrealEd" });
 
 		// DLSS is a client rendering feature; dedicated servers do not link the plugin.
 		bool bWithDLSS = Target.Platform == UnrealTargetPlatform.Win64 && Target.Type != TargetType.Server;

@@ -7,6 +7,7 @@
 #include "GameFramework/Pawn.h"
 #include "PCGPrototype/HBDungeonLayout.h"
 #include "PCGModule/HBDungeonModuleCatalog.h"
+#include "PCGModule/HBDungeonRuleLayout.h"
 #include "HBPCGPreview.generated.h"
 
 class UPCGComponent;
@@ -14,6 +15,7 @@ class UPCGGraphInterface;
 class ULevelStreamingDynamic;
 class UCameraComponent;
 class USpotLightComponent;
+class AHBDungeonPortal;
 
 /** Collision-free inspection camera; deliberately has no gameplay components. */
 UCLASS()
@@ -56,43 +58,49 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview") TObjectPtr<UPCGComponent> PCG;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview") TObjectPtr<UCameraComponent> PreviewCamera;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview") TObjectPtr<UPCGGraphInterface> Graph;
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Modules") TArray<TSoftObjectPtr<UWorld>> RoomModules;
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Modules") TArray<TSoftObjectPtr<UWorld>> CorridorModules;
-    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="PCG Preview|Modules") TArray<FHBModuleCatalogEntry> ModuleCatalog;
-    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="PCG Preview|Modules") TArray<FString> CatalogErrors;
+	UPROPERTY(BlueprintReadOnly, Category="PCG Preview - Advanced") TObjectPtr<UPCGComponent> PCG;
+	UPROPERTY(BlueprintReadOnly, Category="PCG Preview - Advanced") TObjectPtr<UCameraComponent> PreviewCamera;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Advanced", AdvancedDisplay) TObjectPtr<UPCGGraphInterface> Graph;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Modules") TArray<TSoftObjectPtr<UWorld>> ModuleMaps;
+    UPROPERTY() TArray<TSoftObjectPtr<UWorld>> RoomModules;
+    UPROPERTY() TArray<TSoftObjectPtr<UWorld>> CorridorModules;
+    UPROPERTY() bool bModuleRegistrationMigrated = false;
+    virtual void PostActorCreated() override;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="PCG Preview - Debug") TArray<FHBModuleCatalogEntry> ModuleCatalog;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="PCG Preview - Debug") TArray<FString> CatalogErrors;
     /** Reads each map's definition/components. Rebuilt again before runtime generation. */
-    UFUNCTION(CallInEditor, BlueprintCallable, Category="PCG Preview|Modules") void RefreshModuleCatalog();
+    UFUNCTION(CallInEditor, BlueprintCallable, Category="PCG Preview - Modules") void RefreshModuleCatalog();
     virtual void PostLoad() override;
     // Serialized only to migrate old assets. Hidden from both Details and Blueprint access.
     UPROPERTY() TSoftObjectPtr<UWorld> AdventureModule;
     UPROPERTY() TSoftObjectPtr<UWorld> BossModule;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation") bool bRandomSeedOnStart = true;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation") int32 Seed = 12345;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Generation") bool bRandomSeedOnStart = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Generation") int32 Seed = 12345;
+	/** Disable only for unrestricted room-to-room LD connection tests. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Generation") bool bUseDungeonRules = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Generation", meta=(EditCondition="bUseDungeonRules", EditConditionHides)) FHBDungeonGenerationRules DungeonRules;
 	/** LD connection test: fixed module roles are preserved, gameplay role quotas are not applied. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test", meta=(ClampMin="1", ClampMax="64")) int32 TestRoomCount = 6;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test") bool bAllowModuleReuse = true;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test", meta=(ClampMin="1", ClampMax="1000000")) int32 MaxConnectionAttempts = 20000;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test", meta=(ClampMin="0.1", ClampMax="10", Units="s")) float ConnectionSearchSeconds = 2;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Connection Test") bool bShowConnectionDebug = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Room Counts", meta=(EditCondition="!bUseDungeonRules", EditConditionHides, ClampMin="1", ClampMax="64")) int32 TestRoomCount = 6;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Search") bool bAllowModuleReuse = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Search", meta=(ClampMin="1", ClampMax="1000000")) int32 MaxConnectionAttempts = 20000;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Search", meta=(ClampMin="0.1", ClampMax="10", Units="s")) float ConnectionSearchSeconds = 2;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Debug") bool bShowConnectionDebug = false;
 	// Serialized legacy grid settings. Direct connection tests derive spacing/height from connectors.
 	UPROPERTY() int32 MaxAttempts = 64;
 	UPROPERTY() float CellSize = 16000;
 	UPROPERTY() float FloorHeight = 5000;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Generation", meta=(ClampMin="5")) float LoadTimeoutSeconds = 120;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Exploration") bool bStartInExploration = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Search", meta=(ClampMin="5")) float LoadTimeoutSeconds = 120;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Exploration") bool bStartInExploration = true;
 	/** Preview look sensitivity multiplier. 1 preserves the original speed; changes apply immediately. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview|Exploration", meta=(ClampMin="0.1", UIMax="5.0")) float MouseSensitivity = 1.0f;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") TObjectPtr<AHBPCGExplorerPawn> Explorer;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") bool bExploring = false;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Exploration") int32 InspectionRoom = 0;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Result") FString Status = TEXT("Press Play: generates modules, then enters exploration.");
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Result") int32 ActiveSeed = 0;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Result") TArray<FHBPrototypeRoom> Rooms;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Result") int32 LoadedRooms = 0;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview|Result") bool bReady = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PCG Preview - Exploration", meta=(ClampMin="0.1", UIMax="5.0")) float MouseSensitivity = 1.0f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview - Debug", AdvancedDisplay) TObjectPtr<AHBPCGExplorerPawn> Explorer;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview - Result", meta=(DisplayName="Currently Exploring")) bool bExploring = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview - Result", meta=(DisplayName="Current Inspection Room")) int32 InspectionRoom = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview - Result") FString Status = TEXT("Press Play: generates modules, then enters exploration.");
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview - Result") int32 ActiveSeed = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview - Result") TArray<FHBPrototypeRoom> Rooms;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview - Result") int32 LoadedRooms = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="PCG Preview - Result") bool bReady = false;
 
 	UFUNCTION(BlueprintCallable, Category="PCG Preview") void Regenerate(bool bNewSeed = true);
 	UFUNCTION(BlueprintCallable, Category="PCG Preview") FString GetLayoutSignature() const;
@@ -106,6 +114,14 @@ public:
 	void Fail(const FString& Reason);
 
 private:
+	bool BuildCatalog();
+	bool ValidateGeneratedLayout(FString& Error) const;
+	bool LinkGeneratedPortals(FString& Error);
+	bool ValidatePortalLinks(FString& Error) const;
+	HBConnectorLayout::FSettings ActiveSettings;
+	FHBDungeonGenerationRules ActiveRules;
+	bool bActiveDungeonRules = false;
+	UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonPortal>> LinkedPortals;
 	UPROPERTY(Transient) TArray<TObjectPtr<ULevelStreamingDynamic>> Streams;
 	UPROPERTY(Transient) TArray<TObjectPtr<ULevelStreamingDynamic>> RetiringStreams;
 	int32 GenerationSerial = 0;
