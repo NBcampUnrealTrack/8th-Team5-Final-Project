@@ -34,16 +34,24 @@ namespace
             auto* Map = Data->Metadata->CreateAttribute<FString>(TEXT("ModuleMap"), TEXT(""), false, true);
             auto* ParentConnector = Data->Metadata->CreateAttribute<FString>(TEXT("ParentConnectorId"), TEXT(""), false, true);
             auto* EntryConnector = Data->Metadata->CreateAttribute<FString>(TEXT("EntryConnectorId"), TEXT(""), false, true);
+            auto* Corridor = Data->Metadata->CreateAttribute<bool>(TEXT("IsCorridor"), false, false, true);
+            auto* Connection = Data->Metadata->CreateAttribute<FString>(TEXT("ConnectionType"), TEXT("Door"), false, true);
+            auto* ParentPortal = Data->Metadata->CreateAttribute<FString>(TEXT("ParentPortalId"), TEXT(""), false, true);
+            auto* EntryPortal = Data->Metadata->CreateAttribute<FString>(TEXT("EntryPortalId"), TEXT(""), false, true);
 			for (const auto& Room : G->Rooms)
 			{
 				FPCGPoint& P = Data->GetMutablePoints().AddDefaulted_GetRef();
-				P.Transform = Room.Transform; P.Density = 1; P.Seed = G->ActiveSeed + Room.Id;
+				P.Transform = Room.Transform; P.Density = 1; P.Seed = static_cast<int32>(static_cast<uint32>(G->ActiveSeed) + static_cast<uint32>(Room.Id));
 				P.BoundsMin = Room.LocalBounds.Min;
 				P.BoundsMax = Room.LocalBounds.Max;
-				P.Color = FVector4(FLinearColor(HBDungeonLayout::RoleColor(Room.Role)));
+				P.Color = FVector4(FLinearColor(Room.bCorridor ? FColor::Silver : HBDungeonLayout::RoleColor(Room.Role)));
 				P.MetadataEntry = Data->Metadata->AddEntry();
 				Id->SetValue(P.MetadataEntry, Room.Id); Parent->SetValue(P.MetadataEntry, Room.ParentId);
-				Floor->SetValue(P.MetadataEntry, Room.Floor); Role->SetValue(P.MetadataEntry, HBDungeonLayout::RoleName(Room.Role));
+				Floor->SetValue(P.MetadataEntry, Room.Floor); Role->SetValue(P.MetadataEntry, Room.bCorridor ? TEXT("CORRIDOR") : HBDungeonLayout::RoleName(Room.Role));
+                Corridor->SetValue(P.MetadataEntry, Room.bCorridor);
+                Connection->SetValue(P.MetadataEntry, Room.Connection == EHBDungeonConnection::Portal ? TEXT("Portal") : TEXT("Door"));
+                ParentPortal->SetValue(P.MetadataEntry, Room.ParentPortalId.ToString());
+                EntryPortal->SetValue(P.MetadataEntry, Room.EntryPortalId.ToString());
                 Module->SetValue(P.MetadataEntry, Room.ModuleId.ToString()); Map->SetValue(P.MetadataEntry, Room.ModuleMap.ToString());
                 ParentConnector->SetValue(P.MetadataEntry, Room.ParentConnectorId.ToString());
                 EntryConnector->SetValue(P.MetadataEntry, Room.EntryConnectorId.ToString());

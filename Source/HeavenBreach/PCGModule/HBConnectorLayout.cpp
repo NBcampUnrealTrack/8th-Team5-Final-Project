@@ -54,9 +54,11 @@ namespace
 		for (int32 Index = 0; Index < Catalog.Num(); ++Index)
 		{
 			const auto& M = Catalog[Index];
-			if (M.Kind != EHBDungeonModuleKind::Room) { continue; }
 			auto Fail = [&](const FString& Why) { Error = M.ModuleId.ToString() + TEXT(": ") + Why; return false; };
-			if (M.ModuleId.IsNone() || ModuleIds.Contains(M.ModuleId) || M.Map.IsNull() || static_cast<uint8>(M.Role) > 3)
+			if (M.ModuleId.IsNone() || ModuleIds.Contains(M.ModuleId) || M.Map.IsNull()
+				|| (M.Kind != EHBDungeonModuleKind::Room && M.Kind != EHBDungeonModuleKind::Corridor)
+				|| (M.Kind == EHBDungeonModuleKind::Room && static_cast<uint8>(M.Role) > 3)
+				|| static_cast<uint8>(M.AllowedFloor) > 2)
 				return Fail(TEXT("Invalid/duplicate module ID, map or fixed role."));
 			ModuleIds.Add(M.ModuleId);
 			if (!M.Bounds.IsValid || M.Bounds.Min.ContainsNaN() || M.Bounds.Max.ContainsNaN() || M.InspectionEntry.ContainsNaN())
@@ -64,6 +66,13 @@ namespace
 			if (M.Connectors.IsEmpty() || M.Occupancy.IsEmpty())
 				return Fail(TEXT("At least one connector and occupancy box are required."));
 			TSet<FName> ConnectorIds;
+			TSet<FName> PortalIds;
+			for (const auto& P : M.Portals)
+			{
+				if (P.PortalId.IsNone() || PortalIds.Contains(P.PortalId) || !Unit(P.TriggerTransform)
+					|| !Unit(P.ArrivalTransform) || !Positive(P.TriggerExtent)) return Fail(TEXT("Invalid portal metadata."));
+				PortalIds.Add(P.PortalId);
+			}
 			for (const auto& C : M.Connectors)
 			{
 				if (C.ConnectorId.IsNone() || ConnectorIds.Contains(C.ConnectorId))
@@ -81,7 +90,7 @@ namespace
 			}
 			if (!M.Bounds.Equals(OccupiedBounds, HBConnectorLayout::SnapTolerance))
 				return Fail(TEXT("Cached bounds do not match occupancy boxes. Refresh the catalog."));
-			Modules.Add(Index);
+			if (M.Kind == EHBDungeonModuleKind::Room) Modules.Add(Index);
 		}
 		if (Modules.IsEmpty()) { Error = TEXT("No room modules available for connector tests."); return false; }
 		return true;
@@ -194,6 +203,13 @@ FTransform HBConnectorLayout::Align(const FTransform& ParentConnectorWorld, cons
 	return ChildConnectorLocal.Inverse() * FTransform(FQuat(FVector::UpVector, PI)) * ParentConnectorWorld;
 }
 
+bool HBConnectorLayout::ValidateCatalog(const TArray<FHBModuleCatalogEntry>& Catalog, FString& OutError)
+{
+	OutError.Reset();
+	TArray<int32> Modules;
+	return CheckCatalog(Catalog, Modules, OutError);
+}
+
 bool HBConnectorLayout::OccupancyOverlaps(const FHBModuleCatalogEntry& A, const FTransform& TransformA,
 	const FHBModuleCatalogEntry& B, const FTransform& TransformB)
 {
@@ -256,20 +272,39 @@ bool HBConnectorLayout::Validate(const TArray<FHBModuleCatalogEntry>& Catalog,
 	for (int32 I = 0; I < Rooms.Num(); ++I)
 	{
 		const auto& R = Rooms[I];
-		const int32 Module = Catalog.IndexOfByPredicate([&](const auto& M) { return M.Kind == EHBDungeonModuleKind::Room && M.ModuleId == R.ModuleId; });
+		const int32 Module = Catalog.IndexOfByPredicate([&](const auto& M) { return M.ModuleId == R.ModuleId; });
 		if (Module == INDEX_NONE || R.Id != I || !Upright(R.Transform)) { return Fail(TEXT("Invalid placed room metadata/transform.")); }
 		const auto& M = Catalog[Module];
 		Chosen.Add(Module);
-		if (R.ModuleMap != M.Map || R.Role != M.Role || !R.Bounds.Equals(M.Bounds.TransformBy(R.Transform), SnapTolerance))
+		if (R.ModuleMap != M.Map || R.Role != M.Role || R.bCorridor != (M.Kind == EHBDungeonModuleKind::Corridor)
+			|| !R.Bounds.Equals(M.Bounds.TransformBy(R.Transform), SnapTolerance))
 			return Fail(TEXT("Placed room does not match its source module."));
 		if (I == 0)
 		{
-			if (R.ParentId != INDEX_NONE || !R.ParentConnectorId.IsNone() || !R.EntryConnectorId.IsNone())
+			if (R.ParentId != INDEX_NONE || !R.ParentConnectorId.IsNone() || !R.EntryConnectorId.IsNone()
+				|| R.Connection != EHBDungeonConnection::Door || !R.ParentPortalId.IsNone() || !R.EntryPortalId.IsNone())
 				return Fail(TEXT("Invalid root room."));
 		}
 		else
 		{
 			if (R.ParentId < 0 || R.ParentId >= I) { return Fail(TEXT("Disconnected/cyclic room graph.")); }
+			if (R.Connection == EHBDungeonConnection::Portal)
+			{
+				const auto& ParentModule = Catalog[Chosen[R.ParentId]];
+				if (!R.ParentConnectorId.IsNone() || !R.EntryConnectorId.IsNone()
+					|| !ParentModule.Portals.ContainsByPredicate([&](const auto& P) { return P.PortalId == R.ParentPortalId; })
+					|| !M.Portals.ContainsByPredicate([&](const auto& P) { return P.PortalId == R.EntryPortalId; }))
+					return Fail(TEXT("Missing portal endpoint or portal edge incorrectly uses door connectors."));
+				for (int32 J = 1; J < I; ++J)
+					if (Rooms[J].Connection == EHBDungeonConnection::Portal &&
+						((Rooms[J].ParentId == R.ParentId && Rooms[J].ParentPortalId == R.ParentPortalId)
+						|| (J == R.ParentId && Rooms[J].EntryPortalId == R.ParentPortalId)))
+						return Fail(TEXT("Portal endpoint reused."));
+			}
+			else
+			{
+			if (R.Connection != EHBDungeonConnection::Door || !R.ParentPortalId.IsNone() || !R.EntryPortalId.IsNone())
+				return Fail(TEXT("Invalid door connection metadata."));
 			const auto* P = FindConnector(Catalog[Chosen[R.ParentId]], R.ParentConnectorId);
 			const auto* C = FindConnector(M, R.EntryConnectorId);
 			if (!P || !C || Used[R.ParentId].Contains(R.ParentConnectorId) || Used[I].Contains(R.EntryConnectorId))
@@ -281,6 +316,7 @@ bool HBConnectorLayout::Validate(const TArray<FHBModuleCatalogEntry>& Catalog,
 				FVector::DotProduct(PW.GetRotation().GetForwardVector(), CW.GetRotation().GetForwardVector()) > -0.9999 ||
 				!PW.GetRotation().GetUpVector().Equals(CW.GetRotation().GetUpVector(), 0.0001))
 				return Fail(TEXT("Connector position/direction mismatch."));
+			}
 		}
 		for (int32 J = 0; J < I; ++J)
 			if (OccupancyOverlaps(M, R.Transform, Catalog[Chosen[J]], Rooms[J].Transform))
