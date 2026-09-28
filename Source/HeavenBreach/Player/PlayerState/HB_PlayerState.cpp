@@ -9,6 +9,7 @@
 #include "Player/Job/HBJobData.h"
 #include "Combat/Ability/HBPlayerSkillGABase.h"
 #include "Combat/Ability/HBAugmentLibrary.h"
+#include "Combat/Ability/HBCommonAugmentSet.h"
 #include "GameplayEffect.h"
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
@@ -50,6 +51,20 @@ namespace
 		}
 
 		return Cast<UHBPlayerSkillGABase>(Skill->AbilityClass->GetDefaultObject());
+	}
+
+	// 단계가 있는 증강은 카드 제목에 단계를 붙인다. 전용 위젯을 만들지 않고
+	// 제목에 넣는 이유는 WBP 수정 없이 돌아가게 하려는 것이다.
+	// UHB_AugmentCard 의 바인딩이 BindWidgetOptional 이라 나중에 전용 위젯으로
+	// 옮기는 길은 열려 있다.
+	FText MakeTieredDisplayName(const FText& Base, const int32 Tier, const int32 MaxTier)
+	{
+		if (MaxTier <= 1)
+		{
+			return Base;   // 단계 없는 증강은 그대로
+		}
+		return FText::Format(NSLOCTEXT("HBAugment", "TieredName", "{0} ({1}단계)"),
+			Base, FText::AsNumber(Tier));
 	}
 }
 
@@ -796,14 +811,14 @@ void AHB_PlayerState::GenerateUpgradeCandidates()
 
 	// 궁극기는 넣지 않는다. 궁극기 증강은 기획에서 폐기됐다.
 
-	// 앞에서부터 3장을 뽑는다. 뽑을 때마다 마지막 것과 자리를 바꿔 O(1) 로 제거한다.
-	const int32 DrawCount = FMath::Min(3, Pool.Num());
-	for (int32 Drawn = 0; Drawn < DrawCount; ++Drawn)
-	{
-		const int32 Index = FMath::RandRange(0, Pool.Num() - 1);
-		CurrentUpgradeCandidates.Add(Pool[Index]);
-		Pool.RemoveAtSwap(Index);
-	}
+	TArray<FHBUpgradeCandidate> CommonPool;
+	CollectCommonAugments(CommonPool);
+
+	// 씨앗은 매번 새로 만든다. 재현이 필요한 곳이 아니다.
+	// DrawCandidates 가 FRandomStream 을 받는 이유는 테스트에서 고정하기
+	// 위한 것이고, 실제 플레이에서는 무작위가 맞다.
+	FRandomStream Rng(FMath::Rand());
+	HBAugment::DrawCandidates(Pool, CommonPool, 3, 1, Rng, CurrentUpgradeCandidates);
 
 	// 뽑을 게 하나도 없으면 선택권을 소모하고 넘긴다.
 	// 안 그러면 카드 0장짜리 선택 UI 가 영영 열려 있는다.
@@ -883,19 +898,57 @@ void AHB_PlayerState::CollectSkillAugments(TArray<FHBUpgradeCandidate>& OutPool,
 		{
 			continue;
 		}
-		if (HBAugment::FindTier(TakenAugments, Augment.AugmentTag) > 0)
+
+		const int32 CurrentTier = HBAugment::FindTier(TakenAugments, Augment.AugmentTag);
+		const int32 MaxTier = HBAugment::GetMaxTier(Augment);
+		if (CurrentTier >= MaxTier)
 		{
-			continue;   // 이미 고른 증강은 다시 안 나온다
+			continue;   // 최대 단계에 도달했다. 후보에서 사라진다
 		}
 
 		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
+		Candidate.Tier = CurrentTier + 1;
 		Candidate.CandidateId = FName(*FString::Printf(
-			TEXT("Augment.%s"), *Augment.AugmentTag.GetTagName().ToString()));
+			TEXT("Augment.%s.T%d"), *Augment.AugmentTag.GetTagName().ToString(), Candidate.Tier));
 		Candidate.Type = EHBUpgradeCandidateType::Augment;
 		Candidate.TargetSkillId = SkillId;
 		Candidate.AugmentTag = Augment.AugmentTag;
-		Candidate.DisplayName = Augment.DisplayName;
-		// 설명의 {Cooldown} 같은 치환자를 실제 수치로 바꿔서 넘긴다.
+		Candidate.DisplayName = MakeTieredDisplayName(Augment.DisplayName, Candidate.Tier, MaxTier);
+		Candidate.Description = Augment.GetFormattedDescription();
+		Candidate.Icon = Augment.Icon;
+	}
+}
+
+void AHB_PlayerState::CollectCommonAugments(TArray<FHBUpgradeCandidate>& OutPool) const
+{
+	if (!CommonAugmentSet)
+	{
+		return;   // 애셋이 지정되지 않았다. 공통 강화 없이 동작한다
+	}
+
+	for (const FHBSkillAugment& Augment : CommonAugmentSet->Augments)
+	{
+		if (!Augment.AugmentTag.IsValid())
+		{
+			continue;
+		}
+
+		const int32 CurrentTier = HBAugment::FindTier(TakenAugments, Augment.AugmentTag);
+		const int32 MaxTier = HBAugment::GetMaxTier(Augment);
+		if (CurrentTier >= MaxTier)
+		{
+			continue;
+		}
+
+		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
+		Candidate.Tier = CurrentTier + 1;
+		Candidate.CandidateId = FName(*FString::Printf(
+			TEXT("Augment.%s.T%d"), *Augment.AugmentTag.GetTagName().ToString(), Candidate.Tier));
+		Candidate.Type = EHBUpgradeCandidateType::Augment;
+		// TargetSkillId 를 비운다. 이것이 "공통" 의 표시다.
+		Candidate.TargetSkillId = NAME_None;
+		Candidate.AugmentTag = Augment.AugmentTag;
+		Candidate.DisplayName = MakeTieredDisplayName(Augment.DisplayName, Candidate.Tier, MaxTier);
 		Candidate.Description = Augment.GetFormattedDescription();
 		Candidate.Icon = Augment.Icon;
 	}

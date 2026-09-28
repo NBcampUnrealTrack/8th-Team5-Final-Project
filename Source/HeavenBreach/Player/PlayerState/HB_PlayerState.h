@@ -184,6 +184,13 @@ private:
 	void CollectMissingPassives(TArray<FHBUpgradeCandidate>& OutPool) const;
 	void CollectSkillAugments(TArray<FHBUpgradeCandidate>& OutPool, FName SkillId) const;
 
+	// 공통 강화 목록. BP 기본값에서 지정한다.
+	UPROPERTY(EditDefaultsOnly, Category = "Progression|Skills")
+	TObjectPtr<class UHBCommonAugmentSet> CommonAugmentSet;
+
+	// 공통 강화 후보를 모은다. 각 증강의 다음 단계 1장씩만 넣는다.
+	void CollectCommonAugments(TArray<FHBUpgradeCandidate>& OutPool) const;
+
 	// 증강 하나를 실제로 부여한다. 태그를 넣고 GrantEffect 가 있으면 붙인다.
 	void ApplyAugment(FName TargetSkillId, FGameplayTag AugmentTag);
 

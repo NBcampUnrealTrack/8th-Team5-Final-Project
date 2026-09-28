@@ -160,6 +160,10 @@ struct HEAVENBREACH_API FHBUpgradeCandidate
 	UPROPERTY(BlueprintReadOnly)
 	EHBUpgradeCandidateType Type = EHBUpgradeCandidateType::Augment;
 
+	// 이 카드를 고르면 올라갈 단계. 단계 없는 증강은 1.
+	UPROPERTY(BlueprintReadOnly)
+	int32 Tier = 1;
+
 	// 어느 스킬의 카드인가. NewPassive 면 얻게 될 패시브의 SkillId 다.
 	UPROPERTY(BlueprintReadOnly)
 	FName TargetSkillId;
