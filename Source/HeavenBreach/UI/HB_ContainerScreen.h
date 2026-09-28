@@ -6,6 +6,7 @@
 
 class UInventoryComponent;
 class UInventoryWidget;
+class USoundBase;
 
 /**
  * 상자 / 몬스터 시체 / 플레이어 시체처럼 "외부 인벤토리를 여는" 화면.
@@ -59,6 +60,9 @@ protected:
 	/** WBP_BoxGrid — 상자 쪽 그리드 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
 	TObjectPtr<UInventoryWidget> BoxPanel;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio")
+	TObjectPtr<USoundBase> LootOpenSound;
 
 private:
 	UPROPERTY()

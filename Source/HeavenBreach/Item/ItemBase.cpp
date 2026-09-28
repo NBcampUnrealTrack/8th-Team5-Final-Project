@@ -76,6 +76,7 @@ void AItemBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 	DOREPLIFETIME(AItemBase, ShieldDataTable);
 	DOREPLIFETIME(AItemBase, StackCount);
 	DOREPLIFETIME(AItemBase, bIsFavorite);
+	DOREPLIFETIME(AItemBase, CurrentDurability);
 }
 
 void AItemBase::OnRep_ItemID()
@@ -293,6 +294,7 @@ bool AItemBase::TryPickUp(AActor* Picker)
 	NewItem.InstanceId = FGuid::NewGuid();
 	NewItem.StackCount = FMath::Max(1, StackCount);
 	NewItem.bIsFavorite = bIsFavorite;
+	NewItem.CurrentDurability = CurrentDurability;
 	int32 Remainder = 0;
 	const bool bAdded = Inventory->TryAddItem(NewItem, Remainder);
 	if (bAdded && Remainder == 0)

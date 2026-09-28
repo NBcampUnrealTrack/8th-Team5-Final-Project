@@ -524,11 +524,13 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 				bParried = bInParryWindow;
 
 				// 실제로 막아냈을 때만 방패가 닳는다. 각도 밖이면 깎지 않는다.
-				// 방어가 완전 무효가 되면서 내구도가 유일한 소모 대가로 남았다.
+				// 방어가 완전 무효가 되면서 내구도가 유일한 소모 대가로 남았다 — 막아낸
+				// 공격의 원본 피해량(RawDamage)에 비례해서 깎는다(세게 때리는 상대일수록 더 닳는다).
 				if (UEquipmentComponent* Equipment = GetEquipment())
 				{
 					bool bJustBroke = false;
-					Equipment->DamageEquippedItemDurability(EEquipSlotType::SecondaryEquip, 1.f, bJustBroke);
+					const float ShieldDurabilityLoss = FMath::Clamp(RawDamage * ShieldDurabilityLossRatio, ShieldDurabilityLossMin, ShieldDurabilityLossMax);
+					Equipment->DamageEquippedItemDurability(EEquipSlotType::SecondaryEquip, ShieldDurabilityLoss, bJustBroke);
 				}
 
 				if (bParried)
@@ -574,7 +576,8 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 			FinalDamage, HPBefore, HPAfter,
 			AppliedHandle.WasSuccessfullyApplied() ? TEXT("true") : TEXT("false"));
 
-		// 방어구는 "피해를 받음"이 조건. 장착된 투구/몸통/바지를 동시에 1씩 깎는다.
+		// 방어구는 "피해를 받음"이 조건. 맞은 최종 피해량(FinalDamage)에 비례해서 장착된
+		// 투구/몸통/바지를 동시에 깎는다 — 세게 맞을수록, 방어력이 낮을수록 더 많이 닳는다.
 		if (AppliedHandle.WasSuccessfullyApplied() && FinalDamage > 0.f)
 		{
 			if (UEquipmentComponent* Equipment = GetEquipment())
@@ -585,10 +588,11 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 					EEquipSlotType::Chest,
 					EEquipSlotType::Legs
 				};
+				const float ArmorDurabilityLoss = FMath::Clamp(FinalDamage * ArmorDurabilityLossRatio, ArmorDurabilityLossMin, ArmorDurabilityLossMax);
 				for (const EEquipSlotType ArmorSlot : ArmorSlots)
 				{
 					bool bJustBroke = false;
-					Equipment->DamageEquippedItemDurability(ArmorSlot, 1.f, bJustBroke);
+					Equipment->DamageEquippedItemDurability(ArmorSlot, ArmorDurabilityLoss, bJustBroke);
 				}
 			}
 		}
@@ -985,6 +989,19 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 	{
 		return;
 	}
+
+	// 주무기 내구도. 적에게 실제로 들어간 피해량(Damage)에 비례해서 닳는다 - 헛스윙이나
+	// 막힌 공격은 여기까지 오지 않으므로(적중해야만 NotifyDamageDealt 호출) 닳지 않는다.
+	if (Damage > 0.f)
+	{
+		if (UEquipmentComponent* Equipment = GetEquipment())
+		{
+			bool bJustBroke = false;
+			const float WeaponDurabilityLoss = FMath::Clamp(Damage * WeaponDurabilityLossRatio, WeaponDurabilityLossMin, WeaponDurabilityLossMax);
+			Equipment->DamageEquippedItemDurability(EEquipSlotType::PrimaryWeapon, WeaponDurabilityLoss, bJustBroke);
+		}
+	}
+
 	// 흡혈. 피의 광란 같은 버프 GE 가 Player_LifeStealRatio 를 올리면 그만큼 체력으로 되돌린다.
 	//
 	// 작동방식: 판정이 캐릭터를 거치므로(MeleeTraceComponent::ApplyDamage 가 부른다) 여기서 처리한다.
