@@ -20,6 +20,17 @@ namespace ETravelFailure
 }
 
 UENUM(BlueprintType)
+enum class EHBServerTravelState : uint8
+{
+	Idle,
+	ClosingLobby,
+	Traveling,
+	RestoringLobby,
+	Complete,
+	Failed
+};
+
+UENUM(BlueprintType)
 enum class EHBMatchStartState : uint8
 {
 	Idle,
@@ -84,6 +95,22 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
+	/** Server-only transition primitive. No UI readiness policy. True means accepted. */
+	bool RequestServerMatchTravel(TSoftObjectPtr<UWorld> Destination);
+	/** Retry restoring admission after a failed transition, only in the original lobby. */
+	bool RetryLobbyAdmissionRecovery();
+	bool IsMatchAdmissionClosed() const { return bMatchAdmissionClosed; }
+	UFUNCTION(BlueprintPure, Category = "Online|Travel")
+	EHBServerTravelState GetServerTravelState() const { return ServerTravelState; }
+	UFUNCTION(BlueprintPure, Category = "Online|Travel")
+	FString GetServerTravelError() const { return ServerTravelError; }
+	bool IsServerTravelInProgress() const
+	{
+		return ServerTravelState == EHBServerTravelState::ClosingLobby ||
+			ServerTravelState == EHBServerTravelState::Traveling ||
+			ServerTravelState == EHBServerTravelState::RestoringLobby;
+	}
+
 	/** Legacy compatibility only: rejects creation without an explicit listen map. */
 	bool CreateLobby(int32 MaxPlayers);
 	/** Search only; completion is reported through OnLobbyOperationStateChanged. */
@@ -118,7 +145,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
 	bool IsLobbyOperationInProgress() const
 	{
-		return LobbyOperationState == EHBLobbyOperationState::Creating ||
+		return IsServerTravelInProgress() || LobbyOperationState == EHBLobbyOperationState::Creating ||
 			LobbyOperationState == EHBLobbyOperationState::Finding ||
 			LobbyOperationState == EHBLobbyOperationState::Joining ||
 			LobbyOperationState == EHBLobbyOperationState::OpeningHostMap ||
@@ -162,6 +189,20 @@ public:
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
 
 private:
+	friend class FHBServerTravelGuardsTest;
+	void HandleTravelSessionUpdated(FName SessionName, bool bSuccess);
+	void FailServerTravel(const FString& Error);
+	bool ObserveServerTravel(float DeltaSeconds);
+	void SetServerTravelState(EHBServerTravelState State, const FString& Error = FString());
+	EHBServerTravelState ServerTravelState = EHBServerTravelState::Idle;
+	FString ServerTravelError;
+	FString TravelSourceMap;
+	FString TravelDestinationMap;
+	bool bMatchAdmissionClosed = false;
+	double ServerTravelDeadline = 0.0;
+	TSharedPtr<FOnlineSessionSettings> PreTravelSettings;
+	FDelegateHandle TravelSessionUpdateHandle;
+	FTSTicker::FDelegateHandle ServerTravelTickerHandle;
 	bool FindLobbiesInternal(bool bJoinFirstResult);
 	bool ValidateLobbyClient(int32& OutLocalUser);
 	void FailJoinRequest(const FString& Error);

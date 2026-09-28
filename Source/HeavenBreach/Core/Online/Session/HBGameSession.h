@@ -14,4 +14,5 @@ class HEAVENBREACH_API AHBGameSession : public AGameSession
 
 public:
 	virtual void RegisterServer() override;
+	virtual FString ApproveLogin(const FString& Options) override;
 };

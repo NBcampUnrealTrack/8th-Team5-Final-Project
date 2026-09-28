@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/NetDriver.h"
+#include "Core/GameFlow/Lobby/HBLobbyGameMode.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/PackageName.h"
 #include "UObject/UObjectGlobals.h"
@@ -140,6 +141,33 @@ bool FHBRetiredDedicatedAPIsTest::RunTest(const FString& Parameters)
 }
 #endif
 
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBServerTravelGuardsTest, "HeavenBreach.Online.ServerTravelGuards",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBServerTravelGuardsTest::RunTest(const FString& Parameters)
+{
+	UGameInstance* Instance = NewObject<UGameInstance>();
+	UHBOnlineSessionSubsystem* Sessions = NewObject<UHBOnlineSessionSubsystem>(Instance);
+	TestFalse(TEXT("No server world cannot start travel"), Sessions->RequestServerMatchTravel(nullptr));
+	TestEqual(TEXT("Invalid request records failure"), Sessions->GetServerTravelState(), EHBServerTravelState::Failed);
+	TestFalse(TEXT("Preflight failure does not close admission"), Sessions->IsMatchAdmissionClosed());
+	for (EHBServerTravelState State : { EHBServerTravelState::ClosingLobby, EHBServerTravelState::Traveling, EHBServerTravelState::RestoringLobby })
+	{
+		Sessions->ServerTravelState = State;
+		TestTrue(TEXT("Transition blocks overlapping lobby operations"), Sessions->IsLobbyOperationInProgress());
+		TestFalse(TEXT("Duplicate travel is rejected"), Sessions->RequestServerMatchTravel(nullptr));
+		TestEqual(TEXT("Duplicate request preserves current transition"), Sessions->GetServerTravelState(), State);
+	}
+	Sessions->ServerTravelState = EHBServerTravelState::Failed;
+	Sessions->bMatchAdmissionClosed = true;
+	TestFalse(TEXT("Failed transition cannot retry before restoring admission"), Sessions->RequestServerMatchTravel(nullptr));
+	TestFalse(TEXT("Recovery cannot run outside its source lobby"), Sessions->RetryLobbyAdmissionRecovery());
+	TestTrue(TEXT("Unsafe recovery keeps admission closed"), Sessions->IsMatchAdmissionClosed());
+	return true;
+}
+#endif
+
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -198,6 +226,10 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UHBOnlineSessionSubsystem::Deinitialize()
 {
+	FTSTicker::GetCoreTicker().RemoveTicker(ServerTravelTickerHandle);
+	ServerTravelTickerHandle.Reset();
+	if (SessionInterface.IsValid()) SessionInterface->ClearOnUpdateSessionCompleteDelegate_Handle(TravelSessionUpdateHandle);
+	TravelSessionUpdateHandle.Reset();
 	bHostRequestActive = false;
 	bJoinRequestActive = false;
 	FTSTicker::GetCoreTicker().RemoveTicker(JoinCleanupTickerHandle);
@@ -235,6 +267,150 @@ void UHBOnlineSessionSubsystem::Deinitialize()
 	SessionInterface.Reset();
 
 	Super::Deinitialize();
+}
+
+void UHBOnlineSessionSubsystem::SetServerTravelState(EHBServerTravelState State, const FString& Error)
+{
+	ServerTravelState = State;
+	ServerTravelError = Error;
+	UE_LOG(LogTemp, Log, TEXT("Online | ServerTravel | State: %d | %s"), static_cast<int32>(State), *Error);
+}
+
+bool UHBOnlineSessionSubsystem::RequestServerMatchTravel(TSoftObjectPtr<UWorld> Destination)
+{
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid() || bMatchAdmissionClosed) return false;
+	UWorld* World = GetWorld();
+	AHBLobbyGameMode* Mode = World ? World->GetAuthGameMode<AHBLobbyGameMode>() : nullptr;
+	if (!Mode || World->GetNetMode() != NM_ListenServer || !Mode->bUseSeamlessTravel ||
+		World->IsInSeamlessTravel() || !World->NextURL.IsEmpty())
+	{
+		SetServerTravelState(EHBServerTravelState::Failed, TEXT("Match travel requires an idle seamless listen lobby"));
+		return false;
+	}
+	const FString Target = Destination.ToSoftObjectPath().GetLongPackageName();
+	FString Filename;
+	const FString Source = UWorld::RemovePIEPrefix(World->GetOutermost()->GetName());
+	if (Destination.IsNull() || !FPackageName::IsValidLongPackageName(Target) || Target == Source ||
+		!FPackageName::DoesPackageExist(Target, &Filename) || !Filename.EndsWith(FPackageName::GetMapPackageExtension()))
+	{
+		SetServerTravelState(EHBServerTravelState::Failed, TEXT("Destination must be an existing map different from the lobby"));
+		return false;
+	}
+	FNamedOnlineSession* Session = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) : nullptr;
+	if (!Session || !Session->bHosting || !HBOnline::IsListenLobbySettings(Session->SessionSettings))
+	{
+		SetServerTravelState(EHBServerTravelState::Failed, TEXT("No locally hosted Steam lobby session"));
+		return false;
+	}
+	PreTravelSettings = MakeShared<FOnlineSessionSettings>(Session->SessionSettings);
+	TravelSourceMap = Source;
+	TravelDestinationMap = Target;
+	bMatchAdmissionClosed = true; // Immediate server gate while Steam metadata updates asynchronously.
+	FOnlineSessionSettings Closed = *PreTravelSettings;
+	Closed.bAllowJoinInProgress = false;
+	Closed.bAllowJoinViaPresence = false;
+	Closed.bAllowJoinViaPresenceFriendsOnly = false;
+	Closed.bAllowInvites = false;
+	Closed.Set(FName(TEXT("HB_MAP")), Target, EOnlineDataAdvertisementType::ViaOnlineService);
+	TravelSessionUpdateHandle = SessionInterface->AddOnUpdateSessionCompleteDelegate_Handle(
+		FOnUpdateSessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleTravelSessionUpdated));
+	SetServerTravelState(EHBServerTravelState::ClosingLobby);
+	if (!SessionInterface->UpdateSession(HBOnline::PartyLobbySessionName, Closed, true))
+	{
+		if (TravelSessionUpdateHandle.IsValid()) HandleTravelSessionUpdated(HBOnline::PartyLobbySessionName, false);
+		return false;
+	}
+	return true;
+}
+
+void UHBOnlineSessionSubsystem::HandleTravelSessionUpdated(FName SessionName, bool bSuccess)
+{
+	if (SessionName != HBOnline::PartyLobbySessionName || !TravelSessionUpdateHandle.IsValid()) return;
+	SessionInterface->ClearOnUpdateSessionCompleteDelegate_Handle(TravelSessionUpdateHandle);
+	TravelSessionUpdateHandle.Reset();
+	if (ServerTravelState == EHBServerTravelState::RestoringLobby)
+	{
+		if (bSuccess)
+		{
+			bMatchAdmissionClosed = false;
+			PreTravelSettings.Reset();
+		}
+		SetServerTravelState(EHBServerTravelState::Failed, bSuccess ? ServerTravelError :
+			ServerTravelError + TEXT("; lobby admission restore failed; retry recovery or leave the session"));
+		return;
+	}
+	if (ServerTravelState != EHBServerTravelState::ClosingLobby) return;
+	if (!bSuccess)
+	{
+		FailServerTravel(TEXT("Could not close Steam lobby admission"));
+		return;
+	}
+	UWorld* World = GetWorld();
+	if (!World || World->GetNetMode() != NM_ListenServer || World->IsInSeamlessTravel() ||
+		!World->NextURL.IsEmpty() || UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) != TravelSourceMap)
+	{
+		FailServerTravel(TEXT("Lobby world changed before travel could start"));
+		return;
+	}
+	SetServerTravelState(EHBServerTravelState::Traveling);
+	ServerTravelDeadline = FPlatformTime::Seconds() + 120.0;
+	// Observe from GameInstance lifetime: seamless travel destroys the lobby GameMode.
+	ServerTravelTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::ObserveServerTravel), 0.1f);
+	if (!World->ServerTravel(TravelDestinationMap, true)) FailServerTravel(TEXT("ServerTravel rejected the destination"));
+}
+
+bool UHBOnlineSessionSubsystem::ObserveServerTravel(float DeltaSeconds)
+{
+	if (ServerTravelState != EHBServerTravelState::Traveling) return false;
+	if (FPlatformTime::Seconds() > ServerTravelDeadline)
+	{
+		ServerTravelTickerHandle.Reset();
+		FailServerTravel(TEXT("Server travel exceeded 120 seconds; admission remains closed unless the source lobby can be restored"));
+		return false;
+	}
+	UWorld* World = GetWorld();
+	if (World && !World->IsInSeamlessTravel() && World->NextURL.IsEmpty() && World->HasBegunPlay() &&
+		UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) == TravelDestinationMap)
+	{
+		ServerTravelTickerHandle.Reset();
+		if (World->GetNetMode() != NM_ListenServer)
+		{
+			FailServerTravel(TEXT("Destination did not retain the listen server"));
+			return false;
+		}
+		PreTravelSettings.Reset();
+		SetServerTravelState(EHBServerTravelState::Complete);
+		return false;
+	}
+	return true;
+}
+
+void UHBOnlineSessionSubsystem::FailServerTravel(const FString& Error)
+{
+	FTSTicker::GetCoreTicker().RemoveTicker(ServerTravelTickerHandle);
+	ServerTravelTickerHandle.Reset();
+	SetServerTravelState(EHBServerTravelState::Failed, Error);
+	// Do not reopen admission in a transition/game world after a partial travel.
+	RetryLobbyAdmissionRecovery();
+}
+
+bool UHBOnlineSessionSubsystem::RetryLobbyAdmissionRecovery()
+{
+	UWorld* World = GetWorld();
+	if (ServerTravelState != EHBServerTravelState::Failed || TravelSessionUpdateHandle.IsValid() ||
+		!PreTravelSettings.IsValid() || !SessionInterface.IsValid() || !World ||
+		World->GetNetMode() != NM_ListenServer || World->IsInSeamlessTravel() || !World->NextURL.IsEmpty() ||
+		UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) != TravelSourceMap) return false;
+	TravelSessionUpdateHandle = SessionInterface->AddOnUpdateSessionCompleteDelegate_Handle(
+		FOnUpdateSessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleTravelSessionUpdated));
+	SetServerTravelState(EHBServerTravelState::RestoringLobby, ServerTravelError);
+	if (!SessionInterface->UpdateSession(HBOnline::PartyLobbySessionName, *PreTravelSettings, true))
+	{
+		if (TravelSessionUpdateHandle.IsValid()) HandleTravelSessionUpdated(HBOnline::PartyLobbySessionName, false);
+		return false;
+	}
+	return true;
 }
 
 bool UHBOnlineSessionSubsystem::RequestHostLobby(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap)
@@ -379,6 +555,11 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 
 void UHBOnlineSessionSubsystem::HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error)
 {
+	if (ServerTravelState == EHBServerTravelState::Traveling && World && World->GetGameInstance() == GetGameInstance())
+	{
+		FailServerTravel(FString::Printf(TEXT("Server travel failed (%d): %s"), static_cast<int32>(FailureType), *Error));
+		return;
+	}
 	if (bJoinRequestActive && LobbyOperationState == EHBLobbyOperationState::ConnectingToLobby &&
 		World && World->GetGameInstance() == GetGameInstance())
 	{
@@ -873,6 +1054,11 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 
 	if (bWasSuccessful)
 	{
+		bMatchAdmissionClosed = false;
+		PreTravelSettings.Reset();
+		TravelSourceMap.Reset();
+		TravelDestinationMap.Reset();
+		SetServerTravelState(EHBServerTravelState::Idle);
 		LobbySearch.Reset();
 		bJoinFirstLobbyAfterFind = false;
 
@@ -912,6 +1098,11 @@ void UHBOnlineSessionSubsystem::HandleNetworkFailure(
 
 	if (InWorld != nullptr && InWorld->GetGameInstance() != GetGameInstance())
 	{
+		return;
+	}
+	if (InWorld && ServerTravelState == EHBServerTravelState::Traveling)
+	{
+		FailServerTravel(FString::Printf(TEXT("Server travel network failure: %s"), *InErrorString));
 		return;
 	}
 	if (bJoinRequestActive)

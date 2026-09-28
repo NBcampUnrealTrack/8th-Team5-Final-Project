@@ -10,6 +10,8 @@
 #include "Player/Job/HBJobData.h"
 #include "Player/Job/HBStartingLoadout.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
+#include "Engine/GameInstance.h"
 
 namespace HBLobbyFlow
 {
@@ -83,7 +85,7 @@ void AHBLobbyGameMode::HandleReadyStateChanged()
 void AHBLobbyGameMode::ConfirmStart(
 	AHBLobbyPlayerState* RequestingPlayerState)
 {
-	if (!HasAuthority() || bTravelRequested || !IsValid(RequestingPlayerState))
+	if (!HasAuthority() || !IsValid(RequestingPlayerState))
 	{
 		return;
 	}
@@ -119,7 +121,7 @@ void AHBLobbyGameMode::ConfirmStart(
 
 void AHBLobbyGameMode::TryStartGame()
 {
-	if (!HasAuthority() || bTravelRequested)
+	if (!HasAuthority())
 	{
 		return;
 	}
@@ -145,26 +147,15 @@ void AHBLobbyGameMode::TryStartGame()
 			GEngineIni
 			);
 
-	// INI wins over the serialized Blueprint value so the VM destination can
-	// be corrected without modifying the user-protected GameMode asset.
-	const FString MapPath = bHasConfiguredGameplayMap
-		? FSoftObjectPath(ConfiguredGameplayMap).GetLongPackageName()
-		: GameplayMap.ToSoftObjectPath().GetLongPackageName();
+	RequestMatchTravel(bHasConfiguredGameplayMap
+		? TSoftObjectPtr<UWorld>(FSoftObjectPath(ConfiguredGameplayMap)) : GameplayMap);
+}
 
-	if (MapPath.IsEmpty())
-	{
-		UE_LOG(LogTemp, Error,
-			TEXT("Lobby | GameplayMap package path is invalid"));
-		return;
-	}
-
-	// Only the VM's authoritative GameMode can reach this point.  ServerTravel
-	// moves every connected client together while preserving the Steam session.
-	bTravelRequested = true;
-	UE_LOG(LogTemp, Log,
-		TEXT("Lobby | All players confirmed | ServerTravel: %s"),
-		*MapPath);
-	GetWorld()->ServerTravel(MapPath);
+bool AHBLobbyGameMode::RequestMatchTravel(TSoftObjectPtr<UWorld> Destination)
+{
+	if (!HasAuthority() || !GetWorld() || GetNetMode() != NM_ListenServer) return false;
+	UHBOnlineSessionSubsystem* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	return Sessions && Sessions->RequestServerMatchTravel(Destination);
 }
 
 UHBJobData* AHBLobbyGameMode::FindJobById(FName JobId) const

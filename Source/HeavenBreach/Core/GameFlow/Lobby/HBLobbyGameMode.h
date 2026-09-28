@@ -24,6 +24,10 @@ public:
 	void ConfirmStart(class AHBLobbyPlayerState* RequestingPlayerState);
 	void TryStartGame();
 
+	/** Authority-only internal start API; does not check UI Ready/confirmation. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Lobby|Travel")
+	bool RequestMatchTravel(TSoftObjectPtr<UWorld> Destination);
+
 	/**
 	 * JobId 로 직업 DA 를 찾는다. 못 찾으면 nullptr 이고 경고를 남긴다.
 	 *
@@ -81,6 +85,4 @@ private:
 	void ResetStartConfirmations();
 	bool AreAllPlayersReadyAndConfirmed() const;
 
-	/** Prevents duplicate clicks in the final frame from issuing multiple server travels. */
-	bool bTravelRequested = false;
 };
