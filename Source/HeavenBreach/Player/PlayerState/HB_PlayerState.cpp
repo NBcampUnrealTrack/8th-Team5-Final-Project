@@ -10,6 +10,7 @@
 #include "Combat/Ability/HBPlayerSkillGABase.h"
 #include "Combat/Ability/HBAugmentLibrary.h"
 #include "Combat/Ability/HBCommonAugmentSet.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "GameplayEffect.h"
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
@@ -552,6 +553,7 @@ void AHB_PlayerState::ResetMatchProgression()
 	// 증강은 이번 판에서만 유효하다. 태그와 그 태그가 붙인 GE 를 같이 걷는다.
 	// GE 를 안 걷으면 로비에서도 공격력이 오른 채로 남는다.
 	RemoveAllAugmentEffects();
+	AugmentEffectByTag.Reset();
 	TakenAugments.Reset();
 
 	BroadcastProgression();
@@ -623,57 +625,95 @@ int32 AHB_PlayerState::GetAugmentTier(const FGameplayTag AugmentTag) const
 	return HBAugment::FindTier(TakenAugments, AugmentTag);
 }
 
-void AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag AugmentTag)
+bool AHB_PlayerState::FindAugmentAnywhere(
+	const FName TargetSkillId, const FGameplayTag AugmentTag, FHBSkillAugment& Out) const
 {
-	if (!HasAuthority())
-	{
-		return;
-	}
 	if (!AugmentTag.IsValid())
 	{
-		return;
-	}
-	if (HBAugment::FindTier(TakenAugments, AugmentTag) > 0)
-	{
-		return;   // 같은 증강을 두 번 고를 수는 없다
+		return false;
 	}
 
-	// TODO: MaxTier 를 1로 고정했다. 실제 최대 단계를 넘기는 건 이후 태스크에서.
-	HBAugment::RaiseTier(TakenAugments, AugmentTag, 1);
-
-	// 전역 효과가 있으면 여기서 붙인다. 수치만 쓰는 증강은 GrantEffect 가 비어 있다.
-	const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
-	const UHBJobData* JobData = Character ? Character->GetJobData() : nullptr;
-	const UHBPlayerSkillGABase* SkillCDO = GetSkillCDO(JobData, TargetSkillId);
-	if (!SkillCDO)
+	// 스킬에 딸린 증강이면 그 스킬의 CDO 가 주인이다.
+	if (!TargetSkillId.IsNone())
 	{
-		return;
+		const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
+		const UHBJobData* JobData = Character ? Character->GetJobData() : nullptr;
+		if (const UHBPlayerSkillGABase* SkillCDO = GetSkillCDO(JobData, TargetSkillId))
+		{
+			return SkillCDO->FindAugment(AugmentTag, Out);
+		}
+		return false;
+	}
+
+	// 비어 있으면 공통 강화다.
+	if (CommonAugmentSet)
+	{
+		if (const FHBSkillAugment* Found = CommonAugmentSet->FindAugment(AugmentTag))
+		{
+			Out = *Found;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag AugmentTag)
+{
+	if (!HasAuthority() || !AugmentTag.IsValid())
+	{
+		return false;
 	}
 
 	FHBSkillAugment Augment;
-	if (!SkillCDO->FindAugment(AugmentTag, Augment))
+	if (!FindAugmentAnywhere(TargetSkillId, AugmentTag, Augment))
 	{
-		return;
+		UE_LOG(LogTemp, Warning, TEXT("[Augment] %s 를 스킬(%s)도 공통 세트도 갖고 있지 않다"),
+			*AugmentTag.ToString(), *TargetSkillId.ToString());
+		return false;
 	}
-	if (!Augment.GrantEffect)
+
+	// 단계는 서버가 센다. 후보에 실린 Tier 를 신뢰하지 않는다.
+	const int32 MaxTier = HBAugment::GetMaxTier(Augment);
+	if (!HBAugment::RaiseTier(TakenAugments, AugmentTag, MaxTier))
 	{
-		return;
+		return false;   // 이미 최대 단계다
 	}
-	if (!AbilitySystemComponent)
+	const int32 NewTier = HBAugment::FindTier(TakenAugments, AugmentTag);
+
+	// 수치만 쓰는 증강은 GrantEffect 가 비어 있다. 단계는 올랐으니 성공이다.
+	if (!Augment.GrantEffect || !AbilitySystemComponent)
 	{
-		return;
+		return true;
+	}
+
+	// 이전 단계 GE 를 뗀다. TierMagnitudes 가 최종 수치라서 겹쳐 붙이면
+	// 합산되어 뜻이 달라진다.
+	if (const FActiveGameplayEffectHandle* Previous = AugmentEffectByTag.Find(AugmentTag))
+	{
+		AbilitySystemComponent->RemoveActiveGameplayEffect(*Previous);
+		AugmentEffectHandles.Remove(*Previous);
+		AugmentEffectByTag.Remove(AugmentTag);
 	}
 
 	FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(
 		Augment.GrantEffect, 1.f, AbilitySystemComponent->MakeEffectContext());
 	if (!Spec.IsValid())
 	{
-		return;
+		return true;   // 단계는 올랐다. GE 만 실패했다
 	}
 
-	// 핸들을 들고 있는 이유는 개별 취소가 아니라 매치 리셋 때 걷기 위해서다.
-	AugmentEffectHandles.Add(
-		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
+	Spec.Data->SetSetByCallerMagnitude(
+		AbilityTag::TAG_SetByCaller_AugmentMagnitude,
+		HBAugment::GetTierMagnitude(Augment, NewTier));
+
+	const FActiveGameplayEffectHandle Handle =
+		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	if (Handle.IsValid())
+	{
+		AugmentEffectHandles.Add(Handle);
+		AugmentEffectByTag.Add(AugmentTag, Handle);
+	}
+	return true;
 }
 
 void AHB_PlayerState::RemoveAllAugmentEffects()
@@ -753,8 +793,9 @@ void AHB_PlayerState::ApplyUpgradeCandidate(const FName CandidateId)
 
 	if (Candidate->Type == EHBUpgradeCandidateType::Augment)
 	{
-		ApplyAugment(Candidate->TargetSkillId, Candidate->AugmentTag);
-		bApplied = true;
+		// 실패하면 선택권을 소모하지 않는다. 예전에는 무조건 true 였고,
+		// 증강을 못 찾거나 GrantEffect 가 비면 카드 한 장을 잃었다.
+		bApplied = ApplyAugment(Candidate->TargetSkillId, Candidate->AugmentTag);
 	}
 	else
 	{

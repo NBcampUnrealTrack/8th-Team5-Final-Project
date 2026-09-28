@@ -173,6 +173,14 @@ private:
 	// 복제하지 않는다. 서버에서만 걷으면 클라는 어트리뷰트 복제로 따라온다.
 	TArray<FActiveGameplayEffectHandle> AugmentEffectHandles;
 
+	// 증강 태그 -> 지금 붙어 있는 GE. 단계를 올릴 때 이전 것을 떼려고 들고 있다.
+	//
+	// 왜 떼야 하나: TierMagnitudes 가 그 단계의 최종 수치라서 겹쳐 붙이면
+	// 합산되어 뜻이 달라진다. 2단계 15 를 1단계 10 위에 얹으면 25 가 된다.
+	//
+	// 복제하지 않는다. 서버에서만 걷고 클라는 어트리뷰트 복제로 따라온다.
+	TMap<FGameplayTag, FActiveGameplayEffectHandle> AugmentEffectByTag;
+
 	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
 	int32 PendingUpgradeChoices = 0;
 
@@ -191,8 +199,12 @@ private:
 	// 공통 강화 후보를 모은다. 각 증강의 다음 단계 1장씩만 넣는다.
 	void CollectCommonAugments(TArray<FHBUpgradeCandidate>& OutPool) const;
 
+	// 스킬 CDO 와 공통 세트를 모두 본다. TargetSkillId 가 비면 공통이다.
+	bool FindAugmentAnywhere(FName TargetSkillId, FGameplayTag AugmentTag, FHBSkillAugment& Out) const;
+
 	// 증강 하나를 실제로 부여한다. 태그를 넣고 GrantEffect 가 있으면 붙인다.
-	void ApplyAugment(FName TargetSkillId, FGameplayTag AugmentTag);
+	// 실제로 적용됐는지 돌려준다. 실패하면 선택권을 소모하지 않아야 한다.
+	bool ApplyAugment(FName TargetSkillId, FGameplayTag AugmentTag);
 
 	// 매치가 끝날 때 증강 GE 를 전부 걷는다.
 	void RemoveAllAugmentEffects();
