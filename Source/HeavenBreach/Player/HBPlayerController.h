@@ -6,6 +6,8 @@
 #include "HBPlayerController.generated.h"
 
 class UCommonActivatableWidget;
+class AHeavenBreachGameState;
+class AHBDungeonRuntime;
 class UHB_ContainerScreen;
 class UHB_HUDLayer;
 class UHB_UILayout;
@@ -24,6 +26,8 @@ class HEAVENBREACH_API AHBPlayerController : public APlayerController
 
 public:
 	AHBPlayerController();
+    UFUNCTION(Server, Reliable)
+    void ServerReportDungeonLoaded(AHeavenBreachGameState* Source, int32 GenerationId, bool bSucceeded);
 
 	UFUNCTION(BlueprintCallable, Category = "Player|Inventory")
 	void RequestCloseInventory();
@@ -205,6 +209,9 @@ protected:
 	bool TryShowPostMatchResultWidget();
 
 private:
+    void ReportLocalDungeonState();
+    TWeakObjectPtr<AHBDungeonRuntime> ReportedDungeon;
+    int32 ReportedDungeonGeneration = 0;
 	void HandleMove(const FInputActionValue& Value);
 	void HandleLook(const FInputActionValue& Value);
 	void StartJump();

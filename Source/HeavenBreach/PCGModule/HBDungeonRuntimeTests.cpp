@@ -13,6 +13,7 @@
 #include "Components/BoxComponent.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
@@ -82,6 +83,61 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     TestEqual(TEXT("Repeated notification does not restart generation"), Dungeon->GetGenerationId(), 1);
     World->SetNetDriver(nullptr);
     Driver->ServerConnection = nullptr;
+    Driver->SetWorld(nullptr);
+    World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonLoadAckTest, "HeavenBreach.PCGModule.Gameplay.LoadAcknowledgement",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBDungeonLoadAckTest::RunTest(const FString&)
+{
+    const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
+        .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    auto* Mode = World->SpawnActor<AHeavenBreachGameMode>();
+    auto* Dungeon = World->SpawnActor<AHBDungeonRuntime>();
+    auto* Source = World->SpawnActor<AHeavenBreachGameState>();
+    World->SetGameState(Source);
+    auto* Player = World->SpawnActor<APlayerController>();
+    World->AddController(Player); // This fixture does not run engine player initialization.
+    Player->PlayerState = World->SpawnActor<APlayerState>();
+    FHBPrototypeRoom Room;
+    Room.Id = 0; Room.ModuleId = TEXT("TestModule");
+    Room.ModuleMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Engine/Maps/Entry.Entry")));
+    TestTrue(TEXT("Publish generation"), Source->PublishDungeonLayout(1, 42, {Room}));
+    TestFalse(TEXT("Unknown controller rejected"), Mode->ReportDungeonLoaded(nullptr, 1, true));
+    TestFalse(TEXT("Zero generation rejected"), Mode->ReportDungeonLoaded(Player, 0, true));
+    TestFalse(TEXT("Future generation rejected"), Mode->ReportDungeonLoaded(Player, 2, true));
+    TestTrue(TEXT("Client acknowledgement accepted before host finishes"), Mode->ReportDungeonLoaded(Player, 1, true));
+    TestTrue(TEXT("Duplicate acknowledgement is harmless"), Mode->ReportDungeonLoaded(Player, 1, true));
+    TestFalse(TEXT("Host still loading blocks all-player readiness"), Mode->AreDungeonPlayersLoaded());
+    Mode->StartMatch(); Mode->RestartPlayer(Player);
+    TestFalse(TEXT("Acknowledgement cannot bypass host readiness"), Mode->IsMatchInProgress());
+    TestNull(TEXT("Acknowledgement cannot spawn before host is ready"), Player->GetPawn());
+    auto* Driver = NewObject<UIpNetDriver>(World);
+    Driver->SetWorld(World);
+    Driver->ServerConnection = NewObject<UChildConnection>(Driver);
+    World->SetNetDriver(Driver);
+    TestTrue(TEXT("Stage the current generation in the local loader"), Dungeon->ApplyServerLayout(1, 42, {Room}));
+    Driver->ServerConnection = nullptr;
+    Player->SetAutonomousProxy(true);
+    Dungeon->State = EHBDungeonRuntimeState::Ready;
+    auto* SecondPlayer = World->SpawnActor<APlayerController>();
+    World->AddController(SecondPlayer);
+    SecondPlayer->PlayerState = World->SpawnActor<APlayerState>();
+    SecondPlayer->SetAutonomousProxy(true);
+    TestFalse(TEXT("Fixture represents a remote participant"), SecondPlayer->IsLocalController());
+    TestFalse(TEXT("One unfinished participant blocks everyone"), Mode->AreDungeonPlayersLoaded());
+    TestTrue(TEXT("Second participant completes"), Mode->ReportDungeonLoaded(SecondPlayer, 1, true));
+    TestTrue(TEXT("Host and both participants ready opens readiness gate"), Mode->AreDungeonPlayersLoaded());
+    TestTrue(TEXT("Publish next generation"), Source->PublishDungeonLayout(2, 43, {Room}));
+    TestFalse(TEXT("Previous generation acknowledgement rejected"), Mode->ReportDungeonLoaded(Player, 1, true));
+    TestFalse(TEXT("Old acknowledgements do not unlock a new generation"), Mode->AreDungeonPlayersLoaded());
+    Player->PlayerState->SetIsOnlyASpectator(true);
+    TestFalse(TEXT("Spectator cannot report participant readiness"), Mode->ReportDungeonLoaded(Player, 2, true));
+    World->SetNetDriver(nullptr);
     Driver->SetWorld(nullptr);
     World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
     return true;

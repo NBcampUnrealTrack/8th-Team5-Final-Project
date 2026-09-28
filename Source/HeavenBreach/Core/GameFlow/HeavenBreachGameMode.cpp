@@ -20,6 +20,7 @@ namespace HBMatchFlow
 AHeavenBreachGameMode::AHeavenBreachGameMode()
 {
 	bDelayedStart = true;
+    PrimaryActorTick.bCanEverTick = true;
 
 	GameStateClass = AHeavenBreachGameState::StaticClass();
 	PlayerControllerClass = AHBPlayerController::StaticClass();
@@ -48,6 +49,7 @@ void AHeavenBreachGameMode::StartPlay()
 
 void AHeavenBreachGameMode::StartMatch()
 {
+    if (!AreDungeonPlayersLoaded()) return;
     // Guard both automatic start and direct Blueprint/manual StartMatch calls.
     if (auto* Dungeon = GetDungeonGenerator(); Dungeon && (!Dungeon->IsReady() || !Dungeon->GetPlayerStart())) return;
     Super::StartMatch();
@@ -59,6 +61,8 @@ void AHeavenBreachGameMode::RestartPlayer(AController* NewPlayer)
     if (auto* Dungeon = GetDungeonGenerator())
     {
         if (!Dungeon->IsReady() || !Dungeon->GetPlayerStart()) return;
+        if (!IsPlayerDungeonLoaded(Cast<APlayerController>(NewPlayer))) return;
+        if (!IsMatchInProgress() && !AreDungeonPlayersLoaded()) return;
         // Replace a cached lobby/persistent-level start with the generated room start.
         NewPlayer->StartSpot = Dungeon->GetPlayerStart();
     }
@@ -76,6 +80,84 @@ AActor* AHeavenBreachGameMode::ChoosePlayerStart_Implementation(AController* Pla
 void AHeavenBreachGameMode::HandleDungeonReady()
 {
     if (ReadyToStartMatch()) StartMatch();
+}
+
+bool AHeavenBreachGameMode::IsPlayerDungeonLoaded(APlayerController* Player) const
+{
+    auto* Dungeon = GetDungeonGenerator();
+    if (!Dungeon) return true;
+    if (!IsValid(Player) || !Dungeon->IsReady()) return false;
+    // The listen host uses this same world; no network acknowledgement is needed.
+    if (Player->IsLocalController()) return true;
+    const auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>();
+    const int32* Loaded = LoadedDungeonGenerations.Find(Player);
+    return Source && Loaded && *Loaded > 0 && *Loaded == Source->GetDungeonSnapshot().GenerationId
+        && *Loaded == Dungeon->GetGenerationId();
+}
+
+bool AHeavenBreachGameMode::AreDungeonPlayersLoaded() const
+{
+    auto* Dungeon = GetDungeonGenerator();
+    if (!Dungeon) return true;
+    if (!Dungeon->IsReady() || NumTravellingPlayers != 0) return false;
+    for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+    {
+        auto* Player = It->Get();
+        if (!IsValid(Player)) continue;
+        if (!Player->PlayerState) return false;
+        if (Player->PlayerState->IsOnlyASpectator()) continue;
+        if (!IsPlayerDungeonLoaded(Player)) return false;
+    }
+    return true;
+}
+
+bool AHeavenBreachGameMode::ReportDungeonLoaded(APlayerController* Player, int32 GenerationId, bool bSucceeded)
+{
+    const auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>();
+    auto* Dungeon = GetDungeonGenerator();
+    if (!HasAuthority() || GetNetMode() == NM_Client || !IsValid(Player) || Player->GetWorld() != GetWorld() || !Player->PlayerState
+        || Player->PlayerState->IsOnlyASpectator() || !Source || !Dungeon || GenerationId <= 0
+        || GenerationId != Source->GetDungeonSnapshot().GenerationId
+        || Dungeon->State == EHBDungeonRuntimeState::Failed) return false;
+    bool bConnected = false;
+    for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+        if (It->Get() == Player) { bConnected = true; break; }
+    if (!bConnected) return false;
+    if (const int32* Existing = LoadedDungeonGenerations.Find(Player); Existing && *Existing == GenerationId) return true;
+    if (!bSucceeded)
+    {
+        Dungeon->Fail(TEXT("A client failed to prepare the current dungeon generation."));
+        return false;
+    }
+    // Clients can finish before the host. Preserve their acknowledgement until host readiness.
+    LoadedDungeonGenerations.Add(Player, GenerationId);
+    DungeonLoadWaitStarted.Remove(Player);
+    if (IsMatchInProgress() && IsPlayerDungeonLoaded(Player) && !Player->GetPawn())
+    {
+        RestartPlayer(Player);
+        if (Player->GetPawn()) ActivePlayers.Add(Player->PlayerState);
+    }
+    else if (ReadyToStartMatch()) StartMatch();
+    return true;
+}
+
+void AHeavenBreachGameMode::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    auto* Dungeon = GetDungeonGenerator();
+    if (!Dungeon || !Dungeon->IsReady() || (GetMatchState() != MatchState::WaitingToStart && !IsMatchInProgress())) return;
+    const double Now = FPlatformTime::Seconds();
+    for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+    {
+        auto* Player = It->Get();
+        if (!IsValid(Player) || !Player->PlayerState || Player->PlayerState->IsOnlyASpectator() || IsPlayerDungeonLoaded(Player)) continue;
+        double& Started = DungeonLoadWaitStarted.FindOrAdd(Player, Now);
+        if (Now - Started >= FMath::Max(1.f, ClientDungeonLoadTimeoutSeconds))
+        {
+            Dungeon->Fail(TEXT("Timed out waiting for client dungeon loading acknowledgement."));
+            return;
+        }
+    }
 }
 
 void AHeavenBreachGameMode::HandleDungeonFailed(const FString& Reason)
@@ -270,6 +352,7 @@ void AHeavenBreachGameMode::HandleStartingNewPlayer_Implementation(APlayerContro
 	if (IsMatchInProgress())
 	{
 		if (IsValid(NewPlayer) && IsValid(NewPlayer->PlayerState)
+            && IsPlayerDungeonLoaded(NewPlayer) && NewPlayer->GetPawn()
 			&& !ActivePlayers.Contains(NewPlayer->PlayerState))
 		{
 			ActivePlayers.Add(NewPlayer->PlayerState);
@@ -289,6 +372,11 @@ void AHeavenBreachGameMode::HandleStartingNewPlayer_Implementation(APlayerContro
 
 void AHeavenBreachGameMode::Logout(AController* Exiting)
 {
+    if (auto* Player = Cast<APlayerController>(Exiting))
+    {
+        LoadedDungeonGenerations.Remove(Player);
+        DungeonLoadWaitStarted.Remove(Player);
+    }
 	APlayerState* ExitingPlayerState = Exiting ? Exiting->PlayerState : nullptr;
 	
 	if (IsMatchInProgress() && IsValid(ExitingPlayerState))
@@ -326,7 +414,7 @@ bool AHeavenBreachGameMode::ReadyToStartMatch_Implementation()
 		&& GetMatchState() == MatchState::WaitingToStart
 		&& bAutoStartMatch
 		&& NumTravellingPlayers == 0
-		&& (!GetDungeonGenerator() || GetDungeonGenerator()->IsReady())
+		&& AreDungeonPlayersLoaded()
         && NumPlayers >= (GetDungeonGenerator() && GetNetMode() == NM_Standalone ? 1 : FMath::Max(1, MinimumPlayersToStart));
 }
 

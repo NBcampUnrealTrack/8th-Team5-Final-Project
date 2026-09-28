@@ -11,6 +11,9 @@
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Inventory/QuickSlotComponent.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
+#include "Core/GameFlow/HeavenBreachGameState.h"
+#include "PCGModule/HBDungeonRuntime.h"
+#include "EngineUtils.h"
 #include "CommonActivatableWidget.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Core/Tag/UI/HB_UITag.h"
@@ -485,9 +488,36 @@ void AHBPlayerController::ServerTestExtract_Implementation()
 }
 //////////////////////////////////////////////
 
+void AHBPlayerController::ReportLocalDungeonState()
+{
+    if (!IsLocalController() || !PlayerState || GetNetMode() != NM_Client) return;
+    auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>();
+    if (!Source || Source->GetDungeonSnapshot().GenerationId <= 0) return;
+    for (TActorIterator<AHBDungeonRuntime> It(GetWorld()); It; ++It)
+    {
+        auto* Dungeon = *It;
+        const int32 Generation = Source->GetDungeonSnapshot().GenerationId;
+        if (ReportedDungeon.Get() == Dungeon && ReportedDungeonGeneration == Generation) return;
+        const bool bReady = Dungeon->IsReady() && Dungeon->GetGenerationId() == Generation;
+        if (!bReady && Dungeon->State != EHBDungeonRuntimeState::Failed) return;
+        ReportedDungeon = Dungeon;
+        ReportedDungeonGeneration = Generation;
+        ServerReportDungeonLoaded(Source, Generation, bReady);
+        return;
+    }
+}
+
+void AHBPlayerController::ServerReportDungeonLoaded_Implementation(AHeavenBreachGameState* Source, int32 GenerationId, bool bSucceeded)
+{
+    if (!Source || Source != GetWorld()->GetGameState()) return;
+    if (auto* Mode = GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>())
+        Mode->ReportDungeonLoaded(this, GenerationId, bSucceeded);
+}
+
 void AHBPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+    ReportLocalDungeonState();
 
 	if (PlayerInput == nullptr)
 	{
