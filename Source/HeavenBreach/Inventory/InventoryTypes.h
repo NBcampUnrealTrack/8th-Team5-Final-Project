@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
+#include "Item/ItemOptionTypes.h"
 #include "InventoryTypes.generated.h"
 
 class UTexture2D;
@@ -66,20 +67,21 @@ struct FItemViewData
 	float HealAmount = 0.f;
 	bool IsConsumable() const { return HealAmount > 0.f; }
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	bool bIsRelic = false;
+	// ===== 악세서리 옵션 =====
+	// FItemData 의 같은 이름 칸을 그대로 옮겨 담는다. 무기·방패 행은 비어서 온다.
+	// 옛 Relic 칸(bIsRelic · Benefit/RiskDescription · Benefit/RiskEffect)은 유물 통합으로 지웠다.
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	FString BenefitDescription;
+	UPROPERTY(BlueprintReadOnly, Category = "Option")
+	TArray<FItemOption> BenefitOptions;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	FString RiskDescription;
+	UPROPERTY(BlueprintReadOnly, Category = "Option")
+	TArray<FItemOption> RiskOptions;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	TSubclassOf<UGameplayEffect> BenefitEffect;
+	UPROPERTY(BlueprintReadOnly, Category = "Option")
+	TArray<FItemEffect> BenefitEffects;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	TSubclassOf<UGameplayEffect> RiskEffect;
+	UPROPERTY(BlueprintReadOnly, Category = "Option")
+	TArray<FItemEffect> RiskEffects;
 };
 
 USTRUCT(BlueprintType)

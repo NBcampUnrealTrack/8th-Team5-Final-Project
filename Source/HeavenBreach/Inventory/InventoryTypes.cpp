@@ -45,11 +45,10 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.SellValue = ItemRow->SellValue;
 		OutViewData.Description = ItemRow->Description;
 		OutViewData.Icon = ItemRow->Icon;
-		OutViewData.bIsRelic = ItemRow->bIsRelic;
-		OutViewData.BenefitDescription = ItemRow->BenefitDescription;
-		OutViewData.RiskDescription = ItemRow->RiskDescription;
-		OutViewData.BenefitEffect = ItemRow->BenefitEffect;
-		OutViewData.RiskEffect = ItemRow->RiskEffect;
+		OutViewData.BenefitOptions = ItemRow->BenefitOptions;
+		OutViewData.RiskOptions = ItemRow->RiskOptions;
+		OutViewData.BenefitEffects = ItemRow->BenefitEffects;
+		OutViewData.RiskEffects = ItemRow->RiskEffects;
 		return true;
 	}
 

@@ -10,6 +10,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Item/ItemInfoPopupWidget.h"
+#include "Item/ItemStatBinding.h"
 
 void UEquipmentSlotWidget::InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory)
 {
@@ -399,8 +400,14 @@ void UEquipmentSlotWidget::UpdateHoverInfoPopup()
 
 	const FString StatText = BuildStatTextForItem(EquippedItem);
 	const FString EquipSlotLabel = GetEquipSlotDisplayName(ViewData.EquipSlotType);
+
+	// InventoryWidget::UpdateHoverInfoPopup과 동일 - 옛 BenefitDescription / RiskDescription 문자열은
+	// 더 안 읽는다. 옵션 배열에서 문장을 만든다.
+	const FString BenefitLines = ItemStats::FormatLines(ViewData.BenefitOptions, ViewData.BenefitEffects);
+	const FString RiskLines = ItemStats::FormatLines(ViewData.RiskOptions, ViewData.RiskEffects);
+
 	HoverInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, ViewData.Description,
-		ViewData.bIsRelic, ViewData.BenefitDescription, ViewData.RiskDescription,
+		BenefitLines, RiskLines,
 		ViewData.SellValue, IconTexture, StatText, /*bInCompact=*/false,
 		EquipSlotLabel, EquippedItem.CurrentDurability, GetMaxDurabilityForGrade(ViewData.Grade));
 

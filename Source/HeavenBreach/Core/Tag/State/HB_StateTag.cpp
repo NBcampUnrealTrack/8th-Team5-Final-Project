@@ -16,4 +16,5 @@ namespace StateTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Grabbed, "State.Grabbed", "그랩 상태");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_ParryWindow, "State.ParryWindow", "패링 판정 창. 이 동안 정면 근접 피격은 무효 + 상대 스태거");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_ParryRecovery, "State.ParryRecovery", "패링 실패 후딜. 이 동안 재패링 불가. 공격은 막지 않는다");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_UsingSkill, "State.UsingSkill", "액티브 스킬 발동 중. 스킬 피해 옵션이 이걸 보고 걸린다");
 }

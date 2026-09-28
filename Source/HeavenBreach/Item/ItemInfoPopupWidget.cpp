@@ -97,7 +97,7 @@ FReply UItemInfoPopupWidget::NativeOnKeyDown(const FGeometry& InGeometry, const 
 }
 
 void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade InGrade, const FString& InDescription,
-    bool bInIsRelic, const FString& InBenefitDescription, const FString& InRiskDescription,
+    const FString& InBenefitDescription, const FString& InRiskDescription,
     int32 InSellValue, UTexture2D* InIcon, const FString& InStatText, bool bInCompact,
     const FString& InEquipSlotLabel, float InCurrentDurability, float InMaxDurability)
 {
@@ -212,9 +212,10 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
         }
     }
 
+    // 유물이 악세서리로 통합돼서 bIsRelic 로 가르지 않는다. 설명이 있으면 보인다.
     if (BenefitText != nullptr)
     {
-        if (!bInCompact && bInIsRelic && !InBenefitDescription.IsEmpty())
+        if (!bInCompact && !InBenefitDescription.IsEmpty())
         {
             BenefitText->SetText(FText::FromString(InBenefitDescription));
             BenefitText->SetColorAndOpacity(FSlateColor(RelicBenefitColor));
@@ -228,7 +229,7 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
     }
     if (RiskText != nullptr)
     {
-        if (!bInCompact && bInIsRelic && !InRiskDescription.IsEmpty())
+        if (!bInCompact && !InRiskDescription.IsEmpty())
         {
             RiskText->SetText(FText::FromString(InRiskDescription));
             RiskText->SetColorAndOpacity(FSlateColor(RelicRiskColor));
@@ -242,7 +243,7 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
     }
     // 장비 슬롯이 있는 아이템(장비류/악세사리)인지 여부 — 잡템은 EquipSlotLabel이 비어있다.
     const bool bIsEquipment = !InEquipSlotLabel.IsEmpty();
-    const bool bHasRelicEffect = bInIsRelic && (!InBenefitDescription.IsEmpty() || !InRiskDescription.IsEmpty());
+    const bool bHasRelicEffect = !InBenefitDescription.IsEmpty() || !InRiskDescription.IsEmpty();
 
     if (RelicSectionHeader != nullptr)
     {
