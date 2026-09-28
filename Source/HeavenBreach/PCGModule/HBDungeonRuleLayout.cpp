@@ -147,7 +147,7 @@ namespace
 		int32 Floor = 1, Parent = INDEX_NONE, Forced = INDEX_NONE;
 		bool bExit = false, bPortal = false, bCorridor = false, bBoss = false, bBranch = false;
 	};
-	struct FSearch
+	struct FDungeonRuleSearch
 	{
 		const TArray<FHBModuleCatalogEntry>& Catalog;
 		const HBConnectorLayout::FSettings& Settings;
@@ -161,7 +161,7 @@ namespace
 		int32 Steps = 0, Best = 0;
 		double Start = FPlatformTime::Seconds();
 		bool bLimited = false;
-		FSearch(const TArray<FHBModuleCatalogEntry>& C, const HBConnectorLayout::FSettings& S, const FHBDungeonGenerationRules& R)
+		FDungeonRuleSearch(const TArray<FHBModuleCatalogEntry>& C, const HBConnectorLayout::FSettings& S, const FHBDungeonGenerationRules& R)
 			: Catalog(C), Settings(S), Rules(R), Random(S.Seed)
 		{
 			for (int32 I = 0; I < R.Floor1MainRooms; ++I)
@@ -342,7 +342,7 @@ bool HBDungeonRuleLayout::Generate(const TArray<FHBModuleCatalogEntry>& Catalog,
 	FHBDungeonGenerationRules Rules = InputRules;
 	if (!ResolvePortalIds(Catalog, Rules, OutError)) return false;
 	if (!CheckSettings(Catalog, Settings, Rules, OutError)) return false;
-	FSearch Search(Catalog, Settings, Rules);
+	FDungeonRuleSearch Search(Catalog, Settings, Rules);
 	if (!Search.Extend())
 	{
 		OutError = FString::Printf(TEXT("%s: placed at most %d/%d modules in %d attempts. Check role/floor availability, portal selections, door capacity, occupancy and Floor2Offset."),

@@ -56,7 +56,7 @@ namespace
 			Settings.Origin = FTransform(FRotator(0, 35, 0), FVector(2000, -900, 700));
 		}
 	};
-	FString Signature(const TArray<FHBPrototypeRoom>& Rooms)
+	FString RuleLayoutSignature(const TArray<FHBPrototypeRoom>& Rooms)
 	{
 		FString S = HBDungeonLayout::Signature(Rooms);
 		for (const auto& R : Rooms) S += R.ModuleId.ToString() + R.ParentConnectorId.ToString() + R.EntryConnectorId.ToString()
@@ -109,8 +109,8 @@ bool FHBRuleGenerationTest::RunTest(const FString&)
 		TestEqual(TEXT("11 rooms plus one corridor"), A.Num(), 12);
 		TestTrue(TEXT("Independent full validation"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, A, Error));
 		TestTrue(TEXT("Seed replay"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, B, Error));
-		TestEqual(TEXT("Stable replay including connectors and portal IDs"), Signature(A), Signature(B));
-		Results.Add(Signature(A));
+		TestEqual(TEXT("Stable replay including connectors and portal IDs"), RuleLayoutSignature(A), RuleLayoutSignature(B));
+		Results.Add(RuleLayoutSignature(A));
 		int32 Bosses = 0, Corridors = 0, PortalEdges = 0, UsedDoors = 0;
 		for (const auto& R : A)
 		{
