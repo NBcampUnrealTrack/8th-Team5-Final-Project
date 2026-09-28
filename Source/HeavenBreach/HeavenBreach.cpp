@@ -16,6 +16,7 @@ public:
         FDefaultGameModuleImpl::StartupModule();
 #if WITH_EDITOR
         auto& Editor = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+        Editor.RegisterCustomClassLayout("HBDungeonRuntime", FOnGetDetailCustomizationInstance::CreateStatic(&FHBPCGPreviewDetails::MakeInstance));
         Editor.RegisterCustomClassLayout("HBPCGPreviewGenerator", FOnGetDetailCustomizationInstance::CreateStatic(&FHBPCGPreviewDetails::MakeInstance));
 #endif
     }
@@ -23,7 +24,10 @@ public:
     {
 #if WITH_EDITOR
         if (auto* Editor = FModuleManager::GetModulePtr<FPropertyEditorModule>("PropertyEditor"))
+        {
             Editor->UnregisterCustomClassLayout("HBPCGPreviewGenerator");
+            Editor->UnregisterCustomClassLayout("HBDungeonRuntime");
+        }
 #endif
         FDefaultGameModuleImpl::ShutdownModule();
     }

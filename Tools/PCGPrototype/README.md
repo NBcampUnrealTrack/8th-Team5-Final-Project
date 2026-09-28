@@ -1,5 +1,9 @@
 # PCG dungeon module preview
 
+For a real single-player character using the main HeavenBreachGameMode, see
+[Gameplay setup](Gameplay.md). The separate `HBDungeonRuntime` uses the same Plan/Load graph
+without preview camera, free-fly pawn, HUD or keyboard controls.
+
 **Current setup:** register maps once in `Module Maps`, then choose transition maps, portal actors and the boss
 corridor in `Transitions`. A sole portal is selected automatically; multiple portals use an actor-label dropdown. See [Rules and portals](RulesAndPortals.md) for authoring and validation.
 `Use Dungeon Rules` defaults to true; missing selections stop generation with an explanatory error.
