@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "AbilitySystemInterface.h"
 #include "GameplayEffectTypes.h"
+#include "GameplayAbilitySpecHandle.h"
 #include "Combat/Interface/DamageableInterface.h"
 #include "Combat/Ability/HBSkillAugment.h"
 #include "GameFramework/Character.h"
@@ -21,7 +22,6 @@ struct FHBJobSkillData;
 struct FHBStartingLoadout;
 class USkeletalMesh;
 class UStaticMesh;
-struct FGameplayAbilitySpecHandle;
 class UQuickSlotComponent;
 
 UCLASS(Blueprintable)

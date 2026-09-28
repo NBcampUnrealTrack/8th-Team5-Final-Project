@@ -1,6 +1,7 @@
 #include "PCGPrototype/HBPCGPreviewDetails.h"
 #if WITH_EDITOR
 #include "PCGPrototype/HBPCGPreview.h"
+#include "PCGModule/HBDungeonRuntime.h"
 #include "PCGModule/HBDungeonPortal.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailCategoryBuilder.h"
@@ -17,6 +18,16 @@
 
 namespace
 {
+    const TArray<TSoftObjectPtr<UWorld>>& RegisteredMaps(AActor* Actor)
+    {
+        if (auto* Preview = Cast<AHBPCGPreviewGenerator>(Actor)) return Preview->ModuleMaps;
+        return CastChecked<AHBDungeonRuntime>(Actor)->ModuleMaps;
+    }
+    const FHBDungeonGenerationRules& GenerationRules(AActor* Actor)
+    {
+        if (auto* Preview = Cast<AHBPCGPreviewGenerator>(Actor)) return Preview->DungeonRules;
+        return CastChecked<AHBDungeonRuntime>(Actor)->DungeonRules;
+    }
     struct FPortalOption { FName Id; FString Label; };
     TArray<FPortalOption> ReadPortals(const TSoftObjectPtr<UWorld>& Map)
     {
@@ -41,15 +52,17 @@ TSharedRef<IDetailCustomization> FHBPCGPreviewDetails::MakeInstance() { return M
 
 void FHBPCGPreviewDetails::CustomizeDetails(IDetailLayoutBuilder& Builder)
 {
-    // Use flat category keys. Mixing pipe-delimited default subcategories with
-    // custom categories can create two headings for the same section.
-    const TArray<FName> Categories = {TEXT("PCG Preview - Generation"), TEXT("PCG Preview - Modules"),
-        TEXT("PCG Preview - Transitions"), TEXT("PCG Preview - Room Counts"), TEXT("PCG Preview - Search"),
-        TEXT("PCG Preview - Exploration"), TEXT("PCG Preview - Result"), TEXT("PCG Preview - Debug"), TEXT("PCG Preview - Advanced")};
-    for (int32 I = 0; I < Categories.Num(); ++I) Builder.EditCategory(Categories[I]).SetSortOrder(I);
     TArray<TWeakObjectPtr<UObject>> Objects;
     Builder.GetObjectsBeingCustomized(Objects);
-    auto Rules = Builder.GetProperty(GET_MEMBER_NAME_CHECKED(AHBPCGPreviewGenerator, DungeonRules));
+    const bool bRuntime = Objects.Num() > 0 && Objects[0]->IsA<AHBDungeonRuntime>();
+    const FString Prefix = bRuntime ? TEXT("Dungeon - ") : TEXT("PCG Preview - ");
+    TArray<FName> Categories;
+    for (const TCHAR* Section : {TEXT("Generation"), TEXT("Modules"), TEXT("Transitions"), TEXT("Room Counts"),
+        TEXT("Search"), TEXT("Exploration"), TEXT("Result"), TEXT("Debug"), TEXT("Advanced")})
+        Categories.Add(FName(Prefix + Section));
+    for (int32 I = 0; I < Categories.Num(); ++I)
+        if (!bRuntime || I != 5) Builder.EditCategory(Categories[I]).SetSortOrder(I);
+    auto Rules = Builder.GetProperty(TEXT("DungeonRules"));
     Builder.HideProperty(Rules);
     if (Objects.Num() != 1)
     {
@@ -57,10 +70,11 @@ void FHBPCGPreviewDetails::CustomizeDetails(IDetailLayoutBuilder& Builder)
             .WholeRowContent()[SNew(STextBlock).Text(FText::FromString(TEXT("Select one generator to configure transitions and rule counts.")))];
         return;
     }
-    TWeakObjectPtr<AHBPCGPreviewGenerator> Generator = Cast<AHBPCGPreviewGenerator>(Objects[0].Get());
+    TWeakObjectPtr<AActor> Generator = Cast<AActor>(Objects[0].Get());
     if (!Generator.IsValid()) return;
     auto RulesVisible = TAttribute<EVisibility>::CreateLambda([Generator]()
-    { return Generator.IsValid() && Generator->bUseDungeonRules ? EVisibility::Visible : EVisibility::Collapsed; });
+    { const auto* Preview = Cast<AHBPCGPreviewGenerator>(Generator.Get());
+      return Generator.IsValid() && (!Preview || Preview->bUseDungeonRules) ? EVisibility::Visible : EVisibility::Collapsed; });
     auto& Transitions = Builder.EditCategory(Categories[2]);
     auto AddMap = [&](FName Name, const FString& Label, bool bCorridor, FName PortalName)
     {
@@ -87,7 +101,7 @@ void FHBPCGPreviewDetails::CustomizeDetails(IDetailLayoutBuilder& Builder)
                     })));
                 };
                 Add({}, TEXT("None"));
-                if (Generator.IsValid()) for (const auto& Map : Generator->ModuleMaps)
+                if (Generator.IsValid()) for (const auto& Map : RegisteredMaps(Generator.Get()))
                 {
                     UWorld* World = Map.LoadSynchronous();
                     if (!World || !World->PersistentLevel) continue;
@@ -137,7 +151,7 @@ void FHBPCGPreviewDetails::CustomizeDetails(IDetailLayoutBuilder& Builder)
         .WholeRowContent()[SNew(STextBlock).Text_Lambda([Generator]()
         {
             if (!Generator.IsValid()) return FText::GetEmpty();
-            const auto& R = Generator->DungeonRules;
+            const auto& R = GenerationRules(Generator.Get());
             return FText::FromString(FString::Printf(TEXT("Total: %d rooms + 1 boss corridor. Main counts include transition rooms and boss."),
                 R.Floor1MainRooms + R.Floor2MainRooms + R.Floor1BranchRooms + R.Floor2BranchRooms));
         })];
