@@ -36,6 +36,8 @@ public class HeavenBreach : ModuleRules
 			"OnlineSubsystemUtils"
         });
 
+		PrivateDependencyModuleNames.AddRange(new string[] { });
+        if (Target.bBuildEditor) PrivateDependencyModuleNames.AddRange(new string[] { "PropertyEditor", "UnrealEd" });
 		PrivateDependencyModuleNames.AddRange(new string[] { "Niagara", "NiagaraAnimNotifies" });
 
 		// DLSS is a client rendering feature; dedicated servers do not link the plugin.

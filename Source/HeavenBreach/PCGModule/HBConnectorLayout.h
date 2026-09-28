@@ -19,6 +19,7 @@ namespace HBConnectorLayout
 	/** Numerical contact tolerance only, NOT permission for doorway geometry to overlap. */
 	constexpr double ContactTolerance = 0.1; // cm
 	constexpr double SnapTolerance = 0.01; // cm
+	HEAVENBREACH_API bool ValidateCatalog(const TArray<FHBModuleCatalogEntry>& Catalog, FString& OutError);
 
 	HEAVENBREACH_API bool Generate(const TArray<FHBModuleCatalogEntry>& Catalog, const FSettings& Settings,
 		TArray<FHBPrototypeRoom>& OutRooms, FString& OutError);

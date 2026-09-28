@@ -1,5 +1,11 @@
 # PCG dungeon module preview
 
+**Current setup:** register maps once in `Module Maps`, then choose transition maps, portal actors and the boss
+corridor in `Transitions`. A sole portal is selected automatically; multiple portals use an actor-label dropdown. See [Rules and portals](RulesAndPortals.md) for authoring and validation.
+`Use Dungeon Rules` defaults to true; missing selections stop generation with an explanatory error.
+Turn it off only for unrestricted LD door-fitting tests. The active rule planner is `HBDungeonRuleLayout`,
+with physical connector alignment and a portal transition.
+
 Open `/Game/Levels/Test_CW/Maps/TestPCG_Preview`, use **one-player Standalone/PIE**, and press Play.
 After loading all modules, the preview creates one **collision-free inspection pawn** inside the first room.
 It has no combat or interaction components. Existing room and door collisions are preserved.
@@ -20,38 +26,41 @@ to **HB - Load Room Modules**, then Output. Both execute on the game thread and 
 because they depend on the preview actor and create runtime streaming levels.
 PCG is on-demand and explicitly started from BeginPlay; no player proximity source is required.
 Automatic editor-property regeneration is disabled; use the preview actor's regeneration controls.
-READY is reported only after every streaming level is loaded and visible and PCG has completed.
+READY is reported only after every streaming level is loaded and visible, PCG has completed,
+and the actual portal pair has been validated and reciprocally linked.
 
-Blue = adventure, green = recovery, gold = upgrade, red = boss. White arrows are main-path links,
-yellow arrows are optional links, and magenta is the planned floor transition. Floors are displayed
-in separate panels with a height offset. Recovery/upgrade reuse the adventure geometry and have no gameplay.
+Blue = adventure, green = recovery, gold = upgrade, red = boss, silver = corridor. White arrows are
+main-path door links, yellow arrows are optional links, and magenta is the configured portal transition.
+Floor 2 starts at the configured offset from the generator; logical floor IDs do not depend on world Z.
 
 ## Scope
 
-This verifies rule-based placement, seeded variation/replay, bounding-box separation, and module loading.
-The planner uses a connected tree with 4–5 main-path rooms on each floor, one optional room on floor 1
-and two on floor 2. The sole boss ends the floor-2 main path. Role caps, adjacency, and maximum three
-successive adventure rooms are validated across the floor transition and on optional paths.
+The rule planner generates two main paths joined by the selected portal pair, with optional terminal
+branches and one selected corridor immediately before the sole floor-2 boss. Per-floor main/branch
+counts are configurable. Role caps, floor eligibility, special-role adjacency, and at most three
+successive adventure rooms per logical floor are enforced during backtracking and independently checked afterward.
+Changing floors resets the streak; an Adventure arrival room counts as the first room on the new floor.
+Corridors are excluded from role counts. Floor 2 must have more optional branches than floor 1.
 
-**Arrows are planned connections, not corridors or traversable doorways.** Original blocking walls remain.
-Actual sockets/openings, branch door capacity, boss corridor, stairs between floors, enhanced floor-2
-interiors, AI navigation, multiplayer replication, room interactions and gameplay movement are outside this preview.
-The inspector flies through doors, walls, floors and gaps between rooms; this is not walkable dungeon connectivity.
-Full geometric AABBs are conservative occupancy bounds, not playable-space bounds.
+Door transforms are aligned and occupancy boxes use AABB broad-phase and OBB narrow-phase checks.
+Source maps and portal positions are authored by the user; generation does not edit those maps.
+The inspector can traverse portals despite having no collision.
 
-Original `Test_Adventure01` and `Test_Boss` are preserved. New module maps contain centered geometry
-without their global lighting/sky/PlayerStart. TestPCG_Preview owns the global environment and preview GameMode.
-AdventureEntry and BossEntry on the generator are module-local inspection entry positions, based on
-the original PlayerStarts plus eye height. A camera light makes unlit interiors inspectable.
+Actual passage clearance, room-internal walkability, floor-2 interior complexity, AI navigation,
+multiplayer dungeon synchronization and room gameplay remain separate concerns. The collision-free
+inspector cannot prove that a real character can walk through every authored doorway.
 
 ## Authoring and checks
 
-`author_preview.py` functions are called from UE Python individually and released before switching maps.
+The older `author_preview.py` helpers prepare legacy preview assets; use the current setup guide
+above to configure transition maps, portal actors, floor eligibility and the boss corridor explicitly.
+Python helper functions are called from UE Python individually and released before switching maps.
 It refuses to overwrite/recenter an existing module. `prepare_module` creates and opens a new level from the source template and verifies its package path before geometry edits.
 `configure_preview` creates the graph and assigns the preview generator/GameMode to TestPCG_Preview.
 
-Automation tests: `HeavenBreach.PCGPrototype` (256 seeds, deterministic replay, graph reachability,
-role counts, rejection of cycles/overlaps/invalid starts/impossible spacing).
+Automation tests: `HeavenBreach.PCGModule` includes current rule generation/replay, portal authoring
+and actual Pawn travel, catalog extraction, physical connector alignment and occupancy checks.
+`HeavenBreach.PCGPrototype` retains tests for the older grid planner.
 Runtime inspection: generator `GetVerificationSummary()` includes validity, visibility and pawn counts;
 `GetLayoutSignature()` supports before/after comparisons. Logs use `LogHBPCGPreview`.
 `verify_preview.py` records initial, identical-seed replay, and new-seed runtime results under
@@ -62,4 +71,4 @@ wall trace, mouse-look deltas, accelerated vertical movement, overview round-tri
 Its separate regeneration check verifies pawn reuse and the transformed starting-room position.
 Exploration evidence is saved under `output/pcg_exploration`.
 
-The three maps are explicitly listed for cooking. A packaged build is a separate verification from PIE.
+Ensure all selected module maps are included when cooking. A packaged build is a separate verification from PIE.
