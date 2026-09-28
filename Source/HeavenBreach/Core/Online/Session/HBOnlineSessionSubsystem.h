@@ -38,7 +38,22 @@ enum class EHBLobbyOperationState : uint8
 	InLobby,
 	Failed,
 	OpeningHostMap,
-	CleaningUpHost
+	CleaningUpHost,
+	ConnectingToLobby,
+	CleaningUpJoin
+};
+
+/** Snapshot of the latest search. SessionId remains the selection key across refreshes. */
+USTRUCT(BlueprintType)
+struct FHBLobbySearchEntry
+{
+	GENERATED_BODY()
+	UPROPERTY(BlueprintReadOnly) FString SessionId;
+	UPROPERTY(BlueprintReadOnly) FString HostName;
+	UPROPERTY(BlueprintReadOnly) FString MapPackage;
+	UPROPERTY(BlueprintReadOnly) int32 MaxPlayers = 0;
+	UPROPERTY(BlueprintReadOnly) int32 OpenSlots = 0;
+	UPROPERTY(BlueprintReadOnly) int32 PingInMs = 0;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
@@ -70,8 +85,14 @@ public:
 	virtual void Deinitialize() override;
 	
 	bool CreateLobby(int32 MaxPlayers);
+	/** Search only; completion is reported through OnLobbyOperationStateChanged. */
+	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
 	bool FindLobbies();
 	bool JoinLobby(int32 InSearchResultIndex);
+	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
+	bool RequestJoinLobby(const FString& SessionId);
+	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
+	TArray<FHBLobbySearchEntry> GetLobbySearchResults() const;
 	void LeaveLobby();
 
 	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
@@ -100,7 +121,9 @@ public:
 			LobbyOperationState == EHBLobbyOperationState::Finding ||
 			LobbyOperationState == EHBLobbyOperationState::Joining ||
 			LobbyOperationState == EHBLobbyOperationState::OpeningHostMap ||
-			LobbyOperationState == EHBLobbyOperationState::CleaningUpHost;
+			LobbyOperationState == EHBLobbyOperationState::CleaningUpHost ||
+			LobbyOperationState == EHBLobbyOperationState::ConnectingToLobby ||
+			LobbyOperationState == EHBLobbyOperationState::CleaningUpJoin;
 	}
 
 	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
@@ -138,9 +161,17 @@ public:
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
 	
 private:
+	bool FindLobbiesInternal(bool bJoinFirstResult);
+	bool ValidateLobbyClient(int32& OutLocalUser);
+	void FailJoinRequest(const FString& Error);
+	bool BeginJoinCleanup(float DeltaSeconds);
+	void HandleJoinCleanupComplete(FName SessionName, bool bWasSuccessful);
+	bool bJoinRequestActive = false;
+	FString JoinFailureReason;
+	FTSTicker::FDelegateHandle JoinCleanupTickerHandle;
 	void HandleHostSessionCreated(FName SessionName, bool bWasSuccessful);
-	void HandleHostMapLoaded(UWorld* LoadedWorld);
-	void HandleHostTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error);
+	void HandleLobbyMapLoaded(UWorld* LoadedWorld);
+	void HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error);
 	void FailHostRequest(const FString& Error);
 	bool BeginHostCleanup(float DeltaSeconds);
 	void HandleHostCleanupComplete(FName SessionName, bool bWasSuccessful);
@@ -148,8 +179,8 @@ private:
 	FString HostFailureReason;
 	bool bHostRequestActive = false;
 	FDelegateHandle HostCreateDelegateHandle;
-	FDelegateHandle HostTravelFailureDelegateHandle;
-	FDelegateHandle HostMapLoadedDelegateHandle;
+	FDelegateHandle LobbyTravelFailureDelegateHandle;
+	FDelegateHandle LobbyMapLoadedDelegateHandle;
 	FTSTicker::FDelegateHandle HostCleanupTickerHandle;
 	TWeakObjectPtr<UWorld> HostCleanupWorld;
 
@@ -173,7 +204,7 @@ private:
 		ENetworkFailure::Type InFailureType,
 		const FString& InErrorString
 		);
-	bool TravelToJoinedDedicatedServer(FName InSessionName);
+	bool TravelToJoinedLobby(FName InSessionName);
 	void StartMatchServerPolling();
 	void StopMatchServerPolling();
 	void PollMatchServerSettings();
