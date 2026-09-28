@@ -41,6 +41,16 @@ public:
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_BasicAttackManaCostMultiplier);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_LowHealthAttackBonus);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_LowHealthAttackThreshold);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_MoveSpeedFlat);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_ManaRegenFlat);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_ManaRegenMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_SkillDamageMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_HeadshotDamageBonus);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_DamageTakenMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_MeleeDamageTakenMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_HealingReceivedMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_HealthRegenFlat);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_HealthRegenMultiplier);
 
 protected:
 	UPROPERTY(ReplicatedUsing= OnRep_HP, BlueprintReadOnly,Category="Attribute|Combat")
@@ -104,7 +114,58 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_LowHealthAttackThreshold, BlueprintReadOnly, Category = "Attribute|Combat")
 	FGameplayAttributeData Player_LowHealthAttackThreshold;
 
-	
+	// ===== 장비 옵션이 쓰는 칸 =====
+	// 값은 UGE_EquipmentStats 가 넣는다. 스탯과 칸의 연결은 Item/ItemStatBinding.cpp 표에 있다.
+
+	// 이동속도에 더하는 진짜 속도. 0 이 기본.
+	// 최종 = (걷기/달리기 속도 + 이것) × MoveSpeedMultiplier
+	// 이동은 클라가 먼저 움직이므로 서버·클라 양쪽이 속도를 다시 계산해야 한다.
+	// OnRep 이 빠지면 한쪽만 빨라져서 캐릭터가 뒤로 끌려간다.
+	UPROPERTY(ReplicatedUsing = OnRep_MoveSpeedFlat, BlueprintReadOnly, Category = "Attribute|Movement")
+	FGameplayAttributeData Player_MoveSpeedFlat;
+
+	// 초당 마나 회복에 더하는 양. 0 이 기본.
+	// 최종 = (ManaRegenPerSecond + 이것) × ManaRegenMultiplier
+	UPROPERTY(ReplicatedUsing = OnRep_ManaRegenFlat, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_ManaRegenFlat;
+
+	// 마나 회복 배율. 1.0 이 기본.
+	UPROPERTY(ReplicatedUsing = OnRep_ManaRegenMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_ManaRegenMultiplier;
+
+	// 스킬 피해 배율. 1.0 이 기본. 기본 공격에는 안 걸린다.
+	UPROPERTY(ReplicatedUsing = OnRep_SkillDamageMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_SkillDamageMultiplier;
+
+	// 헤드샷 추가 피해. 0 이 기본. 0.1 이면 머리 배율 2배 → 2.2배.
+	// 맞는 쪽이 때린 사람의 이 값을 읽는다. 부위 배율은 맞는 쪽이 정하기 때문이다.
+	UPROPERTY(ReplicatedUsing = OnRep_HeadshotDamageBonus, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_HeadshotDamageBonus;
+
+	// 받는 피해 배율. 1.0 이 기본. 0.9 면 10% 덜 맞는다.
+	// 방어력 곡선과 달리 직선이라 하한이 없으면 무적이 된다. 하한 0.5.
+	UPROPERTY(ReplicatedUsing = OnRep_DamageTakenMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_DamageTakenMultiplier;
+
+	// 근접으로 맞을 때만 한 번 더 곱하는 배율. 1.0 이 기본. 위 받는 피해와 곱으로 겹친다.
+	UPROPERTY(ReplicatedUsing = OnRep_MeleeDamageTakenMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_MeleeDamageTakenMultiplier;
+
+	// 체력 회복량 배율. 1.0 이 기본. 포션·흡혈·전투 회복이 전부 AHBPlayerCharacter::ReceiveHeal 에서 이걸 곱한다.
+	UPROPERTY(ReplicatedUsing = OnRep_HealingReceivedMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_HealingReceivedMultiplier;
+
+	// 초당 체력 회복에 더하는 양. 0 이 기본.
+	// 최종 = (HealthRegenPerSecond + 이것) × HealthRegenMultiplier. 마나 회복과 같은 모양이다.
+	// 왜 넣었나: 회복 옵션이 마나 쪽에만 있었다. 체력 재생 옵션을 장비·버프로 붙일 자리.
+	UPROPERTY(ReplicatedUsing = OnRep_HealthRegenFlat, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_HealthRegenFlat;
+
+	// 체력 재생 배율. 1.0 이 기본. 기본 재생 + 옵션+ 합에 곱한다 — 둘 다 0 이면 % 만으로는 차지 않는다.
+	UPROPERTY(ReplicatedUsing = OnRep_HealthRegenMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_HealthRegenMultiplier;
+
+
 	UFUNCTION()
 	void OnRep_HP(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
@@ -137,8 +198,28 @@ protected:
 	void OnRep_LowHealthAttackBonus(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_LowHealthAttackThreshold(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_MoveSpeedFlat(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_ManaRegenFlat(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_ManaRegenMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_SkillDamageMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_HeadshotDamageBonus(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_DamageTakenMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_MeleeDamageTakenMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_HealingReceivedMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_HealthRegenFlat(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_HealthRegenMultiplier(const FGameplayAttributeData& OldValue);
 
-#pragma endregion 
+#pragma endregion
 	
 private:
 	// 최대치가 바뀔 때 현재치를 어디로 옮길지. HP 와 마나가 같은 규칙이라 함수로 뺐다.

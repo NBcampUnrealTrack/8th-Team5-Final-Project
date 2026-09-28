@@ -1,0 +1,87 @@
+Using bundled DotNet SDK version: 8.0.412 win-x64
+Running UnrealBuildTool: dotnet "..\..\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll" HeavenBreachEditor Win64 Development -Project=C:\FinalProject\8th-Team5-Final-Project\HeavenBreach.uproject -WaitMutex
+Log file: C:\Users\outak\AppData\Local\UnrealBuildTool\Log.txt
+Using 'git status' to determine working set for adaptive non-unity build (C:\FinalProject\8th-Team5-Final-Project).
+Creating makefile for HeavenBreachEditor (build metadata has changed)
+NGX Using Lib Dir x64 Platform Dir Win64
+UHT compiled-in object format Default
+Parsing headers for HeavenBreachEditor
+  Running Internal UnrealHeaderTool C:\FinalProject\8th-Team5-Final-Project\HeavenBreach.uproject C:\FinalProject\8th-Team5-Final-Project\Intermediate\Build\Win64\HeavenBreachEditor\Development\HeavenBreachEditor.uhtmanifest -WarningsAsErrors -installed
+UHT processed HeavenBreachEditor in 14.6281356 seconds (3 files written)
+Building HeavenBreachEditor...
+Using Visual Studio 2022 14.44.35225 toolchain (C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207) and Windows 10.0.22621.0 SDK (C:\Program Files (x86)\Windows Kits\10).
+[Adaptive Build] Excluded from HeavenBreach unity file: HB_HUDLayer.cpp
+Determining max actions to execute in parallel (6 physical cores, 6 logical cores)
+  Executing up to 6 processes, one per physical core
+Using Unreal Build Accelerator local executor to run 51 action(s)
+  Storage capacity 40Gb
+---- Starting trace: 260928_193833 ----
+UbaServer - Listening on 0.0.0.0:1345
+[1/51] Compile [x64] SharedPCH.UnrealEd.Project.ValApi.ValExpApi.Cpp20.cpp
+[2/51] Compile [x64] Module.StreamlineNGXCommon.cpp
+[3/51] Link [x64] UnrealEditor-StreamlineNGXCommon.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/StreamlineNGXCommon/Intermediate/Build/Win64/x64/UnrealEditor/Development/StreamlineNGXCommon/UnrealEditor-StreamlineNGXCommon.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/StreamlineNGXCommon/Intermediate/Build/Win64/x64/UnrealEditor/Development/StreamlineNGXCommon/UnrealEditor-StreamlineNGXCommon.exp 개체를 생성하고 있습니다.
+[4/51] Link [x64] UnrealEditor-StreamlineNGXCommon.dll
+[5/51] Compile [x64] Module.NGXRHI.cpp
+[6/51] Link [x64] UnrealEditor-NGXRHI.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXRHI/UnrealEditor-NGXRHI.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXRHI/UnrealEditor-NGXRHI.exp 개체를 생성하고 있습니다.
+[7/51] Compile [x64] Module.DLSSBlueprint.cpp
+[8/51] Link [x64] UnrealEditor-DLSSBlueprint.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/DLSSBlueprint/UnrealEditor-DLSSBlueprint.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/DLSSBlueprint/UnrealEditor-DLSSBlueprint.exp 개체를 생성하고 있습니다.
+[9/51] Link [x64] UnrealEditor-NGXRHI.dll
+[10/51] Compile [x64] Module.HeavenBreach.1.cpp
+[11/51] Compile [x64] Module.HeavenBreach.10.cpp
+[12/51] Compile [x64] Module.HeavenBreach.11.cpp
+[13/51] Compile [x64] HB_HUDLayer.cpp
+[14/51] Compile [x64] Module.HeavenBreach.12.cpp
+[15/51] Compile [x64] Module.HeavenBreach.13.cpp
+[16/51] Compile [x64] Module.DLSSUtility.cpp
+[17/51] Link [x64] UnrealEditor-DLSSUtility.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/DLSSUtility/UnrealEditor-DLSSUtility.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/DLSSUtility/UnrealEditor-DLSSUtility.exp 개체를 생성하고 있습니다.
+[18/51] Compile [x64] Module.HeavenBreach.2.cpp
+[19/51] Link [x64] UnrealEditor-DLSSUtility.dll
+[20/51] Compile [x64] Module.HeavenBreach.4.cpp
+[21/51] Compile [x64] Module.HeavenBreach.3.cpp
+[22/51] Compile [x64] Module.DLSS.cpp
+[23/51] Link [x64] UnrealEditor-DLSS.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/DLSS/UnrealEditor-DLSS.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/DLSS/UnrealEditor-DLSS.exp 개체를 생성하고 있습니다.
+[24/51] Link [x64] UnrealEditor-DLSSBlueprint.dll
+[25/51] Link [x64] UnrealEditor-DLSS.dll
+[26/51] Compile [x64] Module.HeavenBreach.6.cpp
+[27/51] Compile [x64] Module.HeavenBreach.5.cpp
+[28/51] Compile [x64] Module.HeavenBreach.7.cpp
+[29/51] Compile [x64] Module.DLSSEditor.cpp
+[30/51] Link [x64] UnrealEditor-DLSSEditor.dll
+[31/51] Compile [x64] Module.HeavenBreach.9.cpp
+[32/51] Link [x64] UnrealEditor-DLSSEditor.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/DLSSEditor/UnrealEditor-DLSSEditor.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/DLSSEditor/UnrealEditor-DLSSEditor.exp 개체를 생성하고 있습니다.
+[33/51] Compile [x64] Module.HeavenBreach.8.cpp
+[34/51] Compile [x64] Module.HeavenBreach.16.cpp
+[35/51] Compile [x64] Module.NGXD3D11RHI.cpp
+[36/51] Compile [x64] Module.NGXVulkanRHIPreInit.cpp
+[37/51] Link [x64] UnrealEditor-NGXD3D11RHI.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXD3D11RHI/UnrealEditor-NGXD3D11RHI.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXD3D11RHI/UnrealEditor-NGXD3D11RHI.exp 개체를 생성하고 있습니다.
+[38/51] Link [x64] UnrealEditor-NGXD3D11RHI.dll
+[39/51] Link [x64] UnrealEditor-NGXVulkanRHIPreInit.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXVulkanRHIPreInit/UnrealEditor-NGXVulkanRHIPreInit.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXVulkanRHIPreInit/UnrealEditor-NGXVulkanRHIPreInit.exp 개체를 생성하고 있습니다.
+[40/51] Compile [x64] Module.NGXVulkanRHI.cpp
+[41/51] Link [x64] UnrealEditor-NGXVulkanRHI.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXVulkanRHI/UnrealEditor-NGXVulkanRHI.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXVulkanRHI/UnrealEditor-NGXVulkanRHI.exp 개체를 생성하고 있습니다.
+[42/51] Compile [x64] Module.NGXD3D12RHI.cpp
+[43/51] Link [x64] UnrealEditor-NGXD3D12RHI.lib
+   C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXD3D12RHI/UnrealEditor-NGXD3D12RHI.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Plugins/NVIDIA/DLSS/Intermediate/Build/Win64/x64/UnrealEditor/Development/NGXD3D12RHI/UnrealEditor-NGXD3D12RHI.exp 개체를 생성하고 있습니다.
+[44/51] Link [x64] UnrealEditor-NGXVulkanRHIPreInit.dll
+[45/51] Link [x64] UnrealEditor-NGXVulkanRHI.dll
+[46/51] Link [x64] UnrealEditor-NGXD3D12RHI.dll
+[47/51] Compile [x64] Module.HeavenBreach.14.cpp
+[48/51] Compile [x64] Module.HeavenBreach.15.cpp
+[49/51] Link [x64] UnrealEditor-HeavenBreach.lib
+   C:/FinalProject/8th-Team5-Final-Project/Intermediate/Build/Win64/x64/UnrealEditor/Development/HeavenBreach/UnrealEditor-HeavenBreach.lib 라이브러리 및 C:/FinalProject/8th-Team5-Final-Project/Intermediate/Build/Win64/x64/UnrealEditor/Development/HeavenBreach/UnrealEditor-HeavenBreach.exp 개체를 생성하고 있습니다.
+[50/51] Link [x64] UnrealEditor-HeavenBreach.dll
+[51/51] WriteMetadata HeavenBreachEditor.target [NoUba]
+
+Trace written to file C:/Users/outak/AppData/Local/UnrealBuildTool/Log.uba with size 25.5kb
+Total time in Unreal Build Accelerator local executor: 153.26 seconds
+
+Result: Succeeded
+Total execution time: 187.58 seconds

@@ -4,10 +4,14 @@
 #include "Components/ActorComponent.h"
 #include "InventoryTypes.h"
 #include "AbilitySystemComponent.h"
+#include "Item/ItemStatBinding.h"
+#include "Item/ItemEffectRules.h"
 #include "EquipmentComponent.generated.h"
 
 class UInventoryComponent;
 class UAbilitySystemComponent;
+struct FItemOption;
+struct FItemEffect;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEquipmentChanged);
 
@@ -58,16 +62,18 @@ public:
 
 	void ApplyLoadedSlots(const TArray<FItemInstance>& InSlots);
 
-	// 장착 장비가 주는 어트리뷰트 보정을 통째로 다시 계산해 붙인다. 서버 전용.
+	// OnEquipmentChanged 에 물린다. 숫자 옵션 GE 와 동작 효과 GE 를 둘 다 맞춘다. 서버 전용.
 	//
-	// 왜 전부 다시 세나: 슬롯별로 GE 핸들을 들면 교체·파손·세이브 복원마다
-	// 어느 핸들을 떼고 붙일지가 갈라지고, 한 경로를 빠뜨리면 방어력이 남거나 사라진다.
-	// 통째로 다시 계산하면 경로가 하나뿐이라 그 실수가 불가능하다.
-	//
-	// BeginPlay 에서 OnEquipmentChanged 에 물려 두므로 직접 부를 일은 없다.
-	// 쳐낼 조건: 장비 수가 수십 개가 되어 재계산이 눈에 띄면 슬롯별 핸들로 쪼갠다.
+	// 왜 한 곳인가: 전에는 유물 효과를 장착·해제 함수에서 손으로 붙였다 뗐는데,
+	// 세이브 복원(ApplyLoadedSlots)은 그 함수를 안 거쳐서 복원 후 효과가 사라졌다.
+	// 델리게이트 하나에 물려 두면 장착·해제·교체·파손·복원이 전부 같은 길을 탄다.
 	UFUNCTION()
-	void RefreshEquipmentStats();
+	void HandleEquipmentChanged();
+
+	// 지금 낀 장비의 동작 효과를 정의(DT_ItemEffect)와 합쳐 모은다. 부서진 장비는 뺀다.
+	// 같은 효과를 두 개 꼈으면 먼저 찾은 것만 — 겹치지 않는다.
+	// ItemEffectRules 가 틱마다 · 스킬 쓸 때마다 이걸로 무엇을 할지 정한다.
+	void CollectEquippedEffects(TArray<FResolvedItemEffect>& OutEffects) const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -80,9 +86,32 @@ private:
 
 	class UAbilitySystemComponent* GetOwnerASC() const;
 
-	void ApplyRelicEffects(const FItemInstance& InItem);
+	// 숫자 옵션 → UGE_EquipmentStats 하나. 전부 다시 세서 통째로 떼고 붙인다.
+	//
+	// 왜 전부 다시 세나: 슬롯별로 GE 핸들을 들면 교체·파손·세이브 복원마다
+	// 어느 핸들을 떼고 붙일지가 갈라지고, 한 경로를 빠뜨리면 스탯이 남거나 사라진다.
+	// 통째로 다시 계산하면 경로가 하나뿐이라 그 실수가 불가능하다.
+	// 쳐낼 조건: 장비 수가 수십 개가 되어 재계산이 눈에 띄면 슬롯별 핸들로 쪼갠다.
+	void RefreshEquipmentStats();
 
-	void RemoveRelicEffects();
+	// 동작 효과 → UGE_ItemEffectTag 하나에 태그를 전부 담는다. 핸들도 하나.
+	void RefreshItemEffects();
+
+	// 장착한 모든 칸의 스탯 합계. 무기 공격력 + 방어구 방어력 + 모든 칸의 숫자 옵션.
+	FItemStatTotals CollectStatTotals() const;
+
+	// 장착한 모든 칸의 동작 효과 "꼈다" 태그. 같은 태그는 한 번만 담는다.
+	TArray<FGameplayTag> CollectItemEffectTags() const;
+
+	// 옵션 목록을 합계에 쌓는다. 표에 없는 스탯이나 받지 않는 타입은 경고를 찍고 건너뛴다.
+	void AddOptionsTo(const TArray<FItemOption>& Options, FName SourceRow, FItemStatTotals& Totals) const;
+
+	// 효과 줄을 정의와 합쳐 쌓는다. 정의를 못 찾거나 정의에 Tag 가 없으면 경고를 찍고 건너뛴다.
+	void AddResolvedEffects(const TArray<FItemEffect>& Effects, FName SourceRow, TArray<FResolvedItemEffect>& OutEffects) const;
+
+	static bool HasResolvedEffect(const TArray<FResolvedItemEffect>& Effects, const FGameplayTag& Tag);
+	static bool AreTotalsEqual(const FItemStatTotals& A, const FItemStatTotals& B);
+	static bool AreSameTags(const TArray<FGameplayTag>& A, const TArray<FGameplayTag>& B);
 
 	// 부서지지 않은 투구/상의/하의의 BonusStatValue 합.
 	float SumArmorDefense() const;
@@ -93,23 +122,21 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_Slots)
 	TArray<FItemInstance> Slots;
 
-	UPROPERTY()
-	FActiveGameplayEffectHandle EquippedRelicBenefitHandle;
-
-	UPROPERTY()
-	FActiveGameplayEffectHandle EquippedRelicRiskHandle;
-
 	// 장비 보정 GE 의 핸들. 하나만 든다 — 슬롯이 바뀌면 통째로 새로 만든다.
 	UPROPERTY()
 	FActiveGameplayEffectHandle EquipmentStatsHandle;
 
-	// 마지막으로 GE 에 실어 보낸 값. 같으면 다시 붙이지 않는다.
+	// 마지막으로 GE 에 실어 보낸 합계. 같으면 다시 붙이지 않는다.
 	//
-	// 왜 필요한가: 내구도는 피격마다 방어구 세 칸이 깎이는데 방어력 합계는 그대로다.
-	// 그때마다 GE 를 떼고 붙이면 어트리뷰트가 67 → 0 → 67 로 튄다. 지금은 이 값을
-	// 구독하는 코드가 없어 무해하지만, 스탯 UI 가 붙는 순간 맞을 때마다 숫자가 깜빡인다.
-	//
-	// 쳐낼 조건: 장비에 옵션이 붙어 합계가 구조체가 되면 비교도 그 구조체로 옮긴다.
-	float LastAppliedDefense = -1.f;
-	float LastAppliedAttackPower = -1.f;
+	// 왜 필요한가: 내구도는 피격마다 방어구 세 칸이 깎이는데 합계는 그대로다.
+	// 그때마다 GE 를 떼고 붙이면 어트리뷰트가 67 → 0 → 67 로 튄다. 스탯 UI 가 붙으면
+	// 맞을 때마다 숫자가 깜빡인다.
+	FItemStatTotals LastAppliedTotals;
+
+	// 동작 효과 GE 의 핸들. 하나만 든다 — 스탯 GE 와 같은 이유.
+	UPROPERTY()
+	FActiveGameplayEffectHandle ItemEffectHandle;
+
+	// 지금 붙어 있는 효과 태그. 새로 센 목록과 같으면 다시 붙이지 않는다 (내구도만 깎인 경우).
+	TArray<FGameplayTag> AppliedItemEffectTags;
 };
