@@ -8,6 +8,11 @@
 #include "Online/OnlineSessionNames.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/NetDriver.h"
+#include "Kismet/GameplayStatics.h"
+#include "Misc/PackageName.h"
+#include "UObject/UObjectGlobals.h"
 #include "GameFramework/PlayerController.h"
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Misc/CommandLine.h"
@@ -41,9 +46,13 @@ namespace HBOnline
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	HostMapLoadedDelegateHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
+		this, &UHBOnlineSessionSubsystem::HandleHostMapLoaded);
 
 	if (GEngine != nullptr)
 	{
+		HostTravelFailureDelegateHandle = GEngine->OnTravelFailure().AddUObject(
+			this, &UHBOnlineSessionSubsystem::HandleHostTravelFailure);
 		NetworkFailureDelegateHandle =
 			GEngine->OnNetworkFailure().AddUObject(
 				this,
@@ -100,6 +109,23 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 void UHBOnlineSessionSubsystem::Deinitialize()
 {
 	StopMatchServerPolling();
+	bHostRequestActive = false;
+	PendingHostMap.Reset();
+	FTSTicker::GetCoreTicker().RemoveTicker(HostCleanupTickerHandle);
+	HostCleanupTickerHandle.Reset();
+	HostCleanupWorld.Reset();
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(HostMapLoadedDelegateHandle);
+	HostMapLoadedDelegateHandle.Reset();
+	if (GEngine)
+	{
+		GEngine->OnTravelFailure().Remove(HostTravelFailureDelegateHandle);
+	}
+	HostTravelFailureDelegateHandle.Reset();
+	if (SessionInterface.IsValid())
+	{
+		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(HostCreateDelegateHandle);
+	}
+	HostCreateDelegateHandle.Reset();
 
 	if (GEngine != nullptr && NetworkFailureDelegateHandle.IsValid())
 	{
@@ -120,6 +146,190 @@ void UHBOnlineSessionSubsystem::Deinitialize()
 	SessionInterface.Reset();
 	
 	Super::Deinitialize();
+}
+
+bool UHBOnlineSessionSubsystem::RequestHostLobby(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap)
+{
+	// Reject overlapping operations without changing the active operation's state.
+	if (IsLobbyOperationInProgress() || IsMatchStartInProgress() ||
+		LeaveLobbyCompleteDelegateHandle.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Online | Host | Request ignored: another operation is pending"));
+		return false;
+	}
+	UWorld* World = GetWorld();
+	if (!World || !World->IsGameWorld() || World->GetNetMode() != NM_Standalone)
+	{
+		return FailLobbyOperation(TEXT("Host requires a standalone game world; leave the current connection first"));
+	}
+	if (MaxPlayers < 1 || MaxPlayers > 250)
+	{
+		return FailLobbyOperation(TEXT("Host player count must be between 1 and 250, including the host"));
+	}
+	const FString MapPackage = LobbyMap.ToSoftObjectPath().GetLongPackageName();
+	FString MapFilename;
+	if (LobbyMap.IsNull() || !FPackageName::IsValidLongPackageName(MapPackage) ||
+		!FPackageName::DoesPackageExist(MapPackage, &MapFilename) ||
+		!MapFilename.EndsWith(FPackageName::GetMapPackageExtension()))
+	{
+		return FailLobbyOperation(TEXT("Host requires an existing saved map asset"));
+	}
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) ||
+		!SessionInterface.IsValid() || OSS->GetSessionInterface() != SessionInterface)
+	{
+		return FailLobbyOperation(TEXT("Host requires the initialized Steam online subsystem"));
+	}
+	const ULocalPlayer* LocalPlayer = GetGameInstance()->GetFirstGamePlayer();
+	const IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
+	const int32 LocalUser = LocalPlayer ? LocalPlayer->GetControllerId() : INDEX_NONE;
+	if (LocalUser < 0 || !Identity.IsValid() || Identity->GetLoginStatus(LocalUser) != ELoginStatus::LoggedIn)
+	{
+		return FailLobbyOperation(TEXT("Host requires a local player logged into Steam"));
+	}
+	const TSharedPtr<const FUniqueNetId> UserId = Identity->GetUniquePlayerId(LocalUser);
+	if (!UserId.IsValid() || !UserId->IsValid())
+	{
+		return FailLobbyOperation(TEXT("Host failed: Steam user ID unavailable"));
+	}
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) ||
+		SessionInterface->GetNamedSession(HBOnline::DedicatedServerSessionName) ||
+		SessionInterface->GetNamedSession(NAME_GameSession))
+	{
+		return FailLobbyOperation(TEXT("Host rejected: an existing session must be left before creating another"));
+	}
+
+	FOnlineSessionSettings Settings;
+	Settings.NumPublicConnections = MaxPlayers;
+	Settings.NumPrivateConnections = 0;
+	Settings.bIsLANMatch = false;
+	Settings.bIsDedicated = false;
+	Settings.bShouldAdvertise = true;
+	Settings.bAllowJoinInProgress = true;
+	Settings.bUsesPresence = true;
+	Settings.bUseLobbiesIfAvailable = true;
+	Settings.bAllowJoinViaPresence = true;
+	Settings.bAllowInvites = true;
+	Settings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_MAP")), MapPackage, EOnlineDataAdvertisementType::ViaOnlineService);
+
+	StopMatchServerPolling();
+	bJoinFirstLobbyAfterFind = false;
+	PendingHostMap = MapPackage;
+	HostFailureReason.Reset();
+	bHostRequestActive = true;
+	HostCreateDelegateHandle = SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(
+		FOnCreateSessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleHostSessionCreated));
+	SetLobbyOperationState(EHBLobbyOperationState::Creating);
+	UE_LOG(LogTemp, Log, TEXT("Online | Host | Creating Steam lobby | Players: %d | Map: %s"), MaxPlayers, *MapPackage);
+	if (!SessionInterface->CreateSession(*UserId, HBOnline::PartyLobbySessionName, Settings))
+	{
+		// Some providers invoke the completion delegate synchronously on failure.
+		if (HostCreateDelegateHandle.IsValid())
+		{
+			SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(HostCreateDelegateHandle);
+			HostCreateDelegateHandle.Reset();
+			FailHostRequest(TEXT("Steam lobby creation request could not start"));
+		}
+		return false;
+	}
+	return true;
+}
+
+void UHBOnlineSessionSubsystem::HandleHostSessionCreated(FName SessionName, bool bWasSuccessful)
+{
+	if (!bHostRequestActive || SessionName != HBOnline::PartyLobbySessionName || !HostCreateDelegateHandle.IsValid()) return;
+	SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(HostCreateDelegateHandle);
+	HostCreateDelegateHandle.Reset();
+	if (!bWasSuccessful)
+	{
+		FailHostRequest(TEXT("Steam lobby creation failed"));
+		return;
+	}
+	if (!GetWorld() || GetWorld()->GetNetMode() != NM_Standalone || PendingHostMap.IsEmpty())
+	{
+		FailHostRequest(TEXT("Host world changed before Steam lobby creation completed"));
+		return;
+	}
+	SetLobbyOperationState(EHBLobbyOperationState::OpeningHostMap);
+	UE_LOG(LogTemp, Log, TEXT("Online | Host | Opening %s?listen"), *PendingHostMap);
+	UGameplayStatics::OpenLevel(GetWorld(), FName(*PendingHostMap), true, TEXT("listen"));
+}
+
+void UHBOnlineSessionSubsystem::HandleHostMapLoaded(UWorld* LoadedWorld)
+{
+	if (!bHostRequestActive || LobbyOperationState != EHBLobbyOperationState::OpeningHostMap ||
+		!LoadedWorld || LoadedWorld->GetGameInstance() != GetGameInstance()) return;
+	const UNetDriver* Driver = LoadedWorld->GetNetDriver();
+	if (UWorld::RemovePIEPrefix(LoadedWorld->GetOutermost()->GetName()) != PendingHostMap ||
+		LoadedWorld->GetNetMode() != NM_ListenServer || !Driver ||
+		Driver->GetClass()->GetPathName() != TEXT("/Script/SteamSockets.SteamSocketsNetDriver"))
+	{
+		FailHostRequest(TEXT("Host map did not open with an active SteamSockets listen driver"));
+		return;
+	}
+	UE_LOG(LogTemp, Log, TEXT("Online | Host | Ready | Map: %s | Driver: %s"), *PendingHostMap, *Driver->GetClass()->GetName());
+	bHostRequestActive = false;
+	PendingHostMap.Reset();
+	SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+}
+
+void UHBOnlineSessionSubsystem::HandleHostTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error)
+{
+	if (bHostRequestActive && LobbyOperationState == EHBLobbyOperationState::OpeningHostMap &&
+		World && World->GetGameInstance() == GetGameInstance())
+	{
+		FailHostRequest(FString::Printf(TEXT("Host travel failed (%d): %s"), static_cast<int32>(FailureType), *Error));
+	}
+}
+
+void UHBOnlineSessionSubsystem::FailHostRequest(const FString& Error)
+{
+	if (!bHostRequestActive || LobbyOperationState == EHBLobbyOperationState::CleaningUpHost) return;
+	HostFailureReason = Error;
+	PendingHostMap.Reset();
+	HostCleanupWorld = GetWorld();
+	SetLobbyOperationState(EHBLobbyOperationState::CleaningUpHost);
+	UE_LOG(LogTemp, Warning, TEXT("Online | Host | Rolling back: %s"), *Error);
+	// A listen-failure delegate runs inside UWorld::Listen, which still accesses
+	// its driver after broadcasting. Defer destruction until that stack unwinds.
+	HostCleanupTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::BeginHostCleanup));
+}
+
+bool UHBOnlineSessionSubsystem::BeginHostCleanup(float DeltaSeconds)
+{
+	HostCleanupTickerHandle.Reset();
+	if (!bHostRequestActive) return false;
+	// Close a partially initialized listen driver without choosing a UI/return map.
+	if (UWorld* FailedWorld = HostCleanupWorld.Get(); GEngine && FailedWorld && FailedWorld->GetNetDriver())
+	{
+		GEngine->ShutdownWorldNetDriver(FailedWorld);
+	}
+	HostCleanupWorld.Reset();
+	if (!SessionInterface.IsValid() || !SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName))
+	{
+		HandleHostCleanupComplete(HBOnline::PartyLobbySessionName, true);
+		return false;
+	}
+	if (!SessionInterface->DestroySession(HBOnline::PartyLobbySessionName,
+		FOnDestroySessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleHostCleanupComplete)))
+	{
+		if (bHostRequestActive) HandleHostCleanupComplete(HBOnline::PartyLobbySessionName, false);
+	}
+	return false;
+}
+
+void UHBOnlineSessionSubsystem::HandleHostCleanupComplete(FName SessionName, bool bWasSuccessful)
+{
+	if (!bHostRequestActive || SessionName != HBOnline::PartyLobbySessionName ||
+		LobbyOperationState != EHBLobbyOperationState::CleaningUpHost) return;
+	bHostRequestActive = false;
+	FString Error = HostFailureReason;
+	HostFailureReason.Reset();
+	if (!bWasSuccessful) Error += TEXT("; session cleanup failed. Leave the existing session before retrying.");
+	FailLobbyOperation(Error);
 }
 
 bool UHBOnlineSessionSubsystem::RequestCreateLobby(int32 MaxPlayers)
@@ -273,6 +483,7 @@ bool UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
 
 bool UHBOnlineSessionSubsystem::FindLobbies()
 {
+	if (bHostRequestActive) return false;
 	if (!SessionInterface.IsValid())
 	{
 		return FailLobbyOperation(TEXT("Find failed: SessionInterface invalid"));
@@ -343,6 +554,7 @@ bool UHBOnlineSessionSubsystem::FindLobbies()
 
 bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 {
+	if (bHostRequestActive) return false;
 	if (!SessionInterface.IsValid())
 	{
 		return FailLobbyOperation(TEXT("Join failed: SessionInterface invalid"));
@@ -420,6 +632,8 @@ bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 
 void UHBOnlineSessionSubsystem::LeaveLobby()
 {
+	// Creation/travel owns its rollback; do not race a second DestroySession.
+	if (bHostRequestActive) return;
 	if (!SessionInterface.IsValid())
 	{
 		UE_LOG(LogTemp,
@@ -484,6 +698,7 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 
 void UHBOnlineSessionSubsystem::ConnectToMatchServer(const FString& ServerAddress)
 {
+	if (bHostRequestActive) return;
 	FString NormalizedServerAddress;
 	FString ValidationError;
 
@@ -648,6 +863,7 @@ bool UHBOnlineSessionSubsystem::RequestStartMatch()
 
 bool UHBOnlineSessionSubsystem::StartMatchAsLobbyOwner(const FString& ServerAddress)
 {
+	if (bHostRequestActive) return false;
 	if (IsMatchStartInProgress() ||
 		bConnectAfterLobbyUpdate ||
 		bMatchTravelRequested)
@@ -1458,6 +1674,14 @@ void UHBOnlineSessionSubsystem::HandleNetworkFailure(
 
 	if (InWorld != nullptr && InWorld->GetGameInstance() != GetGameInstance())
 	{
+		return;
+	}
+	if (bHostRequestActive)
+	{
+		if (InWorld && LobbyOperationState == EHBLobbyOperationState::OpeningHostMap)
+		{
+			FailHostRequest(FString::Printf(TEXT("Host network failure: %s"), *InErrorString));
+		}
 		return;
 	}
 

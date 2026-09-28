@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "HBOnlineSessionSubsystem.generated.h"
@@ -10,6 +11,10 @@
 class UNetDriver;
 
 namespace ENetworkFailure
+{
+	enum Type : int;
+}
+namespace ETravelFailure
 {
 	enum Type : int;
 }
@@ -31,7 +36,9 @@ enum class EHBLobbyOperationState : uint8
 	Finding,
 	Joining,
 	InLobby,
-	Failed
+	Failed,
+	OpeningHostMap,
+	CleaningUpHost
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
@@ -70,6 +77,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
 	bool RequestCreateLobby(int32 MaxPlayers);
 
+	/** Starts an asynchronous Steam listen host. True means accepted, not ready.
+	 * Observe OnLobbyOperationStateChanged; InLobby means the listen map is ready.
+	 * MaxPlayers includes the host. LobbyMap must be a saved map asset.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
+	bool RequestHostLobby(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap);
+
 	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
 	bool RequestFindAndJoinLobby();
 
@@ -84,7 +98,9 @@ public:
 	{
 		return LobbyOperationState == EHBLobbyOperationState::Creating ||
 			LobbyOperationState == EHBLobbyOperationState::Finding ||
-			LobbyOperationState == EHBLobbyOperationState::Joining;
+			LobbyOperationState == EHBLobbyOperationState::Joining ||
+			LobbyOperationState == EHBLobbyOperationState::OpeningHostMap ||
+			LobbyOperationState == EHBLobbyOperationState::CleaningUpHost;
 	}
 
 	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
@@ -122,6 +138,21 @@ public:
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
 	
 private:
+	void HandleHostSessionCreated(FName SessionName, bool bWasSuccessful);
+	void HandleHostMapLoaded(UWorld* LoadedWorld);
+	void HandleHostTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error);
+	void FailHostRequest(const FString& Error);
+	bool BeginHostCleanup(float DeltaSeconds);
+	void HandleHostCleanupComplete(FName SessionName, bool bWasSuccessful);
+	FString PendingHostMap;
+	FString HostFailureReason;
+	bool bHostRequestActive = false;
+	FDelegateHandle HostCreateDelegateHandle;
+	FDelegateHandle HostTravelFailureDelegateHandle;
+	FDelegateHandle HostMapLoadedDelegateHandle;
+	FTSTicker::FDelegateHandle HostCleanupTickerHandle;
+	TWeakObjectPtr<UWorld> HostCleanupWorld;
+
 	void HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful);
 	void HandleFindLobbiesComplete(bool bWasSuccessful);
 	void HandleJoinLobbyComplete(
