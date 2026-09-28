@@ -6,6 +6,7 @@
 #include "GameplayAbilitySpecHandle.h"
 #include "Combat/Interface/DamageableInterface.h"
 #include "Combat/Ability/HBSkillAugment.h"
+#include "Item/ItemEffectRules.h"
 #include "GameFramework/Character.h"
 #include "HBPlayerCharacter.generated.h"
 
@@ -221,7 +222,19 @@ public:
 	//TODO:: 데이터테이블, 구조체로 변경
 	UFUNCTION(BlueprintPure, Category="Player|Combat")
 	float GetAttackPower() const;
-	
+
+	// 장비의 스킬 피해 옵션 배율. 1.0 이 기본.
+	// 스킬 타격이 피해를 넣기 전에 곱한다. 기본 공격은 안 곱한다.
+	UFUNCTION(BlueprintPure, Category="Player|Combat")
+	float GetSkillDamageMultiplier() const;
+
+	// 체력 회복은 전부 여기를 지난다. 장비의 회복 효과 옵션을 한 곳에서 곱한다.
+	//
+	// 왜 필요한가: 포션 · 흡혈 · 전투 회복이 각자 SetPlayer_HP 를 불렀다.
+	// 회복 효과 옵션을 세 곳에 따로 넣으면 네 번째 회복이 생길 때 빠진다.
+	// 새 회복을 만들면 SetPlayer_HP 대신 이걸 부른다.
+	void ReceiveHeal(float Amount);
+
 	UFUNCTION(BlueprintPure, Category="Player|Combat")
 	float GetAttackRange() const;
 	
@@ -458,6 +471,41 @@ private:
 
 	FTimerHandle ManaResourceTimer;
 	double LastManaActivityTime = 0.0;
+
+	// ===== 체력 재생 =====
+	// 서버 틱. (기본 재생 + 장비 +) × 배율 만큼 ReceiveHeal 로 채운다. 마나 회복과 같은 모양이다.
+	void UpdateHealthRegen();
+
+	// 기본 초당 체력 재생. 0 이면 장비 · 버프(Player_HealthRegenFlat)로만 찬다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float HealthRegenPerSecond = 0.f;
+
+	// 맞은 뒤 재생이 멈추는 시간(초). 0 이면 멈추지 않는다.
+	// 마나의 ManaRegenDelay 와 같은 역할. 기준 시각은 ApplyMeleeHit 가 기록하는 LastDamageReceivedTime.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float HealthRegenDelayAfterHit = 0.f;
+
+	// 재생을 나눠 주는 간격(초). 작을수록 체력 바가 부드럽게 찬다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
+	float HealthRegenTickInterval = 0.25f;
+
+	FTimerHandle HealthRegenTimer;
+
+	// ===== 아이템 동작 효과 =====
+	// 규칙은 Item/ItemEffectRules 에 있다. 캐릭터는 틱을 돌리고 상태만 든다.
+
+	// 오라 · 조건 동안 · 주기 를 도는 서버 틱.
+	void TickItemEffects();
+
+	// 아이템 동작 효과를 확인하는 간격(초). 거리 · 체력 조건이 바뀌고 반영되기까지 최대 이만큼 늦는다.
+	// 주기 효과의 쌓인 시간도 이 값만큼씩 늘어난다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|ItemEffect", meta=(ClampMin="0.05"))
+	float ItemEffectTickInterval = 0.25f;
+
+	FTimerHandle ItemEffectTimer;
+
+	// 내가 건 핸들과 쌓인 시간. 죽을 때 · EndPlay 때 전부 거둔다.
+	FItemEffectRuntime ItemEffectRuntime;
 #pragma endregion 
 	
 #pragma region Movement
@@ -594,7 +642,10 @@ protected:
 	FName ShieldSocketName = TEXT("SecondWeaponSocket");
 	
 	virtual void BeginPlay() override;
-	
+
+	// 나가거나 파괴될 때 아이템 동작 효과로 파티원에게 건 것을 거둔다. 안 거두면 버프가 영원히 남는다.
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 	UFUNCTION()
 	void RefreshEquippedVisuals();
 	
