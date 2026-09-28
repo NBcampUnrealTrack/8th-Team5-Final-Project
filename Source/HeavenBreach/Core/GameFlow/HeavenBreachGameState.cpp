@@ -4,6 +4,26 @@
 #include "Core/GameFlow/HeavenBreachGameState.h"
 
 #include "Net/UnrealNetwork.h"
+#include "PCGModule/HBDungeonRuntimeValidation.h"
+
+bool AHeavenBreachGameState::PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms)
+{
+    if (!HasAuthority() || GetNetMode() == NM_Client || GenerationId <= DungeonSnapshot.GenerationId) return false;
+    FString Error;
+    if (!HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error)) return false;
+    DungeonSnapshot.GenerationId = GenerationId;
+    DungeonSnapshot.Seed = Seed;
+    DungeonSnapshot.Rooms = Rooms;
+    ForceNetUpdate();
+    OnDungeonSnapshotChanged.Broadcast();
+    return true;
+}
+
+void AHeavenBreachGameState::OnRep_DungeonSnapshot()
+{
+    OnDungeonSnapshotChanged.Broadcast();
+}
+
 
 void AHeavenBreachGameState::SetMatchEndServerTime(double InEndServerTime)
 {
@@ -30,6 +50,7 @@ void AHeavenBreachGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AHeavenBreachGameState, MatchEndServerTime);
+    DOREPLIFETIME(AHeavenBreachGameState, DungeonSnapshot);
 }
 
 void AHeavenBreachGameState::OnRep_MatchState()

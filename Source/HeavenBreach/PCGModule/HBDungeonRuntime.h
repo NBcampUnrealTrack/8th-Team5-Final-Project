@@ -9,6 +9,7 @@ class ULevelStreamingDynamic;
 class APlayerStart;
 class AHBDungeonPortal;
 class AHBDungeonDoorSeal;
+class AHeavenBreachGameState;
 UENUM(BlueprintType)
 enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, Ready, Failed };
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
@@ -61,6 +62,10 @@ public:
     FSimpleMulticastDelegate OnLayoutPlanned;
     void Fail(const FString& Reason);
 private:
+    void BindSnapshotSource();
+    void ConsumeServerSnapshot();
+    TWeakObjectPtr<AHeavenBreachGameState> SnapshotSource;
+    FDelegateHandle SnapshotChangedHandle;
     bool PrepareServerGameplay(FString& Error);
     bool PrepareClientGameplay(FString& Error);
     bool SpawnDoorSeals(const FHBPrototypeRoom& Room, const TArray<FHBDungeonConnectorDefinition>& Connectors, FString& Error);

@@ -50,6 +50,15 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     auto* Dungeon = World->SpawnActor<AHBDungeonRuntime>();
     TestTrue(TEXT("Standalone may plan"), Dungeon->CanPlanGeneration());
     TestFalse(TEXT("Server does not accept client layout entry point"), Dungeon->ApplyServerLayout(1, 1, Rooms));
+    auto* SnapshotState = World->SpawnActor<AHeavenBreachGameState>();
+    World->SetGameState(SnapshotState);
+    TestFalse(TEXT("Malformed snapshot is not published"), SnapshotState->PublishDungeonLayout(1, 42, Rooms));
+    Rooms[0] = Room;
+    TestTrue(TEXT("Authority publishes validated snapshot"), SnapshotState->PublishDungeonLayout(1, 42, Rooms));
+    Rooms[0].ModuleId = TEXT("ChangedAfterPublication");
+    TestEqual(TEXT("Snapshot owns its room data"), SnapshotState->GetDungeonSnapshot().Rooms[0].ModuleId, Room.ModuleId);
+    TestFalse(TEXT("Published generation is immutable"), SnapshotState->PublishDungeonLayout(1, 99, Rooms));
+    TestFalse(TEXT("Old generation rejected"), SnapshotState->PublishDungeonLayout(0, 99, Rooms));
     auto* Driver = NewObject<UIpNetDriver>(World);
     Driver->SetWorld(World);
     // A child connection is a socket-free net-mode marker. An uninitialized
@@ -64,6 +73,13 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     Dungeon->MaterializeLayout(1);
     TestEqual(TEXT("Client Load node cannot bypass layout application"), Dungeon->State, EHBDungeonRuntimeState::Idle);
     TestFalse(TEXT("Invalid generation rejected"), Dungeon->ApplyServerLayout(0, 1, Rooms));
+    TestFalse(TEXT("Client cannot publish even with local actor authority"), SnapshotState->PublishDungeonLayout(2, 99, Rooms));
+    Dungeon->Tick(0);
+    TestEqual(TEXT("Snapshot received before runtime binding is consumed"), Dungeon->GetGenerationId(), 1);
+    TestEqual(TEXT("Authoritative seed applied"), Dungeon->ActiveSeed, 42);
+    TestEqual(TEXT("Local loading starts from retained snapshot"), Dungeon->State, EHBDungeonRuntimeState::Loading);
+    SnapshotState->OnDungeonSnapshotChanged.Broadcast();
+    TestEqual(TEXT("Repeated notification does not restart generation"), Dungeon->GetGenerationId(), 1);
     World->SetNetDriver(nullptr);
     Driver->ServerConnection = nullptr;
     Driver->SetWorld(nullptr);

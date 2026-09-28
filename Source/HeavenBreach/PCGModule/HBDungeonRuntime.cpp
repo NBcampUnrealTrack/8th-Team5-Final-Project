@@ -3,6 +3,7 @@
 #include "PCGModule/HBDungeonPortal.h"
 #include "PCGModule/HBDungeonDoorSeal.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
+#include "Core/GameFlow/HeavenBreachGameState.h"
 #include "PCGPrototype/HBPCGPreview.h"
 #include "PCGComponent.h"
 #include "Components/BoxComponent.h"
@@ -38,6 +39,7 @@ void AHBDungeonRuntime::BeginPlay()
     if (GetNetMode() == NM_Client)
     {
         if (State == EHBDungeonRuntimeState::Idle) Status = TEXT("Waiting for server layout.");
+        BindSnapshotSource();
         return;
     }
     if (!Cast<AHeavenBreachGameMode>(GetWorld()->GetAuthGameMode()))
@@ -89,6 +91,9 @@ bool AHBDungeonRuntime::PlanLayout()
     if (!HBDungeonRuleLayout::Validate(ModuleCatalog, ActiveSettings, ActiveRules, Rooms, Error) ||
         !HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error))
     { Fail(Error); return false; }
+    auto* GameState = GetWorld()->GetGameState<AHeavenBreachGameState>();
+    if (!GameState || !GameState->PublishDungeonLayout(GenerationId, ActiveSeed, Rooms))
+    { Fail(TEXT("Could not publish dungeon layout to HeavenBreachGameState.")); return false; }
     OnLayoutPlanned.Broadcast();
     return true;
 }
@@ -250,9 +255,33 @@ bool AHBDungeonRuntime::PrepareServerGameplay(FString& Error)
     return true;
 }
 APlayerStart* AHBDungeonRuntime::GetPlayerStart() const { return IsReady() ? StartPoint.Get() : nullptr; }
+void AHBDungeonRuntime::BindSnapshotSource()
+{
+    auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>();
+    if (SnapshotSource.Get() == Source) return;
+    if (SnapshotSource.IsValid()) SnapshotSource->OnDungeonSnapshotChanged.Remove(SnapshotChangedHandle);
+    SnapshotSource = Source;
+    SnapshotChangedHandle.Reset();
+    if (!Source) return;
+    SnapshotChangedHandle = Source->OnDungeonSnapshotChanged.AddUObject(this, &AHBDungeonRuntime::ConsumeServerSnapshot);
+    // RepNotify may have run before the map actor's BeginPlay.
+    ConsumeServerSnapshot();
+}
+
+void AHBDungeonRuntime::ConsumeServerSnapshot()
+{
+    if (GetNetMode() != NM_Client || !SnapshotSource.IsValid()) return;
+    const auto& Snapshot = SnapshotSource->GetDungeonSnapshot();
+    if (Snapshot.GenerationId <= GenerationId) return;
+    if (!ApplyServerLayout(Snapshot.GenerationId, Snapshot.Seed, Snapshot.Rooms))
+        Fail(TEXT("Could not apply replicated dungeon layout."));
+}
+
 void AHBDungeonRuntime::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    // GameState can arrive after the local map actor has begun play.
+    if (GetNetMode() == NM_Client) BindSnapshotSource();
     if (State != EHBDungeonRuntimeState::Generating && State != EHBDungeonRuntimeState::Loading) return;
     if (FPlatformTime::Seconds() - GenerationStartTime > LoadTimeoutSeconds)
     { Fail(TEXT("Dungeon generation/loading timed out. Check graph and source maps.")); return; }
@@ -287,6 +316,9 @@ void AHBDungeonRuntime::Fail(const FString& Reason)
 }
 void AHBDungeonRuntime::EndPlay(const EEndPlayReason::Type Reason)
 {
+    if (SnapshotSource.IsValid()) SnapshotSource->OnDungeonSnapshotChanged.Remove(SnapshotChangedHandle);
+    SnapshotSource.Reset();
+    SnapshotChangedHandle.Reset();
     State = EHBDungeonRuntimeState::Idle;
     ClearGenerated();
     Super::EndPlay(Reason);
