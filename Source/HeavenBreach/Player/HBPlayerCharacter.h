@@ -398,6 +398,37 @@ protected:
 	UPROPERTY(EditDefaultsOnly,Category="Player|Combat")
 	float BaseBlockingAngle = 120.f;
 
+	// 방어구 내구도 감소량 = Clamp(FinalDamage * Ratio, Min, Max). 세게 맞을수록 더 닳는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float ArmorDurabilityLossRatio = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float ArmorDurabilityLossMin = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float ArmorDurabilityLossMax = 10.f;
+
+	// 방패 내구도 감소량 = Clamp(RawDamage * Ratio, Min, Max). 막아도 충격은 방패가 흡수한다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float ShieldDurabilityLossRatio = 0.2f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float ShieldDurabilityLossMin = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float ShieldDurabilityLossMax = 15.f;
+
+	// 주무기 내구도 감소량 = Clamp(적에게 실제로 들어간 Damage * Ratio, Min, Max).
+	// 공격이 적중해야만(ResolveCreatureHit -> NotifyDamageDealt) 닳는다 - 헛스윙은 닳지 않는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float WeaponDurabilityLossRatio = 0.1f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float WeaponDurabilityLossMin = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
+	float WeaponDurabilityLossMax = 10.f;
+
 	/** Development-only visualization: Warrior=red, Archer=green, Mage=blue. */
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug")
 	bool bDrawBasicAttackDebug = true;

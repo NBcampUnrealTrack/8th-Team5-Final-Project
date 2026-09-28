@@ -9,6 +9,17 @@
 #include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Item/HB_ItemTag.h"
 
+namespace
+{
+	// 방패와 동시 장착이 불가능한 무기 종류(원거리 무기). 한손검은 여기 해당하지 않으므로
+	// 기존처럼 방패와 자유롭게 병행 장착할 수 있다. DT_Item 의 WeaponType 문자열과 그대로 비교한다
+	// (HBPlayerCharacter.cpp 가 "Weapon.<WeaponType>" 태그를 만들 때 쓰는 값과 동일한 소스).
+	bool IsShieldIncompatibleWeaponType(const FString& InWeaponType)
+	{
+		return InWeaponType == TEXT("Bow") || InWeaponType == TEXT("Staff");
+	}
+}
+
 UEquipmentComponent::UEquipmentComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -347,15 +358,64 @@ bool UEquipmentComponent::CanEquip(const FItemInstance& InItem, EEquipSlotType I
 		return false;
 	}
 
+	// 내구도가 0(파손)인 장비는 애초에 장착할 수 없다.
+	if (InItem.IsBroken())
+	{
+		return false;
+	}
+
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(InItem.ItemRow, ViewData))
 	{
 		return false;
 	}
 
-	const UEnum* SlotEnum = StaticEnum<EEquipSlotType>();
+	if (ViewData.EquipSlotType != InSlot)
+	{
+		return false;
+	}
 
-	return ViewData.EquipSlotType == InSlot;
+	// 활/지팡이(원거리 무기)와 방패는 서로 병행 불가 - 한쪽을 이미 낀 상태에서 반대쪽을
+	// 장착하려 하면 막는다. 한손검은 이 제약과 무관하게 방패와 자유롭게 병행 가능.
+	if (InSlot == EEquipSlotType::SecondaryEquip)
+	{
+		FItemInstance CurrentWeapon;
+		if (GetItemInSlot(EEquipSlotType::PrimaryWeapon, CurrentWeapon))
+		{
+			if (const FWeaponData* CurrentWeaponData = CurrentWeapon.ItemRow.GetRow<FWeaponData>(TEXT("CanEquip")))
+			{
+				if (IsShieldIncompatibleWeaponType(CurrentWeaponData->WeaponType))
+				{
+					return false;
+				}
+			}
+		}
+	}
+	else if (InSlot == EEquipSlotType::PrimaryWeapon)
+	{
+		if (const FWeaponData* NewWeaponData = InItem.ItemRow.GetRow<FWeaponData>(TEXT("CanEquip")))
+		{
+			if (IsShieldIncompatibleWeaponType(NewWeaponData->WeaponType)
+				&& IsSlotOccupied(EEquipSlotType::SecondaryEquip))
+			{
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+bool UEquipmentComponent::IsSecondarySlotLockedByWeapon() const
+{
+	FItemInstance CurrentWeapon;
+	if (!GetItemInSlot(EEquipSlotType::PrimaryWeapon, CurrentWeapon))
+	{
+		return false;
+	}
+
+	const FWeaponData* CurrentWeaponData = CurrentWeapon.ItemRow.GetRow<FWeaponData>(TEXT("IsSecondarySlotLockedByWeapon"));
+	return CurrentWeaponData && IsShieldIncompatibleWeaponType(CurrentWeaponData->WeaponType);
 }
 
 bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGuid InInstanceId, EEquipSlotType InSlot)

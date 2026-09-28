@@ -92,10 +92,10 @@ void UEquipmentSlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, con
 	Operation->bRotated = EquippedItem.bRotated;
 	Operation->Pivot = EDragPivot::MouseDown;
 
-	// ÀÎº¥Åä¸® Ä­¿¡¼­ µå·¡±×ÇÒ ¶§¿Í ¶È°°ÀÌ, OperationÀÌ ÀÚ±â¸¸ÀÇ Slate ºñÁÖ¾ó
-	// (SBox+SImage)À» Á÷Á¢ ºäÆ÷Æ®¿¡ ºÙ¿©¼­ °ü¸®ÇÏ°Ô ÇÑ´Ù. ¿¹Àü ¹æ½Ä(DefaultDragVisual¿¡
-	// ´Ü¼ø UImage)Àº Å©±â°¡ ½½·Ô Áö¿À¸ÞÆ®¸® ±×´ë·Î¶ó ÀÛ°Ô ³ª¿À°í, TÅ° È¸Àüµµ
-	// ÀüÇô ¹Ý¿µÀÌ ¾È µÆ´Ù.
+	// ï¿½Îºï¿½ï¿½ä¸® Ä­ï¿½ï¿½ï¿½ï¿½ ï¿½å·¡ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½È°ï¿½ï¿½ï¿½, Operationï¿½ï¿½ ï¿½Ú±â¸¸ï¿½ï¿½ Slate ï¿½ï¿½ï¿½Ö¾ï¿½
+	// (SBox+SImage)ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Ù¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½Ñ´ï¿½. ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½(DefaultDragVisualï¿½ï¿½
+	// ï¿½Ü¼ï¿½ UImage)ï¿½ï¿½ Å©ï¿½â°¡ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½×´ï¿½Î¶ï¿½ ï¿½Û°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, TÅ° È¸ï¿½ï¿½ï¿½ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½Ý¿ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½Æ´ï¿½.
 	Operation->CreateVisual(this, IconTexture, VisualSize);
 
 	OutOperation = Operation;
@@ -143,10 +143,11 @@ void UEquipmentSlotWidget::UpdateSlot(bool bHasItem, const FString& DisplayName,
 {
 	UpdateDurabilityBar(bHasItem);
 	UpdateGradeBackground(bHasItem);
+	UpdateLockedOverlay(bHasItem);
 
 	if (bHasItem)
 	{
-		// 1. ¾ÆÀÌÅÛÀÌ ÀåÂøµÈ °æ¿ì
+		// 1. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 		if (IconImage)
 		{
 			if (IconTexture)
@@ -179,7 +180,7 @@ void UEquipmentSlotWidget::UpdateSlot(bool bHasItem, const FString& DisplayName,
 	}
 	else
 	{
-		// 2. ¾ÆÀÌÅÛÀÌ ÇØÁ¦µÈ °æ¿ì (ºó ½½·Ô)
+		// 2. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ (ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
 		if (EmptySlotIcon && IconImage)
 		{
 			IconImage->SetBrushFromTexture(EmptySlotIcon, false);
@@ -225,7 +226,7 @@ void UEquipmentSlotWidget::UpdateDurabilityBar(bool bHasItem)
 		bIsItemBroken = (EquippedItem.CurrentDurability == 0.f);
 	}
 
-	// Text_Broken/Image_BrokenBG´Â ProgressBar_Durability À¯¹«¿Í ¹«°üÇÏ°Ô Ç×»ó °»½ÅÇÑ´Ù.
+	// Text_Broken/Image_BrokenBGï¿½ï¿½ ProgressBar_Durability ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½×»ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
 	if (Text_Broken != nullptr)
 	{
 		Text_Broken->SetVisibility(bIsItemBroken ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
@@ -252,7 +253,7 @@ void UEquipmentSlotWidget::UpdateDurabilityBar(bool bHasItem)
 		? FMath::Clamp(EquippedItem.CurrentDurability / MaxDurability, 0.f, 1.f)
 		: 0.f;
 
-	// 100%(»õ °Í)¸é Æò¼Ò¿£ ±ò²ûÇÏ°Ô ¼û±â°í, ´â±â ½ÃÀÛÇÏ¸é ±×¶§ºÎÅÍ º¸¿©ÁØ´Ù.
+	// 100%(ï¿½ï¿½ ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½Ò¿ï¿½ ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¸ï¿½ ï¿½×¶ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ø´ï¿½.
 	ProgressBar_Durability->SetVisibility(Percent >= 1.f ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 	ProgressBar_Durability->SetPercent(Percent);
 
@@ -292,11 +293,37 @@ void UEquipmentSlotWidget::UpdateGradeBackground(bool bHasItem)
 		return;
 	}
 
-	// InventoryTypes.h °ø¿ë ÇÔ¼ö·Î ÀÎº¥Åä¸® Ä­ÀÌ¶û »öÀ» ¸ÂÃá´Ù(RGB´Â °ø¿ë, ¾ËÆÄ¸¸
-	// ½½·Ô Å©±â¿¡ ¸Â°Ô ¿©±â¼­ µû·Î Á¶Àý). NormalÀº Æò¼ÒÃ³·³ ¾È º¸ÀÌ°Ô µÐ´Ù.
+	// InventoryTypes.h ï¿½ï¿½ï¿½ï¿½ ï¿½Ô¼ï¿½ï¿½ï¿½ ï¿½Îºï¿½ï¿½ä¸® Ä­ï¿½Ì¶ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½(RGBï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½Ä¸ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ Å©ï¿½â¿¡ ï¿½Â°ï¿½ ï¿½ï¿½ï¿½â¼­ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½). Normalï¿½ï¿½ ï¿½ï¿½ï¿½Ã³ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½Ì°ï¿½ ï¿½Ð´ï¿½.
 	FLinearColor GradeColor = GetGradeTopColor(ViewData.Grade);
 	GradeColor.A = (ViewData.Grade == EItemGrade::Normal) ? 0.0f : 0.35f;
 
 	Image_GradeBG->SetColorAndOpacity(GradeColor);
 	Image_GradeBG->SetVisibility(GradeColor.A > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+}
+
+void UEquipmentSlotWidget::UpdateLockedOverlay(bool bHasItem)
+{
+	// ìŠ¬ë¡¯ì´ ë¹„ì–´ìžˆëŠ”ë°(bHasItem == false), ì£¼ë¬´ê¸°ë¡œ í™œ/ì§€íŒ¡ì´ê°€ ê½‚í˜€ ìžˆì–´ì„œ
+	// ì• ì´ˆì— ì•„ë¬´ê²ƒë„ ë‚„ ìˆ˜ ì—†ëŠ” ìƒíƒœì¼ ë•Œë§Œ ì¼ ë‹¤. ë­”ê°€ ìž¥ì°©ë¼ ìžˆìœ¼ë©´(ì •ìƒ ìƒí™©ì´ë¼ë©´
+	// CanEquipì´ ë§‰ì•„ì„œ ë°œìƒí•˜ì§€ ì•ŠëŠ”ë‹¤) ê·¸ìª½ í‘œì‹œê°€ ìš°ì„ ì´ë¼ ìž ê¸ˆ ì˜¤ë²„ë ˆì´ëŠ” ëˆë‹¤.
+	const bool bLocked = !bHasItem
+		&& SlotType == EEquipSlotType::SecondaryEquip
+		&& BoundEquipment != nullptr
+		&& BoundEquipment->IsSecondarySlotLockedByWeapon();
+
+	if (Text_Locked != nullptr)
+	{
+		Text_Locked->SetVisibility(bLocked ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+
+	if (Image_LockedBG != nullptr)
+	{
+		Image_LockedBG->SetVisibility(bLocked ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+
+	if (Image_LockedIcon != nullptr)
+	{
+		Image_LockedIcon->SetVisibility(bLocked ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
 }
