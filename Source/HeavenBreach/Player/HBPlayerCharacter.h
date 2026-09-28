@@ -118,6 +118,20 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerDebugEquip(FName RowName);
 
+	/**
+	 * 장착 무기에 맞는 타격 성질 큐 태그. 맨손이면 둔타다.
+	 *
+	 * 왜 필요한가: 큐는 맞는 쪽이 쏘고 공격자의 ASC 태그에서 성질을 읽는다
+	 * (HitCuePlay::ResolveCueTag). 그런데 ActivationOwnedTags 는 생성자에서
+	 * 정해지는 상수라 런타임에 바뀌는 장착 무기를 담을 수 없다.
+	 * 그래서 공격 어빌리티가 발동 중에만 이 태그를 루즈 태그로 붙인다.
+	 *
+	 * 쳐낼 조건: 무기마다 성질을 따로 정해야 하면 DT_Weapon 에 칸을 만들고
+	 * 여기 대신 그 값을 읽는다. 그때 이 매핑은 폴백으로만 남는다.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Player|Combat")
+	FGameplayTag GetImpactCueTag() const;
+
 	// 장착 무기의 WeaponType을 태그로 변환한다. 올바르지 않거나 타입이 없으면 Weapon.Unarmed.
 	UFUNCTION(BlueprintPure, Category = "Player|Combat")
 	FGameplayTag GetEquippedWeaponTag() const;

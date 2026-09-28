@@ -108,6 +108,9 @@ void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		}
 	}
 
+	// 타격 성질을 실어 보낸다. 큐는 맞는 쪽이 쏘면서 이 태그를 읽는다.
+	ApplyImpactCueTag(ActorInfo, Player);
+
 	UE_LOG(LogTemp, Warning, TEXT("[Attack] Activate  Auth=%d  Local=%d"),
 		ActorInfo->IsNetAuthority() ? 1 : 0,
 		ActorInfo->IsLocallyControlled() ? 1 : 0);
@@ -116,7 +119,7 @@ void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 void UGA_PlayerAttackRE::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
 	RemoveAttackSlow(ActorInfo);
-
+	RemoveImpactCueTag(ActorInfo);
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
@@ -129,6 +132,45 @@ void UGA_PlayerAttackRE::OnMontageCompleted()
 void UGA_PlayerAttackRE::OnMontageCancelled()
 {
 	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);
+}
+
+void UGA_PlayerAttackRE::ApplyImpactCueTag(const FGameplayAbilityActorInfo* ActorInfo, AHBPlayerCharacter* Player)
+{
+	if (!Player)
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 이전 발동에서 안 떨어진 것이 있으면 먼저 정리한다. 겹치면 둘 다 남는다.
+	RemoveImpactCueTag(ActorInfo);
+
+	AppliedImpactCueTag = Player->GetImpactCueTag();
+	if (AppliedImpactCueTag.IsValid())
+	{
+		// 루즈 태그를 쓰는 이유: 복제가 필요 없다. 큐를 쏘는 HitCuePlay::PlayImpact 는
+		// 서버에서만 돌고, 이 어빌리티는 LocalPredicted 라 서버에서도 함께 붙는다.
+		ASC->AddLooseGameplayTag(AppliedImpactCueTag);
+	}
+}
+
+void UGA_PlayerAttackRE::RemoveImpactCueTag(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!AppliedImpactCueTag.IsValid())
+	{
+		return;
+	}
+
+	if (UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr)
+	{
+		ASC->RemoveLooseGameplayTag(AppliedImpactCueTag);
+	}
+	AppliedImpactCueTag = FGameplayTag();
 }
 
 void UGA_PlayerAttackRE::RemoveAttackSlow(const FGameplayAbilityActorInfo* ActorInfo)

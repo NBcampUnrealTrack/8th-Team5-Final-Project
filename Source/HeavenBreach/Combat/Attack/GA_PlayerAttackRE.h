@@ -38,5 +38,12 @@ protected:
 	// 사용중인 이속감소 GE의 핸들. 취소시켜야하니 들고있는다.
 	FActiveGameplayEffectHandle SlowHandle;
 
+	// 발동 중에만 붙여 둔 타격 성질 큐 태그. 끝날 때 떼려고 들고 있는다.
+	FGameplayTag AppliedImpactCueTag;
+
 	void RemoveAttackSlow(const FGameplayAbilityActorInfo* ActorInfo);
+
+	// 장착 무기에 맞는 큐 태그를 붙이고 뗀다. 붙이는 곳과 떼는 곳을 한 쌍으로 둔다.
+	void ApplyImpactCueTag(const FGameplayAbilityActorInfo* ActorInfo, class AHBPlayerCharacter* Player);
+	void RemoveImpactCueTag(const FGameplayAbilityActorInfo* ActorInfo);
 };
