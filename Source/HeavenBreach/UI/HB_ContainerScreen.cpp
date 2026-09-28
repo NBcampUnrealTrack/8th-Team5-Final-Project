@@ -1,8 +1,11 @@
 ﻿#include "UI/HB_ContainerScreen.h"
 
+#include "AI/LootComponent.h"
 #include "Inventory/InventoryComponent.h"
 #include "Inventory/InventoryWidget.h"
+#include "Kismet/GameplayStatics.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Sound/SoundBase.h"
 
 UHB_ContainerScreen::UHB_ContainerScreen()
 {
@@ -23,6 +26,14 @@ void UHB_ContainerScreen::NativeOnActivated()
 	Super::NativeOnActivated();
 
 	BindPanels();
+
+	// 몬스터 시체 파밍일 때만 재생한다. 상자는 BP_OnBoxStateChanged 쪽에서 따로 처리한다
+	// (LootOpenSound 주석 참고). 이 화면은 Client_OpenContainer로 여는 사람에게만
+	// 열리므로, 여기서 그냥 로컬로 재생해도 파밍한 본인에게만 들린다.
+	if (Container != nullptr && Container->IsA<ULootComponent>() && LootOpenSound != nullptr)
+	{
+		UGameplayStatics::PlaySound2D(this, LootOpenSound);
+	}
 }
 
 void UHB_ContainerScreen::NativeOnDeactivated()

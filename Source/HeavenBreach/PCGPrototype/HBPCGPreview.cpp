@@ -345,7 +345,8 @@ void AHBPCGPreviewGenerator::Tick(float Dt)
 				(PC->IsInputKeyDown(EKeys::E) ? 1 : 0)-(PC->IsInputKeyDown(EKeys::Q) ? 1 : 0));
 			float MouseX=0, MouseY=0;
 			PC->GetInputMouseDelta(MouseX, MouseY);
-			Explorer->Fly(Move,FVector2D(MouseX,MouseY),Dt,PC->IsInputKeyDown(EKeys::LeftShift)||PC->IsInputKeyDown(EKeys::RightShift));
+			const float Sensitivity = FMath::Max(0.1f, MouseSensitivity);
+			Explorer->Fly(Move,FVector2D(MouseX,MouseY)*Sensitivity,Dt,PC->IsInputKeyDown(EKeys::LeftShift)||PC->IsInputKeyDown(EKeys::RightShift));
 			return;
 		}
 		FVector Pan = FVector::ZeroVector;
