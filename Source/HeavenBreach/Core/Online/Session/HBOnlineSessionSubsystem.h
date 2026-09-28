@@ -73,17 +73,18 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	);
 
 /**
- * 
+ *
  */
 UCLASS()
 class HEAVENBREACH_API UHBOnlineSessionSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
-	
+
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
-	
+
+	/** Legacy compatibility only: rejects creation without an explicit listen map. */
 	bool CreateLobby(int32 MaxPlayers);
 	/** Search only; completion is reported through OnLobbyOperationStateChanged. */
 	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
@@ -95,7 +96,7 @@ public:
 	TArray<FHBLobbySearchEntry> GetLobbySearchResults() const;
 	void LeaveLobby();
 
-	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
+	UFUNCTION(BlueprintCallable, Category = "Online|Lobby", meta = (DeprecatedFunction, DeprecationMessage = "Use RequestHostLobby with an explicit lobby map."))
 	bool RequestCreateLobby(int32 MaxPlayers);
 
 	/** Starts an asynchronous Steam listen host. True means accepted, not ready.
@@ -134,12 +135,13 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Online|Lobby")
 	FHBOnLobbyOperationStateChanged OnLobbyOperationStateChanged;
-	
+
+	/** Retired dedicated-server APIs. Kept as rejecting stubs for existing callers. */
 	bool PublishMatchServer(const FString& ServerAddress);
 	void ConnectToMatchServer(const FString& ServerAddress);
 	void ConnectToPublishMatchServer();
-	
-	UFUNCTION(BlueprintCallable, Category = "Online|Match")
+
+	UFUNCTION(BlueprintCallable, Category = "Online|Match", meta = (DeprecatedFunction, DeprecationMessage = "Use Lobby GameMode readiness/confirmation to start a listen match."))
 	bool RequestStartMatch();
 
 	UFUNCTION(BlueprintPure, Category = "Online|Match")
@@ -148,8 +150,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Online|Match")
 	bool IsMatchStartInProgress() const
 	{
-		return MatchStartState == EHBMatchStartState::Publishing ||
-			MatchStartState == EHBMatchStartState::Traveling;
+		return false; // Compatibility only; the dedicated match-start pipeline is retired.
 	}
 
 	UFUNCTION(BlueprintPure, Category = "Online|Match")
@@ -159,7 +160,7 @@ public:
 	FHBOnMatchStartStateChanged OnMatchStartStateChanged;
 
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
-	
+
 private:
 	bool FindLobbiesInternal(bool bJoinFirstResult);
 	bool ValidateLobbyClient(int32& OutLocalUser);
@@ -184,7 +185,6 @@ private:
 	FTSTicker::FDelegateHandle HostCleanupTickerHandle;
 	TWeakObjectPtr<UWorld> HostCleanupWorld;
 
-	void HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful);
 	void HandleFindLobbiesComplete(bool bWasSuccessful);
 	void HandleJoinLobbyComplete(
 		FName InSessionName,
@@ -194,10 +194,6 @@ private:
 		FName InSessionName,
 		bool bWasSuccessful
 		);
-	void HandleUpdateLobbyComplete(FName InSessionName, bool bWasSuccessful);
-	void HandleSessionSettingsUpdated(
-		FName InSessionName, 
-		const FOnlineSessionSettings& InSessionSettings);
 	void HandleNetworkFailure(
 		UWorld* InWorld,
 		UNetDriver* InNetDriver,
@@ -205,19 +201,7 @@ private:
 		const FString& InErrorString
 		);
 	bool TravelToJoinedLobby(FName InSessionName);
-	void StartMatchServerPolling();
-	void StopMatchServerPolling();
-	void PollMatchServerSettings();
-	bool ResolveMatchServerAddress(
-		const FString& RequestedAddress,
-		FString& OutServerAddress
-		) const;
-	bool ValidateMatchServerAddress(
-		const FString& ServerAddress,
-		FString& OutNormalizedAddress,
-		FString& OutError
-		) const;
-	bool FailMatchStart(const FString& ErrorMessage);
+	bool RejectLegacyMatchRequest();
 	void SetMatchStartState(
 		EHBMatchStartState NewState,
 		const FString& ErrorMessage = FString()
@@ -227,30 +211,20 @@ private:
 		EHBLobbyOperationState NewState,
 		const FString& ErrorMessage = FString()
 		);
-	
+
 	IOnlineSessionPtr SessionInterface;
 
 	EHBLobbyOperationState LobbyOperationState = EHBLobbyOperationState::Idle;
 	FString LastLobbyOperationError;
 	bool bJoinFirstLobbyAfterFind = false;
-	
+
 	EHBMatchStartState MatchStartState = EHBMatchStartState::Idle;
 	FString LastMatchStartError;
 
-	FString PendingMatchServerAddress;
-	bool bConnectAfterLobbyUpdate = false;
-	
-	bool bMatchTravelRequested = false;
-	
-	TSharedPtr<FOnlineSessionSettings> LobbySettings;
 	TSharedPtr<FOnlineSessionSearch> LobbySearch;
-	
-	FDelegateHandle CreateLobbyCompleteDelegateHandle;
+
 	FDelegateHandle FindLobbiesCompleteDelegateHandle;
 	FDelegateHandle JoinLobbyCompleteDelegateHandle;
 	FDelegateHandle LeaveLobbyCompleteDelegateHandle;
-	FDelegateHandle UpdateLobbyCompleteDelegateHandle;
-	FDelegateHandle SessionSettingsUpdatedDelegateHandle;
 	FDelegateHandle NetworkFailureDelegateHandle;
-	FTimerHandle MatchServerPollTimerHandle;
 };
