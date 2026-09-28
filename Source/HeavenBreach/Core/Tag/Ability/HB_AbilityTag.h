@@ -36,6 +36,9 @@ namespace AbilityTag
 
 	// 코스트 GE 의 마나 소비량.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SetByCaller_ManaCost);
+
+	// 증강 GE 에 단계 수치를 넘기는 통로. 증강당 GE 하나로 모든 단계를 처리한다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SetByCaller_AugmentMagnitude);
 }
 
 // 기본공격 스킬 식별자 상수

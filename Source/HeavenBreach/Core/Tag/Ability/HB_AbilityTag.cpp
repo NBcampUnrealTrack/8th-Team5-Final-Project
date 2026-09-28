@@ -19,4 +19,5 @@ namespace AbilityTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_Cooldown, "SetByCaller.Cooldown");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_Duration, "SetByCaller.Duration");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_ManaCost, "SetByCaller.ManaCost");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_SetByCaller_AugmentMagnitude, "SetByCaller.AugmentMagnitude", "증강 GE 에 단계 수치를 넘기는 통로");
 }

@@ -8,6 +8,25 @@ class UGameplayEffect;
 class UTexture2D;
 
 /**
+ * 이번 판에서 어떤 증강을 몇 단계까지 먹었는지.
+ *
+ * 왜 TMap 이 아닌가: UPROPERTY 복제가 TMap 을 지원하지 않는다.
+ * PlayerState 가 이 배열을 복제하고 UI 가 그대로 읽는다.
+ */
+USTRUCT(BlueprintType)
+struct HEAVENBREACH_API FHBAugmentStack
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	FGameplayTag AugmentTag;
+
+	// 1 부터 시작한다. 0 은 목록에 없는 것과 같으므로 저장하지 않는다.
+	UPROPERTY(BlueprintReadOnly)
+	int32 Tier = 0;
+};
+
+/**
  * 스킬 하나가 가질 수 있는 증강 하나.
  *
  * 왜 넣었나: 증강이 지금까지 태그로만 존재해서, UI 가 "이 스킬에 어떤 증강이 있고
@@ -64,6 +83,19 @@ struct HEAVENBREACH_API FHBSkillAugment
 	// 합산 규칙을 만들지 않고 먼저 찾은 것을 쓴다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment")
 	TMap<FGameplayTag, float> Params;
+
+	/**
+	 * 단계별 수치. 그 단계에서의 최종값이며 누적값이 아니다.
+	 * 1단계 10, 2단계 15 면 2단계는 15 다. 25 가 아니다.
+	 *
+	 * 비우면 단계 없는 1회성 증강으로 동작한다. 최대 단계는 이 배열의 길이다.
+	 * 기획서의 "최대 3단계" 는 여기 3개를 넘겨 넣지 않는 것으로 지킨다.
+	 *
+	 * 모디파이어가 Multiply 인 증강(이동속도)은 배율 자체를 적는다. 5% 증가면
+	 * 0.05 가 아니라 1.05 다. Add 인 증강은 더할 값을 적는다.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment")
+	TArray<float> TierMagnitudes;
 
 	// 증강을 고른 순간 영구로 붙일 GE. 전역 효과가 없으면 비워 둔다.
 	// 이동속도, 공격력처럼 어트리뷰트가 있는 것은 전부 이쪽이다.
