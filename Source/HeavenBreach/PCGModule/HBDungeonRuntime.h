@@ -14,7 +14,7 @@ enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, Ready, Fa
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FHBDungeonFailed, const FString&, Reason);
 
-/** Single-player gameplay dungeon. No preview camera, pawn, input or HUD. */
+/** Authority plans the layout; each world materializes it locally. */
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBDungeonRuntime : public AActor
 {
@@ -53,9 +53,19 @@ public:
     UFUNCTION(CallInEditor, Category="Dungeon - Modules") void RefreshModuleCatalog();
     bool PlanLayout();
     void MaterializeLayout(int32 PointCount);
+    /** Client-only entry point for a complete authoritative layout, not a generation request. */
+    bool ApplyServerLayout(int32 InGenerationId, int32 InSeed, const TArray<FHBPrototypeRoom>& InRooms);
+    bool CanPlanGeneration() const;
+    int32 GetGenerationId() const { return GenerationId; }
+    /** Server layout is validated and available in Rooms. Transport is supplied by GameState. */
+    FSimpleMulticastDelegate OnLayoutPlanned;
     void Fail(const FString& Reason);
 private:
-    bool PrepareGameplay(FString& Error);
+    bool PrepareServerGameplay(FString& Error);
+    bool PrepareClientGameplay(FString& Error);
+    bool SpawnDoorSeals(const FHBPrototypeRoom& Room, const TArray<FHBDungeonConnectorDefinition>& Connectors, FString& Error);
+    void LoadLocalRooms();
+    bool ValidateLocalSettings(FString& Error) const;
     void ClearGenerated();
     HBConnectorLayout::FSettings ActiveSettings;
     FHBDungeonGenerationRules ActiveRules;
@@ -64,4 +74,5 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonDoorSeal>> Seals;
     UPROPERTY(Transient) TObjectPtr<APlayerStart> StartPoint;
     double GenerationStartTime = 0;
+    int32 GenerationId = 0;
 };

@@ -20,6 +20,56 @@
 #include "Settings/LevelEditorPlaySettings.h"
 #include "UObject/UnrealType.h"
 #include "Misc/PackageName.h"
+#include "PCGModule/HBDungeonRuntimeValidation.h"
+#include "IpNetDriver.h"
+#include "Engine/ChildConnection.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBClientLayoutBoundaryTest, "HeavenBreach.PCGModule.Gameplay.ClientLayoutBoundary",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
+{
+    FString Error;
+    TArray<FHBPrototypeRoom> Rooms;
+    TestFalse(TEXT("Empty layout rejected"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    FHBPrototypeRoom Room;
+    Room.Id = 0; Room.ModuleId = TEXT("TestModule");
+    Room.ModuleMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Engine/Maps/Entry.Entry")));
+    Rooms.Add(Room);
+    TestTrue(TEXT("Minimal authoritative layout accepted without catalog/rules"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[0].Id = 2;
+    TestFalse(TEXT("Non-contiguous ID rejected before stream indexing"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[0] = Room; Rooms[0].ParentId = 0;
+    TestFalse(TEXT("Self parent rejected"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[0] = Room; Rooms[0].UsedConnectorIds.Add(TEXT("Door")); Rooms[0].UnusedConnectorIds.Add(TEXT("Door"));
+    TestFalse(TEXT("Conflicting seal intent rejected"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+
+    const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
+        .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    auto* Dungeon = World->SpawnActor<AHBDungeonRuntime>();
+    TestTrue(TEXT("Standalone may plan"), Dungeon->CanPlanGeneration());
+    TestFalse(TEXT("Server does not accept client layout entry point"), Dungeon->ApplyServerLayout(1, 1, Rooms));
+    auto* Driver = NewObject<UIpNetDriver>(World);
+    Driver->SetWorld(World);
+    // A child connection is a socket-free net-mode marker. An uninitialized
+    // UIpConnection cannot be safely collected because its socket cleanup needs a driver.
+    Driver->ServerConnection = NewObject<UChildConnection>(Driver);
+    World->SetNetDriver(Driver);
+    TestEqual(TEXT("Fixture is a client world"), World->GetNetMode(), NM_Client);
+    TestFalse(TEXT("Local actor authority cannot bypass client planning guard"), Dungeon->CanPlanGeneration());
+    Dungeon->StartGeneration();
+    TestEqual(TEXT("Client waits without failing or planning"), Dungeon->State, EHBDungeonRuntimeState::Idle);
+    TestFalse(TEXT("Client Plan node cannot generate"), Dungeon->PlanLayout());
+    Dungeon->MaterializeLayout(1);
+    TestEqual(TEXT("Client Load node cannot bypass layout application"), Dungeon->State, EHBDungeonRuntimeState::Idle);
+    TestFalse(TEXT("Invalid generation rejected"), Dungeon->ApplyServerLayout(0, 1, Rooms));
+    World->SetNetDriver(nullptr);
+    Driver->ServerConnection = nullptr;
+    Driver->SetWorld(nullptr);
+    World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
+    return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBGameplayGateTest, "HeavenBreach.PCGModule.Gameplay.SpawnGate",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -112,6 +162,10 @@ public:
         if (Pawn && Source)
         {
             Pawn->SetActorLocation(Source->Trigger->GetComponentLocation(), false, nullptr, ETeleportType::TeleportPhysics);
+            const FTransform Arrival = Source->TargetPortal->Arrival->GetComponentTransform();
+            if (World->EncroachingBlockingGeometry(Pawn, Arrival.GetLocation(), Arrival.Rotator()))
+                Test->AddInfo(FString::Printf(TEXT("Portal arrival is blocked for the gameplay pawn: %s at %s"),
+                    *Source->TargetPortal->GetPathName(), *Arrival.GetLocation().ToString()));
             Test->TestTrue(TEXT("Real gameplay character can traverse portal"), Source->TryTeleport(Pawn));
             Test->TestTrue(TEXT("Character reached authored arrival"), Pawn->GetActorLocation().Equals(Source->TargetPortal->Arrival->GetComponentLocation(), 1));
         }

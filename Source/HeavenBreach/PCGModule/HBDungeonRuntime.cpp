@@ -35,6 +35,11 @@ AHBDungeonRuntime::AHBDungeonRuntime()
 void AHBDungeonRuntime::BeginPlay()
 {
     Super::BeginPlay();
+    if (GetNetMode() == NM_Client)
+    {
+        if (State == EHBDungeonRuntimeState::Idle) Status = TEXT("Waiting for server layout.");
+        return;
+    }
     if (!Cast<AHeavenBreachGameMode>(GetWorld()->GetAuthGameMode()))
         Fail(TEXT("Gameplay dungeon requires HeavenBreachGameMode (or its Blueprint subclass)."));
 }
@@ -48,21 +53,20 @@ void AHBDungeonRuntime::StartGeneration()
 {
     if (State != EHBDungeonRuntimeState::Idle) return;
     if (!GetWorld() || !GetWorld()->IsGameWorld()) return;
-    if (!HasAuthority() || GetNetMode() != NM_Standalone)
-    { Fail(TEXT("Gameplay dungeon currently supports single-player Standalone/one-player PIE only.")); return; }
+    // Non-replicated local actors can have authority on a client; check world net mode too.
+    if (!CanPlanGeneration()) return;
     int32 Count = 0;
     for (TActorIterator<AHBDungeonRuntime> It(GetWorld()); It; ++It) ++Count;
     if (Count != 1) { Fail(TEXT("Place exactly one gameplay dungeon generator.")); return; }
     for (TActorIterator<AHBPCGPreviewGenerator> It(GetWorld()); It; ++It)
     { Fail(TEXT("Remove the Preview generator from the gameplay map.")); return; }
     if (!Graph) { Fail(TEXT("Select the dungeon Plan -> Load PCG graph.")); return; }
-    if (!DoorSealClass || DoorSealExtent.ContainsNaN() || DoorSealExtent.GetMin() <= 0 || SpawnTag.IsNone())
-    { Fail(TEXT("Configure a door seal class, positive extent and spawn tag.")); return; }
-    if (!FMath::IsFinite(LoadTimeoutSeconds) || LoadTimeoutSeconds <= 0)
-    { Fail(TEXT("Load timeout must be positive and finite.")); return; }
+    FString SettingsError;
+    if (!ValidateLocalSettings(SettingsError)) { Fail(SettingsError); return; }
     if (!HBDungeonModuleCatalog::Build(ModuleMaps, ModuleCatalog, CatalogErrors))
     { Fail(FString::Join(CatalogErrors, TEXT("\n"))); return; }
     ActiveSeed = bRandomSeedOnStart ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
+    ++GenerationId;
     ActiveRules = DungeonRules;
     ActiveSettings.Seed = ActiveSeed;
     ActiveSettings.Origin = GetActorTransform();
@@ -78,32 +82,124 @@ void AHBDungeonRuntime::StartGeneration()
 }
 bool AHBDungeonRuntime::PlanLayout()
 {
-    if (State != EHBDungeonRuntimeState::Generating || !Rooms.IsEmpty()) return false;
+    if (!CanPlanGeneration() || State != EHBDungeonRuntimeState::Generating || !Rooms.IsEmpty()) return false;
     FString Error;
     if (!HBDungeonRuleLayout::Generate(ModuleCatalog, ActiveSettings, ActiveRules, Rooms, Error))
     { Fail(Error); return false; }
+    if (!HBDungeonRuleLayout::Validate(ModuleCatalog, ActiveSettings, ActiveRules, Rooms, Error) ||
+        !HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error))
+    { Fail(Error); return false; }
+    OnLayoutPlanned.Broadcast();
     return true;
 }
 void AHBDungeonRuntime::MaterializeLayout(int32 PointCount)
 {
-    if (State != EHBDungeonRuntimeState::Generating || !Streams.IsEmpty()) return;
+    if (!CanPlanGeneration() || State != EHBDungeonRuntimeState::Generating || !Streams.IsEmpty()) return;
     FString Error;
     if (PointCount != Rooms.Num() || Rooms.IsEmpty())
     { Fail(TEXT("PCG point count does not match the planned layout.")); return; }
     if (!HBDungeonRuleLayout::Validate(ModuleCatalog, ActiveSettings, ActiveRules, Rooms, Error))
     { Fail(Error); return; }
+    LoadLocalRooms();
+}
+
+bool AHBDungeonRuntime::CanPlanGeneration() const
+{
+    return GetWorld() && GetWorld()->IsGameWorld() && HasAuthority() &&
+        (GetNetMode() == NM_Standalone || GetNetMode() == NM_ListenServer);
+}
+
+bool AHBDungeonRuntime::ValidateLocalSettings(FString& Error) const
+{
+    if (!DoorSealClass || DoorSealExtent.ContainsNaN() || DoorSealExtent.GetMin() <= 0 || SpawnTag.IsNone())
+    { Error = TEXT("Configure a door seal class, positive extent and spawn tag."); return false; }
+    if (!FMath::IsFinite(LoadTimeoutSeconds) || LoadTimeoutSeconds <= 0)
+    { Error = TEXT("Load timeout must be positive and finite."); return false; }
+    return true;
+}
+
+bool AHBDungeonRuntime::ApplyServerLayout(int32 InGenerationId, int32 InSeed, const TArray<FHBPrototypeRoom>& InRooms)
+{
+    if (!GetWorld() || !GetWorld()->IsGameWorld() || GetNetMode() != NM_Client || InGenerationId <= 0) return false;
+    if (InGenerationId < GenerationId) return false;
+    if (InGenerationId == GenerationId) return State == EHBDungeonRuntimeState::Loading || State == EHBDungeonRuntimeState::Ready;
+    FString Error;
+    // Reject malformed input without discarding a currently loaded generation.
+    if (!ValidateLocalSettings(Error) || !HBDungeonRuntimeValidation::ValidateLayoutForLoading(InRooms, Error))
+    {
+        UE_LOG(LogHBDungeonRuntime, Warning, TEXT("Rejected server layout: %s"), *Error);
+        return false;
+    }
+    ClearGenerated();
+    GenerationId = InGenerationId;
+    ActiveSeed = InSeed;
+    Rooms = InRooms;
+    ModuleCatalog.Reset(); // Clients never build or use the planner's source catalog.
+    GenerationStartTime = FPlatformTime::Seconds();
+    LoadLocalRooms();
+    return State == EHBDungeonRuntimeState::Loading;
+}
+
+void AHBDungeonRuntime::LoadLocalRooms()
+{
+    FString Error;
+    if (!HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error)) { Fail(Error); return; }
     State = EHBDungeonRuntimeState::Loading;
     for (const auto& Room : Rooms)
     {
         bool bSuccess = false;
+        // Shared generation/room IDs, never local actor names, identify level instances.
         auto* Stream = ULevelStreamingDynamic::LoadLevelInstanceBySoftObjectPtr(this, Room.ModuleMap, Room.Transform,
-            bSuccess, FString::Printf(TEXT("HBDungeon_%s_R%d"), *GetName(), Room.Id));
+            bSuccess, FString::Printf(TEXT("HBDungeon_G%d_R%d"), GenerationId, Room.Id));
         if (!bSuccess || !Stream) { Fail(FString::Printf(TEXT("Failed to load room %d."), Room.Id)); return; }
         Streams.Add(Stream);
     }
-    Status = TEXT("Loading dungeon rooms...");
+    Status = TEXT("Loading local dungeon rooms...");
 }
-bool AHBDungeonRuntime::PrepareGameplay(FString& Error)
+
+bool AHBDungeonRuntime::SpawnDoorSeals(const FHBPrototypeRoom& Room,
+    const TArray<FHBDungeonConnectorDefinition>& Connectors, FString& Error)
+{
+    for (FName Id : Room.UnusedConnectorIds)
+    {
+        const auto* Connector = Connectors.FindByPredicate([Id](const auto& C) { return C.ConnectorId == Id; });
+        if (!Connector) { Error = TEXT("Layout references a missing unused connector."); return false; }
+        FTransform Transform = Connector->LocalTransform * Room.Transform;
+        Transform.AddToTranslation(Transform.GetRotation().RotateVector(FVector(0, 0, DoorSealExtent.Z)));
+        FActorSpawnParameters Params; Params.Owner = this;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        auto* Seal = GetWorld()->SpawnActor<AHBDungeonDoorSeal>(DoorSealClass, Transform, Params);
+        if (!Seal) { Error = TEXT("Could not create unused-door seal."); return false; }
+        Seal->SetExtent(DoorSealExtent); Seals.Add(Seal);
+    }
+    return true;
+}
+
+bool AHBDungeonRuntime::PrepareClientGameplay(FString& Error)
+{
+    if (!HBDungeonRuntimeValidation::ValidateLocalPortalInstances(Rooms, Streams, Error)) return false;
+    for (const auto& Room : Rooms)
+    {
+        AHBDungeonModuleDefinition* Definition = nullptr;
+        for (AActor* Actor : Streams[Room.Id]->GetLoadedLevel()->Actors)
+            if (auto* D = Cast<AHBDungeonModuleDefinition>(Actor))
+            {
+                if (Definition) { Error = TEXT("Multiple module definitions in a local room."); return false; }
+                Definition = D;
+            }
+        TArray<FHBDungeonConnectorDefinition> Connectors;
+        TArray<FHBDungeonOccupancyDefinition> Occupancy;
+        TArray<FHBDungeonModuleIssue> Issues;
+        if (!Definition || Definition->ModuleId != Room.ModuleId ||
+            !Definition->ReadModuleGeometry(Room.Transform, Connectors, Occupancy, Issues))
+        { Error = TEXT("Loaded client room does not match the authoritative module."); return false; }
+        if (!SpawnDoorSeals(Room, Connectors, Error)) return false;
+    }
+    // No GameMode, spawn selection, rule generation or authority-owned portal linking here.
+    return true;
+}
+
+bool AHBDungeonRuntime::PrepareServerGameplay(FString& Error)
 {
     if (!HBDungeonRuleLayout::Validate(ModuleCatalog, ActiveSettings, ActiveRules, Rooms, Error)) return false;
     for (const auto& Room : Rooms)
@@ -128,17 +224,7 @@ bool AHBDungeonRuntime::PrepareGameplay(FString& Error)
             if (!Occupancy[I].LocalTransform.Equals(Module->Occupancy[I].LocalTransform, 0.1)
                 || !Occupancy[I].Extent.Equals(Module->Occupancy[I].Extent, 0.1))
             { Error = TEXT("Loaded occupancy geometry differs from the plan."); return false; }
-        for (const auto& Connector : Module->Connectors)
-        {
-            if (!Room.UnusedConnectorIds.Contains(Connector.ConnectorId)) continue;
-            FTransform Transform = Connector.LocalTransform * Room.Transform;
-            Transform.AddToTranslation(Transform.GetRotation().RotateVector(FVector(0, 0, DoorSealExtent.Z)));
-            FActorSpawnParameters Params; Params.Owner = this;
-            Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-            auto* Seal = GetWorld()->SpawnActor<AHBDungeonDoorSeal>(DoorSealClass, Transform, Params);
-            if (!Seal) { Error = TEXT("Could not create unused-door seal."); return false; }
-            Seal->SetExtent(DoorSealExtent); Seals.Add(Seal);
-        }
+        if (!SpawnDoorSeals(Room, Connectors, Error)) return false;
     }
     if (!HBDungeonRuntimeValidation::LinkPortals(Rooms, ModuleCatalog, Streams, LinkedPortals, Error)) return false;
     for (AActor* Actor : Streams[0]->GetLoadedLevel()->Actors)
@@ -170,13 +256,14 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
     if (State != EHBDungeonRuntimeState::Generating && State != EHBDungeonRuntimeState::Loading) return;
     if (FPlatformTime::Seconds() - GenerationStartTime > LoadTimeoutSeconds)
     { Fail(TEXT("Dungeon generation/loading timed out. Check graph and source maps.")); return; }
-    if (State != EHBDungeonRuntimeState::Loading || PCG->IsGenerating()) return;
+    if (State != EHBDungeonRuntimeState::Loading || (CanPlanGeneration() && PCG->IsGenerating())) return;
     for (const auto& Stream : Streams)
         if (!IsValid(Stream) || !Stream->IsLevelLoaded() || !Stream->IsLevelVisible()) return;
     FString Error;
-    if (!PrepareGameplay(Error)) { Fail(Error); return; }
+    const bool bPrepared = GetNetMode() == NM_Client ? PrepareClientGameplay(Error) : PrepareServerGameplay(Error);
+    if (!bPrepared) { Fail(Error); return; }
     State = EHBDungeonRuntimeState::Ready;
-    Status = TEXT("READY - gameplay dungeon and spawn prepared.");
+    Status = TEXT("READY - local dungeon prepared (not all-player readiness).");
     UE_LOG(LogHBDungeonRuntime, Display, TEXT("%s Seed=%d Rooms=%d Seals=%d"), *Status, ActiveSeed, Rooms.Num(), Seals.Num());
     OnReady.Broadcast();
 }
