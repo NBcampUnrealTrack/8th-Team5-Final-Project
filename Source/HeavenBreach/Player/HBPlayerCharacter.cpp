@@ -46,6 +46,7 @@
 #include "Combat/Ability/HBPlayerActiveGABase.h"
 #include "Combat/Ability/HBPlayerPassiveGABase.h"
 #include "Combat/Ability/HBPlayerSkillGABase.h"
+#include "Combat/Ability/HBCommonAugmentSet.h"
 
 
 AHBPlayerCharacter::AHBPlayerCharacter()
@@ -1075,25 +1076,45 @@ bool AHBPlayerCharacter::FindAugmentInfo(FGameplayTag AugmentTag, FHBSkillAugmen
 	{
 		return false;
 	}
-	if (!JobData)
+
+	if (JobData)
 	{
-		return false;
+		if (FindAugmentInCatalog(JobData->GetActiveSkillCatalog(), AugmentTag, Out))
+		{
+			return true;
+		}
+		if (FindAugmentInCatalog(JobData->GetPassiveSkillCatalog(), AugmentTag, Out))
+		{
+			return true;
+		}
+
+		// 궁극기 증강은 기획에서 폐기됐지만 조회는 해 둔다.
+		// 나중에 생겼을 때 "왜 안 뜨지" 로 시간을 버리지 않기 위해서다.
+		TArray<FHBJobSkillData> UltimateOnly;
+		UltimateOnly.Add(JobData->UltimateSkill);
+		if (FindAugmentInCatalog(UltimateOnly, AugmentTag, Out))
+		{
+			return true;
+		}
 	}
 
-	if (FindAugmentInCatalog(JobData->GetActiveSkillCatalog(), AugmentTag, Out))
+	// 공통 강화는 어느 스킬 것도 아니라 직업 카탈로그에 없다. 여기서 못 찾으면
+	// 최대 체력 증가 같은 걸 골라도 보유 목록 UI 에 안 뜨고, 다시 그릴 때마다
+	// "카탈로그에서 못 찾았다" 경고만 쌓인다. 그래서 공통 세트까지 본다.
+	//
+	// JobData 가 없어도 여기까지 온다. 공통 강화 조회는 직업과 무관하기 때문이다.
+	if (HB_PlayerState)
 	{
-		return true;
+		if (const UHBCommonAugmentSet* CommonSet = HB_PlayerState->GetCommonAugmentSet())
+		{
+			if (const FHBSkillAugment* Found = CommonSet->FindAugment(AugmentTag))
+			{
+				Out = *Found;
+				return true;
+			}
+		}
 	}
-	if (FindAugmentInCatalog(JobData->GetPassiveSkillCatalog(), AugmentTag, Out))
-	{
-		return true;
-	}
-
-	// 궁극기 증강은 기획에서 폐기됐지만 조회는 해 둔다.
-	// 나중에 생겼을 때 "왜 안 뜨지" 로 시간을 버리지 않기 위해서다.
-	TArray<FHBJobSkillData> UltimateOnly;
-	UltimateOnly.Add(JobData->UltimateSkill);
-	return FindAugmentInCatalog(UltimateOnly, AugmentTag, Out);
+	return false;
 }
 
 bool AHBPlayerCharacter::FindAugmentInCatalog(
@@ -1142,7 +1163,7 @@ TArray<FHBSkillAugment> AHBPlayerCharacter::GetTakenAugmentInfos() const
 			// 애셋에서 증강을 지웠는데 태그가 남은 경우다. 조용히 넘기면
 			// UI 에 빈 칸이 생기고 원인을 못 찾는다.
 			UE_LOG(LogTemp, Warning,
-				TEXT("[Augment] 보유 태그 '%s' 를 직업 카탈로그에서 못 찾았다."),
+				TEXT("[Augment] 보유 태그 '%s' 를 직업 카탈로그에서도 공통 세트에서도 못 찾았다."),
 				*Tag.GetTagName().ToString());
 			continue;
 		}

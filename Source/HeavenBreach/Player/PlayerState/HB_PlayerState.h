@@ -20,6 +20,7 @@ class UQuickSlotComponent;
 class UShopComponent;
 class ILoadoutStorage;
 class UCraftComponent;
+class UHBCommonAugmentSet;
 
 struct FPlayerLoadout;
 
@@ -110,6 +111,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
 	int32 GetAugmentTier(FGameplayTag AugmentTag) const;
 
+	// 공통 강화 목록 애셋. 캐릭터가 태그를 증강 정보로 되돌릴 때 필요하다.
+	//
+	// 왜 필드를 열지 않고 게터인가: CommonAugmentSet 은 BP 기본값으로만 정해지고
+	// 런타임에 바뀌면 안 된다. 필드를 public 으로 올리면 누가 대입해도 막을 길이
+	// 없어진다. 읽기만 여는 게터가 최소 노출이다.
+	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
+	const UHBCommonAugmentSet* GetCommonAugmentSet() const { return CommonAugmentSet; }
+
 	// ================ 폐기 예정 ================
 	// 스킬 레벨(0~3) 모델은 증강 태그로 대체됐다. 아래 둘은 아무 일도 하지 않는다.
 	//
@@ -194,7 +203,7 @@ private:
 
 	// 공통 강화 목록. BP 기본값에서 지정한다.
 	UPROPERTY(EditDefaultsOnly, Category = "Progression|Skills")
-	TObjectPtr<class UHBCommonAugmentSet> CommonAugmentSet;
+	TObjectPtr<UHBCommonAugmentSet> CommonAugmentSet;
 
 	// 공통 강화 후보를 모은다. 각 증강의 다음 단계 1장씩만 넣는다.
 	void CollectCommonAugments(TArray<FHBUpgradeCandidate>& OutPool) const;
@@ -206,7 +215,12 @@ private:
 	// 실제로 적용됐는지 돌려준다. 실패하면 선택권을 소모하지 않아야 한다.
 	bool ApplyAugment(FName TargetSkillId, FGameplayTag AugmentTag);
 
-	// 매치가 끝날 때 증강 GE 를 전부 걷는다.
+	// 올린 단계를 하나 되돌린다. GE 적용이 거절됐을 때의 수습용이다.
+	// 0 이 되면 항목째 지운다. RaiseTier 의 짝이지만 수습 전용이라
+	// HBAugment 네임스페이스로 빼지 않았다. 정상 흐름에는 내려가는 길이 없다.
+	void LowerAugmentTier(FGameplayTag AugmentTag);
+
+	// 매치가 끝날 때 증강 GE 를 전부 걷는다. 핸들 배열과 태그 맵을 같이 비운다.
 	void RemoveAllAugmentEffects();
 
 	UFUNCTION(Server, Reliable)

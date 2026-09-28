@@ -67,6 +67,47 @@ namespace
 		return FText::Format(NSLOCTEXT("HBAugment", "TieredName", "{0} ({1}단계)"),
 			Base, FText::AsNumber(Tier));
 	}
+
+	// 증강 하나를 후보 한 장으로 만들어 통에 넣는다. 최대 단계면 아무것도 안 넣는다.
+	//
+	// 왜 뺐나: 스킬 증강과 공통 강화의 수집 코드가 단계 필터 아래로는 글자 하나까지
+	// 같았다. 다른 건 어느 통에서 증강을 꺼내는가(GA CDO / DataAsset)와 그래서
+	// TargetSkillId 에 뭘 넣는가 뿐이고, 그건 이 함수를 부르는 쪽 반복문에 남아 있다.
+	// 붙여넣기로 두면 카드 표기 규칙이 바뀔 때마다 두 곳을 같이 고쳐야 하고,
+	// 한쪽만 고치면 공통 강화 카드만 다르게 보이는 식으로 어긋난다.
+	//
+	// 멤버가 아니라 자유 함수인 이유: 필요한 상태를 전부 인자로 받는다.
+	// PlayerState 를 만들지 않아도 부를 수 있어야 나중에 테스트가 붙는다.
+	void AddAugmentCandidate(
+		const FHBSkillAugment& Augment,
+		const FName TargetSkillId,
+		const TArray<FHBAugmentStack>& TakenAugments,
+		TArray<FHBUpgradeCandidate>& OutPool)
+	{
+		if (!Augment.AugmentTag.IsValid())
+		{
+			return;
+		}
+
+		const int32 CurrentTier = HBAugment::FindTier(TakenAugments, Augment.AugmentTag);
+		const int32 MaxTier = HBAugment::GetMaxTier(Augment);
+		if (CurrentTier >= MaxTier)
+		{
+			return;   // 최대 단계에 도달했다. 후보에서 사라진다
+		}
+
+		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
+		Candidate.Tier = CurrentTier + 1;
+		Candidate.CandidateId = FName(*FString::Printf(
+			TEXT("Augment.%s.T%d"), *Augment.AugmentTag.GetTagName().ToString(), Candidate.Tier));
+		Candidate.Type = EHBUpgradeCandidateType::Augment;
+		// 공통 강화면 호출부가 NAME_None 을 넘긴다. 그게 "공통" 의 표시다.
+		Candidate.TargetSkillId = TargetSkillId;
+		Candidate.AugmentTag = Augment.AugmentTag;
+		Candidate.DisplayName = MakeTieredDisplayName(Augment.DisplayName, Candidate.Tier, MaxTier);
+		Candidate.Description = Augment.GetFormattedDescription();
+		Candidate.Icon = Augment.Icon;
+	}
 }
 
 AHB_PlayerState::AHB_PlayerState()
@@ -552,8 +593,8 @@ void AHB_PlayerState::ResetMatchProgression()
 
 	// 증강은 이번 판에서만 유효하다. 태그와 그 태그가 붙인 GE 를 같이 걷는다.
 	// GE 를 안 걷으면 로비에서도 공격력이 오른 채로 남는다.
+	// 핸들 컨테이너 둘은 RemoveAllAugmentEffects 안에서 같이 비워진다.
 	RemoveAllAugmentEffects();
-	AugmentEffectByTag.Reset();
 	TakenAugments.Reset();
 
 	BroadcastProgression();
@@ -686,6 +727,22 @@ bool AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag
 		return true;
 	}
 
+	// GE 는 있는데 TierMagnitudes 가 비면 GetTierMagnitude 가 1단계에도 0 을 준다.
+	// 공통 강화 GE 는 전부 SetByCaller 로 수치를 받으므로 결과는 "0 만큼 강해지는"
+	// 무효 증강이다. 그런데 GetMaxTier 가 1 을 돌려주니 바로 최대 단계가 되어
+	// 후보에서도 사라진다. 에러 없이 조용히 사라지는 애셋 설정 실수라서,
+	// 애셋을 만드는 단계에서 바로 보이도록 시끄럽게 남긴다.
+	//
+	// 막지는 않는다. "비면 단계 없는 1회성" 이라는 기존 뜻을 그대로 두고
+	// 알려만 준다. GE 가 SetByCaller 를 안 쓰는 경우도 있을 수 있다.
+	if (Augment.TierMagnitudes.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Augment] '%s' 는 GrantEffect 가 있는데 TierMagnitudes 가 비었다. ")
+			TEXT("SetByCaller 수치가 0 으로 들어간다. 애셋에 단계 수치를 채워라."),
+			*AugmentTag.GetTagName().ToString());
+	}
+
 	// 새 스펙을 먼저 만든다. 이전 GE 를 먼저 떼면, 새 스펙이 실패했을 때
 	// 증강이 아무 효과도 없이 남는다. 검증된 교체본이 손에 있을 때만 뗀다.
 	FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(
@@ -710,12 +767,52 @@ bool AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag
 
 	const FActiveGameplayEffectHandle Handle =
 		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
-	if (Handle.IsValid())
+	if (!Handle.IsValid())
 	{
-		AugmentEffectHandles.Add(Handle);
-		AugmentEffectByTag.Add(AugmentTag, Handle);
+		// 붙이기가 거절됐다 (면역, ApplicationTagRequirements 등). 이 시점에는
+		// 이전 단계 GE 를 이미 뗐으므로, 그냥 두면 단계는 N 인데 붙은 GE 는
+		// 하나도 없는 상태가 된다. 게다가 N 이 최대 미만이어도 다음 후보에는
+		// N+1 만 뜨니 없어진 효과를 되찾을 길이 영영 없다.
+		//
+		// 두 수습안 중 단계 되돌리기를 골랐다. 뗀 GE 를 다시 붙이는 쪽은
+		// 방금 실패한 ApplyGameplayEffectSpecToSelf 를 같은 GE 애셋으로 한 번 더
+		// 부르는 것이라, 거절 사유(면역·태그 요구)가 그대로면 똑같이 실패한다.
+		// 실패의 실패는 알릴 방법도 없다. 단계 되돌리기는 항상 성공한다.
+		//
+		// 되돌린 뒤 false 를 준다. 호출부(ApplyUpgradeCandidate)가 false 면
+		// 선택권을 소모하지 않으므로 플레이어는 카드를 잃지 않고, 증강은
+		// 최대 단계 미만이라 다음 레벨업 후보에 다시 뜬다. 거절 사유가
+		// 그때 사라져 있으면 그대로 붙는다.
+		LowerAugmentTier(AugmentTag);
+
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Augment] '%s' %d단계 GE 적용이 거절됐다. 단계를 %d 로 되돌린다."),
+			*AugmentTag.GetTagName().ToString(), NewTier, NewTier - 1);
+		return false;
 	}
+
+	AugmentEffectHandles.Add(Handle);
+	AugmentEffectByTag.Add(AugmentTag, Handle);
 	return true;
+}
+
+void AHB_PlayerState::LowerAugmentTier(const FGameplayTag AugmentTag)
+{
+	for (int32 Index = 0; Index < TakenAugments.Num(); ++Index)
+	{
+		if (TakenAugments[Index].AugmentTag != AugmentTag)
+		{
+			continue;
+		}
+
+		// 1단계에서 실패했으면 아예 안 먹은 것으로 되돌린다. Tier 0 짜리 항목을
+		// 남기면 GetTakenAugments 가 안 먹은 증강을 보유로 세어 UI 에 뜬다.
+		if (--TakenAugments[Index].Tier <= 0)
+		{
+			TakenAugments.RemoveAt(Index);
+		}
+		return;
+	}
 }
 
 void AHB_PlayerState::RemoveAllAugmentEffects()
@@ -732,6 +829,12 @@ void AHB_PlayerState::RemoveAllAugmentEffects()
 		}
 	}
 	AugmentEffectHandles.Reset();
+
+	// 태그->핸들 맵도 같이 비운다. 두 컨테이너는 같은 핸들을 두 모양으로 들고
+	// 있는 하나의 상태다. 여기서 안 비우면 죽음/리스폰처럼 호출부가 늘었을 때
+	// 이미 떼어낸 핸들이 맵에 남고, 다음 단계 상승이 그 죽은 핸들을 떼려 든다.
+	// 호출부가 따로 Reset 해 주기를 기대하는 건 계약이 아니라 우연이었다.
+	AugmentEffectByTag.Reset();
 }
 
 // ================ 폐기 예정 ================
@@ -937,28 +1040,8 @@ void AHB_PlayerState::CollectSkillAugments(TArray<FHBUpgradeCandidate>& OutPool,
 
 	for (const FHBSkillAugment& Augment : SkillCDO->GetAugments())
 	{
-		if (!Augment.AugmentTag.IsValid())
-		{
-			continue;
-		}
-
-		const int32 CurrentTier = HBAugment::FindTier(TakenAugments, Augment.AugmentTag);
-		const int32 MaxTier = HBAugment::GetMaxTier(Augment);
-		if (CurrentTier >= MaxTier)
-		{
-			continue;   // 최대 단계에 도달했다. 후보에서 사라진다
-		}
-
-		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
-		Candidate.Tier = CurrentTier + 1;
-		Candidate.CandidateId = FName(*FString::Printf(
-			TEXT("Augment.%s.T%d"), *Augment.AugmentTag.GetTagName().ToString(), Candidate.Tier));
-		Candidate.Type = EHBUpgradeCandidateType::Augment;
-		Candidate.TargetSkillId = SkillId;
-		Candidate.AugmentTag = Augment.AugmentTag;
-		Candidate.DisplayName = MakeTieredDisplayName(Augment.DisplayName, Candidate.Tier, MaxTier);
-		Candidate.Description = Augment.GetFormattedDescription();
-		Candidate.Icon = Augment.Icon;
+		// 이 스킬에 딸린 증강이라 TargetSkillId 에 스킬을 적는다.
+		AddAugmentCandidate(Augment, SkillId, TakenAugments, OutPool);
 	}
 }
 
@@ -971,29 +1054,8 @@ void AHB_PlayerState::CollectCommonAugments(TArray<FHBUpgradeCandidate>& OutPool
 
 	for (const FHBSkillAugment& Augment : CommonAugmentSet->Augments)
 	{
-		if (!Augment.AugmentTag.IsValid())
-		{
-			continue;
-		}
-
-		const int32 CurrentTier = HBAugment::FindTier(TakenAugments, Augment.AugmentTag);
-		const int32 MaxTier = HBAugment::GetMaxTier(Augment);
-		if (CurrentTier >= MaxTier)
-		{
-			continue;
-		}
-
-		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
-		Candidate.Tier = CurrentTier + 1;
-		Candidate.CandidateId = FName(*FString::Printf(
-			TEXT("Augment.%s.T%d"), *Augment.AugmentTag.GetTagName().ToString(), Candidate.Tier));
-		Candidate.Type = EHBUpgradeCandidateType::Augment;
 		// TargetSkillId 를 비운다. 이것이 "공통" 의 표시다.
-		Candidate.TargetSkillId = NAME_None;
-		Candidate.AugmentTag = Augment.AugmentTag;
-		Candidate.DisplayName = MakeTieredDisplayName(Augment.DisplayName, Candidate.Tier, MaxTier);
-		Candidate.Description = Augment.GetFormattedDescription();
-		Candidate.Icon = Augment.Icon;
+		AddAugmentCandidate(Augment, NAME_None, TakenAugments, OutPool);
 	}
 }
 
