@@ -116,6 +116,14 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 		PartMult = *Found;
 	}
 
+	// 머리면 때린 사람의 헤드샷 옵션을 곱한다. BP 에서 지정한 부위 배율 위에 얹는다.
+	// 적끼리 때렸거나 옵션이 없으면 보너스 0 이라 그대로다.
+	if (HBDamage::IsHeadshot(Hit))
+	{
+		const float Bonus = HBDamage::GetAttackerHeadshotBonus(InstigatorActor);
+		PartMult *= FMath::Max(0.f, 1.f + Bonus);
+	}
+
 	// DT 가 아니라 어트리뷰트에서 읽는다. 스폰 시 InitStats 가 DT 값을 넣어주고,
 	// 그 뒤로는 GE 가 올리고 내릴 수 있다. 방어구 파괴 · 페이즈별 방어력이 여기로 온다.
 	//
