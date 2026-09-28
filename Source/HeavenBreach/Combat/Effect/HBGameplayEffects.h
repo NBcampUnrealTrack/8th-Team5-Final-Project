@@ -64,7 +64,8 @@ public:
 };
 
 /**
- * 장착 장비가 주는 어트리뷰트 보정. 방어구 방어력 + 무기 공격력.
+ * 장착 장비가 주는 어트리뷰트 보정. 무기 공격력 + 방어구 방어력 + 모든 칸의 숫자 옵션.
+ * 어떤 스탯이 어느 칸으로 가는지는 Item/ItemStatBinding.cpp 의 표가 정한다.
  *
  * Infinite + Additive 다. 직업 GE 는 Instant Override 라 BaseValue 를 직접 박는데,
  * 이건 그 위에 얹히는 모디파이어라 나중에 직업 GE 가 와도 살아남는다.
@@ -77,8 +78,8 @@ public:
  * 주의: Additive 라 전투의 함성(Multiplicitive)이 장비까지 곱한다.
  * (기본 + 무기) × 배율 이다. 무기가 좋을수록 버프가 세진다.
  *
- * 쳐낼 조건: 악세서리를 붙일 때 MaxHP / MoveSpeed 모디파이어를 여기 더한다.
- * 값이 0 이면 0 을 더할 뿐이라 호출부에 분기가 생기지 않는다.
+ * 미검증: 장비의 공격력 % (Multiplicitive) 와 전투의 함성 배율이 같은 칸에서 만날 때
+ * GAS 가 둘을 곱하는지 더하는지 확인하지 않았다. 둘 다 켜고 [Hit] Raw 로 확인할 것.
  */
 UCLASS()
 class HEAVENBREACH_API UGE_EquipmentStats : public UGameplayEffect
@@ -86,4 +87,51 @@ class HEAVENBREACH_API UGE_EquipmentStats : public UGameplayEffect
 	GENERATED_BODY()
 public:
 	UGE_EquipmentStats();
+};
+
+/**
+ * 아이템 동작 효과의 표시등. 태그만 붙이고 어트리뷰트는 건드리지 않는다.
+ *
+ * 태그는 붙일 때 DynamicGrantedTags 로 끼운다. UGE_WarriorTaggedDuration 과 같은 방식이다.
+ * 효과끼리 다른 건 태그뿐이라 클래스는 이것 하나다. 효과가 늘어도 여기는 안 고친다.
+ *
+ * 붙이고 떼는 건 UEquipmentComponent::RefreshItemEffects 가 한다.
+ * 실제 동작은 ItemEffectRules 가 효과 정의의 원형을 보고 한다. 이 태그는 "꼈다" 는 표시다
+ * (오라가 같은 오라를 낀 사람을 건너뛸 때, showdebug 로 확인할 때 쓴다).
+ */
+UCLASS()
+class HEAVENBREACH_API UGE_ItemEffectTag : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_ItemEffectTag();
+};
+
+/**
+ * 아이템 동작 효과가 스탯을 바꿀 때 쓰는 GE. 장비 스탯 GE 의 칸(스탯 표 전체)을 그대로 물려받는다.
+ *
+ * 바꿀 스탯 칸만 채우고 나머지는 0 이다 (ItemStats::FillSpec). 그래서 어떤 스탯이든 이것 하나로 된다.
+ * 오라(파티원에게) · 조건 동안(나에게) 이 같이 쓴다. 걸고 떼는 건 ItemEffectRules.
+ *
+ * 따로 두는 이유: 같은 클래스면 showdebug 에서 장비 스탯과 구분이 안 된다.
+ * 생성자를 안 두는 이유: 부모 생성자가 Infinite 와 모디파이어를 이미 다 만든다.
+ */
+UCLASS()
+class HEAVENBREACH_API UGE_ItemEffectStats : public UGE_EquipmentStats
+{
+	GENERATED_BODY()
+};
+
+/**
+ * 아이템 부작용의 자기 피해. 한 번 깎고 끝난다. 양은 SetByCaller(Data.ItemEffect.Magnitude)로 받는다 (음수).
+ *
+ * 체력 1 을 남기도록 자르는 건 ItemEffectRules 가 한다 — 기획상 아이템 부작용으로는 죽지 않는다.
+ * 피격용 GE_PlayerDamage 를 안 쓰는 이유: 캐릭터 BP 에 꽂힌 애셋이라 규칙 코드가 직접 집을 수 없다.
+ */
+UCLASS()
+class HEAVENBREACH_API UGE_ItemSelfDamage : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_ItemSelfDamage();
 };

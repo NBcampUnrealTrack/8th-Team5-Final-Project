@@ -8,6 +8,7 @@
 #include "HeavenBreachGameMode.generated.h"
 
 class APlayerState;
+class AHBDungeonRuntime;
 
 /**
  * 
@@ -19,6 +20,12 @@ class HEAVENBREACH_API AHeavenBreachGameMode : public AGameMode
 	
 public:
 	AHeavenBreachGameMode();
+    virtual void StartPlay() override;
+    virtual void StartMatch() override;
+    virtual void RestartPlayer(AController* NewPlayer) override;
+    virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
+    AHBDungeonRuntime* GetDungeonGenerator() const;
+
 
 	// 매치 시작
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
@@ -46,6 +53,8 @@ public:
 	void TravelPlayerToPostMatchMap(APlayerState* PlayerState, EHBPostMatchReason Reason);
 
 protected:
+    UFUNCTION() void HandleDungeonReady();
+    UFUNCTION() void HandleDungeonFailed(const FString& Reason);
 	// Shared entry point for new connections and players arriving via seamless travel.
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
