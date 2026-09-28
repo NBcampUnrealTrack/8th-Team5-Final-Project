@@ -6,6 +6,12 @@
 UENUM(BlueprintType)
 enum class EHBPrototypeRoomRole : uint8 { Adventure, Recovery, Upgrade, Boss, Unassigned = 255 };
 
+UENUM(BlueprintType)
+enum class EHBAllowedFloor : uint8 { Any, Floor1, Floor2 };
+
+UENUM(BlueprintType)
+enum class EHBDungeonConnection : uint8 { Door, Portal };
+
 USTRUCT(BlueprintType)
 struct FHBPrototypeRoom
 {
@@ -16,6 +22,10 @@ struct FHBPrototypeRoom
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) EHBPrototypeRoomRole Role = EHBPrototypeRoomRole::Adventure;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bBranch = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bFloorExit = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bCorridor = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) EHBDungeonConnection Connection = EHBDungeonConnection::Door;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FName ParentPortalId;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FName EntryPortalId;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FTransform Transform;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FBox Bounds = FBox(ForceInit);
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FName ModuleId;

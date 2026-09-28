@@ -2,6 +2,7 @@
 #include "PCGModule/HBRoomInfoComponent.h"
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBDungeonOccupancyComponent.h"
+#include "PCGModule/HBDungeonPortal.h"
 #include "Engine/Level.h"
 #include "Logging/MessageLog.h"
 #include "Misc/UObjectToken.h"
@@ -95,6 +96,25 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 				Role != EHBPrototypeRoomRole::Upgrade && Role != EHBPrototypeRoomRole::Boss)
 			{
 				AddIssue(OutIssues, TEXT("MissingRole"), Info[0], TEXT("Select a fixed RoomRole: Adventure, Recovery, Upgrade or Boss."));
+			}
+		}
+		if (Info.Num() == 1)
+		{
+			if (static_cast<uint8>(Info[0]->AllowedFloor) > 2)
+				AddIssue(OutIssues, TEXT("AllowedFloor"), Info[0], TEXT("Select Any, Floor1 or Floor2."));
+			if (Definition->ModuleKind == EHBDungeonModuleKind::Room && Info[0]->RoomRole == EHBPrototypeRoomRole::Boss
+				&& Info[0]->AllowedFloor == EHBAllowedFloor::Floor1)
+				AddIssue(OutIssues, TEXT("BossFloor"), Info[0], TEXT("Boss rooms cannot be restricted to Floor1."));
+		}
+		TSet<FName> PortalIds;
+		for (AActor* Actor : Level->Actors)
+		{
+			if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal))
+			{
+				FString Error;
+				if (!Portal->ValidateDefinition(Error)) AddIssue(OutIssues, TEXT("PortalDefinition"), Actor, Error);
+				if (PortalIds.Contains(Portal->PortalId)) AddIssue(OutIssues, TEXT("PortalId"), Actor, TEXT("PortalId must be unique within the room map."));
+				PortalIds.Add(Portal->PortalId);
 			}
 		}
 
