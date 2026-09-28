@@ -20,7 +20,6 @@
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
-#include "Core/Tag/Job/HB_JobTag.h"
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
 #include "Core/Tag/Archer/HB_ArcherTag.h"
 #include "Core/Tag/Mage/HB_MageTag.h"
@@ -1650,18 +1649,17 @@ void AHBPlayerCharacter::InitializeJob(UAbilitySystemComponent* AbilitySystem)
 	// 직업이 정해진 뒤에만 완료로 기록한다. 실패를 완료로 남기지 않는다.
 	bJobInitialized = true;
 
-	AbilitySystem->RemoveLooseGameplayTag(JobTag::TAG_Job_Warrior);
-	AbilitySystem->RemoveLooseGameplayTag(JobTag::TAG_Job_Archer);
-	AbilitySystem->RemoveLooseGameplayTag(JobTag::TAG_Job_Mage);
-	if (JobData->JobId == TEXT("Warrior")) AbilitySystem->AddLooseGameplayTag(JobTag::TAG_Job_Warrior);
-	else if (JobData->JobId == TEXT("Archer"))
+	// Job.* 태그를 붙이지 않는다. 기획 21장에서 직업 개념이 사라졌고,
+	// 그 태그를 읽는 코드도 애셋도 없어서 붙기만 하던 값이었다.
+	//
+	// 아래 JobId 분기는 남겨 둔다. 궁수·마법사 전용 기본공격 GA 를 아직
+	// 여기서 주고 있어서, 공통 목록으로 통합될 때 함께 정리해야 한다.
+	if (JobData->JobId == TEXT("Archer"))
 	{
-		AbilitySystem->AddLooseGameplayTag(JobTag::TAG_Job_Archer);
 		GrantAbilityIfMissing(AbilitySystem, UGA_ArcherBasicAttack::StaticClass());
 	}
 	else if (JobData->JobId == TEXT("Mage"))
 	{
-		AbilitySystem->AddLooseGameplayTag(JobTag::TAG_Job_Mage);
 		GrantAbilityIfMissing(AbilitySystem, UGA_MageBasicAttack::StaticClass());
 	}
 
