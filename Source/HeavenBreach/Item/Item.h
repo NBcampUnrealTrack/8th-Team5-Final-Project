@@ -124,21 +124,24 @@ struct FItemData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString PairedBodyMeshPath;
 
-	// ===== 장신구(Relic) 전용 필드 =====
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	bool bIsRelic = false;
+	// ===== 악세서리 옵션 =====
+	// 좋은 쪽과 나쁜 쪽을 나눠 적는다. 툴팁 색(초록/빨강)이 이걸로 정해진다.
+	// 부호로는 못 가른다 — "받는 피해 +20%" 는 + 인데 나쁜 옵션이다.
+	// 계산은 네 배열을 적힌 부호 그대로 더할 뿐이다. 나뉜 건 표시뿐이다.
+	// 숫자 옵션은 툴팁 설명이 자동으로 만들어진다.
+	// 동작 효과는 DT_ItemEffect 의 정의를 고르고 숫자만 준다. 문구는 정의의 문구 틀에서 나온다.
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	FString BenefitDescription;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Option", meta = (TitleProperty = "Stat"))
+	TArray<FItemOption> BenefitOptions;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	FString RiskDescription;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Option", meta = (TitleProperty = "Stat"))
+	TArray<FItemOption> RiskOptions;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	TSubclassOf<UGameplayEffect> BenefitEffect;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Option", meta = (TitleProperty = "Definition"))
+	TArray<FItemEffect> BenefitEffects;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	TSubclassOf<UGameplayEffect> RiskEffect;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Option", meta = (TitleProperty = "Definition"))
+	TArray<FItemEffect> RiskEffects;
 };
 USTRUCT(BlueprintType)
 struct FBoxLootData : public FTableRowBase

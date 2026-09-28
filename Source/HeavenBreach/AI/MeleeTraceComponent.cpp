@@ -15,6 +15,7 @@
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "Combat/GameplayCue/HitCuePlay.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/State/HB_StateTag.h"
 #include "Player/HBPlayerCharacter.h"
 #include "EquipmentComponent.h"
 
@@ -302,9 +303,20 @@ bool UMeleeTraceComponent::ApplyDamage(AActor* Target, const FHitResult& Hit)
 	// 데미지값 배율합해서 연산
 	float FinalDamage = AttackPower * DamageMultiplier;
 
-	// 플레이어 패시브 보정 (연속공격 / 약점간파 / 복수 / 매의눈...)
 	if (Player)
 	{
+		// 스킬로 휘둘렀으면 장비의 스킬 피해 옵션을 곱한다.
+		// 기본 공격과 스킬이 같은 트레이스를 쓰므로 태그로 가른다.
+		// State.UsingSkill 은 UHBPlayerActiveGABase 가 발동 중에만 붙인다.
+		if (const UAbilitySystemComponent* PlayerASC = Player->GetAbilitySystemComponent())
+		{
+			if (PlayerASC->HasMatchingGameplayTag(StateTag::TAG_State_UsingSkill))
+			{
+				FinalDamage *= Player->GetSkillDamageMultiplier();
+			}
+		}
+
+		// 플레이어 패시브 보정 (연속공격 / 약점간파 / 복수 / 매의눈...)
 		FinalDamage = Player->ModifyOutgoingDamage(Target, FinalDamage);
 	}
 

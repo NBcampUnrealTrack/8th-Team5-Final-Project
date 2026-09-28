@@ -19,8 +19,10 @@ public:
 	virtual void NativeConstruct() override;
 	virtual void NativeOnFocusLost(const FFocusEvent& InFocusEvent) override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+	// InBenefitDescription / InRiskDescription 은 초록 / 빨강 칸에 그대로 찍힌다. 비어 있으면 칸이 숨는다.
+	// 유물이 악세서리로 통합되어 bIsRelic 인자는 뺐다. 옵션 문장은 ItemStats::FormatLines 가 만든다.
 	void SetupInfo(const FString& InDisplayName, EItemGrade InGrade, const FString& InDescription,
-		bool bInIsRelic, const FString& InBenefitDescription, const FString& InRiskDescription,
+		const FString& InBenefitDescription, const FString& InRiskDescription,
 		int32 InSellValue, UTexture2D* InIcon, const FString& InStatText = FString(),
 		bool bInCompact = false, const FString& InEquipSlotLabel = FString(),
 		float InCurrentDurability = -1.f, float InMaxDurability = -1.f);

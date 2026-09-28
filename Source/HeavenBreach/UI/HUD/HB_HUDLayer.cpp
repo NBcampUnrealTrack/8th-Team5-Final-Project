@@ -14,9 +14,11 @@
 #include "GameFramework/PlayerController.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Components/TextBlock.h"
+#include "Components/Border.h"
 #include "Components/ProgressBar.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "UI/HUD/HB_HitEffectWidget.h"
+#include "UI/HUD/HB_NotificationWidget.h"
 #include "Engine/TextureRenderTarget2D.h"
 
 UHB_HUDLayer::UHB_HUDLayer()
@@ -266,7 +268,45 @@ void UHB_HUDLayer::UpdateLevel(int32 NewLevel)
 		Txt_Level->SetText(FText::AsNumber(NewLevel));
 	}
 
+	// LastKnownLevel 이 -1 이면 HUD 가 막 떠서 현재 레벨을 처음 받아온 것뿐이다.
+	// 그때 말고, 이미 값을 한 번 받아온 뒤 실제로 오른 경우에만 알림을 띄운다.
+	if (LastKnownLevel >= 0 && NewLevel > LastKnownLevel && WBP_Notification)
+	{
+		WBP_Notification->ShowNotification(
+			FText::FromString(TEXT("You've reached")),
+			FText::Format(NSLOCTEXT("HB_HUDLayer", "LevelUpBody", "Level {0}"), FText::AsNumber(NewLevel)));
+	}
+	LastKnownLevel = NewLevel;
+
 	BP_OnLevelChanged(NewLevel);
+}
+
+void UHB_HUDLayer::SetActiveWeaponSlot(bool bIsMainActive)
+{
+	auto SetImageAlpha = [](UImage* Image, float Alpha)
+	{
+		if (!Image)
+		{
+			return;
+		}
+		FLinearColor Color = Image->GetColorAndOpacity();
+		Color.A = Alpha;
+		Image->SetColorAndOpacity(Color);
+	};
+
+	SetImageAlpha(IMG_MainBackground, bIsMainActive ? ActiveBackgroundAlpha : InactiveBackgroundAlpha);
+	SetImageAlpha(IMG_SubBackground, bIsMainActive ? InactiveBackgroundAlpha : ActiveBackgroundAlpha);
+	SetImageAlpha(IMG_EquipWeapon, bIsMainActive ? ActiveIconAlpha : InactiveIconAlpha);
+	SetImageAlpha(IMG_EquipSubWeapon, bIsMainActive ? InactiveIconAlpha : ActiveIconAlpha);
+
+	if (MainWeapon_key)
+	{
+		MainWeapon_key->SetBrushColor(bIsMainActive ? ActiveKeyColor : InactiveKeyColor);
+	}
+	if (SubWeapon_Key)
+	{
+		SubWeapon_Key->SetBrushColor(bIsMainActive ? InactiveKeyColor : ActiveKeyColor);
+	}
 }
 
 void UHB_HUDLayer::UpdateExperience(int32 CurrentExperience, int32 ExperienceToNextLevel, float ExperiencePercent)
@@ -285,6 +325,20 @@ void UHB_HUDLayer::UpdateExperience(int32 CurrentExperience, int32 ExperienceToN
 	}
 
 	BP_OnExperienceChanged(CurrentExperience, ExperienceToNextLevel, ExpTargetPercent);
+}
+
+void UHB_HUDLayer::HandleSkillUpgradesChanged()
+{
+	AHB_PlayerState* PS = Cast<AHB_PlayerState>(GetOwningPlayerState());
+	const bool bHasPending = PS && PS->GetPendingUpgradeChoices() > 0;
+
+	if (bHasPending == bLastPendingUpgradeState)
+	{
+		return;
+	}
+
+	bLastPendingUpgradeState = bHasPending;
+	BP_OnPendingUpgradeChanged(bHasPending);
 }
 
 void UHB_HUDLayer::BindPlayerState()
@@ -331,8 +385,12 @@ bool UHB_HUDLayer::TryBindPlayerState()
 		PS->OnPlayerExperienceChanged.RemoveAll(this);
 		PS->OnPlayerExperienceChanged.AddDynamic(this, &UHB_HUDLayer::UpdateExperience);
 
+		PS->OnSkillUpgradesChanged.RemoveAll(this);
+		PS->OnSkillUpgradesChanged.AddDynamic(this, &UHB_HUDLayer::HandleSkillUpgradesChanged);
+
 		UpdateLevel(PS->GetPlayerLevel());
 		UpdateExperience(PS->GetCurrentExperience(), PS->GetExperienceToNextLevel(), PS->GetExperiencePercent());
+		HandleSkillUpgradesChanged();
 
 		if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
 		{
