@@ -65,6 +65,15 @@ bool FHBAugmentTierTest::RunTest(const FString&)
 	TestFalse(TEXT("빈 태그는 올릴 수 없다"), HBAugment::RaiseTier(Fresh, FGameplayTag(), 3));
 	TestEqual(TEXT("빈 태그로는 항목이 안 생긴다"), Fresh.Num(), 0);
 
+	// MaxTier 가 0 이하면 태그가 유효해도 거부한다
+	TArray<FHBAugmentStack> ZeroMax;
+	TestFalse(TEXT("MaxTier 0 은 유효한 태그도 거부한다"), HBAugment::RaiseTier(ZeroMax, TierTestTag(), 0));
+	TestEqual(TEXT("MaxTier 0 이면 항목이 안 생긴다"), ZeroMax.Num(), 0);
+
+	TArray<FHBAugmentStack> NegativeMax;
+	TestFalse(TEXT("MaxTier 음수도 유효한 태그를 거부한다"), HBAugment::RaiseTier(NegativeMax, TierTestTag(), -1));
+	TestEqual(TEXT("MaxTier 음수면 항목이 안 생긴다"), NegativeMax.Num(), 0);
+
 	return true;
 }
 
