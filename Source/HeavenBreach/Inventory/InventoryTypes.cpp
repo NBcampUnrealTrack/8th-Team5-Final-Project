@@ -111,6 +111,53 @@ FString GetEquipSlotDisplayName(EEquipSlotType InSlot)
 	}
 }
 
+FString BuildStatTextForItem(const FItemInstance& InItem)
+{
+	FString StatText;
+	const UDataTable* ItemDataTable = InItem.ItemRow.DataTable;
+	if (ItemDataTable == nullptr)
+	{
+		return StatText;
+	}
+
+	const UScriptStruct* RowStruct = ItemDataTable->GetRowStruct();
+	if (RowStruct == FWeaponData::StaticStruct())
+	{
+		if (const FWeaponData* WeaponRow = ItemDataTable->FindRow<FWeaponData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
+		{
+			const FText WeaponStatFormat = FText::FromString(TEXT("공격력: {0}\n사거리: {1}\n공격 속도: {2}초"));
+			StatText = FText::Format(WeaponStatFormat,
+				FText::AsNumber(WeaponRow->AttackPower),
+				FText::AsNumber(WeaponRow->AttackRange),
+				FText::AsNumber(WeaponRow->AttackInterval)).ToString();
+		}
+	}
+	else if (RowStruct == FShieldData::StaticStruct())
+	{
+		if (const FShieldData* ShieldRow = ItemDataTable->FindRow<FShieldData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
+		{
+			const FText ShieldStatFormat = FText::FromString(TEXT("피해 감소: {0}%\n방어 범위: {1}도"));
+			StatText = FText::Format(ShieldStatFormat,
+				FText::AsNumber(ShieldRow->DamageReduction),
+				FText::AsNumber(ShieldRow->BlockAngle)).ToString();
+		}
+	}
+	else if (RowStruct == FItemData::StaticStruct())
+	{
+		if (const FItemData* GeneralRow = ItemDataTable->FindRow<FItemData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
+		{
+			if (!GeneralRow->BonusStatType.IsEmpty())
+			{
+				const FText BonusStatFormat = FText::FromString(TEXT("{0}: {1}"));
+				StatText = FText::Format(BonusStatFormat,
+					FText::FromString(GeneralRow->BonusStatType),
+					FText::AsNumber(GeneralRow->BonusStatValue)).ToString();
+			}
+		}
+	}
+	return StatText;
+}
+
 FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InViewData)
 {
 	if (InItem.bRotated)

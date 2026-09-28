@@ -951,6 +951,13 @@
 
 		const FItemInstance& Item = BoundInventory->GetEntries()[EntryIndex].Item;
 
+		// 서칭 중(bRevealed=false)인 아이템은 "?"로만 보여야 하므로 정보 팁을 띄우지 않는다.
+		if (!Item.bRevealed)
+		{
+			ClearHoverInfoPopup();
+			return;
+		}
+
 		// 같은 아이템 위에서 계속 움직이는 중이면 다시 만들지 않고 위치만 따라가게 한다.
 		if (HoverInfoPopup != nullptr && HoveredItemInstanceId == Item.InstanceId)
 		{
@@ -1010,53 +1017,6 @@
 			HoverInfoPopup = nullptr;
 		}
 		HoveredItemInstanceId = FGuid();
-	}
-
-	FString UInventoryWidget::BuildStatTextForItem(const FItemInstance& InItem) const
-	{
-		FString StatText;
-		const UDataTable* ItemDataTable = InItem.ItemRow.DataTable;
-		if (ItemDataTable == nullptr)
-		{
-			return StatText;
-		}
-
-		const UScriptStruct* RowStruct = ItemDataTable->GetRowStruct();
-		if (RowStruct == FWeaponData::StaticStruct())
-		{
-			if (const FWeaponData* WeaponRow = ItemDataTable->FindRow<FWeaponData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
-			{
-				const FText WeaponStatFormat = FText::FromString(TEXT("공격력: {0}\n사거리: {1}\n공격 속도: {2}초"));
-				StatText = FText::Format(WeaponStatFormat,
-					FText::AsNumber(WeaponRow->AttackPower),
-					FText::AsNumber(WeaponRow->AttackRange),
-					FText::AsNumber(WeaponRow->AttackInterval)).ToString();
-			}
-		}
-		else if (RowStruct == FShieldData::StaticStruct())
-		{
-			if (const FShieldData* ShieldRow = ItemDataTable->FindRow<FShieldData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
-			{
-				const FText ShieldStatFormat = FText::FromString(TEXT("피해 감소: {0}%\n방어 범위: {1}도"));
-				StatText = FText::Format(ShieldStatFormat,
-					FText::AsNumber(ShieldRow->DamageReduction),
-					FText::AsNumber(ShieldRow->BlockAngle)).ToString();
-			}
-		}
-		else if (RowStruct == FItemData::StaticStruct())
-		{
-			if (const FItemData* GeneralRow = ItemDataTable->FindRow<FItemData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
-			{
-				if (!GeneralRow->BonusStatType.IsEmpty())
-				{
-					const FText BonusStatFormat = FText::FromString(TEXT("{0}: {1}"));
-					StatText = FText::Format(BonusStatFormat,
-						FText::FromString(GeneralRow->BonusStatType),
-						FText::AsNumber(GeneralRow->BonusStatValue)).ToString();
-				}
-			}
-		}
-		return StatText;
 	}
 
 	void UInventoryWidget::ShowSplitPopupForDrop(FGuid InInstanceId, FIntPoint InTargetCell, FVector2D InScreenPosition)

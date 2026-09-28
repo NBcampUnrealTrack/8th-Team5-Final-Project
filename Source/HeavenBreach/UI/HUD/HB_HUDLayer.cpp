@@ -442,8 +442,26 @@ bool UHB_HUDLayer::TryBindPlayerState()
 			}
 		}
 	}
-	// PlayerState, EquipmentComponent, QuickSlotComponent 모두 준비되어야 재시도 타이머가 종료됩니다.
-	return bPSBound && bIsEquipBound && bIsQuickSlotBound;
+
+	// 4. InventoryComponent 바인딩 (아직 바인딩되지 않은 경우에만 시도)
+	// QuickSlotComponent::OnQuickSlotChanged 는 슬롯에 아이템을 등록/해제할 때만 발생해서,
+	// 이미 등록된 포션을 사용해 StackCount 만 줄어드는 경우(슬롯 자체는 그대로)엔 발생하지 않는다.
+	// 그래서 갯수 텍스트(Txt_Potion_*_Num)가 갱신되려면 인벤토리 변경도 직접 구독해야 한다.
+	if (!bIsInventoryBound)
+	{
+		if (APlayerController* OwningController = GetOwningPlayer())
+		{
+			AHB_PlayerState* HBPlayerState = OwningController->GetPlayerState<AHB_PlayerState>();
+			if (UInventoryComponent* Inventory = HBPlayerState ? HBPlayerState->GetInventory() : nullptr)
+			{
+				Inventory->OnInventoryChanged.RemoveDynamic(this, &UHB_HUDLayer::UpdateQuickSlots);
+				Inventory->OnInventoryChanged.AddDynamic(this, &UHB_HUDLayer::UpdateQuickSlots);
+				bIsInventoryBound = true;
+			}
+		}
+	}
+	// PlayerState, EquipmentComponent, QuickSlotComponent, InventoryComponent 모두 준비되어야 재시도 타이머가 종료됩니다.
+	return bPSBound && bIsEquipBound && bIsQuickSlotBound && bIsInventoryBound;
 }
 
 void UHB_HUDLayer::UpdateEquipmentSlots()
