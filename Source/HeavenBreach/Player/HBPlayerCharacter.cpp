@@ -47,40 +47,6 @@
 #include "Combat/Ability/HBPlayerPassiveGABase.h"
 #include "Combat/Ability/HBPlayerSkillGABase.h"
 
-namespace
-{
-	// GetSkillCooldownRemaining로직 변경으로 필요없어짐
-	// 이제 skillid가 곧 태그임
-	//FGameplayTag GetSkillCooldownTag(const FName SkillId)
-	//{
-	//	if (SkillId == TEXT("Warrior.ChargeSlash")) return WarriorTag::TAG_Cooldown_ChargeSlash;
-	//	if (SkillId == TEXT("Warrior.CombatRoll")) return WarriorTag::TAG_Cooldown_CombatRoll;
-	//	if (SkillId == TEXT("Warrior.Execute")) return WarriorTag::TAG_Cooldown_Execute;
-	//	if (SkillId == TEXT("Warrior.BattleCry")) return WarriorTag::TAG_Cooldown_BattleCry;
-	//	if (SkillId == TEXT("Warrior.ChainPull")) return WarriorTag::TAG_Cooldown_ChainPull;
-	//	if (SkillId == TEXT("Warrior.BloodThirst")) return WarriorTag::TAG_Cooldown_BloodThirst;
-	//	if (SkillId == TEXT("Archer.EvasiveShot")) return ArcherTag::TAG_Cooldown_EvasiveShot;
-	//	if (SkillId == TEXT("Archer.SwiftMovement")) return ArcherTag::TAG_Cooldown_SwiftMovement;
-	//	if (SkillId == TEXT("Archer.PiercingArrow")) return ArcherTag::TAG_Cooldown_PiercingArrow;
-	//	if (SkillId == TEXT("Archer.BindingTrap")) return ArcherTag::TAG_Cooldown_BindingTrap;
-	//	if (SkillId == TEXT("Archer.MultiShot")) return ArcherTag::TAG_Cooldown_MultiShot;
-	//	if (SkillId == TEXT("Archer.TrackingMark")) return ArcherTag::TAG_Cooldown_TrackingMark;
-	//	if (SkillId == TEXT("Archer.ExplosiveArrow")) return ArcherTag::TAG_Cooldown_ExplosiveArrow;
-	//	if (SkillId == TEXT("Archer.RapidFire")) return ArcherTag::TAG_Cooldown_RapidFire;
-	//	if (SkillId == TEXT("Archer.SmokeArrow")) return ArcherTag::TAG_Cooldown_SmokeArrow;
-	//	if (SkillId == TEXT("Mage.MagicBolt")) return MageTag::TAG_Cooldown_MagicBolt;
-	//	if (SkillId == TEXT("Mage.Teleport")) return MageTag::TAG_Cooldown_Teleport;
-	//	if (SkillId == TEXT("Mage.Fireball")) return MageTag::TAG_Cooldown_Fireball;
-	//	if (SkillId == TEXT("Mage.IceLance")) return MageTag::TAG_Cooldown_IceLance;
-	//	if (SkillId == TEXT("Mage.ChainLightning")) return MageTag::TAG_Cooldown_ChainLightning;
-	//	if (SkillId == TEXT("Mage.IceWall")) return MageTag::TAG_Cooldown_IceWall;
-	//	if (SkillId == TEXT("Mage.FireZone")) return MageTag::TAG_Cooldown_FireZone;
-	//	if (SkillId == TEXT("Mage.MagicShield")) return MageTag::TAG_Cooldown_MagicShield;
-	//	if (SkillId == TEXT("Mage.GravityField")) return MageTag::TAG_Cooldown_GravityField;
-	//	if (SkillId == TEXT("Mage.ManaExplosion")) return MageTag::TAG_Cooldown_ManaExplosion;
-	//	return FGameplayTag();
-	//}
-}
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
@@ -210,50 +176,6 @@ void AHBPlayerCharacter::MoveRight(const float Value)
 
 void AHBPlayerCharacter::Attack()
 {
-	//if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
-	//{
-	//	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead)
-	//		|| ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
-	//	{
-	//		return;
-	//	}
-	//
-	//	if (bDrawBasicAttackDebug && GetWorld())
-	//	{
-	//		float DebugRange = GetAttackRange();
-	//		float DebugRadius = 50.f;
-	//		FColor DebugColor = FColor::Red;
-	//		if (JobData && JobData->JobId == TEXT("Archer"))
-	//		{
-	//			DebugRange = 1800.f;
-	//			DebugRadius = 35.f;
-	//			DebugColor = FColor::Green;
-	//		}
-	//		else if (JobData && JobData->JobId == TEXT("Mage"))
-	//		{
-	//			DebugRange = 1500.f;
-	//			DebugRadius = 55.f;
-	//			DebugColor = FColor::Blue;
-	//		}
-	//
-	//		const FVector DebugStart = GetPawnViewLocation();
-	//		const FVector DebugEnd = DebugStart + GetBaseAimRotation().Vector() * DebugRange;
-	//		DrawDebugLine(GetWorld(), DebugStart, DebugEnd, DebugColor, false, BasicAttackDebugDuration, 0, 3.f);
-	//		DrawDebugSphere(GetWorld(), DebugEnd, DebugRadius, 12, DebugColor, false, BasicAttackDebugDuration, 0, 2.f);
-	//	}
-	//
-	//	if (JobData && JobData->JobId == TEXT("Archer"))
-	//	{
-	//		ASC->TryActivateAbilityByClass(UGA_ArcherBasicAttack::StaticClass());
-	//		return;
-	//	}
-	//	if (JobData && JobData->JobId == TEXT("Mage"))
-	//	{
-	//		ASC->TryActivateAbilityByClass(UGA_MageBasicAttack::StaticClass());
-	//		return;
-	//	}
-	//	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(StateTag::TAG_State_Attacking));
-	//}
 
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
 	if (!ASC) 
@@ -477,7 +399,6 @@ void AHBPlayerCharacter::BindToPlayerStateComponents()
 	RefreshEquippedVisuals();
 	BP_OnPlayerStateReady();
 }
-
 
 
 bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* InstigatorActor) const
