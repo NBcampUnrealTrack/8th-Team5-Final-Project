@@ -686,20 +686,22 @@ bool AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag
 		return true;
 	}
 
-	// 이전 단계 GE 를 뗀다. TierMagnitudes 가 최종 수치라서 겹쳐 붙이면
+	// 새 스펙을 먼저 만든다. 이전 GE 를 먼저 떼면, 새 스펙이 실패했을 때
+	// 증강이 아무 효과도 없이 남는다. 검증된 교체본이 손에 있을 때만 뗀다.
+	FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(
+		Augment.GrantEffect, 1.f, AbilitySystemComponent->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return true;   // 단계는 올랐다. GE 만 실패했다. 이전 GE 는 그대로 둔다
+	}
+
+	// 이제야 이전 단계 GE 를 뗀다. TierMagnitudes 가 최종 수치라서 겹쳐 붙이면
 	// 합산되어 뜻이 달라진다.
 	if (const FActiveGameplayEffectHandle* Previous = AugmentEffectByTag.Find(AugmentTag))
 	{
 		AbilitySystemComponent->RemoveActiveGameplayEffect(*Previous);
 		AugmentEffectHandles.Remove(*Previous);
 		AugmentEffectByTag.Remove(AugmentTag);
-	}
-
-	FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(
-		Augment.GrantEffect, 1.f, AbilitySystemComponent->MakeEffectContext());
-	if (!Spec.IsValid())
-	{
-		return true;   // 단계는 올랐다. GE 만 실패했다
 	}
 
 	Spec.Data->SetSetByCallerMagnitude(
