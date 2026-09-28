@@ -327,6 +327,20 @@ void UHB_HUDLayer::UpdateExperience(int32 CurrentExperience, int32 ExperienceToN
 	BP_OnExperienceChanged(CurrentExperience, ExperienceToNextLevel, ExpTargetPercent);
 }
 
+void UHB_HUDLayer::HandleSkillUpgradesChanged()
+{
+	AHB_PlayerState* PS = Cast<AHB_PlayerState>(GetOwningPlayerState());
+	const bool bHasPending = PS && PS->GetPendingUpgradeChoices() > 0;
+
+	if (bHasPending == bLastPendingUpgradeState)
+	{
+		return;
+	}
+
+	bLastPendingUpgradeState = bHasPending;
+	BP_OnPendingUpgradeChanged(bHasPending);
+}
+
 void UHB_HUDLayer::BindPlayerState()
 {
 	if (TryBindPlayerState())
@@ -371,8 +385,12 @@ bool UHB_HUDLayer::TryBindPlayerState()
 		PS->OnPlayerExperienceChanged.RemoveAll(this);
 		PS->OnPlayerExperienceChanged.AddDynamic(this, &UHB_HUDLayer::UpdateExperience);
 
+		PS->OnSkillUpgradesChanged.RemoveAll(this);
+		PS->OnSkillUpgradesChanged.AddDynamic(this, &UHB_HUDLayer::HandleSkillUpgradesChanged);
+
 		UpdateLevel(PS->GetPlayerLevel());
 		UpdateExperience(PS->GetCurrentExperience(), PS->GetExperienceToNextLevel(), PS->GetExperiencePercent());
+		HandleSkillUpgradesChanged();
 
 		if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
 		{

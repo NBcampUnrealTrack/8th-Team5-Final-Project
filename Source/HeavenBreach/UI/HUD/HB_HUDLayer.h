@@ -111,11 +111,23 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Experience Changed"))
 	void BP_OnExperienceChanged(int32 CurrentExperience, int32 ExperienceToNextLevel, float ExperiencePercent);
 
+	/**
+	 * 고를 수 있는 증강 선택권이 있는지 없는지 "상태가 바뀔 때"만 호출된다(매번이 아님).
+	 * 여기서 스킬 증강 아이콘의 깜빡임 애니메이션을 Play Animation(Loop)으로 켜고,
+	 * false 로 오면 Stop Animation 으로 끄면 된다.
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Pending Upgrade Changed"))
+	void BP_OnPendingUpgradeChanged(bool bHasPendingUpgrade);
+
 protected:
 	/** 실제 바인딩 시도. PlayerState와 AttributeSet이 준비됐으면 true */
 	bool TryBindPlayerState();
 
 	void HandleBindRetry();
+
+	/** PS->OnSkillUpgradesChanged 에 물리는 핸들러. 상태가 실제로 바뀔 때만 BP_OnPendingUpgradeChanged 를 부른다. */
+	UFUNCTION()
+	void HandleSkillUpgradesChanged();
 
 	virtual void NativeConstruct() override;
 
@@ -257,6 +269,9 @@ private:
 	 * 이때는 알림을 띄우지 않는다.
 	 */
 	int32 LastKnownLevel = -1;
+
+	/** 마지막으로 BP_OnPendingUpgradeChanged 에 넘긴 값. 상태가 진짜 바뀔 때만 다시 부르기 위한 중복 방지용. */
+	bool bLastPendingUpgradeState = false;
 
 	FTimerHandle BindRetryTimerHandle;
 
