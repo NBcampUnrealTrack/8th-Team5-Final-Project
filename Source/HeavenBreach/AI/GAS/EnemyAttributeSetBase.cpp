@@ -16,6 +16,7 @@ UEnemyAttributeSetBase::UEnemyAttributeSetBase()
 	InitMaxHP(100.f);
 	InitHP(100.f);
 	InitAttackPower(10.f);
+	InitDefense(0.f);
 	InitMoveSpeedRate(1.f);
 	InitAttackSpeedRate(1.f);
 }
@@ -27,6 +28,7 @@ void UEnemyAttributeSetBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	DOREPLIFETIME(UEnemyAttributeSetBase, HP);
 	DOREPLIFETIME(UEnemyAttributeSetBase, MaxHP);
 	DOREPLIFETIME(UEnemyAttributeSetBase, AttackPower);
+	DOREPLIFETIME(UEnemyAttributeSetBase, Defense);
 	DOREPLIFETIME(UEnemyAttributeSetBase, MoveSpeedRate);
 	DOREPLIFETIME(UEnemyAttributeSetBase, AttackSpeedRate);
 }
@@ -52,6 +54,12 @@ void UEnemyAttributeSetBase::PreAttributeChange(const FGameplayAttribute& Attrib
 	}
 	else if (Attribute == GetAttackPowerAttribute())
 	{
+		NewValue = FMath::Max(NewValue, 0.f);
+	}
+	else if (Attribute == GetDefenseAttribute())
+	{
+		// 음수가 되면 100/(100+D) 가 1 을 넘어 피해가 증폭된다.
+		// 피해 증폭은 "받는 피해 배율" 이 맡을 몫이라 여기서는 0 에서 자른다.
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
 	else if (Attribute == GetMoveSpeedRateAttribute())

@@ -50,6 +50,8 @@ struct FItemViewData
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString IconPath;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FString ItemType;
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	int32 SellValue = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
@@ -102,6 +104,17 @@ struct FItemInstance
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	bool bIsFavorite = false;
 
+	// 상자/몬스터 시체 같은 루팅 컨테이너에서 아직 "서칭"되지 않은 아이템인지.
+	// 기본값 true(공개된 상태) - 플레이어 인벤토리로 들어오는 일반 아이템(픽업/제작/구매 등)은
+	// 전부 이 기본값을 그대로 쓴다. 루팅 컨테이너가 아이템을 생성할 때(BoxActor::GenerateLoot,
+	// ULootComponent::AddLootItem)만 명시적으로 false로 만들어서, 컨테이너 화면이 열려 있는 동안
+	// UInventoryComponent::BeginItemRevealSequence()가 하나씩 순서대로 true로 뒤집어준다.
+	// false인 동안에는 UI가 "?"로 표시하고(InventoryItemWidget::InitializeItem), 다른 인벤토리로의
+	// 이동/병합도 막는다(TransferItemFrom/TransferItemFromAuto/MergeStackFrom) - 아직 뭔지 모르는
+	// 아이템을 미리 가져갈 수 없게 하기 위함.
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	bool bRevealed = true;
+
 	// ��� ������. -1�̸� "�� �ν��Ͻ��� ���� �������� �ʱ�ȭ���� ����"�� �ǹ��ϰ�,
 	// ����/�Ĺ����� �������� ó�� �����Ǵ� ������ ��޺� �ִ�ġ�� ä����� �Ѵ�.
 	// 0�� �Ǹ� �ļ� ����(����/���� ���/�簢�� �Ұ�, ����/�Ǹ�/���ظ� ����).
@@ -142,6 +155,15 @@ HEAVENBREACH_API float GetMaxDurabilityForGrade(EItemGrade InGrade);
 // ��ġ�� InventoryItemWidget, EquipmentSlotWidget ���ʿ� �� �ݿ��ȴ�.
 HEAVENBREACH_API FLinearColor GetGradeTopColor(EItemGrade InGrade);
 HEAVENBREACH_API FLinearColor GetGradeBottomColor(EItemGrade InGrade);
+
+// 인벤토리 칸 아이콘 배경 전용 색상. GetGradeTopColor/BottomColor(위)는 그대로 두고,
+// 아이템 정보 팝업 카드(ItemInfoPopupWidget)와 톤을 맞추기 위해 따로 정의한다 —
+// 팝업처럼 "거의 검은 다크 베이스 + 등급색은 은은한 틴트"로 가져가서 카드형 UI와
+// 통일감 있게 보이게 한다. Top/Mid/Bottom 3단은 목업 CSS의 0%/30%/70% 스탑에 대응하며,
+// M_ItemGradeGradient의 동명 파라미터로 전달된다.
+HEAVENBREACH_API FLinearColor GetInventoryIconTopColor(EItemGrade InGrade);
+HEAVENBREACH_API FLinearColor GetInventoryIconBottomColor(EItemGrade InGrade);
+HEAVENBREACH_API FLinearColor GetInventoryIconMidColor(EItemGrade InGrade);
 
 HEAVENBREACH_API UTexture2D* LoadItemIcon(const FString& InIconPath);
 

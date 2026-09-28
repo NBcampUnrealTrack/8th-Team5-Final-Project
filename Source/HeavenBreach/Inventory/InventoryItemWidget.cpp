@@ -25,6 +25,33 @@ void UInventoryItemWidget::NativeOnInitialized()
 	}
 }
 
+void UInventoryItemWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (ProgressBar_Cooldown == nullptr)
+	{
+		return;
+	}
+
+	if (!bIsConsumableItem || SourceInventory == nullptr)
+	{
+		ProgressBar_Cooldown->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+
+	const float Percent = SourceInventory->GetItemUseCooldownPercent(Item.ItemRow.RowName);
+	if (Percent <= 0.f)
+	{
+		ProgressBar_Cooldown->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	else
+	{
+		ProgressBar_Cooldown->SetPercent(Percent);
+		ProgressBar_Cooldown->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+}
+
 void UInventoryItemWidget::InitializeItem(
 	UInventoryComponent* InSourceInventory,
 	const FItemInstance& InItem,
@@ -36,14 +63,21 @@ void UInventoryItemWidget::InitializeItem(
 	ItemSize = InItemSize;
 	CellSize = InCellSize;
 
+	// "íšŒì „ ì „ ì›ëž˜" ì¹¸ í¬ê¸°ë¥¼ í•œ ë²ˆë§Œ ì—­ì‚°í•´ì„œ ì €ìž¥(SetPreviewRotatedì—ì„œ ìž¬ì‚¬ìš©).
+	NaturalGridSize = Item.bRotated ? FIntPoint(ItemSize.Y, ItemSize.X) : ItemSize;
+
+	// ìƒìž/ëª¬ìŠ¤í„° ì‹œì²´ì—ì„œ ì•„ì§ ì„œì¹­(ê³µê°œ) ì•ˆ ëœ ì•„ì´í…œì€ ì‹¤ì œ ì •ë³´ë¥¼ ì „í˜€ ë³´ì—¬ì£¼ì§€ ì•ŠëŠ”ë‹¤ -
+	// ì•„ì´ì½˜/ì´ë¦„/ë“±ê¸‰/ë‚´êµ¬ë„/ìŠ¤íƒ ìˆ˜ ì „ë¶€ ìˆ¨ê¸°ê³  "?"ë§Œ í‘œì‹œí•œë‹¤. bIsRevealedê°€ falseì¸ ë™ì•ˆì€
+	// bHasViewDataê°€ trueì—¬ë„ IconTexture/Gradeë¥¼ ì‹¤ì œ ê°’ìœ¼ë¡œ ì±„ìš°ì§€ ì•ŠëŠ” ê²Œ í•µì‹¬.
+	const bool bIsRevealed = Item.bRevealed;
+
 	FItemViewData ViewData;
 	const bool bHasViewData = ResolveItemViewData(Item.ItemRow, ViewData);
-	UTexture2D* IconTexture = bHasViewData ? LoadItemIcon(ViewData.IconPath) : nullptr;
-	const EItemGrade Grade = bHasViewData ? ViewData.Grade : EItemGrade::Normal;
+	UTexture2D* IconTexture = (bHasViewData && bIsRevealed) ? LoadItemIcon(ViewData.IconPath) : nullptr;
+	const EItemGrade Grade = (bHasViewData && bIsRevealed) ? ViewData.Grade : EItemGrade::Normal;
 
-	// Àåºñ·ùÀÌ°í ³»±¸µµ°¡ 0±îÁö ´âÀº(ÆÄ¼Õ) »óÅÂÀÎÁö. ¾Æ·¡ ProgressBar °è»êÀÌ¶û
-	// µ¿ÀÏÇÑ Á¶°ÇÀÌ¶ó ¾ÆÀÌÄÜ Æ¾Æ®/ÆÄ¼Õ ÅØ½ºÆ® µÑ ´Ù ¿©±â ÇÏ³ª·Î Ã³¸®ÇÑ´Ù.
-	const bool bIsBroken = bHasViewData && ViewData.IsEquippable() && Item.CurrentDurability == 0.f;
+	const bool bIsBroken = bIsRevealed && bHasViewData && ViewData.IsEquippable() && Item.CurrentDurability == 0.f;
+	bIsConsumableItem = bIsRevealed && bHasViewData && ViewData.IsConsumable();
 	if (Image_ItemBackground != nullptr)
 	{
 		Image_ItemBackground->SetColorAndOpacity(FLinearColor(1.0f, 1.0f, 1.0f, 0.95f));
@@ -61,17 +95,18 @@ void UInventoryItemWidget::InitializeItem(
 		}
 		if (BackgroundMID != nullptr)
 		{
-			// µî±Þº° ¹è°æ ±×¶óµ¥ÀÌ¼Ç »ö»ó (InventoryTypes.h °ø¿ë ÇÔ¼ö ? EquipmentSlotWidgetµµ
-			// °°Àº ÇÔ¼ö¸¦ ½á¼­ »öÀ» ¸ÂÃá´Ù. »ö Á¶Á¤Àº InventoryTypes.cpp ÇÑ °÷¸¸ °íÄ¡¸é µÊ)
-			const FLinearColor TopColor = GetGradeTopColor(Grade);
-			const FLinearColor BottomColor = GetGradeBottomColor(Grade);
+			const FLinearColor TopColor = GetInventoryIconTopColor(Grade);
+			const FLinearColor MidColor = GetInventoryIconMidColor(Grade);
+			const FLinearColor BottomColor = GetInventoryIconBottomColor(Grade);
 			BackgroundMID->SetVectorParameterValue(TEXT("TopColor"), TopColor);
+			BackgroundMID->SetVectorParameterValue(TEXT("MidColor"), MidColor);
 			BackgroundMID->SetVectorParameterValue(TEXT("BottomColor"), BottomColor);
 
-			// Å×µÎ¸®´Â Ç¥½ÃÇÏÁö ¾Ê°í ¹è°æ»ö¸¸À¸·Î µî±ÞÀ» Ç¥Çö
 			if (Border_GradeFrame != nullptr)
 			{
-				Border_GradeFrame->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+				FLinearColor FrameColor = GetGradeTopColor(Grade);
+				FrameColor.A = 0.45f;
+				Border_GradeFrame->SetBrushColor(FrameColor);
 			}
 		}
 	}
@@ -94,20 +129,12 @@ void UInventoryItemWidget::InitializeItem(
 
 	if (SizeBox_Icon != nullptr)
 	{
-		// ItemSize´Â InventoryWidget::BuildItems¿¡¼­ GetOccupiedSize·Î ÀÌ¹Ì
-		// È¸Àü ÈÄ ±âÁØ(µÚ¹Ù²ï °¡·Î/¼¼·Î)À¸·Î °è»êµÅ¼­ µé¾î¿Â´Ù. ¿©±â¼­ ¾ÆÀÌÄÜÀ»
-		// ±× Ä­ Å©±â¿¡ ¸ÂÃç ½ºÄÉÀÏÇÑ ´ÙÀ½ µ¹¸®¸é ´­¸° »óÅÂ¿¡¼­ È¸ÀüÇÏ°Ô µÅ¼­
-		// Âî±×·¯Á® º¸ÀÎ´Ù. ±×·¡¼­ ¹Ý´ë·Î ´Ù½Ã ½º¿ÒÇØ¼­ "È¸Àü Àü ¿ø·¡ ºñÀ²"ÀÇ
-		// ¹Ú½º Å©±â¸¦ ±¸ÇÏ°í, ±× ¹Ú½º ÀüÃ¼¸¦ ÅëÂ°·Î 90µµ µ¹¸°´Ù.
-		// (Scale Box°¡ ÀÌ ¾È¿¡¼­ ¸ÕÀú ¿ø·¡ ºñÀ²´ë·Î ±ò²ûÇÏ°Ô ¸ÂÃß°í, ±× ´ÙÀ½
-		// ¹Ú½ºÂ°·Î È¸ÀüÇÏ´Ï±î ºñÀ²ÀÌ ¾È ±úÁø´Ù.)
-		const FVector2D NaturalIconSize = Item.bRotated
-			? FVector2D(ItemSize.Y * CellSize, ItemSize.X * CellSize)
-			: FVector2D(ItemSize.X * CellSize, ItemSize.Y * CellSize);
+		// NaturalGridSizeì— CellSizeë¥¼ ê³±í•´ ìžì—° í¬ê¸°ë¥¼ êµ¬í•˜ê³ , ë°•ìŠ¤ ì „ì²´ë¥¼ íšŒì „ ìƒíƒœì— ë§žì¶° 90ë„ ëŒë¦°ë‹¤.
+		const FVector2D NaturalIconSize = FVector2D(NaturalGridSize.X * CellSize, NaturalGridSize.Y * CellSize);
 
-		// 1x2, 1x3Ã³·³ Á¤»ç°¢ÇüÀÌ ¾Æ´Ñ ±æÂßÇÑ ¾ÆÀÌÅÛÀº ¾ÆÀÌÄÜ ¾ÆÆ® ÀÚÃ¼ ¿©¹é ¶§¹®¿¡
-		// Ä­À» ´Ù ¸ø Ã¤¿ì°í Âª¾Æ º¸ÀÌ´Â °æ¿ì°¡ ¸¹´Ù. ±×·± ¾ÆÀÌÅÛ¿¡¸¸ »ìÂ¦ È®´ëÇØ¼­
-		// º¸Á¤ÇÑ´Ù (Á¤»ç°¢Çü ¾ÆÀÌÅÛÀº ÀÌ¹Ì ²Ë Â÷ º¸ÀÌ¹Ç·Î ±×´ë·Î µÐ´Ù).
+		// 1x2, 1x3Ã³ï¿½ï¿½ ï¿½ï¿½ï¿½ç°¢ï¿½ï¿½ï¿½ï¿½ ï¿½Æ´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ® ï¿½ï¿½Ã¼ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+		// Ä­ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ Ã¤ï¿½ï¿½ï¿½ Âªï¿½ï¿½ ï¿½ï¿½ï¿½Ì´ï¿½ ï¿½ï¿½ì°¡ ï¿½ï¿½ï¿½ï¿½. ï¿½×·ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Û¿ï¿½ï¿½ï¿½ ï¿½ï¿½Â¦ È®ï¿½ï¿½ï¿½Ø¼ï¿½
+		// ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½ (ï¿½ï¿½ï¿½ç°¢ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¹ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½Ì¹Ç·ï¿½ ï¿½×´ï¿½ï¿½ ï¿½Ð´ï¿½).
 		const bool bIsElongated = !FMath::IsNearlyEqual(NaturalIconSize.X, NaturalIconSize.Y);
 		const FVector2D ScaledIconSize = bIsElongated
 			? NaturalIconSize * ElongatedIconOverscale
@@ -121,8 +148,8 @@ void UInventoryItemWidget::InitializeItem(
 
 	if (ProgressBar_Durability != nullptr)
 	{
-		// Àåºñ·ùÀÌ¸é¼­ ³»±¸µµ°¡ ÃÊ±âÈ­µÈ ¾ÆÀÌÅÛ¸¸ ÃßÀûÇÑ´Ù(-1Àº ¾ÆÁ÷ ¼Õ»ó ¾È ÀÔÀº ·¹°Å½Ã/¹ÌÃÊ±âÈ­ »óÅÂ·Î °£ÁÖ).
-		const bool bTrackDurability = ViewData.IsEquippable() && Item.CurrentDurability >= 0.f;
+		// ï¿½ï¿½ï¿½ï¿½ï¿½Ì¸é¼­ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½È­ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Û¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½(-1ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Õ»ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Å½ï¿½/ï¿½ï¿½ï¿½Ê±ï¿½È­ ï¿½ï¿½ï¿½Â·ï¿½ ï¿½ï¿½ï¿½ï¿½).
+		const bool bTrackDurability = bIsRevealed && ViewData.IsEquippable() && Item.CurrentDurability >= 0.f;
 
 		if (bTrackDurability)
 		{
@@ -131,7 +158,7 @@ void UInventoryItemWidget::InitializeItem(
 				? FMath::Clamp(Item.CurrentDurability / MaxDurability, 0.f, 1.f)
 				: 0.f;
 
-			// 100%(»õ °Í)ÀÏ ¶© Æò¼Ò¿¡ ±ò²ûÇÏ°Ô ¼û±â°í, ´â±â ½ÃÀÛÇÏ¸é ±×¶§ºÎÅÍ º¸¿©ÁØ´Ù.
+			// 100%(ï¿½ï¿½ ï¿½ï¿½)ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½Ò¿ï¿½ ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¸ï¿½ ï¿½×¶ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ø´ï¿½.
 			ProgressBar_Durability->SetVisibility(Percent >= 1.f ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 			ProgressBar_Durability->SetPercent(Percent);
 
@@ -156,6 +183,14 @@ void UInventoryItemWidget::InitializeItem(
 		}
 	}
 
+	// ì‹¤ì œ ì§„í–‰ë¥ /í‘œì‹œ ì—¬ë¶€ëŠ” NativeTickì—ì„œ ë§¤ í”„ë ˆìž„ ê°±ì‹ í•œë‹¤(ì¿¨íƒ€ìž„ì´ ì‹¤ì‹œê°„ìœ¼ë¡œ ì¤„ì–´ë“¤ê¸° ë•Œë¬¸).
+	// ì—¬ê¸°ì„œëŠ” ìƒˆë¡œ ë¹Œë“œë˜ëŠ” ì¹¸ì´ ì´ì „ ì¹¸ì˜ ìž”ìƒ(ë‹¤ë¥¸ ì•„ì´í…œì˜ ì¿¨íƒ€ìž„ ë°”ê°€ ë–  ìžˆë˜ ìƒíƒœ)ì„
+	// ë¬¼ë ¤ë°›ì§€ ì•Šë„ë¡ ì¼ë‹¨ ì ‘ì–´ë‘”ë‹¤.
+	if (ProgressBar_Cooldown != nullptr)
+	{
+		ProgressBar_Cooldown->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
 	if (Text_Broken != nullptr)
 	{
 		Text_Broken->SetVisibility(bIsBroken ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
@@ -168,7 +203,13 @@ void UInventoryItemWidget::InitializeItem(
 
 	if (Text_FallbackName != nullptr)
 	{
-		if (IconTexture == nullptr)
+		if (!bIsRevealed)
+		{
+			// ì„œì¹­ ì¤‘ - ì´ë¦„ë„ ëª¨ë¥´ëŠ” ìƒíƒœì´ë¯€ë¡œ "?"ë§Œ ë³´ì—¬ì¤€ë‹¤.
+			Text_FallbackName->SetText(FText::FromString(TEXT("?")));
+			Text_FallbackName->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else if (IconTexture == nullptr)
 		{
 			Text_FallbackName->SetText(bHasViewData
 				? FText::FromString(ViewData.DisplayName)
@@ -183,7 +224,7 @@ void UInventoryItemWidget::InitializeItem(
 
 	if (Text_StackCount != nullptr)
 	{
-		if (Item.StackCount > 1)
+		if (bIsRevealed && Item.StackCount > 1)
 		{
 			Text_StackCount->SetText(FText::AsNumber(Item.StackCount));
 			Text_StackCount->SetVisibility(ESlateVisibility::HitTestInvisible);
@@ -193,25 +234,26 @@ void UInventoryItemWidget::InitializeItem(
 			Text_StackCount->SetVisibility(ESlateVisibility::Hidden);
 		}
 	}
+	// ï¿½ï¿½ï¿½Ã£ï¿½ï¿½ Ç¥ï¿½Ã¸ï¿½ ï¿½Ü¼ï¿½È­: Ä­ ï¿½ï¿½Ã¼ï¿½ï¿½ ï¿½ï¿½ï¿½Î´ï¿½ ï¿½×µÎ¸ï¿½ ï¿½Þ½ï¿½(Border_ItemFrame +
+	// Anim_FavoritePulse)ï¿½ï¿½ ï¿½Ê¹ï¿½ È­ï¿½ï¿½ï¿½Ø¼ï¿½ ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ ï¿½Ï´ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+	// (Image_FavoriteStar) ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½Ñ°ï¿½ ï¿½ï¿½ï¿½ï¿½. Border_ItemFrame/Anim_FavoritePulseï¿½ï¿½
+	// ï¿½ï¿½ ï¿½Ì»ï¿½ ï¿½ï¿½ï¿½Ã£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½(ï¿½Ù¸ï¿½ ï¿½ëµµï¿½ï¿½ ï¿½ï¿½ï¿½ÜµÎµï¿½ ï¿½ï¿½ï¿½â¼­ï¿½ï¿½ ï¿½Çµå¸®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½).
 	if (Image_FavoriteStar != nullptr)
 	{
-		Image_FavoriteStar->SetVisibility(Item.bIsFavorite
+		Image_FavoriteStar->SetVisibility(bIsRevealed && Item.bIsFavorite
 			? ESlateVisibility::HitTestInvisible
 			: ESlateVisibility::Hidden);
 	}
-	if (Border_ItemFrame != nullptr)
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ð¿ï¿½ Ç¥ï¿½ï¿½ - ï¿½Ï¹ï¿½ ï¿½ï¿½ï¿½Û°ï¿½ ï¿½ò°¥¸ï¿½ï¿½Ù´ï¿½ ï¿½Çµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ß°ï¿½.
+	// ï¿½ï¿½ï¿½Ã£ï¿½ï¿½ ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ ï¿½Ï´ï¿½)ï¿½ï¿½ ï¿½ï¿½Äªï¿½Ç´ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ï´Ü¿ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ç¥ï¿½ï¿½. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ø½ï¿½Ã³ï¿½ï¿½
+	// Image_FavoriteStarï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ WBP_InventoryItem ï¿½ï¿½ï¿½ï¿½ï¿½Ì³Ê¿ï¿½ï¿½ï¿½ ï¿½Ì¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç¾ï¿½
+	// ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½, ï¿½Úµå¿¡ï¿½ï¿½ï¿½ï¿½ ItemType == "Material"ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ìµï¿½ï¿½ï¿½ Ç¥ï¿½ï¿½ ï¿½ï¿½ï¿½Î¸ï¿½ ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½.
+	if (Image_MaterialBadge != nullptr)
 	{
-		Border_ItemFrame->SetVisibility(Item.bIsFavorite
+		const bool bIsCraftMaterial = bIsRevealed && bHasViewData && ViewData.ItemType == TEXT("Material");
+		Image_MaterialBadge->SetVisibility(bIsCraftMaterial
 			? ESlateVisibility::HitTestInvisible
 			: ESlateVisibility::Hidden);
-	}
-	if (Item.bIsFavorite && Anim_FavoritePulse != nullptr)
-	{
-		PlayAnimation(Anim_FavoritePulse, 0.0f, 0, EUMGSequencePlayMode::PingPong);
-	}
-	else if (Anim_FavoritePulse != nullptr)
-	{
-		StopAnimation(Anim_FavoritePulse);
 	}
 	SetVisibility(ESlateVisibility::Visible);
 }
@@ -221,6 +263,12 @@ FReply UInventoryItemWidget::NativeOnMouseButtonDown(
 	const FPointerEvent& InMouseEvent)
 {
 	if (InMouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	{
+		return FReply::Unhandled();
+	}
+	// ì•„ì§ ì„œì¹­ ì•ˆ ëœ(?) ì•„ì´í…œì€ ë“œëž˜ê·¸ë¥¼ ì‹œìž‘í•˜ì§€ ì•ŠëŠ”ë‹¤ - ì–´ì°¨í”¼ ì„œë²„ê°€ ì´ë™/ë³‘í•©ì„ ê±°ë¶€í•˜ì§€ë§Œ,
+	// ë“œëž˜ê·¸ê°€ ì‹œìž‘ëë‹¤ê°€ ì•„ì´ì½˜ì´ ì œìžë¦¬ë¡œ íŠ•ê²¨ ëŒì•„ì˜¤ëŠ” ê²ƒë³´ë‹¤ ì• ì´ˆì— ì•ˆ ì§‘ížˆëŠ” ê²Œ ìžì—°ìŠ¤ëŸ½ë‹¤.
+	if (!Item.bRevealed)
 	{
 		return FReply::Unhandled();
 	}
@@ -276,6 +324,10 @@ void UInventoryItemWidget::NativeOnDragDetected(
 	Operation->OnDrop.AddDynamic(this, &UInventoryItemWidget::HandleDragFinished);
 	Operation->OnDragCancelled.AddDynamic(this, &UInventoryItemWidget::HandleDragFinished);
 
+	// ï¿½×¸ï¿½ï¿½ï¿½ ï¿½å·¡ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ È­ï¿½ï¿½ ï¿½ï¿½ï¿½Ö¾ï¿½(UMG DefaultDragVisual)ï¿½ï¿½ Operationï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ø¼ï¿½,
+	// ï¿½å·¡ï¿½ï¿½ ï¿½ï¿½ TÅ° È¸ï¿½ï¿½(SetRotated())ï¿½ï¿½ ï¿½ï¿½ SizeBox/ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ô²ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½Ñ´ï¿½.
+	Operation->SetDefaultVisual(DragVisualContainer, DragItemWidget, VisualSize);
+
 	SetVisibility(ESlateVisibility::Hidden);
 	OutOperation = Operation;
 }
@@ -283,4 +335,31 @@ void UInventoryItemWidget::NativeOnDragDetected(
 void UInventoryItemWidget::HandleDragFinished(UDragDropOperation* Operation)
 {
 	SetVisibility(ESlateVisibility::Visible);
+}
+
+void UInventoryItemWidget::SetPreviewRotated(bool bInRotated)
+{
+	if (Item.bRotated == bInRotated)
+	{
+		return;
+	}
+	Item.bRotated = bInRotated;
+
+	if (SizeBox_Icon == nullptr)
+	{
+		return;
+	}
+
+	// InitializeItem()ê³¼ ë™ì¼í•œ ê³„ì‚°(NaturalGridSizeëŠ” ê³ ì •ê°’ì´ë¼ ìž¬ì‚¬ìš© ê°€ëŠ¥).
+	const FVector2D NaturalIconSize = FVector2D(NaturalGridSize.X * CellSize, NaturalGridSize.Y * CellSize);
+
+	const bool bIsElongated = !FMath::IsNearlyEqual(NaturalIconSize.X, NaturalIconSize.Y);
+	const FVector2D ScaledIconSize = bIsElongated
+		? NaturalIconSize * ElongatedIconOverscale
+		: NaturalIconSize;
+
+	SizeBox_Icon->SetWidthOverride(ScaledIconSize.X);
+	SizeBox_Icon->SetHeightOverride(ScaledIconSize.Y);
+	SizeBox_Icon->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	SizeBox_Icon->SetRenderTransformAngle(Item.bRotated ? 90.0f : 0.0f);
 }

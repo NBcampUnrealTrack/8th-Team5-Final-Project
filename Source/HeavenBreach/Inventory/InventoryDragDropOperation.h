@@ -13,6 +13,8 @@ class UUserWidget;
 class SWidget;
 class SBox;
 class SImage;
+class USizeBox;
+class UInventoryItemWidget;
 
 UCLASS()
 class HEAVENBREACH_API UInventoryDragDropOperation : public UDragDropOperation
@@ -29,13 +31,15 @@ public:
 	UPROPERTY()
 	bool bSplitRequested = false;
 
-	// TÅ°·Î µå·¡±× Áß È¸Àü ¿©ºÎ¸¦ Åä±ÛÇÑ »óÅÂ. ½ÇÁ¦ ¾ÆÀÌÅÛ µ¥ÀÌÅÍ(FItemInstance.bRotated)´Â
-	// µå·ÓÀÌ È®Á¤µÉ ¶§ ¼­¹ö¿¡¼­ ¹İ¿µµÈ´Ù ? µå·¡±× µµÁß¿¡´Â ÀÌ °ªÀÌ ¹Ì¸®º¸±â¿ë Áø½ÇÀÌ´Ù.
+	// Tí‚¤ ë“œë˜ê·¸ ì¤‘ íšŒì „ ì—¬ë¶€. bRotated(=FItemInstance.bRotated)ê°€ ë°”ë€Œë©´ ë°˜ì˜ëœë‹¤.
 	UPROPERTY()
 	bool bRotated = false;
 
-	// µå·¡±× Áß TÅ° È¸Àü ½Ã ¾ÆÀÌÄÜ/¹Ú½º¸¦ ½Ç½Ã°£À¸·Î °»½ÅÇÏ±â À§ÇØ È£ÃâÇÑ´Ù.
+	// ë“œë˜ê·¸ ì¤‘ Tí‚¤ íšŒì „ ì‹œ ìœ„ì ¯/ë°•ìŠ¤ë¥¼ ì‹¤ì‹œê°„ìœ¼ë¡œ ê°±ì‹ í•˜ê¸° ìœ„í•´ í˜¸ì¶œí•œë‹¤.
 	void SetRotated(bool bInRotated);
+
+	// UInventoryItemWidget::NativeOnDragDetected ìª½ UMG DefaultDragVisual(SizeBox+ìœ„ì ¯)ì„ ë“±ë¡í•´ë‘ë©´ SetRotated()ê°€ ê·¸ìª½ë„ í•¨ê»˜ ê°±ì‹ í•œë‹¤.
+	void SetDefaultVisual(USizeBox* InVisualBox, UInventoryItemWidget* InVisualItemWidget, const FVector2D& InBaseSize);
 
 	UPROPERTY()
 	FVector2D GrabPixelOffset = FVector2D::ZeroVector;
@@ -49,10 +53,7 @@ public:
 	UPROPERTY()
 	EEquipSlotType SourceSlot = EEquipSlotType::None;
 
-	// µå·¡±× ¾ÆÀÌÄÜÀ» ºäÆ÷Æ®¿¡ Á÷Á¢ ºÙ¿©¼­ ÀÌ OperationÀÌ ½º½º·Î ¼ÒÀ¯/°ü¸®ÇÑ´Ù.
-	// Æ¯Á¤ UInventoryWidget ÀÎ½ºÅÏ½º°¡ ¾Æ´Ï¶ó OperationÀÌ ¼ÒÀ¯ÇÏ¹Ç·Î,
-	// ÀÎº¥Åä¸® Ä­/ÆĞ³Î ¹ÛÀ¸·Î ³ª°¡µµ, ÆĞ³ÎÀ» ³Ñ³ªµé¾îµµ °è¼Ó Àß µû¶ó´Ù´Ï°í
-	// µå·Ó/Ãë¼Ò ½Ã Á¤È®È÷ ÇÑ ¹ø Á¤¸®µÈ´Ù.
+	// ë“œë˜ê·¸ ì•„ì´ì½˜ì„ ë·°í¬íŠ¸ì— ì§ì ‘ ë¶™ì—¬ Operationì´ ìŠ¤ìŠ¤ë¡œ ì†Œìœ /ê´€ë¦¬í•œë‹¤(íŒ¨ë„ì„ ë„˜ë‚˜ë“¤ì–´ë„ ê³„ì† ë”°ë¼ë‹¤ë‹ˆê³ , ë“œë¡­/ì·¨ì†Œ ì‹œ ì •í™•íˆ í•œ ë²ˆ ì •ë¦¬ë¨).
 	void CreateVisual(UUserWidget* InSourceWidget, UTexture2D* IconTexture, const FVector2D& VisualSize);
 
 private:
@@ -71,6 +72,12 @@ private:
 	TSharedPtr<SBox> DragBoxWidget;
 	TSharedPtr<SImage> DragImageWidget;
 	FVector2D BaseVisualSize = FVector2D::ZeroVector;
+
+	// SetDefaultVisual()ë¡œ ë“±ë¡ëœ ì¸ë²¤í† ë¦¬ ê·¸ë¦¬ë“œ ë“œë˜ê·¸ì˜ UMG ìœ„ì ¯(SetRotated()ì—ì„œ í•¨ê»˜ ê°±ì‹ ë¨).
+	UPROPERTY()
+	TObjectPtr<USizeBox> DefaultVisualBox;
+	UPROPERTY()
+	TObjectPtr<UInventoryItemWidget> DefaultVisualItemWidget;
 
 	UPROPERTY()
 	FSlateBrush DragVisualBrush;

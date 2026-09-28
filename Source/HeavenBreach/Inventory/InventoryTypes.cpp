@@ -39,6 +39,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.MaxStack = FMath::Max(1, ItemRow->MaxStack);
 		OutViewData.Grade = ItemRow->Grade;
 		OutViewData.DisplayName = ItemRow->ItemName;
+		OutViewData.ItemType = ItemRow->ItemType;
 		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
 		OutViewData.HealAmount = ItemRow->HealAmount;
 		OutViewData.SellValue = ItemRow->SellValue;
@@ -181,6 +182,71 @@ FLinearColor GetGradeBottomColor(EItemGrade InGrade)
 	default:
 		return FLinearColor(0.35f, 0.35f, 0.35f, 1.0f);
 	}
+}
+
+namespace
+{
+	// ItemInfoPopupWidget.cpp의 다크 카드 배경과 같은 베이스 톤(#171411). 인벤토리 아이콘
+	// 배경도 이 베이스에서 시작해서 팝업과 같은 "다크 카드 + 등급색 은은한 틴트" 느낌으로 맞춘다.
+	FLinearColor GetInventoryIconBaseColor()
+	{
+		return FLinearColor(FColor(0x17, 0x14, 0x11, 255));
+	}
+}
+
+FLinearColor GetInventoryIconTopColor(EItemGrade InGrade)
+{
+	// 목업(대각선 샤인 참고 디자인)에서 확인된 실제 sRGB 색을 FColor 헥스로 그대로
+	// 넣고 FLinearColor로 변환(정확한 sRGB->리니어)한다. 등급별 색상 계열은
+	// GetGradeTopColor와 동일하되 채도/밝기는 목업 기준으로 맞췄다.
+	switch (InGrade)
+	{
+	case EItemGrade::Normal:
+		return FLinearColor(FColor(0x9a, 0x9a, 0x9a, 255));
+	case EItemGrade::Rare:
+		return FLinearColor(FColor(0x3d, 0x6b, 0xd6, 255));
+	case EItemGrade::Epic:
+		return FLinearColor(FColor(0x7a, 0x3a, 0xa8, 255));
+	case EItemGrade::Legend:
+		return FLinearColor(FColor(0xe0, 0xa6, 0x3a, 255));
+	case EItemGrade::Relic:
+		return FLinearColor(FColor(0xc9, 0x50, 0x0f, 255));
+	case EItemGrade::Ancient:
+		return FLinearColor(FColor(0xf2, 0xe6, 0xc9, 255));
+	default:
+		return FLinearColor(FColor(0x9a, 0x9a, 0x9a, 255));
+	}
+}
+
+FLinearColor GetInventoryIconMidColor(EItemGrade InGrade)
+{
+	// 목업 CSS의 30% 지점 색. Epic(#2c1338)/Legend(#4a3313)는 목업 실측값 그대로,
+	// 나머지 등급은 베이스에서 등급색 쪽으로 약 22% 틴트해서 계산했다.
+	switch (InGrade)
+	{
+	case EItemGrade::Normal:
+		return FLinearColor(FColor(0x34, 0x31, 0x2f, 255));
+	case EItemGrade::Rare:
+		return FLinearColor(FColor(0x1f, 0x27, 0x3c, 255));
+	case EItemGrade::Epic:
+		return FLinearColor(FColor(0x2c, 0x13, 0x38, 255));
+	case EItemGrade::Legend:
+		return FLinearColor(FColor(0x4a, 0x33, 0x13, 255));
+	case EItemGrade::Relic:
+		return FLinearColor(FColor(0x3e, 0x21, 0x11, 255));
+	case EItemGrade::Ancient:
+		return FLinearColor(FColor(0x47, 0x42, 0x39, 255));
+	default:
+		return FLinearColor(FColor(0x34, 0x31, 0x2f, 255));
+	}
+}
+
+FLinearColor GetInventoryIconBottomColor(EItemGrade InGrade)
+{
+	// 목업의 대각선 반대쪽 끝(70~100% 지점)도 카드 베이스 톤(#171411) 그대로라,
+	// 등급별로 다르게 섞을 필요 없이 베이스 컬러를 그대로 반환한다.
+	(void)InGrade;
+	return GetInventoryIconBaseColor();
 }
 
 UTexture2D* LoadItemIcon(const FString& InIconPath)

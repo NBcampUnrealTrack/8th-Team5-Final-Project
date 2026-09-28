@@ -26,9 +26,18 @@ class HEAVENBREACH_API USummonComponent : public UActorComponent
 public:
 	USummonComponent();
 
-	// 현재 살아있는 소환수 수. 죽었거나 사라진 항목을 걸러내며 센다
+	// 현재 살아있는 소환수 수. 죽었거나 사라진 항목을 명부에서 걸러내며 센다
 	UFUNCTION(BlueprintPure, Category = "Summon")
 	int32 GetAliveCount();
+
+	// 명부를 건드리지 않고 세기만 한다.
+	//
+	// 왜 따로 두나: CanActivateAbility 같은 판정 경로는 const 라 GetAliveCount 를 못 부른다.
+	// 발동 가능한지 물어보는 것뿐인데 명부를 정리하는 것도 맞지 않다.
+	//
+	// 결과는 GetAliveCount 와 같다. 정리는 다음 소환·사망 때 어차피 일어난다.
+	UFUNCTION(BlueprintPure, Category = "Summon")
+	int32 CountAlive() const;
 
 	// 명부에 올린다
 	void Register(AEnemyCharacterBase* Summoned);

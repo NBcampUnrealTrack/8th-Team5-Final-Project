@@ -9,6 +9,8 @@
 #include "GameFramework/Pawn.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
+#include "GameFramework/GameStateBase.h"
+#include "TimerManager.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -500,17 +502,33 @@ bool UInventoryComponent::RemoveStackCount(FGuid InInstanceId, int32 InCount)
 
 bool UInventoryComponent::UseItem(FGuid InInstanceId)
 {
-	const float CurrentTime = GetWorld()->GetTimeSeconds();
-	if (bHasUsedItem && CurrentTime - LastItemUseTime < ItemUseCooldown)
+	if (GetOwnerRole() != ROLE_Authority)
 	{
 		return false;
 	}
+
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+	if (GameState == nullptr)
+	{
+		return false;
+	}
+
+	const float CurrentTime = static_cast<float>(GameState->GetServerWorldTimeSeconds());
 	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
 	if (EntryIndex == INDEX_NONE) return false;
 	const FItemInstance Item = Entries[EntryIndex].Item;
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(Item.ItemRow, ViewData)) return false;
 	if (!ViewData.IsConsumable()) return false;
+
+	// 쿨타임은 슬롯이 아니라 아이템 종류(RowName) 단위로 돈다 - 같은 종류의 포션이면
+	// 퀵슬롯 3/4번이든 인벤토리에서 직접 쓰든 하나의 쿨타임을 공유하고, 다른 종류라면 서로 독립이다.
+	const FName CooldownKey = Item.ItemRow.RowName;
+	if (GetItemUseCooldownRemaining(CooldownKey) > 0.f)
+	{
+		return false;
+	}
 
 	// 최대 체력 상태에서는 체력 회복 아이템을 사용할 수 없다 (개발 기획 18장 남은 기능).
 	if (ViewData.HealAmount > 0.f)
@@ -527,11 +545,133 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 		}
 	}
 
-	bHasUsedItem = true;
-	LastItemUseTime = CurrentTime;
+	SetItemCooldown(CooldownKey, CurrentTime);
 	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);
 	RemoveStackCount(InInstanceId, 1);
 	return true;
+}
+
+void UInventoryComponent::SetItemCooldown(FName InItemId, float InServerTime)
+{
+	for (FItemCooldownEntry& Entry : ItemCooldowns)
+	{
+		if (Entry.ItemId == InItemId)
+		{
+			Entry.LastUseTime = InServerTime;
+			return;
+		}
+	}
+
+	FItemCooldownEntry NewEntry;
+	NewEntry.ItemId = InItemId;
+	NewEntry.LastUseTime = InServerTime;
+	ItemCooldowns.Add(NewEntry);
+}
+
+float UInventoryComponent::GetItemUseCooldownRemaining(FName InItemId) const
+{
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+	if (GameState == nullptr)
+	{
+		return 0.f;
+	}
+
+	for (const FItemCooldownEntry& Entry : ItemCooldowns)
+	{
+		if (Entry.ItemId == InItemId)
+		{
+			const float Elapsed = static_cast<float>(GameState->GetServerWorldTimeSeconds()) - Entry.LastUseTime;
+			return FMath::Max(0.f, ItemUseCooldown - Elapsed);
+		}
+	}
+
+	return 0.f;
+}
+
+float UInventoryComponent::GetItemUseCooldownPercent(FName InItemId) const
+{
+	if (ItemUseCooldown <= 0.f)
+	{
+		return 0.f;
+	}
+
+	return FMath::Clamp(GetItemUseCooldownRemaining(InItemId) / ItemUseCooldown, 0.f, 1.f);
+}
+
+void UInventoryComponent::BeginItemRevealSequence()
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		return;
+	}
+
+	// 이미 진행 중이면 처음부터 다시 돌리지 않는다 - 화면을 닫았다가 다시 열어도 이어서 진행된다.
+	if (World->GetTimerManager().IsTimerActive(ItemRevealTimerHandle))
+	{
+		return;
+	}
+
+	bool bHasUnrevealed = false;
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		if (!Entry.Item.bRevealed)
+		{
+			bHasUnrevealed = true;
+			break;
+		}
+	}
+
+	if (!bHasUnrevealed)
+	{
+		return;
+	}
+
+	World->GetTimerManager().SetTimer(
+		ItemRevealTimerHandle,
+		this,
+		&UInventoryComponent::RevealNextItem,
+		ItemRevealIntervalSeconds,
+		true);
+}
+
+void UInventoryComponent::RevealNextItem()
+{
+	for (FInventoryEntry& Entry : Entries)
+	{
+		if (!Entry.Item.bRevealed)
+		{
+			Entry.Item.bRevealed = true;
+			OnInventoryChanged.Broadcast();
+			return;
+		}
+	}
+
+	// 더 공개할 아이템이 없으면 스스로 멈춘다.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ItemRevealTimerHandle);
+	}
+}
+
+void UInventoryComponent::PauseItemRevealSequence()
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		// 타이머만 멈춘다 - Entries의 bRevealed 값은 건드리지 않으므로 진행 상태가 그대로 보존된다.
+		World->GetTimerManager().ClearTimer(ItemRevealTimerHandle);
+	}
 }
 
 bool UInventoryComponent::ToggleFavorite(FGuid InInstanceId)
@@ -568,6 +708,13 @@ bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid 
 	}
 
 	FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+
+	// 아직 서칭 안 된(?) 아이템은 다른 인벤토리로 꺼낼 수 없다 - 뭔지 알기 전에 미리 가져가는 걸 막는다.
+	if (!SourceItem.bRevealed)
+	{
+		return false;
+	}
+
 	SourceItem.bRotated = bInRotated;
 
 	FIntPoint Size;
@@ -616,6 +763,12 @@ bool UInventoryComponent::TransferItemFromAuto(UInventoryComponent* InSource, FG
 	}
 
 	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
+
+	// 아직 서칭 안 된(?) 아이템은 다른 인벤토리로 꺼낼 수 없다 - 뭔지 알기 전에 미리 가져가는 걸 막는다.
+	if (!SourceItem.bRevealed)
+	{
+		return false;
+	}
 
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(SourceItem.ItemRow, ViewData))
@@ -742,6 +895,12 @@ bool UInventoryComponent::MergeStackFrom(UInventoryComponent* InSource, FGuid In
 	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
 	FItemInstance& TargetItem = Entries[TargetIndex].Item;
 
+	// 아직 서칭 안 된(?) 아이템은 다른 인벤토리 스택과 합칠 수 없다 - 뭔지 알기 전에 미리 가져가는 걸 막는다.
+	if (!SourceItem.bRevealed)
+	{
+		return false;
+	}
+
 	if (SourceItem.ItemRow.RowName != TargetItem.ItemRow.RowName
 		|| SourceItem.ItemRow.DataTable != TargetItem.ItemRow.DataTable)
 	{
@@ -793,6 +952,9 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 
 	const FDataTableRowHandle ItemRow = Entries[EntryIndex].Item.ItemRow;
 	const int32 DroppedStackCount = Entries[EntryIndex].Item.StackCount;
+	// 즐겨찾기한 아이템을 버렸다가 다시 주우면 즐겨찾기가 풀려있던 문제 수정:
+	// 드롭 시점에 즐겨찾기 여부를 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
+	const bool bWasFavorite = Entries[EntryIndex].Item.bIsFavorite;
 	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
 	{
 		return false;
@@ -871,6 +1033,7 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	}
 
 	NewItemActor->StackCount = FMath::Max(1, DroppedStackCount);
+	NewItemActor->bIsFavorite = bWasFavorite;
 	NewItemActor->FinishSpawning(SpawnTransform);
 
 	// 던진 사람과는 한동안 충돌 무시해서 스폰 직후 캐릭터에 끼어서 튕기는 걸 방지.
@@ -1009,6 +1172,7 @@ void UInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(UInventoryComponent, Entries);
+	DOREPLIFETIME(UInventoryComponent, ItemCooldowns);
 }
 
 void UInventoryComponent::Server_MoveItem_Implementation(FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated)
@@ -1091,6 +1255,14 @@ void UInventoryComponent::Server_UseItem_Implementation(FGuid InInstanceId)
 void UInventoryComponent::Server_ToggleFavorite_Implementation(FGuid InInstanceId)
 {
 	ToggleFavorite(InInstanceId);
+}
+
+void UInventoryComponent::Server_PauseContainerReveal_Implementation(UInventoryComponent* InTargetContainer)
+{
+	if (InTargetContainer != nullptr)
+	{
+		InTargetContainer->PauseItemRevealSequence();
+	}
 }
 
 void UInventoryComponent::Server_SplitStack_Implementation(FGuid InInstanceId, int32 InQuantity, FIntPoint InTargetPosition)
