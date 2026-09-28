@@ -8,6 +8,7 @@
 #include "Player/HBPlayerCharacter.h"
 #include "Player/Job/HBJobData.h"
 #include "Combat/Ability/HBPlayerSkillGABase.h"
+#include "Combat/Ability/HBAugmentLibrary.h"
 #include "GameplayEffect.h"
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
@@ -585,8 +586,26 @@ bool AHB_PlayerState::HasAugment(const FGameplayTag AugmentTag) const
 		return false;
 	}
 
-	// 정확히 일치하는 것만 본다. 부모 태그로 물으면 다른 증강이 걸린다.
-	return TakenAugments.HasTagExact(AugmentTag);
+	// 단계가 1 이상이면 보유다.
+	return HBAugment::FindTier(TakenAugments, AugmentTag) > 0;
+}
+
+FGameplayTagContainer AHB_PlayerState::GetTakenAugments() const
+{
+	FGameplayTagContainer Out;
+	for (const FHBAugmentStack& Stack : TakenAugments)
+	{
+		if (Stack.AugmentTag.IsValid())
+		{
+			Out.AddTag(Stack.AugmentTag);
+		}
+	}
+	return Out;
+}
+
+int32 AHB_PlayerState::GetAugmentTier(const FGameplayTag AugmentTag) const
+{
+	return HBAugment::FindTier(TakenAugments, AugmentTag);
 }
 
 void AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag AugmentTag)
@@ -599,12 +618,13 @@ void AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag
 	{
 		return;
 	}
-	if (TakenAugments.HasTagExact(AugmentTag))
+	if (HBAugment::FindTier(TakenAugments, AugmentTag) > 0)
 	{
 		return;   // 같은 증강을 두 번 고를 수는 없다
 	}
 
-	TakenAugments.AddTag(AugmentTag);
+	// TODO: MaxTier 를 1로 고정했다. 실제 최대 단계를 넘기는 건 이후 태스크에서.
+	HBAugment::RaiseTier(TakenAugments, AugmentTag, 1);
 
 	// 전역 효과가 있으면 여기서 붙인다. 수치만 쓰는 증강은 GrantEffect 가 비어 있다.
 	const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
@@ -863,7 +883,7 @@ void AHB_PlayerState::CollectSkillAugments(TArray<FHBUpgradeCandidate>& OutPool,
 		{
 			continue;
 		}
-		if (TakenAugments.HasTagExact(Augment.AugmentTag))
+		if (HBAugment::FindTier(TakenAugments, Augment.AugmentTag) > 0)
 		{
 			continue;   // 이미 고른 증강은 다시 안 나온다
 		}

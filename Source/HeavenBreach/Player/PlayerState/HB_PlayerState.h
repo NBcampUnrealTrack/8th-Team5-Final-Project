@@ -102,9 +102,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
 	bool HasAugment(FGameplayTag AugmentTag) const;
 
-	// 지금까지 고른 증강 전부. UI 가 목록을 그릴 때 쓴다.
+	// 기존 호출부 호환용. 단계 정보를 버리고 태그만 모아 돌려준다.
 	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
-	FGameplayTagContainer GetTakenAugments() const { return TakenAugments; }
+	FGameplayTagContainer GetTakenAugments() const;
+
+	// 그 증강의 현재 단계. 안 먹었으면 0.
+	UFUNCTION(BlueprintPure, Category = "Progression|Skills")
+	int32 GetAugmentTier(FGameplayTag AugmentTag) const;
 
 	// ================ 폐기 예정 ================
 	// 스킬 레벨(0~3) 모델은 증강 태그로 대체됐다. 아래 둘은 아무 일도 하지 않는다.
@@ -154,13 +158,16 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "Progression|Match", meta = (ClampMin = "0"))
 	int32 ExperienceIncreasePerLevel = 50;
 
-	// 이번 판에서 고른 증강 전부. 추가만 되고 개별 제거는 없다.
+	// 이번 판에서 고른 증강과 그 단계. 추가·상승만 되고 개별 제거는 없다.
 	// 매치가 끝나 로비로 돌아가면 ResetMatchProgression 이 통째로 비운다.
 	//
 	// 왜 ASC 태그가 아니라 별도 컨테이너인가: UI 가 "내가 고른 증강 목록"을
 	// 열거해야 하는데, ASC 에 넣으면 다른 상태 태그와 섞여 걸러내야 한다.
+	//
+	// 왜 태그 컨테이너가 아니라 배열인가: 단계를 세야 한다. 태그 컨테이너는
+	// 있음/없음만 표현한다. TMap 은 UPROPERTY 복제가 안 된다.
 	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
-	FGameplayTagContainer TakenAugments;
+	TArray<FHBAugmentStack> TakenAugments;
 
 	// 증강이 붙인 상시 GE 핸들. 개별 취소용이 아니라 매치 리셋용이다.
 	// 복제하지 않는다. 서버에서만 걷으면 클라는 어트리뷰트 복제로 따라온다.
