@@ -77,4 +77,144 @@ bool FHBAugmentTierTest::RunTest(const FString&)
 	return true;
 }
 
+namespace
+{
+	// 식별만 되면 되므로 CandidateId 만 채운다.
+	FHBUpgradeCandidate MakeCandidate(const FString& Id)
+	{
+		FHBUpgradeCandidate C;
+		C.CandidateId = FName(*Id);
+		return C;
+	}
+
+	TArray<FHBUpgradeCandidate> MakePool(const FString& Prefix, const int32 Count)
+	{
+		TArray<FHBUpgradeCandidate> Pool;
+		for (int32 I = 0; I < Count; ++I)
+		{
+			Pool.Add(MakeCandidate(FString::Printf(TEXT("%s%d"), *Prefix, I)));
+		}
+		return Pool;
+	}
+
+	int32 CountWithPrefix(const TArray<FHBUpgradeCandidate>& Out, const FString& Prefix)
+	{
+		int32 N = 0;
+		for (const FHBUpgradeCandidate& C : Out)
+		{
+			if (C.CandidateId.ToString().StartsWith(Prefix))
+			{
+				++N;
+			}
+		}
+		return N;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBAugmentDrawTest, "HeavenBreach.Augment.Draw", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBAugmentDrawTest::RunTest(const FString&)
+{
+	FRandomStream Rng(12345);
+	TArray<FHBUpgradeCandidate> Out;
+
+	// 양쪽이 넉넉하면 3장, 공통은 상한 1장
+	{
+		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 5);
+		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 7);
+		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		TestEqual(TEXT("3장을 뽑는다"), Out.Num(), 3);
+		TestEqual(TEXT("공통은 1장만"), CountWithPrefix(Out, TEXT("C")), 1);
+		TestEqual(TEXT("일반이 2장"), CountWithPrefix(Out, TEXT("P")), 2);
+	}
+
+	// 일반 풀이 모자라면 상한을 넘겨 공통으로 채운다
+	{
+		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 1);
+		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 7);
+		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		TestEqual(TEXT("모자라도 3장을 채운다"), Out.Num(), 3);
+		TestEqual(TEXT("일반은 있는 만큼"), CountWithPrefix(Out, TEXT("P")), 1);
+		TestEqual(TEXT("공통이 상한을 넘겨 채운다"), CountWithPrefix(Out, TEXT("C")), 2);
+	}
+
+	// 일반 풀이 비었으면 전부 공통
+	{
+		TArray<FHBUpgradeCandidate> Pool;
+		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 7);
+		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		TestEqual(TEXT("전부 공통으로 3장"), Out.Num(), 3);
+		TestEqual(TEXT("공통 3장"), CountWithPrefix(Out, TEXT("C")), 3);
+	}
+
+	// 공통이 비었으면 전부 일반
+	{
+		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 5);
+		TArray<FHBUpgradeCandidate> Common;
+		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		TestEqual(TEXT("전부 일반으로 3장"), Out.Num(), 3);
+		TestEqual(TEXT("일반 3장"), CountWithPrefix(Out, TEXT("P")), 3);
+	}
+
+	// 둘 다 합쳐 3장 미만이면 있는 만큼만
+	{
+		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 1);
+		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 1);
+		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		TestEqual(TEXT("있는 만큼만 2장"), Out.Num(), 2);
+	}
+
+	// 둘 다 비면 0장
+	{
+		TArray<FHBUpgradeCandidate> Pool;
+		TArray<FHBUpgradeCandidate> Common;
+		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		TestEqual(TEXT("뽑을 게 없으면 0장"), Out.Num(), 0);
+	}
+
+	// 같은 후보가 두 번 나오지 않는다
+	{
+		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 3);
+		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 3);
+		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		TSet<FName> Seen;
+		for (const FHBUpgradeCandidate& C : Out)
+		{
+			TestFalse(TEXT("중복 없음"), Seen.Contains(C.CandidateId));
+			Seen.Add(C.CandidateId);
+		}
+	}
+
+	// 상한 0 이면 공통이 안 나온다. 단 일반이 모자라면 채우기는 여전히 동작
+	{
+		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 5);
+		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 5);
+		HBAugment::DrawCandidates(Pool, Common, 3, 0, Rng, Out);
+		TestEqual(TEXT("상한 0 이면 공통 0장"), CountWithPrefix(Out, TEXT("C")), 0);
+		TestEqual(TEXT("일반으로 3장"), Out.Num(), 3);
+	}
+
+	// 같은 씨앗은 같은 결과를 준다
+	{
+		TArray<FHBUpgradeCandidate> PoolA = MakePool(TEXT("P"), 5);
+		TArray<FHBUpgradeCandidate> CommonA = MakePool(TEXT("C"), 5);
+		FRandomStream RngA(777);
+		TArray<FHBUpgradeCandidate> OutA;
+		HBAugment::DrawCandidates(PoolA, CommonA, 3, 1, RngA, OutA);
+
+		TArray<FHBUpgradeCandidate> PoolB = MakePool(TEXT("P"), 5);
+		TArray<FHBUpgradeCandidate> CommonB = MakePool(TEXT("C"), 5);
+		FRandomStream RngB(777);
+		TArray<FHBUpgradeCandidate> OutB;
+		HBAugment::DrawCandidates(PoolB, CommonB, 3, 1, RngB, OutB);
+
+		TestEqual(TEXT("같은 씨앗은 같은 장수"), OutA.Num(), OutB.Num());
+		for (int32 I = 0; I < OutA.Num() && I < OutB.Num(); ++I)
+		{
+			TestEqual(TEXT("같은 씨앗은 같은 후보"), OutA[I].CandidateId, OutB[I].CandidateId);
+		}
+	}
+
+	return true;
+}
+
 #endif

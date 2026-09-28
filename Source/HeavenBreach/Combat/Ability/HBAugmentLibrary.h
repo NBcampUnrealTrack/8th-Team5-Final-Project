@@ -26,4 +26,25 @@ namespace HBAugment
 
 	// 그 단계의 수치. 단계가 범위를 벗어나면 0.
 	HEAVENBREACH_API float GetTierMagnitude(const FHBSkillAugment& Augment, int32 Tier);
+
+	/**
+	 * 후보 3장을 뽑는다.
+	 *
+	 * 규칙
+	 *   1. CommonPool 에서 최대 CommonCap 장
+	 *   2. 나머지를 Pool 에서
+	 *   3. Pool 이 모자라면 CommonPool 에서 더 채운다
+	 *
+	 * 3번이 상한보다 우선한다. 후반에는 스킬 증강을 다 먹고 패시브도 다 가져서
+	 * Pool 이 비는데, 상한을 고집하면 카드가 1장만 뜬다.
+	 *
+	 * Pool 과 CommonPool 은 뽑은 항목이 제거되므로 참조로 받는다.
+	 */
+	HEAVENBREACH_API void DrawCandidates(
+		TArray<FHBUpgradeCandidate>& Pool,
+		TArray<FHBUpgradeCandidate>& CommonPool,
+		int32 DrawCount,
+		int32 CommonCap,
+		FRandomStream& Rng,
+		TArray<FHBUpgradeCandidate>& Out);
 }
