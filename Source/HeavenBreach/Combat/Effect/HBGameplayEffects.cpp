@@ -3,6 +3,7 @@
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
 #include "Core/Tag/Item/HB_ItemTag.h"
+#include "Item/ItemStatBinding.h"
 
 namespace
 {
@@ -90,8 +91,41 @@ UGE_EquipmentStats::UGE_EquipmentStats()
 	// 벗을 때까지 유지된다. 떼는 것은 RefreshEquipmentStats 가 핸들로 한다.
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
 
-	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_DefenseAttribute(),
-		EGameplayModOp::Additive, ItemTag::TAG_Data_Equipment_Defense);
-	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_AttackPowerAttribute(),
-		EGameplayModOp::Additive, ItemTag::TAG_Data_Equipment_AttackPower);
+	// 스탯 표를 그대로 모디파이어로 옮긴다. 스탯이 늘어도 여기는 안 고친다.
+	// 표에 칸을 더하면 여기 모디파이어가 생기고, RefreshEquipmentStats 가 같은 표를 돌며 값을 채운다.
+	for (const FItemStatBinding& Binding : ItemStats::GetBindings())
+	{
+		if (Binding.FlatAttribute.IsValid())
+		{
+			AddSetByCallerModifier(*this, Binding.FlatAttribute, EGameplayModOp::Additive, Binding.FlatDataTag);
+		}
+
+		if (!Binding.PercentAttribute.IsValid())
+		{
+			continue;
+		}
+
+		// 진짜 숫자 칸(공격력 등)은 곱하고, 배율 칸(이동속도 배율 등)은 더한다. 이유는 EItemPercentMode 주석.
+		EGameplayModOp::Type PercentOp = EGameplayModOp::Additive;
+		if (Binding.PercentMode == EItemPercentMode::MultiplyValue)
+		{
+			PercentOp = EGameplayModOp::Multiplicitive;
+		}
+
+		AddSetByCallerModifier(*this, Binding.PercentAttribute, PercentOp, Binding.PercentDataTag);
+	}
+}
+
+UGE_ItemEffectTag::UGE_ItemEffectTag()
+{
+	// 벗을 때까지 유지된다. 떼는 것은 RefreshItemEffects 가 핸들로 한다.
+	// 모디파이어는 없다. 태그는 붙이는 쪽이 스펙에 넣는다.
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+}
+
+UGE_ItemSelfDamage::UGE_ItemSelfDamage()
+{
+	DurationPolicy = EGameplayEffectDurationType::Instant;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_HPAttribute(),
+		EGameplayModOp::Additive, ItemTag::TAG_Data_ItemEffect_Magnitude);
 }

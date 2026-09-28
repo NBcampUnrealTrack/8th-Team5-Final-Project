@@ -120,6 +120,10 @@ bool UHBPrototypeAbilityBase::ApplySkillDamage(
 	AHBPlayerCharacter* Player, AActor* Target, float Damage) const
 {
 	if (!Player || !Target || !Target->Implements<UDamageableInterface>()) return false;
+
+	// 장비의 스킬 피해 옵션. 근접 트레이스(MeleeTraceComponent)와 같은 순서로
+	// 패시브 보정(ModifyOutgoingDamage) 전에 곱한다.
+	Damage *= Player->GetSkillDamageMultiplier();
 	Damage = Player->ModifyOutgoingDamage(Target, Damage);
 	FHitResult Hit;
 	Hit.Location = Target->GetActorLocation();

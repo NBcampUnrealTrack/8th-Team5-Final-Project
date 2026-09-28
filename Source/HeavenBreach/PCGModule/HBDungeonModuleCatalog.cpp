@@ -1,9 +1,29 @@
 #include "PCGModule/HBDungeonModuleCatalog.h"
 #include "PCGModule/HBRoomInfoComponent.h"
+#include "PCGModule/HBDungeonPortal.h"
+#include "Components/BoxComponent.h"
+#include "Components/ArrowComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerStart.h"
+
+bool HBDungeonModuleCatalog::Build(const TArray<TSoftObjectPtr<UWorld>>& Maps,
+    TArray<FHBModuleCatalogEntry>& OutEntries, TArray<FString>& OutErrors)
+{
+    TArray<TSoftObjectPtr<UWorld>> RoomMaps, CorridorMaps;
+    for (const auto& Map : Maps)
+    {
+        UWorld* World = Map.LoadSynchronous();
+        bool bCorridor = false;
+        if (World && World->PersistentLevel)
+            for (AActor* Actor : World->PersistentLevel->Actors)
+                if (auto* Definition = Cast<AHBDungeonModuleDefinition>(Actor))
+                { bCorridor = Definition->ModuleKind == EHBDungeonModuleKind::Corridor; break; }
+        (bCorridor ? CorridorMaps : RoomMaps).Add(Map);
+    }
+    return Build(RoomMaps, CorridorMaps, OutEntries, OutErrors);
+}
 
 bool HBDungeonModuleCatalog::Build(const TArray<TSoftObjectPtr<UWorld>>& RoomMaps,
     const TArray<TSoftObjectPtr<UWorld>>& CorridorMaps, TArray<FHBModuleCatalogEntry>& OutEntries, TArray<FString>& OutErrors)
@@ -53,6 +73,7 @@ bool HBDungeonModuleCatalog::Build(const TArray<TSoftObjectPtr<UWorld>>& RoomMap
             Ids.Add(Definition->ModuleId);
             FHBModuleCatalogEntry Entry;
             Entry.Map = Map; Entry.ModuleId = Definition->ModuleId; Entry.Kind = ExpectedKind;
+            Entry.AllowedFloor = Definition->RoomInfo->AllowedFloor;
             if (ExpectedKind == EHBDungeonModuleKind::Room)
                 Entry.Role = Definition->FindComponentByClass<UHBRoomInfoComponent>()->RoomRole;
             if (!Definition->ReadModuleGeometry(FTransform::Identity, Entry.Connectors, Entry.Occupancy, Issues))
@@ -61,6 +82,11 @@ bool HBDungeonModuleCatalog::Build(const TArray<TSoftObjectPtr<UWorld>>& RoomMap
                 continue;
             }
             Entry.ConnectorCount = Entry.Connectors.Num();
+            for (AActor* Actor : Level->Actors)
+                if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal))
+                    Entry.Portals.Add({Portal->PortalId, Portal->Trigger->GetComponentTransform(),
+                        Portal->Trigger->GetUnscaledBoxExtent(), Portal->Arrival->GetComponentTransform()});
+            Entry.Portals.Sort([](const auto& A, const auto& B) { return A.PortalId.LexicalLess(B.PortalId); });
             for (const auto& Box : Entry.Occupancy)
                 Entry.Bounds += FBox(-Box.Extent, Box.Extent).TransformBy(Box.LocalTransform);
             if (!Entry.Bounds.IsValid || Entry.Bounds.Min.ContainsNaN() || Entry.Bounds.Max.ContainsNaN())

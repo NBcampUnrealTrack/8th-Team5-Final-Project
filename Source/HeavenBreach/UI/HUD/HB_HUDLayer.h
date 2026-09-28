@@ -13,6 +13,8 @@ class UHB_HitEffectWidget;
 class UTextBlock;
 class UTextureRenderTarget2D;
 class UInventoryWidget;
+class UHB_NotificationWidget;
+class UBorder;
 class UProgressBar;
 
 /**
@@ -66,6 +68,14 @@ public:
 	UFUNCTION()
 	void UpdateLevel(int32 NewLevel);
 
+	/**
+	 * 좌하단 주무기/보조무기 표시 갱신. 두 칸을 항상 같이 보여주되, 지금 든 무기
+	 * 쪽만 배경/아이콘을 진하게, 키 뱃지를 밝게 강조하고 반대쪽은 흐리게 만든다.
+	 * true 면 주무기 강조, false 면 보조무기 강조.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "UI|Weapon")
+	void SetActiveWeaponSlot(bool bIsMainActive);
+
 	/** 경험치 바 갱신. Percent 는 0~1 */
 	UFUNCTION()
 	void UpdateExperience(int32 CurrentExperience, int32 ExperienceToNextLevel, float ExperiencePercent);
@@ -101,11 +111,23 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Experience Changed"))
 	void BP_OnExperienceChanged(int32 CurrentExperience, int32 ExperienceToNextLevel, float ExperiencePercent);
 
+	/**
+	 * 고를 수 있는 증강 선택권이 있는지 없는지 "상태가 바뀔 때"만 호출된다(매번이 아님).
+	 * 여기서 스킬 증강 아이콘의 깜빡임 애니메이션을 Play Animation(Loop)으로 켜고,
+	 * false 로 오면 Stop Animation 으로 끄면 된다.
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI|Progression", meta = (DisplayName = "On Pending Upgrade Changed"))
+	void BP_OnPendingUpgradeChanged(bool bHasPendingUpgrade);
+
 protected:
 	/** 실제 바인딩 시도. PlayerState와 AttributeSet이 준비됐으면 true */
 	bool TryBindPlayerState();
 
 	void HandleBindRetry();
+
+	/** PS->OnSkillUpgradesChanged 에 물리는 핸들러. 상태가 실제로 바뀔 때만 BP_OnPendingUpgradeChanged 를 부른다. */
+	UFUNCTION()
+	void HandleSkillUpgradesChanged();
 
 	virtual void NativeConstruct() override;
 
@@ -179,6 +201,43 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UInventoryWidget> WBP_Inventory;
 
+	/** 레벨업 등 잠깐 떴다 사라지는 알림. 없어도 HUD 는 정상 동작하고 알림만 생략된다. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UHB_NotificationWidget> WBP_Notification;
+
+	// ---- 주무기/보조무기 표시 ----
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_MainBackground;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> IMG_SubBackground;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> MainWeapon_key;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UBorder> SubWeapon_Key;
+
+	/** 강조된 쪽 배경 이미지 알파. 반대쪽은 InactiveBackgroundAlpha 를 쓴다. */
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	float ActiveBackgroundAlpha = 0.8f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	float InactiveBackgroundAlpha = 0.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	float ActiveIconAlpha = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	float InactiveIconAlpha = 0.3f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	FLinearColor ActiveKeyColor = FLinearColor(0.713542f, 0.713542f, 0.713542f, 0.965217f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Weapon")
+	FLinearColor InactiveKeyColor = FLinearColor(0.307292f, 0.307292f, 0.307292f, 0.965217f);
+
 private:
 	// -2: 초기 갱신 전, -1: 타이머 정보 대기 중.
 	int32 LastDisplayedRemainingSeconds = -2;
@@ -203,6 +262,16 @@ private:
 	float InterpSpeed = 5.0f;
 
 	bool bIsInitialized = false;
+
+	/**
+	 * UpdateLevel 이 "진짜로 레벨이 올랐을 때"와 "HUD 가 막 떠서 현재 레벨을 처음
+	 * 동기화할 때"를 구분하기 위한 값. -1 이면 아직 한 번도 안 받아온 상태라는 뜻이라,
+	 * 이때는 알림을 띄우지 않는다.
+	 */
+	int32 LastKnownLevel = -1;
+
+	/** 마지막으로 BP_OnPendingUpgradeChanged 에 넘긴 값. 상태가 진짜 바뀔 때만 다시 부르기 위한 중복 방지용. */
+	bool bLastPendingUpgradeState = false;
 
 	FTimerHandle BindRetryTimerHandle;
 
