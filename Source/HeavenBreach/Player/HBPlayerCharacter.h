@@ -562,8 +562,11 @@ public:
 	bool CanSprint() const;
 
 	void StartSprint();
-	
+
 	void StopSprint();
+
+	// 복제되는 값이라 남의 캐릭터에서도 맞다. 발소리가 걷기·달리기를 가르는 데 쓴다.
+	bool IsSprinting() const { return bIsSprinting; }
 
 	void SetMovementSpeedMultiplier(float NewMultiplier);
 
@@ -645,6 +648,10 @@ protected:
 	// 상자·시체를 뒤지는 동작. 켜고 끄는 건 InteractionComponent(길게 누르기)와 컨트롤러(상자 창)가 한다.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Interaction")
 	TObjectPtr<class UHBInteractAnimComponent> InteractAnimComp;
+
+	// 걷기·달리기 발소리. 사운드는 BP 에서 넣는다. 비어 있으면 소리가 안 난다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Movement")
+	TObjectPtr<class UHBFootstepComponent> FootstepComp;
 	
 	#pragma region ModularEquipmentMesh
 	// Modular equipment meshes copy the character mesh pose instead of attaching to a socket.
