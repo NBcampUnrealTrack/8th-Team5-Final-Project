@@ -11,6 +11,7 @@
 	#include "InventoryItemWidget.h"
 	#include "EquipmentComponent.h"
 	#include "EquipmentWidget.h"
+	#include "EquipmentSlotWidget.h"
 	#include "Item/ItemActionMenuWidget.h"
 	#include "Item/Item.h"
 	#include "Blueprint/WidgetLayoutLibrary.h"
@@ -26,6 +27,7 @@
 	#include "Widgets/Layout/SBox.h"
 	#include "Engine/GameViewportClient.h"
 	#include "Player/PlayerState/HB_PlayerState.h"
+	#include "TimerManager.h"
 
 	UInventoryWidget::UInventoryWidget()
 	{
@@ -215,8 +217,9 @@
 
 		if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
 		{
-			// CancelDragDrop()이 Operation의 OnDragCancelled를 호출해서 드래그 아이콘도 같이 정리된다.
+			bSuppressDropOnCancel = true;
 			FSlateApplication::Get().CancelDragDrop();
+			bSuppressDropOnCancel = false;
 		}
 		if (ActiveContextMenu)
 		{
@@ -248,11 +251,11 @@
 		{
 			LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
 		}
-		// 드래그 중에 인벤토리 창이 닫히면(Tab 키 등) CancelDragDrop()이 Operation의
-		// OnDragCancelled를 호출해서 뷰포트에 올려둔 드래그 아이콘도 같이 정리된다.
 		if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
 		{
+			bSuppressDropOnCancel = true;
 			FSlateApplication::Get().CancelDragDrop();
+			bSuppressDropOnCancel = false;
 		}
 		Super::NativeDestruct();
 	}
@@ -274,6 +277,35 @@
 					PC->RequestCloseInventory();
 				}
 				return FReply::Handled();
+			}
+		}
+
+		if (InKeyEvent.GetKey() == EKeys::G)
+		{
+			if (BoundInventory != nullptr && HoveredItemInstanceId.IsValid())
+			{
+				if (OwningInventory != nullptr)
+				{
+					OwningInventory->Server_DropItemFrom(BoundInventory, HoveredItemInstanceId);
+				}
+				else
+				{
+					BoundInventory->Server_DropItem(HoveredItemInstanceId);
+				}
+				return FReply::Handled();
+			}
+
+			if (BoundInventory != nullptr && EquipmentPanel != nullptr)
+			{
+				if (UEquipmentSlotWidget* HoveredSlot = EquipmentPanel->GetHoveredSlotWidget())
+				{
+					if (HoveredSlot->BoundEquipment != nullptr
+						&& HoveredSlot->BoundEquipment->IsSlotOccupied(HoveredSlot->SlotType))
+					{
+						BoundInventory->Server_DropEquippedItem(HoveredSlot->BoundEquipment, HoveredSlot->SlotType);
+						return FReply::Handled();
+					}
+				}
 			}
 		}
 
@@ -313,6 +345,56 @@
 		return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 	}
 
+	void UInventoryWidget::NativeOnFocusLost(const FFocusEvent& InFocusEvent)
+	{
+		Super::NativeOnFocusLost(InFocusEvent);
+
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimerForNextTick(this, &UInventoryWidget::TryReclaimFocus);
+		}
+	}
+
+	void UInventoryWidget::TryReclaimFocus()
+	{
+		if (!IsVisible())
+		{
+			return;
+		}
+		if (HasAnyUserFocus() || HasFocusedDescendants())
+		{
+			return;
+		}
+		if (!ShouldReclaimFocus())
+		{
+			return;
+		}
+		SetKeyboardFocus();
+	}
+
+	bool UInventoryWidget::ShouldReclaimFocus() const
+	{
+		if (LinkedContainer != nullptr)
+		{
+			return false;
+		}
+
+		if (IsValid(ActiveContextMenu) && ActiveContextMenu->IsInViewport())
+		{
+			return false;
+		}
+		if (IsValid(ActiveSplitPopup) && ActiveSplitPopup->IsInViewport())
+		{
+			return false;
+		}
+		if (IsValid(ActiveInfoPopup) && ActiveInfoPopup->IsInViewport())
+		{
+			return false;
+		}
+
+		return true;
+	}
+
 	void UInventoryWidget::HandleInventoryChanged()
 	{
 		RefreshGrid();
@@ -340,7 +422,7 @@
 	{
 		if (EquipmentPanel != nullptr)
 		{
-			EquipmentPanel->BindToEquipment(InEquipment, BoundInventory);
+			EquipmentPanel->BindToEquipment(InEquipment, BoundInventory, this);
 		}
 	}
 
@@ -774,6 +856,20 @@
 	{
 		ClearPlacementPreview();
 		ActiveDragOperation.Reset();
+
+		if (!bSuppressDropOnCancel && OwningInventory == nullptr)
+		{
+			if (const UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation))
+			{
+				if (Operation->SourceEquipment == nullptr
+					&& Operation->SourceInventory == BoundInventory
+					&& BoundInventory != nullptr)
+				{
+					BoundInventory->Server_DropItem(Operation->InstanceId);
+				}
+			}
+		}
+
 		// 드래그 아이콘 정리는 Operation의 OnDragCancelled 이벤트가 알아서 정확히 한 번 처리한다.
 		Super::NativeOnDragCancelled(InDragDropEvent, InOperation);
 	}
@@ -924,11 +1020,27 @@
 					BoundInventory->Server_ToggleFavorite(InstanceId);
 				}
 			});
-		// "아이템 정보"는 더 이상 Ctrl+우클릭 메뉴에서 따로 열지 않는다 — 이제 마우스를
-		// 올리기만 해도(UpdateHoverInfoPopup) 상세 정보가 그대로 보이기 때문에 중복이라
-		// OnInfoRequested는 바인딩하지 않는다. (컨텍스트 메뉴 WBP에 "정보" 버튼이 아직
-		// 남아있다면 눌러도 아무 반응이 없을 뿐 에러는 나지 않는다 — 버튼 자체를 지우고
-		// 싶으면 Designer에서 직접 제거해줘야 한다.)
+		ActiveContextMenu->OnCloseRequested.AddLambda([this]()
+			{
+				if (LinkedContainer == nullptr)
+				{
+					if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+					{
+						PC->RequestCloseInventory();
+					}
+				}
+			});
+		ActiveContextMenu->OnMenuClosed.AddLambda([this]()
+			{
+				ActiveContextMenu = nullptr;
+				if (LinkedContainer == nullptr)
+				{
+					if (UWorld* World = GetWorld())
+					{
+						World->GetTimerManager().SetTimerForNextTick(this, &UInventoryWidget::TryReclaimFocus);
+					}
+				}
+			});
 		ActiveContextMenu->AddToViewport(100);
 		ActiveContextMenu->SetKeyboardFocus();
 		const FVector2D ViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);

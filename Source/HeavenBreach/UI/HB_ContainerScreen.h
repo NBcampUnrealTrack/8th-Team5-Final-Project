@@ -64,7 +64,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio")
 	TObjectPtr<USoundBase> LootOpenSound;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio")
+	TObjectPtr<USoundBase> ItemRevealedSound;
+
 private:
+	UFUNCTION()
+	void HandleItemRevealed();
+
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> Container;
 };

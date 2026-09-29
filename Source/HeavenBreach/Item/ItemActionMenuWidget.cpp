@@ -33,8 +33,25 @@ void UItemActionMenuWidget::NativeOnFocusLost(const FFocusEvent& InFocusEvent)
 	Super::NativeOnFocusLost(InFocusEvent);
 	if (!HasFocusedDescendants())
 	{
-		RemoveFromParent();
+		CloseMenu();
 	}
+}
+
+FReply UItemActionMenuWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (InKeyEvent.GetKey() == EKeys::Tab || InKeyEvent.GetKey() == EKeys::Escape)
+	{
+		OnCloseRequested.Broadcast();
+		CloseMenu();
+		return FReply::Handled();
+	}
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
+void UItemActionMenuWidget::CloseMenu()
+{
+	OnMenuClosed.Broadcast();
+	RemoveFromParent();
 }
 
 void UItemActionMenuWidget::SetupForItem(bool bCanUse, bool bCanSplit, bool bIsFavorite)
@@ -63,29 +80,29 @@ void UItemActionMenuWidget::SetupForItem(bool bCanUse, bool bCanSplit, bool bIsF
 void UItemActionMenuWidget::HandleUseClicked()
 {
 	OnUseRequested.Broadcast();
-	RemoveFromParent();
+	CloseMenu();
 }
 
 void UItemActionMenuWidget::HandleSplitClicked()
 {
 	OnSplitRequested.Broadcast();
-	RemoveFromParent();
+	CloseMenu();
 }
 
 void UItemActionMenuWidget::HandleInfoClicked()
 {
 	OnInfoRequested.Broadcast();
-	RemoveFromParent();
+	CloseMenu();
 }
 
 void UItemActionMenuWidget::HandleDiscardClicked()
 {
 	OnDiscardRequested.Broadcast();
-	RemoveFromParent();
+	CloseMenu();
 }
 
 void UItemActionMenuWidget::HandleFavoriteClicked()
 {
 	OnFavoriteRequested.Broadcast();
-	RemoveFromParent();
+	CloseMenu();
 }

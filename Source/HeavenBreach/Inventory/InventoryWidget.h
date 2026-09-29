@@ -61,6 +61,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	UInventoryComponent* GetBoundInventory() const { return BoundInventory; }
 
+	bool ShouldSuppressDropOnCancel() const { return bSuppressDropOnCancel; }
+
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool BP_ScreenToCell(const FVector2D& InScreenPosition, FIntPoint& OutCell) const { return ScreenToCell(InScreenPosition, OutCell); }
 
@@ -93,6 +95,7 @@ protected:
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+	virtual void NativeOnFocusLost(const FFocusEvent& InFocusEvent) override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
@@ -160,6 +163,8 @@ private:
 	bool HandleDoubleClick(FIntPoint InCell);
 	bool HandleQuickSlotRegister(int32 InSlotIndex);
 	void RefocusAfterDrop();
+	void TryReclaimFocus();
+	bool ShouldReclaimFocus() const;
 	void SetHoveredCell(FIntPoint InCell);
 	void ClearHoveredCell();
 	bool UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation);
@@ -189,6 +194,8 @@ private:
 	// �� ĭ���� ��Ŭ���ص� ������ ������ PressedCell/bPressedWithCtrl ���� �״�� �����־,
 	// Ctrl ���� �ƹ����� ��Ŭ���ص� ���� �������� ���ؽ�Ʈ �޴��� �ٽ� �ߴ� ���װ� �־���.
 	bool bHasValidPress = false;
+
+	bool bSuppressDropOnCancel = false;
 
 	void ShowSplitPopupForDrop(FGuid InInstanceId, FIntPoint InTargetCell, FVector2D InScreenPosition);
 

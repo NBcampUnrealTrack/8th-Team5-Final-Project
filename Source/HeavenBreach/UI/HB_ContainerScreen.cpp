@@ -34,6 +34,12 @@ void UHB_ContainerScreen::NativeOnActivated()
 	{
 		UGameplayStatics::PlaySound2D(this, LootOpenSound);
 	}
+
+	if (Container != nullptr)
+	{
+		Container->OnItemRevealed.RemoveDynamic(this, &UHB_ContainerScreen::HandleItemRevealed);
+		Container->OnItemRevealed.AddDynamic(this, &UHB_ContainerScreen::HandleItemRevealed);
+	}
 }
 
 void UHB_ContainerScreen::NativeOnDeactivated()
@@ -45,6 +51,8 @@ void UHB_ContainerScreen::NativeOnDeactivated()
 		return;
 	}
 
+	Container->OnItemRevealed.RemoveDynamic(this, &UHB_ContainerScreen::HandleItemRevealed);
+
 	// 상자 컴포넌트는 내 소유가 아니므로 항상 내 인벤토리를 거쳐 RPC를 보낸다(BindPanels 참고).
 	AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetOwningPlayerPawn());
 	if (PlayerCharacter == nullptr)
@@ -55,6 +63,14 @@ void UHB_ContainerScreen::NativeOnDeactivated()
 	if (UInventoryComponent* PlayerInventory = PlayerCharacter->GetInventory())
 	{
 		PlayerInventory->Server_PauseContainerReveal(Container);
+	}
+}
+
+void UHB_ContainerScreen::HandleItemRevealed()
+{
+	if (ItemRevealedSound != nullptr)
+	{
+		UGameplayStatics::PlaySound2D(this, ItemRevealedSound);
 	}
 }
 

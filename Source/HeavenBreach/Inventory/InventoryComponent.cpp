@@ -649,6 +649,7 @@ void UInventoryComponent::RevealNextItem()
 		{
 			Entry.Item.bRevealed = true;
 			OnInventoryChanged.Broadcast();
+			Multicast_OnItemRevealed();
 			return;
 		}
 	}
@@ -937,27 +938,17 @@ bool UInventoryComponent::MergeStackFrom(UInventoryComponent* InSource, FGuid In
 
 	return true;
 }
-bool UInventoryComponent::DropItem(FGuid InInstanceId)
+bool UInventoryComponent::SpawnDroppedItemActor(const FItemInstance& InItem)
 {
 	if (GetOwnerRole() != ROLE_Authority)
 	{
 		return false;
 	}
 
-	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
-	if (EntryIndex == INDEX_NONE)
-	{
-		return false;
-	}
-
-	const FDataTableRowHandle ItemRow = Entries[EntryIndex].Item.ItemRow;
-	const int32 DroppedStackCount = Entries[EntryIndex].Item.StackCount;
-	// 즐겨찾기한 아이템을 버렸다가 다시 주우면 즐겨찾기가 풀려있던 문제 수정:
-	// 드롭 시점에 즐겨찾기 여부를 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
-	const bool bWasFavorite = Entries[EntryIndex].Item.bIsFavorite;
-	// 내구도가 깎인 장비를 버렸다가 다시 주우면 내구도가 초기화(풀피)되던 문제 수정:
-	// 드롭 시점에 내구도도 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
-	const float DroppedDurability = Entries[EntryIndex].Item.CurrentDurability;
+	const FDataTableRowHandle ItemRow = InItem.ItemRow;
+	const int32 DroppedStackCount = InItem.StackCount;
+	const bool bWasFavorite = InItem.bIsFavorite;
+	const float DroppedDurability = InItem.CurrentDurability;
 	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
 	{
 		return false;
@@ -1048,10 +1039,52 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 		NewItemActor->MeshComponent->SetPhysicsAngularVelocityInDegrees(FVector(0.f, 90.f, 0.f));
 	}
 
+	return true;
+}
+
+bool UInventoryComponent::DropItem(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	if (!SpawnDroppedItemActor(Entries[EntryIndex].Item))
+	{
+		return false;
+	}
+
 	FItemInstance RemovedItem;
 	RemoveItem(InInstanceId, RemovedItem);
 
 	return true;
+}
+
+bool UInventoryComponent::DropEquippedItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot)
+{
+	if (GetOwnerRole() != ROLE_Authority || InEquipment == nullptr)
+	{
+		return false;
+	}
+
+	FItemInstance EquippedItem;
+	if (!InEquipment->GetItemInSlot(InSlot, EquippedItem))
+	{
+		return false;
+	}
+
+	if (!SpawnDroppedItemActor(EquippedItem))
+	{
+		return false;
+	}
+
+	return InEquipment->ClearSlot(InSlot);
 }
 
 void UInventoryComponent::ClearAll()
@@ -1337,10 +1370,29 @@ void UInventoryComponent::Server_DropItem_Implementation(FGuid InInstanceId)
 	DropItem(InInstanceId);
 }
 
+void UInventoryComponent::Server_DropItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)
+{
+	if (InSource == nullptr)
+	{
+		return;
+	}
+	InSource->DropItem(InInstanceId);
+}
+
+void UInventoryComponent::Server_DropEquippedItem_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot)
+{
+	DropEquippedItem(InEquipment, InSlot);
+}
+
 void UInventoryComponent::Client_PlayActionResult_Implementation(bool bSuccess, bool bEquipment)
 {
 	UHBUIAudioLibrary::PlayForOwner(this, !bSuccess ? EHBUIAudioEvent::Error
 		: (bEquipment ? EHBUIAudioEvent::ItemEquip : EHBUIAudioEvent::ItemMove));
+}
+
+void UInventoryComponent::Multicast_OnItemRevealed_Implementation()
+{
+	OnItemRevealed.Broadcast();
 }
 
 void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)
