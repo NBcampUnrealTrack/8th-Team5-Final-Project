@@ -394,10 +394,11 @@ void UHBSettingsWidget::NativeTick(const FGeometry& Geometry, float DeltaTime)
 	Super::NativeTick(Geometry, DeltaTime);
 	const TCHAR* Rows[] = {TEXT("Row_WindowMode"), TEXT("Row_Resolution"), TEXT("Row_Quality"), TEXT("Row_FrameRate"),
 		TEXT("Row_VSync"), TEXT("Row_DLSS"), TEXT("Row_Master"), TEXT("Row_Music"), TEXT("Row_Effects"),
-		TEXT("Row_Sensitivity"), TEXT("Row_CameraShake")};
+		TEXT("Row_Sensitivity"), TEXT("Row_CameraShake"), TEXT("Row_CameraMotion")};
 	const int32 PageIndex = SettingsPages->GetActiveWidgetIndex();
 	const int32 FirstRow = PageIndex == 0 ? 0 : (PageIndex == 1 ? 6 : 9);
-	const int32 LastRow = PageIndex == 0 ? 6 : (PageIndex == 1 ? 9 : 11);
+	// Row_CameraMotion 은 WBP 에 아직 없을 수 있다. 없으면 GetWidgetFromName 이 null 이라 건너뛴다.
+	const int32 LastRow = PageIndex == 0 ? 6 : (PageIndex == 1 ? 9 : 12);
 	for (int32 RowIndex = FirstRow; RowIndex < LastRow; ++RowIndex)
 	{
 		UWidget* Row = GetWidgetFromName(Rows[RowIndex]);
