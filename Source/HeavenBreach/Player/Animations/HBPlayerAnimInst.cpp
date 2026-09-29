@@ -40,6 +40,7 @@ void UHBPlayerAnimInst::NativeUpdateAnimation(float DeltaSeconds)
 		FallSpeed = Velocity.Z;
 		bIsFalling = OwnerInst->GetCharacterMovement()->IsFalling();
 		bIsCrouching = OwnerInst->GetCharacterMovement()->IsCrouching();
+		bIsUnarmed = OwnerInst->IsUnarmed();
 		
 		
 		Velocity.Z = 0.f;
