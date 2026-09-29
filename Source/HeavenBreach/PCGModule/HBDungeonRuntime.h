@@ -10,7 +10,7 @@ class APlayerStart;
 class AHBDungeonPortal;
 class AHBDungeonDoorSeal;
 UENUM(BlueprintType)
-enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, Ready, Failed };
+enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, PreparingEncounters, Ready, Failed };
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FHBDungeonFailed, const FString&, Reason);
 
@@ -34,6 +34,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search", meta=(ClampMin="1")) int32 MaxConnectionAttempts = 20000;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search", meta=(ClampMin="0.1")) float ConnectionSearchSeconds = 2;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search", meta=(ClampMin="5")) float LoadTimeoutSeconds = 120;
+    /** Separate upper bound for navigation readiness and room encounter preparation. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search", meta=(ClampMin="1")) float EncounterTimeoutSeconds = 30;
     /** Each possible starting room must contain exactly one PlayerStart with this tag. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay") FName SpawnTag = TEXT("DungeonSpawn");
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay") TSubclassOf<AHBDungeonDoorSeal> DoorSealClass;
@@ -42,6 +44,7 @@ public:
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") EHBDungeonRuntimeState State = EHBDungeonRuntimeState::Idle;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") FString Status;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") int32 ActiveSeed = 0;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") int32 GenerationId = 0;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") TArray<FHBPrototypeRoom> Rooms;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Debug") TArray<FHBModuleCatalogEntry> ModuleCatalog;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Debug") TArray<FString> CatalogErrors;
@@ -56,6 +59,8 @@ public:
     void Fail(const FString& Reason);
 private:
     bool PrepareGameplay(FString& Error);
+    bool PrepareEncounters(FString& Error);
+    void MarkReady();
     void ClearGenerated();
     HBConnectorLayout::FSettings ActiveSettings;
     FHBDungeonGenerationRules ActiveRules;
@@ -64,4 +69,5 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonDoorSeal>> Seals;
     UPROPERTY(Transient) TObjectPtr<APlayerStart> StartPoint;
     double GenerationStartTime = 0;
+    double EncounterStartTime = 0;
 };

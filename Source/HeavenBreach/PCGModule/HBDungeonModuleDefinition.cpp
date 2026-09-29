@@ -4,6 +4,7 @@
 #include "PCGModule/HBDungeonOccupancyComponent.h"
 #include "PCGModule/HBDungeonPortal.h"
 #include "PCGModule/HBRoomEncounterProfile.h"
+#include "PCGModule/HBRoomEncounterComponent.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "AI/EnemyCharacterBase.h"
@@ -50,6 +51,7 @@ AHBDungeonModuleDefinition::AHBDungeonModuleDefinition()
 	bReplicates = false;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("ModuleSettingsRoot"));
 	RoomInfo = CreateDefaultSubobject<UHBRoomInfoComponent>(TEXT("RoomInfo"));
+	Encounter = CreateDefaultSubobject<UHBRoomEncounterComponent>(TEXT("Encounter"));
 
 }
 

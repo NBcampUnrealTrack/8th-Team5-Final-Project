@@ -34,7 +34,8 @@ bool FHBGameplayGateTest::RunTest(const FString&)
     auto* PC = World->SpawnActor<APlayerController>();
     World->SpawnActor<APlayerStart>(); // Persistent-level fallback must never be used.
     for (const auto State : {EHBDungeonRuntimeState::Idle, EHBDungeonRuntimeState::Generating,
-        EHBDungeonRuntimeState::Loading, EHBDungeonRuntimeState::Failed})
+        EHBDungeonRuntimeState::Loading, EHBDungeonRuntimeState::PreparingEncounters,
+        EHBDungeonRuntimeState::Failed})
     {
         Dungeon->State = State;
         TestNull(TEXT("No start exposed until dungeon ready"), Mode->ChoosePlayerStart_Implementation(PC));
