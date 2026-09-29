@@ -5,7 +5,11 @@
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "PCGModule/HBDungeonDoorSeal.h"
 #include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBDungeonModuleDefinition.h"
+#include "PCGModule/HBRoomEncounterComponent.h"
+#include "PCGModule/HBRoomEncounterProfile.h"
 #include "PCGPrototype/HBPCGPreview.h"
+#include "AI/EnemyCharacterBase.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "Player/Job/HBStartingLoadout.h"
@@ -20,6 +24,28 @@
 #include "Settings/LevelEditorPlaySettings.h"
 #include "UObject/UnrealType.h"
 #include "Misc/PackageName.h"
+
+namespace
+{
+	constexpr TCHAR TestMGMapPath[] = TEXT("/Game/Levels/Test_CW/GameplaySmoke/TestMG");
+
+	struct FTestMGRuntimeFixtureState
+	{
+		TArray<TSoftObjectPtr<UWorld>> ModuleMaps;
+		int32 Seed = 0;
+		bool bRandomSeedOnStart = true;
+		bool bConfigured = false;
+	};
+
+	AHBDungeonRuntime* FindEditorDungeon()
+	{
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+			if (Context.WorldType == EWorldType::Editor && Context.World())
+				for (TActorIterator<AHBDungeonRuntime> It(Context.World()); It; ++It)
+					return *It;
+		return nullptr;
+	}
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBGameplayGateTest, "HeavenBreach.PCGModule.Gameplay.SpawnGate",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -148,5 +174,142 @@ bool FHBGameplaySmokeTest::RunTest(const FString&)
         return true;
     }));
     return true;
+}
+
+class FHBWaitForTestMGRuntime : public IAutomationLatentCommand
+{
+	FAutomationTestBase* Test;
+	TSharedRef<FTestMGRuntimeFixtureState> Fixture;
+	double Started = FPlatformTime::Seconds();
+	double ReadyAt = 0;
+	int32 InitialAlive = INDEX_NONE;
+
+public:
+	FHBWaitForTestMGRuntime(FAutomationTestBase* InTest, TSharedRef<FTestMGRuntimeFixtureState> InFixture)
+		: Test(InTest), Fixture(InFixture) {}
+	virtual bool Update() override
+	{
+		if (!Fixture->bConfigured) return true;
+		UWorld* World = nullptr;
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+			if (Context.WorldType == EWorldType::PIE) { World = Context.World(); break; }
+		if (!World)
+		{
+			if (FPlatformTime::Seconds() - Started < 90.) return false;
+			Test->AddError(TEXT("TestMG runtime PIE world did not start.")); return true;
+		}
+		AHBDungeonRuntime* Dungeon = nullptr;
+		for (TActorIterator<AHBDungeonRuntime> It(World); It; ++It) { Dungeon = *It; break; }
+		if (!Dungeon) { Test->AddError(TEXT("TestMG runtime fixture has no dungeon generator.")); return true; }
+		if (!Dungeon->IsReady())
+		{
+			// Direct PIE has no lobby; provide the same default loadout as the existing gameplay smoke test.
+			APlayerController* PC = World->GetFirstPlayerController();
+			AHB_PlayerState* PS = PC ? PC->GetPlayerState<AHB_PlayerState>() : nullptr;
+			const AGameModeBase* GM = World->GetAuthGameMode();
+			const AHBPlayerCharacter* CDO = GM && GM->DefaultPawnClass
+				? Cast<AHBPlayerCharacter>(GM->DefaultPawnClass->GetDefaultObject()) : nullptr;
+			if (PS && !PS->GetSelectedJob() && CDO && CDO->GetJobData())
+			{
+				FHBStartingLoadout Loadout; FText Error;
+				if (!MakeDefaultStartingLoadout(CDO->GetJobData(), Loadout, Error)
+					|| !PS->TrySetStartingLoadout(Loadout, Error)) Test->AddError(Error.ToString());
+			}
+		}
+		if (Dungeon->State == EHBDungeonRuntimeState::Failed) { Test->AddError(Dungeon->Status); return true; }
+		if (!Dungeon->IsReady())
+		{
+			if (FPlatformTime::Seconds() - Started < 90.) return false;
+			Test->AddError(TEXT("TestMG runtime dungeon did not become ready.")); return true;
+		}
+		if (ReadyAt != 0. && FPlatformTime::Seconds() - ReadyAt < 0.5) return false;
+
+		int32 RoomCount = 0;
+		int32 TotalAlive = 0;
+		for (const FHBPrototypeRoom& Room : Dungeon->Rooms)
+		{
+			if (Room.ModuleMap.ToSoftObjectPath().GetLongPackageName() != TestMGMapPath) continue;
+			++RoomCount;
+			AHBDungeonModuleDefinition* Definition = nullptr;
+			for (TActorIterator<AHBDungeonModuleDefinition> It(World); It; ++It)
+				if (It->ModuleId == Room.ModuleId && It->Encounter
+					&& It->Encounter->ActiveRoomId == Room.Id) { Definition = *It; break; }
+			Test->TestNotNull(TEXT("Generated TestMG room has its prepared encounter"), Definition);
+			if (!Definition) continue;
+			Test->TestTrue(TEXT("TestMG encounter prepared before dungeon Ready"),
+				Definition->Encounter->IsPreparedFor(Dungeon->GenerationId, Room.Id));
+			int32 Common = 0, Elite = 0;
+			for (TActorIterator<AEnemyCharacterBase> It(World); It; ++It)
+			{
+				AEnemyCharacterBase* Enemy = *It;
+				if (Enemy->GetLevel() != Definition->GetLevel()) continue;
+				if (Definition->EncounterProfile->EliteEnemies.ContainsByPredicate(
+					[Enemy](const FHBEnemySpawnOption& Option) { return Option.EnemyClass.Get() == Enemy->GetClass(); })) ++Elite;
+				else if (Definition->EncounterProfile->CommonEnemies.ContainsByPredicate(
+					[Enemy](const FHBEnemySpawnOption& Option) { return Option.EnemyClass.Get() == Enemy->GetClass(); })) ++Common;
+				else Test->AddError(FString::Printf(TEXT("Unexpected TestMG monster: %s"), *Enemy->GetClass()->GetName()));
+			}
+			Test->TestTrue(TEXT("TestMG has one or two common monsters"), Common >= 1 && Common <= 2);
+			Test->TestEqual(TEXT("TestMG has one Stone Golem elite"), Elite, 1);
+			Test->TestEqual(TEXT("TestMG server alive count matches spawned monsters"),
+				Definition->Encounter->AliveCount, Common + Elite);
+			TotalAlive += Definition->Encounter->AliveCount;
+		}
+		Test->TestTrue(TEXT("Actual dungeon selected TestMG"), RoomCount > 0);
+		if (ReadyAt == 0.) { ReadyAt = FPlatformTime::Seconds(); InitialAlive = TotalAlive; return false; }
+		if (FPlatformTime::Seconds() - ReadyAt < 0.5) return false;
+		Test->TestEqual(TEXT("Ready does not trigger a duplicate TestMG spawn"), TotalAlive, InitialAlive);
+		return true;
+	}
+};
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBTestMGRuntimeTest, "HeavenBreach.PCGModule.Encounter.TestMGRuntime",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBTestMGRuntimeTest::RunTest(const FString&)
+{
+	const FString FixtureMap = TEXT("/Game/Levels/Test_CW/GameplaySmoke/TestPCG_Gameplay");
+	if (!FPackageName::DoesPackageExist(FixtureMap) || !FPackageName::DoesPackageExist(TestMGMapPath))
+	{ AddError(TEXT("TestMG or gameplay fixture map is missing.")); return false; }
+	AddExpectedErrorPlain(TEXT("Null input trigger detected in mapping to input action 'IA_Interact'"), EAutomationExpectedErrorFlags::Contains, 0);
+	AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
+	AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
+	EPlayNetMode PreviousMode;
+	int32 PreviousClients;
+	GetDefault<ULevelEditorPlaySettings>()->GetPlayNetMode(PreviousMode);
+	GetDefault<ULevelEditorPlaySettings>()->GetPlayNumberOfClients(PreviousClients);
+	GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(EPlayNetMode::PIE_Standalone);
+	GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(1);
+	const TSharedRef<FTestMGRuntimeFixtureState> Saved = MakeShared<FTestMGRuntimeFixtureState>();
+	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(FixtureMap));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, Saved]()
+	{
+		AHBDungeonRuntime* Dungeon = FindEditorDungeon();
+		if (!Dungeon) { AddError(TEXT("Gameplay fixture has no editor dungeon generator.")); return true; }
+		Saved->ModuleMaps = Dungeon->ModuleMaps;
+		Saved->Seed = Dungeon->Seed;
+		Saved->bRandomSeedOnStart = Dungeon->bRandomSeedOnStart;
+		Dungeon->ModuleMaps.Add(TSoftObjectPtr<UWorld>(FSoftObjectPath(FString(TestMGMapPath) + TEXT(".TestMG"))));
+		// This fixture's seed 1 selects TestMG as the start room; the waiter asserts that it really did.
+		Dungeon->Seed = 1;
+		Dungeon->bRandomSeedOnStart = false;
+		Saved->bConfigured = true;
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+	ADD_LATENT_AUTOMATION_COMMAND(FHBWaitForTestMGRuntime(this, Saved));
+	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Saved, PreviousMode, PreviousClients]()
+	{
+		if (AHBDungeonRuntime* Dungeon = FindEditorDungeon())
+		{
+			Dungeon->ModuleMaps = Saved->ModuleMaps;
+			Dungeon->Seed = Saved->Seed;
+			Dungeon->bRandomSeedOnStart = Saved->bRandomSeedOnStart;
+		}
+		GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(PreviousMode);
+		GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(PreviousClients);
+		return true;
+	}));
+	return true;
 }
 #endif
