@@ -608,6 +608,10 @@ protected:
 	// 포션 마시는 동작. 인벤토리의 사용 시작 → 끝까지 마시면 확정, 도중에 행동하면 취소.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Item")
 	TObjectPtr<class UHBPotionDrinkComponent> PotionDrinkComp;
+
+	// 상자·시체를 뒤지는 동작. 켜고 끄는 건 InteractionComponent(길게 누르기)와 컨트롤러(상자 창)가 한다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Interaction")
+	TObjectPtr<class UHBInteractAnimComponent> InteractAnimComp;
 	
 	#pragma region ModularEquipmentMesh
 	// Modular equipment meshes copy the character mesh pose instead of attaching to a socket.
