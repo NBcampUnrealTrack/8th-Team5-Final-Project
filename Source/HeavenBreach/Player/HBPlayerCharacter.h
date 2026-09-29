@@ -604,6 +604,10 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Combat")
 	TObjectPtr<class UMeleeTraceComponent> MeleeTraceComp;
+
+	// 포션 마시는 동작. 인벤토리의 사용 시작 → 끝까지 마시면 확정, 도중에 행동하면 취소.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Item")
+	TObjectPtr<class UHBPotionDrinkComponent> PotionDrinkComp;
 	
 	#pragma region ModularEquipmentMesh
 	// Modular equipment meshes copy the character mesh pose instead of attaching to a socket.

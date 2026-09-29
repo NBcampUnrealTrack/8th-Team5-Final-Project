@@ -507,6 +507,48 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 		return false;
 	}
 
+	// 이미 마시는 중이면 다른 소모품을 겹쳐 쓰지 않는다.
+	if (PendingUseInstanceId.IsValid())
+	{
+		return false;
+	}
+
+	FItemInstance Item;
+	FItemViewData ViewData;
+	if (!CanUseItem(InInstanceId, Item, ViewData))
+	{
+		return false;
+	}
+
+	// 듣는 쪽이 없으면(애니메이션 없이 쓰는 곳) 예전처럼 그 자리에서 소모한다.
+	if (!OnItemUseBegan.IsBound())
+	{
+		PendingUseInstanceId = InInstanceId;
+		return CommitItemUse(InInstanceId);
+	}
+
+	// 소모·쿨타임·회복은 음용이 끝날 때 CommitItemUse 가 한다. 끊기면 아무것도 잃지 않는다.
+	PendingUseInstanceId = InInstanceId;
+	OnItemUseBegan.Broadcast(InInstanceId, Item.ItemRow.RowName);
+	return true;
+}
+
+bool UInventoryComponent::CommitItemUse(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority || !InInstanceId.IsValid() || PendingUseInstanceId != InInstanceId)
+	{
+		return false;
+	}
+	PendingUseInstanceId.Invalidate();
+
+	// 마시는 사이 버리거나 옮겼을 수 있어 다시 검사한다.
+	FItemInstance Item;
+	FItemViewData ViewData;
+	if (!CanUseItem(InInstanceId, Item, ViewData))
+	{
+		return false;
+	}
+
 	const UWorld* World = GetWorld();
 	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
 	if (GameState == nullptr)
@@ -514,10 +556,26 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 		return false;
 	}
 
-	const float CurrentTime = static_cast<float>(GameState->GetServerWorldTimeSeconds());
+	const FName CooldownKey = Item.ItemRow.RowName;
+	SetItemCooldown(CooldownKey, static_cast<float>(GameState->GetServerWorldTimeSeconds()));
+	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);
+	RemoveStackCount(InInstanceId, 1);
+	return true;
+}
+
+void UInventoryComponent::CancelItemUse(FGuid InInstanceId)
+{
+	if (PendingUseInstanceId == InInstanceId)
+	{
+		PendingUseInstanceId.Invalidate();
+	}
+}
+
+bool UInventoryComponent::CanUseItem(FGuid InInstanceId, FItemInstance& OutItem, FItemViewData& OutViewData) const
+{
 	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
 	if (EntryIndex == INDEX_NONE) return false;
-	const FItemInstance Item = Entries[EntryIndex].Item;
+	const FItemInstance& Item = Entries[EntryIndex].Item;
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(Item.ItemRow, ViewData)) return false;
 	if (!ViewData.IsConsumable()) return false;
@@ -545,9 +603,8 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 		}
 	}
 
-	SetItemCooldown(CooldownKey, CurrentTime);
-	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);
-	RemoveStackCount(InInstanceId, 1);
+	OutItem = Item;
+	OutViewData = ViewData;
 	return true;
 }
 

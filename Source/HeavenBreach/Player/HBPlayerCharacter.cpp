@@ -11,6 +11,7 @@
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
 #include "Combat/Attack/GA_PlayerAttackRE.h"
+#include "Player/HBPotionDrinkComponent.h"
 #include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Block/GA_PlayerParry.h"
 #include "Combat/Damage/HBDamageCalculation.h"
@@ -115,6 +116,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 #pragma endregion
 
 	MeleeTraceComp = CreateDefaultSubobject<UMeleeTraceComponent>(TEXT("MeleeTraceComp"));
+	PotionDrinkComp = CreateDefaultSubobject<UHBPotionDrinkComponent>(TEXT("PotionDrinkComp"));
 
 	// 구 방어(BP_GA_PlayerBlock)가 쓰던 몽타주를 그대로 가져왔다. 임시다.
 	GuardMontage = TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(
@@ -459,6 +461,10 @@ void AHBPlayerCharacter::BindToPlayerStateComponents()
 	}
 
 	Inv->OnItemUsed.AddUniqueDynamic(this, &AHBPlayerCharacter::HandleItemUsed);
+	if (PotionDrinkComp)
+	{
+		PotionDrinkComp->BindInventory(Inv);
+	}
 	Equip->OnEquipmentChanged.AddUniqueDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
 	bPlayerStateComponentsBound = true;
 
