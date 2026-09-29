@@ -49,14 +49,22 @@ void UInventoryDragDropOperation::CreateVisual(UUserWidget* InSourceWidget, UTex
 	}
 	DragImageWidget = NewDragImage;
 
-	// Center 정렬이어야 회전 피벗이 항상 박스 중심에 맞는다(Left/Top이면 회전축이 어긋난다).
+	// 주의: AddViewportWidgetContent로 뷰포트에 직접 붙는 위젯은 뷰포트 오버레이 슬롯이 기본
+	// Fill이라, WidthOverride/HeightOverride를 줘도 이 박스 자체는 화면 전체 크기로 늘어난다.
+	// 그래서 이 박스의 HAlign/VAlign이 "박스 안에서 화면 전체 대비 아이콘이 어디 놓이는가"를
+	// 결정해버리는데, Center로 하면 (마우스 위치 + 화면 절반)만큼 아이콘이 우측 하단으로
+	// 밀려나 마우스를 전혀 따라가지 않는 것처럼 보이는 심각한 회귀가 생긴다(2026-09-28 발견).
+	// 그래서 반드시 Left/Top이어야 한다 - UpdateVisualPosition()의 RenderTransform 이동값이
+	// 곧바로 아이콘의 좌상단 위치가 되어야 마우스 좌표와 정확히 일치한다.
+	// 회전 시 피벗이 박스 중심에서 어긋나던 원래 문제는 Padding으로 따로 보정한다(아래 참고).
 	TSharedRef<SBox> NewDragBox =
 		SNew(SBox)
 		.Visibility(EVisibility::HitTestInvisible)
-		.HAlign(HAlign_Center)
-		.VAlign(VAlign_Center)
+		.HAlign(HAlign_Left)
+		.VAlign(VAlign_Top)
 		.WidthOverride(VisualSize.X)
 		.HeightOverride(VisualSize.Y)
+		.Padding(ComputeCenteringPadding())
 		[
 			NewDragImage
 		];
@@ -116,6 +124,20 @@ void UInventoryDragDropOperation::DestroyVisual()
 	DragVisualRoot.Reset();
 }
 
+FMargin UInventoryDragDropOperation::ComputeCenteringPadding() const
+{
+	// 박스 정렬이 Left/Top으로 고정된 상태에서(위 CreateVisual 주석 참고), 회전 시 박스 크기가
+	// (Base.Y, Base.X)로 스왑되는데 아이콘 자체는 항상 BaseVisualSize 그대로다. 아이콘을 박스의
+	// (0,0)에 그냥 붙이면 회전축(아이콘 자기 중심)이 박스의 실제 중심과 어긋난다. 그래서 박스의
+	// "의도된" 중심과 아이콘의 중심이 일치하도록 좌상단 Padding으로 차이만큼 밀어준다.
+	const FVector2D CurrentBoxSize = bRotated
+		? FVector2D(BaseVisualSize.Y, BaseVisualSize.X)
+		: BaseVisualSize;
+	const float PadLeft = (CurrentBoxSize.X - BaseVisualSize.X) * 0.5f;
+	const float PadTop = (CurrentBoxSize.Y - BaseVisualSize.Y) * 0.5f;
+	return FMargin(PadLeft, PadTop, 0.0f, 0.0f);
+}
+
 void UInventoryDragDropOperation::SetRotated(bool bInRotated)
 {
 	if (bRotated == bInRotated)
@@ -131,6 +153,7 @@ void UInventoryDragDropOperation::SetRotated(bool bInRotated)
 			: BaseVisualSize;
 		DragBoxWidget->SetWidthOverride(NewBoxSize.X);
 		DragBoxWidget->SetHeightOverride(NewBoxSize.Y);
+		DragBoxWidget->SetPadding(ComputeCenteringPadding());
 	}
 
 	if (DragImageWidget.IsValid())

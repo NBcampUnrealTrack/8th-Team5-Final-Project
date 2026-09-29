@@ -45,6 +45,11 @@ namespace
 			{
 				continue;
 			}
+			// 에셋 미완성 등으로 아직 드랍시키면 안 되는 행은 여기서 걸러진다.
+			if (!Rows[i]->bDroppable)
+			{
+				continue;
+			}
 
 			FLootCandidate Candidate;
 			Candidate.Table = Table;
@@ -53,7 +58,7 @@ namespace
 		}
 	}
 
-	// DT_Weapon / DT_Shield 는 전부 장비라 거를 게 없다.
+	// DT_Weapon / DT_Shield 는 전부 장비라 ItemType 으로 거를 건 없지만, bDroppable 은 본다.
 	template<typename TRow>
 	void CollectAllByGrade(UDataTable* Table, TMap<EItemGrade, TArray<FLootCandidate>>& Out)
 	{
@@ -69,6 +74,10 @@ namespace
 		for (int32 i = 0; i < Rows.Num() && i < Names.Num(); ++i)
 		{
 			if (!Rows[i])
+			{
+				continue;
+			}
+			if (!Rows[i]->bDroppable)
 			{
 				continue;
 			}

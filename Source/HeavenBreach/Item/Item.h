@@ -38,6 +38,10 @@ struct FWeaponData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString Notes;
 
+	// 몬스터/상자 드랍 풀 포함 여부. 에셋 미완성 행은 꺼두면 자동 제외된다(다른 획득 경로엔 영향 없음).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	bool bDroppable = true;
+
 	// 아이템 정보 팝업(상세 정보)에 표시되는 플레이버 텍스트.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Display")
 	FString Description;
@@ -70,6 +74,10 @@ struct FShieldData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString Notes;
 
+	// 몬스터/상자 드랍 풀 포함 여부. 에셋 미완성 행은 꺼두면 자동 제외된다(다른 획득 경로엔 영향 없음).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	bool bDroppable = true;
+
 	// 아이템 정보 팝업(상세 정보)에 표시되는 플레이버 텍스트.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Display")
 	FString Description;
@@ -89,6 +97,11 @@ struct FItemData : public FTableRowBase
 	int32 MaxStack = 1;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	int32 SellValue = 0;
+
+	// 몬스터/상자 드랍 풀 포함 여부. 에셋 미완성 아이템(설계도, 열쇠 등)은 꺼두면
+	// 자동 제외된다 - 상점 판매/제작 결과물 등 다른 획득 경로엔 영향 없음, 드랍 풀에서만 뺀다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	bool bDroppable = true;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString UseEffect;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
