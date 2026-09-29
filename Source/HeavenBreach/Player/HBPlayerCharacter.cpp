@@ -254,13 +254,8 @@ void AHBPlayerCharacter::Attack()
 		return;
 	}
 
+	// 일반공격은 마나를 쓰지 않는다. 마나는 달리기·방어·스킬에만 쓴다.
 	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
-
-	// 달리기/방어와 같은 규칙. 마나가 부족하면 몽타주도 안 나간다.
-	// 비용 출처는 일반공격이다. 전투 호흡이 이걸 보고 마나를 깎는다.
-	if (!HasEnoughMana(ModifyManaCost(AbilityTag::TAG_Ability_BasicAttack, AttackManaCost)))
-		return;
-
 	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag));
 }
 
@@ -1115,22 +1110,10 @@ float AHBPlayerCharacter::ModifyManaCost(FGameplayTag SourceTag, float Cost) con
 
 	// 연산 순서는 이 한 곳에만 있다. 정액 먼저, 정률 나중.
 	// 반대로 하면 기본값이 작은 스킬에서 정액의 비중이 폭발한다.
-	float Final = (Cost + Flat) * Multiplier;
+	const float Final = (Cost + Flat) * Multiplier;
 
-	// 전투 호흡: 일반공격 마나만 줄인다. 스킬과 달리기, 방어에는 걸리지 않는다.
-	//
-	// 작동방식: 일반공격 경로가 Ability.BasicAttack 을 넘기고 여기서 그것만 본다.
-	// 스킬은 빈 태그를, 달리기도 빈 태그를, 방어는 State.Blocking 을 넘긴다.
-	//
-	// 전에는 "넘어온 태그가 지금 든 무기 태그와 같은가" 로 판별했다.
-	// 무기를 바꾸면 판단이 흔들리고, 읽는 사람이 의도를 알 수 없었다.
-	//
-	// 쳐낼 조건: 방어에만 걸리는 마나 감소가 생기면 여기에 State.Blocking 분기를 더한다.
-	if (SourceTag == AbilityTag::TAG_Ability_BasicAttack)
-	{
-		Final *= ASC->GetNumericAttribute(
-			UHB_PlayerAttributeSet::GetPlayer_BasicAttackManaCostMultiplierAttribute());
-	}
+	// 달리기만의 보정(전투 호흡)은 여기 두지 않고 GetSprintManaCostPerSecond 에서 곱한다.
+	// 달리기는 비용 출처 태그가 없어(빈 태그) 여기서는 스킬과 구별할 수 없다.
 
 	// 마나소비는 최소0 이 정상이다
 	return FMath::Max(0.f, Final);
@@ -1939,7 +1922,18 @@ bool AHBPlayerCharacter::CanSprint() const
 	}
 
 	// 마나가 없으면 달릴 수 없다. 달리는 동안 계속 소모하기 때문이다.
-	return ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) > 0.f;
+	// 전투 호흡으로 소모가 0 이면 마나와 상관없이 달린다.
+	return GetSprintManaCostPerSecond() <= 0.f
+		|| ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) > 0.f;
+}
+
+float AHBPlayerCharacter::GetSprintManaCostPerSecond() const
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	const float SprintMultiplier = ASC
+		? FMath::Max(0.f, ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute()))
+		: 1.f;
+	return ModifyManaCost(FGameplayTag(), SprintManaCostPerSecond) * SprintMultiplier;
 }
 
 void AHBPlayerCharacter::StartSprint()
@@ -2012,14 +2006,16 @@ void AHBPlayerCharacter::UpdateManaResource()
 	}
 
 	const bool bBlocking = ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking);
-	const bool bUsingContinuousMana = bIsSprinting || bBlocking;
 	const float CurrentMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
 
-	if (bUsingContinuousMana)
+	// 실제로 깎이는 게 있을 때만 "마나를 쓰는 중" 이다.
+	// 전투 호흡으로 달리기가 공짜면, 달리는 동안에도 회복되고 마나 0 에서 멈추지도 않는다.
+	const float CostPerSecond = (bIsSprinting ? GetSprintManaCostPerSecond() : 0.f)
+								+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond) : 0.f);
+
+	if (CostPerSecond > 0.f)
 	{
 		NotifyManaActivity();
-		const float CostPerSecond = (bIsSprinting ? ModifyManaCost(FGameplayTag(), SprintManaCostPerSecond) : 0.f) 
-									+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond) : 0.f);
 		const float ManaCost = FMath::Min(CurrentMana, CostPerSecond * ManaResourceTickInterval);
 		if (ManaCost > 0.f)
 		{

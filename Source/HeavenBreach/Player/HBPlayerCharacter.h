@@ -319,7 +319,9 @@ public:
 
 	// 비용만큼 마나가 있는가. 클라도 읽어서 즉시 막는다.
 	bool HasEnoughMana(float Cost) const;
-	float GetAttackManaCost() const { return AttackManaCost; }
+
+	// 달리기의 초당 마나. 전역 보정 뒤 전투 호흡(SprintManaCostMultiplier)까지 곱한 값.
+	float GetSprintManaCostPerSecond() const;
 
 	// 스킬id로 해당 스킬의 남은 쿨타임 / 총 쿨타임.
 	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
@@ -496,17 +498,15 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
 	float ManaRegenPerSecond = 10.f;
 
+	// 일반공격이 마나를 안 쓰게 되며 5 에서 절반으로 줄였다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float SprintManaCostPerSecond = 5.f;
+	float SprintManaCostPerSecond = 2.5f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
 	float BlockManaCostPerSecond = 4.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
 	float ManaResourceTickInterval = 0.25f;
-	// 공격 1회당 마나.
-	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin = "0.0"))
-	float AttackManaCost = 10.f;
 
 	FTimerHandle ManaResourceTimer;
 	double LastManaActivityTime = 0.0;

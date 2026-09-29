@@ -63,21 +63,7 @@ void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		}
 	}
 
-	// 비용 출처는 일반공격이다. 전투 호흡이 이 태그를 보고 마나를 깎는다.
-	const float ManaCost = Player ? Player->ModifyManaCost(AbilityTag::TAG_Ability_BasicAttack, Player->GetAttackManaCost()) : 0.f;
-
-	// 클라 판정을 믿지 않는다. 재검증
-	if (Player && !Player->HasEnoughMana(ManaCost))
-	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
-		return;
-	}
-
-	// 어트리뷰트는 서버 권위다. 내부에서 HasAuthority 로 한 번 더 막는다.
-	if (Player)
-	{
-		Player->ConsumeMana(ManaCost);
-	}
+	// 일반공격은 마나를 쓰지 않는다. 마나는 달리기·방어·스킬에만 쓴다.
 
 	// 어빌리티 발동
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
@@ -250,23 +236,13 @@ void UGA_PlayerAttackRE::TryChainCombo()
 		return;
 	}
 
-	// 다음 타를 못 낼 거면 지금 타를 끊지 않는다. 끊고 나서 Attack() 이 마나 부족으로
-	// 조용히 돌아가면 회수 동작만 잘린 채 멈춘다.
-	const float NextManaCost = Player->ModifyManaCost(AbilityTag::TAG_Ability_BasicAttack, Player->GetAttackManaCost());
-	if (!Player->HasEnoughMana(NextManaCost))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Combo] 마나 부족으로 다음 타를 안 냄  NextCombo=%d"), ComboIndex);
-		bComboInputQueued = false;
-		return;
-	}
-
 	UE_LOG(LogTemp, Warning, TEXT("[Combo] 다음 타로 넘어감  NextCombo=%d"), ComboIndex);
 
 	// 끝내야 State.Attacking 이 떨어져 다음 발동이 막히지 않는다.
 	// EndAbility 와 다음 발동 RPC 는 같은 ASC 채널로 순서대로 가므로 서버도 끝낸 뒤 받는다.
 	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);
 
-	// 마나·무기 파손 검사를 다시 거치도록 입력 경로를 그대로 탄다.
+	// 사망·방어·무기 파손 검사를 다시 거치도록 입력 경로를 그대로 탄다.
 	Player->Attack();
 }
 
