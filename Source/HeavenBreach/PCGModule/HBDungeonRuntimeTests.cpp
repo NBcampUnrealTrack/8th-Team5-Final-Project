@@ -289,8 +289,40 @@ bool FHBTestMGRuntimeTest::RunTest(const FString&)
 		Saved->Seed = Dungeon->Seed;
 		Saved->bRandomSeedOnStart = Dungeon->bRandomSeedOnStart;
 		Dungeon->ModuleMaps.Add(TSoftObjectPtr<UWorld>(FSoftObjectPath(FString(TestMGMapPath) + TEXT(".TestMG"))));
-		// This fixture's seed 1 selects TestMG as the start room; the waiter asserts that it really did.
-		Dungeon->Seed = 1;
+		TArray<FHBModuleCatalogEntry> Catalog;
+		TArray<FString> CatalogErrors;
+		if (!HBDungeonModuleCatalog::Build(Dungeon->ModuleMaps, Catalog, CatalogErrors))
+		{
+			AddError(FString::Join(CatalogErrors, TEXT("\n")));
+			return true;
+		}
+		HBConnectorLayout::FSettings Settings;
+		Settings.Origin = Dungeon->GetActorTransform();
+		Settings.bAllowModuleReuse = Dungeon->bAllowModuleReuse;
+		Settings.MaxSearchSteps = Dungeon->MaxConnectionAttempts;
+		Settings.MaxSearchSeconds = Dungeon->ConnectionSearchSeconds;
+		int32 SelectedSeed = INDEX_NONE;
+		for (int32 Candidate = 1; Candidate <= 64; ++Candidate)
+		{
+			Settings.Seed = Candidate;
+			TArray<FHBPrototypeRoom> Rooms;
+			FString Error;
+			if (HBDungeonRuleLayout::Generate(Catalog, Settings, Dungeon->DungeonRules, Rooms, Error)
+				&& Rooms.ContainsByPredicate([](const FHBPrototypeRoom& Room)
+				{
+					return Room.ModuleMap.ToSoftObjectPath().GetLongPackageName() == TestMGMapPath;
+				}))
+			{
+				SelectedSeed = Candidate;
+				break;
+			}
+		}
+		if (SelectedSeed == INDEX_NONE)
+		{
+			AddError(TEXT("No fixture seed from 1 to 64 selected TestMG."));
+			return true;
+		}
+		Dungeon->Seed = SelectedSeed;
 		Dungeon->bRandomSeedOnStart = false;
 		Saved->bConfigured = true;
 		return true;
@@ -306,6 +338,48 @@ bool FHBTestMGRuntimeTest::RunTest(const FString&)
 			Dungeon->Seed = Saved->Seed;
 			Dungeon->bRandomSeedOnStart = Saved->bRandomSeedOnStart;
 		}
+		GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(PreviousMode);
+		GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(PreviousClients);
+		return true;
+	}));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBTestMGGameplayMapTest, "HeavenBreach.PCGModule.Encounter.TestMGGameplay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBTestMGGameplayMapTest::RunTest(const FString&)
+{
+	const FString Map = TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay");
+	if (!FPackageName::DoesPackageExist(Map) || !FPackageName::DoesPackageExist(TestMGMapPath))
+	{ AddError(TEXT("Test_MGGamePlay or TestMG map is missing.")); return false; }
+	AddExpectedErrorPlain(TEXT("Null input trigger detected in mapping to input action 'IA_Interact'"), EAutomationExpectedErrorFlags::Contains, 0);
+	AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
+	AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
+	EPlayNetMode PreviousMode;
+	int32 PreviousClients;
+	GetDefault<ULevelEditorPlaySettings>()->GetPlayNetMode(PreviousMode);
+	GetDefault<ULevelEditorPlaySettings>()->GetPlayNumberOfClients(PreviousClients);
+	GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(EPlayNetMode::PIE_Standalone);
+	GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(1);
+	const TSharedRef<FTestMGRuntimeFixtureState> Fixture = MakeShared<FTestMGRuntimeFixtureState>();
+	Fixture->bConfigured = true;
+	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(Map));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this]()
+	{
+		AHBDungeonRuntime* Dungeon = FindEditorDungeon();
+		TestNotNull(TEXT("Test_MGGamePlay has a dungeon runtime"), Dungeon);
+		if (Dungeon)
+		{
+			TestFalse(TEXT("Test_MGGamePlay uses a fixed seed"), Dungeon->bRandomSeedOnStart);
+			TestEqual(TEXT("Test_MGGamePlay tested seed"), Dungeon->Seed, 3);
+		}
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+	ADD_LATENT_AUTOMATION_COMMAND(FHBWaitForTestMGRuntime(this, Fixture));
+	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([PreviousMode, PreviousClients]()
+	{
 		GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(PreviousMode);
 		GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(PreviousClients);
 		return true;
