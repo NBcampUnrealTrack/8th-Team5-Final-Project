@@ -13,6 +13,7 @@
 #include "Combat/Attack/GA_PlayerAttackRE.h"
 #include "Player/HBPotionDrinkComponent.h"
 #include "Player/HBInteractAnimComponent.h"
+#include "Player/HBCameraMotionComponent.h"
 #include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Block/GA_PlayerParry.h"
 #include "Combat/Damage/HBDamageCalculation.h"
@@ -119,6 +120,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	MeleeTraceComp = CreateDefaultSubobject<UMeleeTraceComponent>(TEXT("MeleeTraceComp"));
 	PotionDrinkComp = CreateDefaultSubobject<UHBPotionDrinkComponent>(TEXT("PotionDrinkComp"));
 	InteractAnimComp = CreateDefaultSubobject<UHBInteractAnimComponent>(TEXT("InteractAnimComp"));
+	CameraMotionComp = CreateDefaultSubobject<UHBCameraMotionComponent>(TEXT("CameraMotionComp"));
 
 	// 구 방어(BP_GA_PlayerBlock)가 쓰던 몽타주를 그대로 가져왔다. 임시다.
 	GuardMontage = TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(
