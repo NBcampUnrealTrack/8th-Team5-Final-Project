@@ -574,7 +574,36 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
 	float CrouchSpeed = 300.f;
-	
+
+	// ===== 관성 =====
+	// 엔진 기본값(가속·제동 2048, 마찰 8)은 0.1초 안에 붙고 멈춰 관성이 없다.
+	// 아래 기본값: 걷기 속도까지 약 0.3초, 걷다 멈추면 약 0.24초, 달리다 멈추면 약 0.4초 미끄러진다.
+
+	// 출발 가속. 작을수록 늦게 붙는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="1.0"))
+	float InertiaAcceleration = 1000.f;
+
+	// 입력을 놓았을 때 고정 감속. 작을수록 멀리 미끄러진다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="0.0"))
+	float InertiaBrakingDeceleration = 1000.f;
+
+	// 입력을 놓았을 때 속도 비례 감속(곱하기 2 가 되어 들어간다). 빠를수록 더 세게 잡는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="0.0"))
+	float InertiaBrakingFriction = 1.f;
+
+	// 방향 전환 시 옆으로 밀리는 정도. 작을수록 크게 돌아 나간다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="0.0"))
+	float InertiaGroundFriction = 4.f;
+
+	// 무게 배율. 1 이 기본, 클수록 느리게 붙고 멀리 미끄러진다. 위 값을 전부 이것으로 나눈다.
+	// 기획서에 무게 시스템은 아직 없다. 장비 무게 같은 것이 생기면 여기에 넣는다.
+	// 런타임에 바꾸게 되면 클라 예측과 어긋나지 않게 복제해야 한다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="0.1"))
+	float MovementWeight = 1.f;
+
+	// 위 값을 이동 컴포넌트에 넣는다. RefreshMovementSpeed 가 부른다.
+	void ApplyMovementInertia(class UCharacterMovementComponent* Movement) const;
+
 	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
 	bool bIsSprinting = false;
 

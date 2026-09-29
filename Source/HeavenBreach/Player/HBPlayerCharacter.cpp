@@ -136,8 +136,11 @@ void AHBPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	SetUnderwearVisible(bUnderwearVisible);
-	
+
 	BindToPlayerStateComponents();
+
+	// 서버와 모든 클라가 같은 값을 가져야 이동 예측이 어긋나지 않는다. 역할을 가리지 않는다.
+	ApplyMovementInertia(GetCharacterMovement());
 
 	if (HasAuthority() && GetWorld())
 	{
@@ -2160,7 +2163,27 @@ void AHBPlayerCharacter::RefreshMovementSpeed()
 		// 0 에서 자르는 이유: - 옵션이 쌓여도 뒤로 걷게 되면 안 된다.
 		Movement->MaxWalkSpeed = FMath::Max(0.f, (BaseSpeed + GASFlat) * GASMultiplier);
 		Movement->MaxWalkSpeedCrouched = FMath::Max(0.f, (CrouchSpeed + GASFlat) * GASMultiplier);
+
+		ApplyMovementInertia(Movement);
 	}
+}
+
+void AHBPlayerCharacter::ApplyMovementInertia(UCharacterMovementComponent* Movement) const
+{
+	if (!Movement)
+	{
+		return;
+	}
+
+	const float Weight = FMath::Max(0.1f, MovementWeight);
+	Movement->MaxAcceleration = InertiaAcceleration / Weight;
+	Movement->BrakingDecelerationWalking = InertiaBrakingDeceleration / Weight;
+	Movement->GroundFriction = InertiaGroundFriction / Weight;
+
+	// 제동 마찰을 지면 마찰과 따로 둔다. 같이 쓰면 방향 전환을 부드럽게 하려고
+	// 지면 마찰을 낮출 때 멈춤까지 같이 길어진다.
+	Movement->bUseSeparateBrakingFriction = true;
+	Movement->BrakingFriction = InertiaBrakingFriction / Weight;
 }
 
 void AHBPlayerCharacter::RefreshMovementSpeedFromAttributes()
