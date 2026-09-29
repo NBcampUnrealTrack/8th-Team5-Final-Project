@@ -5,12 +5,14 @@
 #include "PCGModule/HBDungeonModuleDefinition.h"
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBEncounterSubsystem.h"
+#include "PCGModule/HBEnemySpawnPoint.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "PCGPrototype/HBPCGPreview.h"
 #include "PCGComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/ArrowComponent.h"
+#include "Components/BrushComponent.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -20,6 +22,8 @@
 #include "CollisionQueryParams.h"
 #include "NavigationSystem.h"
 #include "NavigationData.h"
+#include "NavMesh/NavMeshBoundsVolume.h"
+#include "PhysicsEngine/BodySetup.h"
 DEFINE_LOG_CATEGORY_STATIC(LogHBDungeonRuntime, Log, All);
 
 AHBDungeonRuntime::AHBDungeonRuntime()
@@ -177,6 +181,86 @@ ULevel* AHBDungeonRuntime::GetLoadedRoomLevel(int32 RoomId) const
 {
 	return Streams.IsValidIndex(RoomId) && IsValid(Streams[RoomId]) ? Streams[RoomId]->GetLoadedLevel() : nullptr;
 }
+bool AHBDungeonRuntime::CreateDungeonNavigationBounds(FString& Error)
+{
+    if (IsValid(DungeonNavigationBounds)) return true;
+    UWorld* World = GetWorld();
+    UNavigationSystemV1* Nav = World ? UNavigationSystemV1::GetCurrent(World) : nullptr;
+    if (!World || !Nav || Rooms.IsEmpty())
+    { Error = TEXT("Dungeon navigation system or planned rooms are unavailable."); return false; }
+
+    FBox DungeonBounds(ForceInit);
+    for (const FHBPrototypeRoom& Room : Rooms)
+    {
+        if (!Room.Bounds.IsValid)
+        { Error = FString::Printf(TEXT("Room %d has invalid navigation bounds."), Room.Id); return false; }
+        DungeonBounds += Room.Bounds;
+    }
+    DungeonBounds = DungeonBounds.ExpandBy(FVector(500, 500, 500));
+    const FVector Extent = DungeonBounds.GetExtent();
+    if (Extent.ContainsNaN() || Extent.GetMin() <= 0.f)
+    { Error = TEXT("Dungeon navigation bounds have invalid size."); return false; }
+
+    FActorSpawnParameters Params;
+    Params.Owner = this;
+    Params.OverrideLevel = World->PersistentLevel;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    ANavMeshBoundsVolume* Volume = World->SpawnActor<ANavMeshBoundsVolume>(
+        ANavMeshBoundsVolume::StaticClass(), DungeonBounds.GetCenter(), FRotator::ZeroRotator, Params);
+    UBrushComponent* Brush = Volume ? Volume->GetBrushComponent() : nullptr;
+    if (!Brush)
+    {
+        if (IsValid(Volume)) Volume->Destroy();
+        Error = TEXT("Could not create the dungeon navigation bounds volume.");
+        return false;
+    }
+    UBodySetup* Body = NewObject<UBodySetup>(Brush);
+    FKBoxElem Box;
+    Box.X = Extent.X * 2.f;
+    Box.Y = Extent.Y * 2.f;
+    Box.Z = Extent.Z * 2.f;
+    Body->AggGeom.BoxElems.Add(Box);
+    Brush->BrushBodySetup = Body;
+    Brush->UpdateBounds();
+    const FBox ActualBounds = Volume->GetComponentsBoundingBox(true);
+    // The box extent is stored as floats; center +/- extent can differ by a fraction of a cm.
+    const FBox BoundsWithRoundingTolerance = ActualBounds.ExpandBy(1.f);
+    if (!ActualBounds.IsValid || !BoundsWithRoundingTolerance.IsInsideOrOn(DungeonBounds.Min)
+        || !BoundsWithRoundingTolerance.IsInsideOrOn(DungeonBounds.Max))
+    {
+        Volume->Destroy();
+        Error = FString::Printf(TEXT("Runtime navigation volume does not cover the planned dungeon. Planned=%s Actual=%s"),
+            *DungeonBounds.ToString(), *ActualBounds.ToString());
+        return false;
+    }
+    DungeonNavigationBounds = Volume;
+    Nav->OnNavigationBoundsUpdated(Volume);
+    return true;
+}
+bool AHBDungeonRuntime::IsEncounterNavigationReady() const
+{
+    UWorld* World = GetWorld();
+    UNavigationSystemV1* Nav = World ? UNavigationSystemV1::GetCurrent(World) : nullptr;
+    if (!Nav || !IsValid(DungeonNavigationBounds)
+        || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World)
+        || !Nav->GetDefaultNavDataInstance(FNavigationSystem::DontCreate)) return false;
+    for (const FHBPrototypeRoom& Room : Rooms)
+    {
+        ULevel* Level = GetLoadedRoomLevel(Room.Id);
+        if (!Level || !UHBEncounterSubsystem::HasEncounter(Level)) continue;
+        bool bProjectedPoint = false;
+        for (AActor* Actor : Level->Actors)
+        {
+            const AHBEnemySpawnPoint* Point = Cast<AHBEnemySpawnPoint>(Actor);
+            if (!IsValid(Point) || Point->GetLevel() != Level) continue;
+            FNavLocation OnNav;
+            if (Nav->ProjectPointToNavigation(Point->GetActorLocation(), OnNav, FVector(150, 150, 350)))
+            { bProjectedPoint = true; break; }
+        }
+        if (!bProjectedPoint) return false;
+    }
+    return true;
+}
 bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
 {
 	UHBEncounterSubsystem* EncounterSubsystem = GetWorld()->GetSubsystem<UHBEncounterSubsystem>();
@@ -234,9 +318,7 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
     {
         if (FPlatformTime::Seconds() - EncounterStartTime > EncounterTimeoutSeconds)
         { Fail(TEXT("Room encounter/navigation preparation timed out. Check NavMesh and streamed rooms.")); return; }
-        UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(GetWorld());
-        if (!Nav || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(this)
-            || !Nav->GetDefaultNavDataInstance(FNavigationSystem::DontCreate)) return;
+        if (!IsEncounterNavigationReady()) return;
         FString Error;
         if (!PrepareEncounters(Error)) { Fail(Error); return; }
         MarkReady();
@@ -247,6 +329,7 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
         if (!IsValid(Stream) || !Stream->IsLevelLoaded() || !Stream->IsLevelVisible()) return;
     FString Error;
     if (!PrepareGameplay(Error)) { Fail(Error); return; }
+    if (!CreateDungeonNavigationBounds(Error)) { Fail(Error); return; }
     bool bHasEncounters = false;
     for (const auto& Stream : Streams)
         if (const ULevel* Level = IsValid(Stream) ? Stream->GetLoadedLevel() : nullptr)
@@ -265,6 +348,8 @@ void AHBDungeonRuntime::ClearGenerated()
     LinkedPortals.Reset(); StartPoint = nullptr;
     for (const auto& Seal : Seals) if (IsValid(Seal)) Seal->Destroy();
     Seals.Reset();
+    if (IsValid(DungeonNavigationBounds)) DungeonNavigationBounds->Destroy();
+    DungeonNavigationBounds = nullptr;
     for (const auto& Stream : Streams) if (IsValid(Stream))
     { Stream->SetShouldBeVisible(false); Stream->SetShouldBeLoaded(false); Stream->SetIsRequestingUnloadAndRemoval(true); }
     Streams.Reset();

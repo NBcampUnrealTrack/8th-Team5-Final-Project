@@ -21,6 +21,7 @@
 #include "Engine/Level.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
+#include "NavMesh/NavMeshBoundsVolume.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "Settings/LevelEditorPlaySettings.h"
 #include "UObject/UnrealType.h"
@@ -223,6 +224,20 @@ public:
 			if (FPlatformTime::Seconds() - Started < 90.) return false;
 			Test->AddError(TEXT("TestMG runtime dungeon did not become ready.")); return true;
 		}
+		FBox PlannedNavigationBounds(ForceInit);
+		for (const FHBPrototypeRoom& Room : Dungeon->Rooms) PlannedNavigationBounds += Room.Bounds;
+		int32 NavigationVolumeCount = 0;
+		for (TActorIterator<ANavMeshBoundsVolume> It(World); It; ++It)
+		{
+			++NavigationVolumeCount;
+			Test->TestTrue(TEXT("Dungeon navigation volume belongs to the persistent level"),
+				It->GetLevel() == World->PersistentLevel);
+			const FBox Bounds = It->GetComponentsBoundingBox(true);
+			Test->TestTrue(TEXT("One navigation volume covers every generated room"),
+				Bounds.IsInsideOrOn(PlannedNavigationBounds.Min)
+				&& Bounds.IsInsideOrOn(PlannedNavigationBounds.Max));
+		}
+		Test->TestEqual(TEXT("Exactly one navigation volume in the generated dungeon"), NavigationVolumeCount, 1);
 		if (ReadyAt != 0. && FPlatformTime::Seconds() - ReadyAt < 0.5) return false;
 
 		int32 RoomCount = 0;
@@ -237,6 +252,9 @@ public:
 			ULevel* Level = Dungeon->GetLoadedRoomLevel(Room.Id);
 			Test->TestNotNull(TEXT("Generated TestMG room has a loaded level"), Level);
 			if (!Level) continue;
+			for (AActor* Actor : Level->Actors)
+				Test->TestFalse(TEXT("TestMG room has no authored NavMeshBoundsVolume"),
+					IsValid(Cast<ANavMeshBoundsVolume>(Actor)));
 			AHBEncounterSetupActor* Setup = nullptr;
 			for (AActor* Actor : Level->Actors)
 				if (auto* Candidate = Cast<AHBEncounterSetupActor>(Actor)) { Setup = Candidate; break; }

@@ -18,6 +18,9 @@
 #include "GameFramework/PlayerStart.h"
 #include "EngineUtils.h"
 #include "NavigationSystem.h"
+#include "NavMesh/NavMeshBoundsVolume.h"
+#include "Components/BrushComponent.h"
+#include "PhysicsEngine/BodySetup.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/WorldSettings.h"
 #include "Tests/AutomationEditorCommon.h"
@@ -149,6 +152,7 @@ class FHBWaitForTestMGEncounter : public IAutomationLatentCommand
 {
 	FAutomationTestBase* Test;
 	double Started = FPlatformTime::Seconds();
+	bool bCreatedTestNavigationBounds = false;
 public:
 	explicit FHBWaitForTestMGEncounter(FAutomationTestBase* InTest) : Test(InTest) {}
 	virtual bool Update() override
@@ -157,10 +161,10 @@ public:
 		for (const FWorldContext& Context : GEngine->GetWorldContexts())
 			if (Context.WorldType == EWorldType::PIE) { World = Context.World(); break; }
 		const double Elapsed = FPlatformTime::Seconds() - Started;
-		if (!World || World->GetTimeSeconds() < 1.f || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World))
+		if (!World || World->GetTimeSeconds() < 1.f)
 		{
 			if (Elapsed < 60.) return false;
-			Test->AddError(TEXT("TestMG PIE world or navigation did not become ready."));
+			Test->AddError(TEXT("TestMG PIE world did not start."));
 			return true;
 		}
 		AHBDungeonModuleDefinition* Definition = nullptr;
@@ -197,6 +201,49 @@ public:
 		Test->TestTrue(TEXT("TestMG has room bounds"), RoomBounds.IsValid != 0);
 		Test->TestTrue(TEXT("TestMG has an entry"), !Entries.IsEmpty());
 		if (!RoomBounds.IsValid || Entries.IsEmpty()) return true;
+		if (!bCreatedTestNavigationBounds)
+		{
+			int32 AuthoredVolumeCount = 0;
+			for (TActorIterator<ANavMeshBoundsVolume> It(World); It; ++It) ++AuthoredVolumeCount;
+			Test->TestEqual(TEXT("TestMG has no authored navigation volume"), AuthoredVolumeCount, 0);
+			if (AuthoredVolumeCount != 0) return true;
+			const FBox NavBounds = RoomBounds.ExpandBy(FVector(500, 500, 500));
+			FActorSpawnParameters Params;
+			Params.OverrideLevel = World->PersistentLevel;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			ANavMeshBoundsVolume* Volume = World->SpawnActor<ANavMeshBoundsVolume>(
+				ANavMeshBoundsVolume::StaticClass(), NavBounds.GetCenter(), FRotator::ZeroRotator, Params);
+			UBrushComponent* Brush = Volume ? Volume->GetBrushComponent() : nullptr;
+			UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+			Test->TestTrue(TEXT("Test navigation volume and system exist"), Brush && Nav);
+			if (!Brush || !Nav) return true;
+			UBodySetup* Body = NewObject<UBodySetup>(Brush);
+			FKBoxElem Box;
+			Box.X = NavBounds.GetSize().X;
+			Box.Y = NavBounds.GetSize().Y;
+			Box.Z = NavBounds.GetSize().Z;
+			Body->AggGeom.BoxElems.Add(Box);
+			Brush->BrushBodySetup = Body;
+			Brush->UpdateBounds();
+			Nav->OnNavigationBoundsUpdated(Volume);
+			bCreatedTestNavigationBounds = true;
+			return false;
+		}
+		UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+		bool bHasNavigablePoint = false;
+		for (AActor* Actor : Definition->GetLevel()->Actors)
+			if (const AHBEnemySpawnPoint* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point))
+			{
+				FNavLocation OnNav;
+				if (Nav && Nav->ProjectPointToNavigation(Point->GetActorLocation(), OnNav, FVector(150, 150, 350)))
+				{ bHasNavigablePoint = true; break; }
+			}
+		if (!bHasNavigablePoint || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World))
+		{
+			if (Elapsed < 60.) return false;
+			Test->AddError(TEXT("TestMG runtime navigation query did not become ready."));
+			return true;
+		}
 		FString Error;
 		if (!Subsystem->StartEncounter(1, 12345, 7, Definition->GetLevel(), RoomBounds, Entries, Error))
 		{

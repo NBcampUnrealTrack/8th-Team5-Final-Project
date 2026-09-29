@@ -10,6 +10,7 @@ class ULevel;
 class APlayerStart;
 class AHBDungeonPortal;
 class AHBDungeonDoorSeal;
+class ANavMeshBoundsVolume;
 UENUM(BlueprintType)
 enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, PreparingEncounters, Ready, Failed };
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
@@ -63,6 +64,8 @@ public:
 private:
     bool PrepareGameplay(FString& Error);
     bool PrepareEncounters(FString& Error);
+    bool CreateDungeonNavigationBounds(FString& Error);
+    bool IsEncounterNavigationReady() const;
     void MarkReady();
     void ClearGenerated();
     HBConnectorLayout::FSettings ActiveSettings;
@@ -71,6 +74,7 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonPortal>> LinkedPortals;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonDoorSeal>> Seals;
     UPROPERTY(Transient) TObjectPtr<APlayerStart> StartPoint;
+    UPROPERTY(Transient) TObjectPtr<ANavMeshBoundsVolume> DungeonNavigationBounds;
     double GenerationStartTime = 0;
     double EncounterStartTime = 0;
 };
