@@ -2,6 +2,9 @@
 
 
 #include "Core/GameFlow/HeavenBreachGameMode.h"
+#include "PCGModule/HBDungeonRuntime.h"
+#include "EngineUtils.h"
+#include "GameFramework/PlayerStart.h"
 
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "Player/HBPlayerController.h"
@@ -24,6 +27,61 @@ AHeavenBreachGameMode::AHeavenBreachGameMode()
 	DefaultPawnClass = AHBPlayerCharacter::StaticClass();
 	
 	GameSessionClass = AHBGameSession::StaticClass();
+}
+
+AHBDungeonRuntime* AHeavenBreachGameMode::GetDungeonGenerator() const
+{
+    for (TActorIterator<AHBDungeonRuntime> It(GetWorld()); It; ++It) return *It;
+    return nullptr;
+}
+
+void AHeavenBreachGameMode::StartPlay()
+{
+    if (auto* Dungeon = GetDungeonGenerator())
+    {
+        Dungeon->OnReady.AddUniqueDynamic(this, &AHeavenBreachGameMode::HandleDungeonReady);
+        Dungeon->OnFailed.AddUniqueDynamic(this, &AHeavenBreachGameMode::HandleDungeonFailed);
+    }
+    Super::StartPlay();
+    if (auto* Dungeon = GetDungeonGenerator()) Dungeon->StartGeneration();
+}
+
+void AHeavenBreachGameMode::StartMatch()
+{
+    // Guard both automatic start and direct Blueprint/manual StartMatch calls.
+    if (auto* Dungeon = GetDungeonGenerator(); Dungeon && (!Dungeon->IsReady() || !Dungeon->GetPlayerStart())) return;
+    Super::StartMatch();
+}
+
+void AHeavenBreachGameMode::RestartPlayer(AController* NewPlayer)
+{
+    if (!NewPlayer) return;
+    if (auto* Dungeon = GetDungeonGenerator())
+    {
+        if (!Dungeon->IsReady() || !Dungeon->GetPlayerStart()) return;
+        // Replace a cached lobby/persistent-level start with the generated room start.
+        NewPlayer->StartSpot = Dungeon->GetPlayerStart();
+    }
+    Super::RestartPlayer(NewPlayer);
+    if (auto* Dungeon = GetDungeonGenerator(); Dungeon && !NewPlayer->GetPawn())
+        Dungeon->Fail(TEXT("Gameplay character could not spawn at DungeonSpawn."));
+}
+
+AActor* AHeavenBreachGameMode::ChoosePlayerStart_Implementation(AController* Player)
+{
+    if (auto* Dungeon = GetDungeonGenerator()) return Dungeon->GetPlayerStart();
+    return Super::ChoosePlayerStart_Implementation(Player);
+}
+
+void AHeavenBreachGameMode::HandleDungeonReady()
+{
+    if (ReadyToStartMatch()) StartMatch();
+}
+
+void AHeavenBreachGameMode::HandleDungeonFailed(const FString& Reason)
+{
+    UE_LOG(LogTemp, Error, TEXT("HeavenBreachGM | Dungeon unavailable; player start blocked | %s"), *Reason);
+    if (IsMatchInProgress()) { StopMatchTimer(); AbortMatch(); }
 }
 
 void AHeavenBreachGameMode::StartExtractionMatch()
@@ -268,7 +326,8 @@ bool AHeavenBreachGameMode::ReadyToStartMatch_Implementation()
 		&& GetMatchState() == MatchState::WaitingToStart
 		&& bAutoStartMatch
 		&& NumTravellingPlayers == 0
-		&& NumPlayers >= FMath::Max(1, MinimumPlayersToStart);
+		&& (!GetDungeonGenerator() || GetDungeonGenerator()->IsReady())
+        && NumPlayers >= (GetDungeonGenerator() && GetNetMode() == NM_Standalone ? 1 : FMath::Max(1, MinimumPlayersToStart));
 }
 
 bool AHeavenBreachGameMode::ReadyToEndMatch_Implementation()
@@ -286,6 +345,7 @@ void AHeavenBreachGameMode::HandleMatchHasStarted()
 
 	Super::HandleMatchHasStarted();
 	
+	if (auto* Dungeon = GetDungeonGenerator(); Dungeon && !Dungeon->IsReady()) return;
 	InitializeActivePlayers();
 	StartMatchTimer();
 }

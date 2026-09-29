@@ -38,6 +38,10 @@ struct FWeaponData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString Notes;
 
+	// 몬스터/상자 드랍 풀 포함 여부. 에셋 미완성 행은 꺼두면 자동 제외된다(다른 획득 경로엔 영향 없음).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	bool bDroppable = true;
+
 	// 아이템 정보 팝업(상세 정보)에 표시되는 플레이버 텍스트.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Display")
 	FString Description;
@@ -70,6 +74,10 @@ struct FShieldData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString Notes;
 
+	// 몬스터/상자 드랍 풀 포함 여부. 에셋 미완성 행은 꺼두면 자동 제외된다(다른 획득 경로엔 영향 없음).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	bool bDroppable = true;
+
 	// 아이템 정보 팝업(상세 정보)에 표시되는 플레이버 텍스트.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Display")
 	FString Description;
@@ -89,6 +97,11 @@ struct FItemData : public FTableRowBase
 	int32 MaxStack = 1;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	int32 SellValue = 0;
+
+	// 몬스터/상자 드랍 풀 포함 여부. 에셋 미완성 아이템(설계도, 열쇠 등)은 꺼두면
+	// 자동 제외된다 - 상점 판매/제작 결과물 등 다른 획득 경로엔 영향 없음, 드랍 풀에서만 뺀다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
+	bool bDroppable = true;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString UseEffect;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
@@ -124,21 +137,24 @@ struct FItemData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString PairedBodyMeshPath;
 
-	// ===== 장신구(Relic) 전용 필드 =====
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	bool bIsRelic = false;
+	// ===== 악세서리 옵션 =====
+	// 좋은 쪽과 나쁜 쪽을 나눠 적는다. 툴팁 색(초록/빨강)이 이걸로 정해진다.
+	// 부호로는 못 가른다 — "받는 피해 +20%" 는 + 인데 나쁜 옵션이다.
+	// 계산은 네 배열을 적힌 부호 그대로 더할 뿐이다. 나뉜 건 표시뿐이다.
+	// 숫자 옵션은 툴팁 설명이 자동으로 만들어진다.
+	// 동작 효과는 DT_ItemEffect 의 정의를 고르고 숫자만 준다. 문구는 정의의 문구 틀에서 나온다.
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	FString BenefitDescription;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Option", meta = (TitleProperty = "Stat"))
+	TArray<FItemOption> BenefitOptions;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	FString RiskDescription;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Option", meta = (TitleProperty = "Stat"))
+	TArray<FItemOption> RiskOptions;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	TSubclassOf<UGameplayEffect> BenefitEffect;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Option", meta = (TitleProperty = "Definition"))
+	TArray<FItemEffect> BenefitEffects;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Relic")
-	TSubclassOf<UGameplayEffect> RiskEffect;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Option", meta = (TitleProperty = "Definition"))
+	TArray<FItemEffect> RiskEffects;
 };
 USTRUCT(BlueprintType)
 struct FBoxLootData : public FTableRowBase

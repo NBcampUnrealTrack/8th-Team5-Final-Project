@@ -33,15 +33,64 @@ namespace ItemTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Block_Bow)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Block_Unarmed)
 
-	// ---------------- 장비가 주는 스탯 ----------------
-	// UGE_EquipmentStats 에 합계를 실어 보내는 통로.
-	// UEquipmentComponent::RefreshEquipmentStats 가 슬롯이 바뀔 때마다 다시 채운다.
-	//
-	// 왜 태그인가: SetByCaller 는 태그로 값을 찾는다. 문자열이었다면 DT 의
-	// BonusStatType 처럼 오타가 런타임에 조용히 0 이 되는 사고가 여기서도 났다.
-	//
-	// 쳐낼 조건: 악세서리까지 붙일 때 MaxHP / MoveSpeed 태그를 여기 더한다.
+	// ---------------- 숫자 옵션이 고르는 스탯 ----------------
+	// FItemOption::Stat 의 드롭다운에 뜨는 목록.
+	// 새 스탯은 여기와 Item/ItemStatBinding.cpp 의 표 두 곳에 더한다.
 
-	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_Defense)
-	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_AttackPower)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_AttackPower)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_Defense)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_MaxHP)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_MaxStamina)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_AttackSpeed)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_MoveSpeed)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_StaminaRegen)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_Cooldown)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_SkillDamage)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_HeadshotDamage)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_DamageTaken)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_MeleeDamageTaken)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_HealingReceived)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Stat_HealthRegen)
+
+	// ---------------- 장비 합계를 GE 로 넘기는 이름표 ----------------
+	// UGE_EquipmentStats 가 값을 이 이름표로 받는다 (SetByCaller). DT 에서 쓸 일은 없다.
+	// + 를 받는 스탯은 _Flat, % 를 받는 스탯은 _Percent 가 있다.
+	//
+	// 왜 태그인가: 문자열이었다면 BonusStatType 처럼 오타가 조용히 0 이 되는 사고가 여기서도 났다.
+
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_AttackPower_Flat)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_AttackPower_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_Defense_Flat)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_Defense_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_MaxHP_Flat)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_MaxHP_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_MaxStamina_Flat)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_MaxStamina_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_AttackSpeed_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_MoveSpeed_Flat)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_MoveSpeed_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_StaminaRegen_Flat)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_StaminaRegen_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_Cooldown_Flat)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_Cooldown_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_SkillDamage_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_HeadshotDamage_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_DamageTaken_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_MeleeDamageTaken_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_HealingReceived_Percent)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_HealthRegen_Flat)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_Equipment_HealthRegen_Percent)
+
+	// 아이템 동작 효과의 자기 피해 GE(UGE_ItemSelfDamage)가 양을 받는 이름표 (SetByCaller).
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Data_ItemEffect_Magnitude)
+
+	// ---------------- 동작 효과가 켜져 있다는 표시 ----------------
+	// DT_ItemEffect 정의의 Tag 드롭다운에 뜨는 목록. 장착하면 UGE_ItemEffectTag 가 끼운 사람에게 붙인다.
+	// 코드는 이 태그들을 하나하나 모른다 — 동작은 정의의 원형(Archetype)이 정한다.
+	// 새 효과의 태그는 여기 말고 에디터 태그 관리자에서 만들어도 된다. C++ 을 안 고쳐도 된다.
+
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Item_Effect_GuardAura)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Item_Effect_SkillHPCost)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Item_Effect_OverflowBurn)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Item_Effect_LowHealthExposed)
 }

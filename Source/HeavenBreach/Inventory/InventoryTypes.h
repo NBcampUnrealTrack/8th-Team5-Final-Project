@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
+#include "Item/ItemOptionTypes.h"
 #include "InventoryTypes.generated.h"
 
 class UTexture2D;
@@ -66,20 +67,21 @@ struct FItemViewData
 	float HealAmount = 0.f;
 	bool IsConsumable() const { return HealAmount > 0.f; }
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	bool bIsRelic = false;
+	// ===== 악세서리 옵션 =====
+	// FItemData 의 같은 이름 칸을 그대로 옮겨 담는다. 무기·방패 행은 비어서 온다.
+	// 옛 Relic 칸(bIsRelic · Benefit/RiskDescription · Benefit/RiskEffect)은 유물 통합으로 지웠다.
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	FString BenefitDescription;
+	UPROPERTY(BlueprintReadOnly, Category = "Option")
+	TArray<FItemOption> BenefitOptions;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	FString RiskDescription;
+	UPROPERTY(BlueprintReadOnly, Category = "Option")
+	TArray<FItemOption> RiskOptions;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	TSubclassOf<UGameplayEffect> BenefitEffect;
+	UPROPERTY(BlueprintReadOnly, Category = "Option")
+	TArray<FItemEffect> BenefitEffects;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Relic")
-	TSubclassOf<UGameplayEffect> RiskEffect;
+	UPROPERTY(BlueprintReadOnly, Category = "Option")
+	TArray<FItemEffect> RiskEffects;
 };
 
 USTRUCT(BlueprintType)
@@ -168,3 +170,9 @@ HEAVENBREACH_API FLinearColor GetInventoryIconMidColor(EItemGrade InGrade);
 HEAVENBREACH_API UTexture2D* LoadItemIcon(const FString& InIconPath);
 
 HEAVENBREACH_API FString GetEquipSlotDisplayName(EEquipSlotType InSlot);
+
+// 아이템의 스탯 요약 텍스트(무기 공격력/사거리/공속, 방패 피해감소/방어범위, 일반 아이템
+// BonusStat 등)를 만들어서 정보 팝업에 그대로 넣을 수 있게 한다. 원래 UInventoryWidget
+// 전용 private 멤버였는데, EquipmentSlotWidget(장착 슬롯 호버)에서도 동일한 팝업을 띄우려면
+// 같이 써야 해서 공용 함수로 뺐다.
+HEAVENBREACH_API FString BuildStatTextForItem(const FItemInstance& InItem);

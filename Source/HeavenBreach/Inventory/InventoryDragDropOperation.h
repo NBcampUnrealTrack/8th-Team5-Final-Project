@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/DragDropOperation.h"
 #include "Styling/SlateBrush.h"
+#include "Layout/Margin.h"
 #include "InventoryTypes.h"
 #include "InventoryDragDropOperation.generated.h"
 
@@ -66,6 +67,10 @@ private:
 
 	void UpdateVisualPosition();
 	void DestroyVisual();
+
+	/** 뷰포트 Fill 슬롯 때문에 박스 정렬을 Left/Top으로 고정해야 해서(CreateVisual 주석 참고),
+	 * 회전 시 어긋나는 아이콘-박스 중심을 좌상단 Padding으로 보정하는 값을 계산한다. */
+	FMargin ComputeCenteringPadding() const;
 
 	TWeakObjectPtr<UUserWidget> SourceWidgetContext;
 	TSharedPtr<SWidget> DragVisualRoot;

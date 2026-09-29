@@ -36,71 +36,6 @@ UAbilitySystemComponent* UEquipmentComponent::GetOwnerASC() const
 	return UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner());
 }
 
-void UEquipmentComponent::ApplyRelicEffects(const FItemInstance& InItem)
-{
-	UE_LOG(LogTemp, Warning, TEXT("[Relic] ApplyRelicEffects CALLED"));
-
-	FItemViewData ViewData;
-	if (!ResolveItemViewData(InItem.ItemRow, ViewData))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Relic] ResolveItemViewData FAILED"));
-		return;
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("[Relic] bIsRelic = %s"), ViewData.bIsRelic ? TEXT("true") : TEXT("false"));
-
-	if (!ViewData.bIsRelic)
-	{
-		return;
-	}
-
-	UAbilitySystemComponent* ASC = GetOwnerASC();
-	if (ASC == nullptr)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Relic] ASC is NULL"));
-		return;
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("[Relic] BenefitEffect valid: %s, RiskEffect valid: %s"),
-		ViewData.BenefitEffect ? TEXT("true") : TEXT("false"),
-		ViewData.RiskEffect ? TEXT("true") : TEXT("false"));
-
-	if (ViewData.BenefitEffect)
-	{
-		FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
-		EquippedRelicBenefitHandle = ASC->ApplyGameplayEffectToSelf(
-			ViewData.BenefitEffect.GetDefaultObject(), 1.f, Context);
-	}
-
-	if (ViewData.RiskEffect)
-	{
-		FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
-		EquippedRelicRiskHandle = ASC->ApplyGameplayEffectToSelf(
-			ViewData.RiskEffect.GetDefaultObject(), 1.f, Context);
-	}
-}
-
-void UEquipmentComponent::RemoveRelicEffects()
-{
-	UAbilitySystemComponent* ASC = GetOwnerASC();
-	if (ASC == nullptr)
-	{
-		return;
-	}
-
-	if (EquippedRelicBenefitHandle.IsValid())
-	{
-		ASC->RemoveActiveGameplayEffect(EquippedRelicBenefitHandle);
-		EquippedRelicBenefitHandle.Invalidate();
-	}
-
-	if (EquippedRelicRiskHandle.IsValid())
-	{
-		ASC->RemoveActiveGameplayEffect(EquippedRelicRiskHandle);
-		EquippedRelicRiskHandle.Invalidate();
-	}
-}
-
 void UEquipmentComponent::BeginPlay()
 {
 	Super::BeginPlay();
@@ -112,10 +47,16 @@ void UEquipmentComponent::BeginPlay()
 
 	// 델리게이트에 물려 둔다. 장착·해제·교체·내구도·세이브 복원이 전부 이걸 쏘므로
 	// 새 경로가 생겨도 자동으로 따라온다. 호출부마다 손으로 부르면 언젠가 하나를 빠뜨린다.
-	OnEquipmentChanged.AddUniqueDynamic(this, &UEquipmentComponent::RefreshEquipmentStats);
+	OnEquipmentChanged.AddUniqueDynamic(this, &UEquipmentComponent::HandleEquipmentChanged);
 
 	// 이미 채워진 채로 시작하는 경우(세이브 복원이 BeginPlay 보다 빨랐을 때)를 위해 한 번 돈다.
+	HandleEquipmentChanged();
+}
+
+void UEquipmentComponent::HandleEquipmentChanged()
+{
 	RefreshEquipmentStats();
+	RefreshItemEffects();
 }
 
 void UEquipmentComponent::OnRep_Slots()
@@ -209,34 +150,29 @@ void UEquipmentComponent::RefreshEquipmentStats()
 	}
 
 	// 붙이기 전에 먼저 센다. 값이 그대로면 GE 를 건드릴 이유가 없다.
-	const float TotalDefense = SumArmorDefense();
-	const float TotalAttackPower = SumWeaponAttackPower();
+	const FItemStatTotals Totals = CollectStatTotals();
 
 	// 내구도가 깎였을 뿐이면 여기서 끝난다. 파손은 합계가 실제로 달라지므로
 	// 이 비교가 알아서 통과시킨다 — "내구도인가" 를 따로 물을 필요가 없다.
 	if (EquipmentStatsHandle.IsValid())
 	{
-		const bool bUnchanged =
-			FMath::IsNearlyEqual(TotalDefense, LastAppliedDefense)
-			&& FMath::IsNearlyEqual(TotalAttackPower, LastAppliedAttackPower);
-
-		if (bUnchanged)
+		if (AreTotalsEqual(Totals, LastAppliedTotals))
 		{
 			return;
 		}
 	}
 
 	// 묵은 것을 먼저 뗀다. 안 떼면 갈아입을 때마다 겹쳐 쌓인다.
+	// 떼는 순간 최대 체력이 잠깐 내려갔다 올라오지만, 현재 체력은 비율로 따라가서
+	// 원래 값으로 돌아온다 (HB_PlayerAttributeSet::CalculateCurrentOnMaxChanged).
 	if (EquipmentStatsHandle.IsValid())
 	{
 		ASC->RemoveActiveGameplayEffect(EquipmentStatsHandle);
 		EquipmentStatsHandle.Invalidate();
 	}
 
-	// 여기서 실패하면 묵은 GE 는 이미 떨어진 상태다. 캐시도 같이 버려서
-	// 다음 호출이 무조건 다시 시도하게 둔다.
-	LastAppliedDefense = -1.f;
-	LastAppliedAttackPower = -1.f;
+	// 아래에서 실패하면 묵은 GE 는 이미 떨어졌다. 캐시도 비워서 다음에 무조건 다시 붙게 한다.
+	LastAppliedTotals.Reset();
 
 	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
 		UGE_EquipmentStats::StaticClass(), 1.f, ASC->MakeEffectContext());
@@ -245,16 +181,280 @@ void UEquipmentComponent::RefreshEquipmentStats()
 		return;
 	}
 
-	Spec.Data->SetSetByCallerMagnitude(ItemTag::TAG_Data_Equipment_Defense, TotalDefense);
-	Spec.Data->SetSetByCallerMagnitude(ItemTag::TAG_Data_Equipment_AttackPower, TotalAttackPower);
+	// GE 의 모디파이어 칸을 전부 채운다. 아이템 동작 효과의 스탯 GE 도 같은 함수를 쓴다.
+	ItemStats::FillSpec(*Spec.Data.Get(), Totals);
 
 	EquipmentStatsHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	LastAppliedTotals = Totals;
 
-	LastAppliedDefense = TotalDefense;
-	LastAppliedAttackPower = TotalAttackPower;
+	// 0 이 아닌 스탯만 찍는다
+	UE_LOG(LogTemp, Log, TEXT("[Equip] 스탯 갱신"));
+	for (const FItemStatBinding& Binding : ItemStats::GetBindings())
+	{
+		const FItemStatTotal Total = ItemStats::GetTotal(Totals, Binding.Stat);
 
-	UE_LOG(LogTemp, Log, TEXT("[Equip] 스탯 갱신 | Defense=%.2f AttackPower=%.2f"),
-		TotalDefense, TotalAttackPower);
+		if (FMath::IsNearlyZero(Total.Flat))
+		{
+			if (FMath::IsNearlyZero(Total.Percent))
+			{
+				continue;
+			}
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[Equip]   %s  +%.2f  %+.1f%%"),
+			*Binding.DisplayName, Total.Flat, Total.Percent * 100.f);
+	}
+}
+
+FItemStatTotals UEquipmentComponent::CollectStatTotals() const
+{
+	FItemStatTotals Totals;
+
+	// 아이템 자체의 성능. 옵션이 아니다.
+	Totals.FindOrAdd(ItemTag::TAG_Stat_AttackPower).Flat += SumWeaponAttackPower();
+	Totals.FindOrAdd(ItemTag::TAG_Stat_Defense).Flat += SumArmorDefense();
+
+	for (int32 Index = 0; Index < Slots.Num(); ++Index)
+	{
+		const EEquipSlotType SlotType = static_cast<EEquipSlotType>(Index);
+
+		// 부서진 장비는 옵션도 없다
+		if (IsEquippedItemBroken(SlotType))
+		{
+			continue;
+		}
+
+		FItemInstance Item;
+		if (!GetItemInSlot(SlotType, Item))
+		{
+			continue;
+		}
+
+		// 각인이 들어오면 여기에 인스턴스 옵션을 더한다. 아래 DT 조회보다 위에 둔다 —
+		// DT 조회가 실패해도 각인 옵션은 살아야 한다.
+		//   AddOptionsTo(Item.Options, Item.ItemRow.RowName, Totals);
+
+		// 행 종류를 가리지 않는다. 무기·방패 행은 옵션 배열이 비어서 온다.
+		FItemViewData ViewData;
+		if (!ResolveItemViewData(Item.ItemRow, ViewData))
+		{
+			continue;
+		}
+
+		// 좋은 쪽 나쁜 쪽 구분 없이 적힌 부호 그대로 더한다. 나뉜 건 툴팁 색뿐이다.
+		AddOptionsTo(ViewData.BenefitOptions, Item.ItemRow.RowName, Totals);
+		AddOptionsTo(ViewData.RiskOptions, Item.ItemRow.RowName, Totals);
+	}
+
+	return Totals;
+}
+
+void UEquipmentComponent::AddOptionsTo(const TArray<FItemOption>& Options, FName SourceRow, FItemStatTotals& Totals) const
+{
+	for (const FItemOption& Option : Options)
+	{
+		// 계산은 ItemStats::AddOptionToTotals 가 한다. 아이템 동작 효과와 같은 계산을 쓰기 위해서다.
+		// 여기서는 실패 이유를 나눠 알린다. 조용히 0 이 되지 않게.
+		if (!ItemStats::FindBinding(Option.Stat))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Equip] %s: 표에 없는 스탯 %s — 무시"),
+				*SourceRow.ToString(), *Option.Stat.ToString());
+			continue;
+		}
+
+		// "공격속도 +10" 처럼 받을 칸이 없는 조합
+		if (!ItemStats::AddOptionToTotals(Option, Totals))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Equip] %s: %s 는 이 타입(+/%%) 옵션을 받지 않는다 — 무시"),
+				*SourceRow.ToString(), *Option.Stat.ToString());
+			continue;
+		}
+	}
+}
+
+bool UEquipmentComponent::AreTotalsEqual(const FItemStatTotals& A, const FItemStatTotals& B)
+{
+	// 맵에 키가 있고 없고는 상관없다. 값이 0 이면 같은 것이다. 그래서 표를 기준으로 본다.
+	for (const FItemStatBinding& Binding : ItemStats::GetBindings())
+	{
+		const FItemStatTotal TA = ItemStats::GetTotal(A, Binding.Stat);
+		const FItemStatTotal TB = ItemStats::GetTotal(B, Binding.Stat);
+
+		if (!FMath::IsNearlyEqual(TA.Flat, TB.Flat))
+		{
+			return false;
+		}
+		if (!FMath::IsNearlyEqual(TA.Percent, TB.Percent))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void UEquipmentComponent::CollectEquippedEffects(TArray<FResolvedItemEffect>& OutEffects) const
+{
+	for (int32 Index = 0; Index < Slots.Num(); ++Index)
+	{
+		const EEquipSlotType SlotType = static_cast<EEquipSlotType>(Index);
+
+		// 부서진 장비는 효과도 없다
+		if (IsEquippedItemBroken(SlotType))
+		{
+			continue;
+		}
+
+		FItemInstance Item;
+		if (!GetItemInSlot(SlotType, Item))
+		{
+			continue;
+		}
+
+		FItemViewData ViewData;
+		if (!ResolveItemViewData(Item.ItemRow, ViewData))
+		{
+			continue;
+		}
+
+		// 좋은 쪽 나쁜 쪽 구분 없이 담는다. 나뉜 건 툴팁 색뿐이다.
+		AddResolvedEffects(ViewData.BenefitEffects, Item.ItemRow.RowName, OutEffects);
+		AddResolvedEffects(ViewData.RiskEffects, Item.ItemRow.RowName, OutEffects);
+	}
+}
+
+void UEquipmentComponent::AddResolvedEffects(const TArray<FItemEffect>& Effects, FName SourceRow, TArray<FResolvedItemEffect>& OutEffects) const
+{
+	for (const FItemEffect& Effect : Effects)
+	{
+		// DT 에 줄만 추가하고 정의를 안 골랐거나, 다른 표를 고른 경우
+		FResolvedItemEffect Resolved;
+		if (!ItemEffectRules::Resolve(Effect, Resolved))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Equip] %s: 효과 정의를 못 찾음 (%s) — 무시"),
+				*SourceRow.ToString(), *Effect.Definition.RowName.ToString());
+			continue;
+		}
+
+		// 정의에 태그가 없으면 규칙 코드가 이 효과를 구분할 수 없다 (핸들 · 쌓인 시간의 키가 태그다)
+		if (!Resolved.Def.Tag.IsValid())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Equip] %s: 효과 정의 %s 에 Tag 가 없음 — 무시"),
+				*SourceRow.ToString(), *Effect.Definition.RowName.ToString());
+			continue;
+		}
+
+		// 같은 효과를 두 개 꼈으면 먼저 찾은 것만. 겹치지 않는다 — 주기 효과가 두 배로 빨라지는 일도 막는다.
+		if (HasResolvedEffect(OutEffects, Resolved.Def.Tag))
+		{
+			continue;
+		}
+
+		OutEffects.Add(Resolved);
+	}
+}
+
+bool UEquipmentComponent::HasResolvedEffect(const TArray<FResolvedItemEffect>& Effects, const FGameplayTag& Tag)
+{
+	for (const FResolvedItemEffect& Effect : Effects)
+	{
+		if (Effect.Def.Tag == Tag)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+TArray<FGameplayTag> UEquipmentComponent::CollectItemEffectTags() const
+{
+	// "꼈다" 표시 태그. 같은 태그는 CollectEquippedEffects 가 이미 하나로 줄였다.
+	TArray<FResolvedItemEffect> Effects;
+	CollectEquippedEffects(Effects);
+
+	TArray<FGameplayTag> Tags;
+	for (const FResolvedItemEffect& Effect : Effects)
+	{
+		Tags.Add(Effect.Def.Tag);
+	}
+	return Tags;
+}
+
+void UEquipmentComponent::RefreshItemEffects()
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+	if (!Owner->HasAuthority())
+	{
+		return;   // 클라도 OnRep_Slots 로 여기 들어온다. GE 는 서버가 건다
+	}
+
+	UAbilitySystemComponent* ASC = GetOwnerASC();
+	if (!ASC)
+	{
+		return;   // RefreshEquipmentStats 가 이미 경고를 찍었다
+	}
+
+	const TArray<FGameplayTag> Wanted = CollectItemEffectTags();
+
+	// 목록이 그대로면 건드리지 않는다. 내구도만 깎인 경우다.
+	if (AreSameTags(Wanted, AppliedItemEffectTags))
+	{
+		return;
+	}
+
+	// 묵은 것을 뗀다. 태그만 거는 표시라 떼고 붙여도 잃는 게 없다.
+	// 주의: 쿨타임·주기 피해처럼 시간이 흐르는 건 여기 두면 안 된다 — 교체할 때마다 초기화된다.
+	//       그런 건 동작 코드 쪽에 둔다.
+	if (ItemEffectHandle.IsValid())
+	{
+		ASC->RemoveActiveGameplayEffect(ItemEffectHandle);
+		ItemEffectHandle.Invalidate();
+	}
+	AppliedItemEffectTags.Reset();
+
+	// 효과가 없으면 빈 GE 를 붙이지 않는다.
+	if (Wanted.Num() == 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Equip] 동작 효과 없음"));
+		return;
+	}
+
+	// 모든 태그를 GE 하나에 담는다. HBEffects::ApplyTaggedDuration 과 같은 방식이다.
+	FGameplayEffectSpec Spec(GetDefault<UGE_ItemEffectTag>(), ASC->MakeEffectContext(), 1.f);
+	for (const FGameplayTag& Tag : Wanted)
+	{
+		Spec.DynamicGrantedTags.AddTag(Tag);
+	}
+
+	ItemEffectHandle = ASC->ApplyGameplayEffectSpecToSelf(Spec);
+	AppliedItemEffectTags = Wanted;
+
+	UE_LOG(LogTemp, Log, TEXT("[Equip] 동작 효과 %d 개 적용"), Wanted.Num());
+	for (const FGameplayTag& Tag : Wanted)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Equip]   %s"), *Tag.ToString());
+	}
+}
+
+bool UEquipmentComponent::AreSameTags(const TArray<FGameplayTag>& A, const TArray<FGameplayTag>& B)
+{
+	// 순서까지 같아야 같다고 본다. 모으는 순서(슬롯 → Benefit → Risk)가 매번 같아서 이걸로 충분하다.
+	if (A.Num() != B.Num())
+	{
+		return false;
+	}
+
+	for (int32 Index = 0; Index < A.Num(); ++Index)
+	{
+		if (A[Index] != B[Index])
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 bool UEquipmentComponent::IsSlotOccupied(EEquipSlotType InSlot) const
@@ -467,14 +667,7 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 
 	Slots[SlotIndex] = RemovedItem;
 
-	UE_LOG(LogTemp, Warning, TEXT("[Relic] EquipFromInventory: InSlot = %d (Accessory = %d)"),
-		(int32)InSlot, (int32)EEquipSlotType::Accessory);
-
-	if (InSlot == EEquipSlotType::Accessory)
-	{
-		ApplyRelicEffects(RemovedItem);
-	}
-
+	// 스탯과 동작 효과는 이 신호를 받은 HandleEquipmentChanged 가 맞춘다.
 	OnEquipmentChanged.Broadcast();
 
 	return true;
@@ -503,11 +696,6 @@ bool UEquipmentComponent::UnequipToInventory(EEquipSlotType InSlot, UInventoryCo
 
 	Slots[SlotIndex] = FItemInstance();
 
-	if (InSlot == EEquipSlotType::Accessory)
-	{
-		RemoveRelicEffects();
-	}
-
 	OnEquipmentChanged.Broadcast();
 
 	return true;
@@ -534,11 +722,6 @@ bool UEquipmentComponent::UnequipToInventoryAt(EEquipSlotType InSlot, UInventory
 	}
 
 	Slots[SlotIndex] = FItemInstance();
-
-	if (InSlot == EEquipSlotType::Accessory)
-	{
-		RemoveRelicEffects();
-	}
 
 	OnEquipmentChanged.Broadcast();
 

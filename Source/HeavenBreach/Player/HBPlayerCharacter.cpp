@@ -141,9 +141,56 @@ void AHBPlayerCharacter::BeginPlay()
 			ManaResourceTickInterval,
 			true
 		);
+
+		// 체력 재생. 서버에서만 돈다. 재생량이 0 이면 틱마다 바로 빠져나온다.
+		GetWorldTimerManager().SetTimer(
+			HealthRegenTimer,
+			this,
+			&AHBPlayerCharacter::UpdateHealthRegen,
+			HealthRegenTickInterval,
+			true
+		);
+
+		// 아이템 동작 효과 (오라 · 조건 동안 · 주기). 서버에서만 돈다.
+		GetWorldTimerManager().SetTimer(
+			ItemEffectTimer,
+			this,
+			&AHBPlayerCharacter::TickItemEffects,
+			ItemEffectTickInterval,
+			true
+		);
 	}
 
 	RefreshEquippedVisuals();
+}
+
+void AHBPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 파티원에게 건 오라를 거둔다. 타이머는 액터와 같이 정리된다.
+	if (HasAuthority())
+	{
+		ItemEffectRules::Clear(this, ItemEffectRuntime);
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+void AHBPlayerCharacter::TickItemEffects()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 죽으면 거둔다. 안 거두면 살아 있는 파티원이 오라를 계속 받는다.
+	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		ItemEffectRules::Clear(this, ItemEffectRuntime);
+		return;
+	}
+
+	ItemEffectRules::Tick(this, ItemEffectTickInterval, ItemEffectRuntime);
 }
 
 void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -438,6 +485,16 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 		}
 	}
 
+	// 장비의 받는 피해 옵션. 방어력과 따로 곱해진다.
+	// 하한 0.5 는 PreAttributeChange 가 보장한다 — 최대 50% 감소.
+	AdditionalMultiplier *= ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_DamageTakenMultiplierAttribute());
+
+	// 근접으로 맞았을 때만 한 번 더 곱한다. "근접에 약해지는" 옵션용 (사냥꾼의 눈동자).
+	if (Source == EHBDamageSource::Melee)
+	{
+		AdditionalMultiplier *= ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MeleeDamageTakenMultiplierAttribute());
+	}
+
 	// 패링 성립 여부. 아래 GE 적용이 끝난 뒤 경직을 걸 때 다시 본다.
 	// 지역 변수라 복제 대상이 늘지 않는다.
 	bool bParried = false;
@@ -492,7 +549,13 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 
 	const UHB_PlayerAttributeSet* Attributes = HB_PlayerState ? HB_PlayerState->GetPlayerAttributeSet() : nullptr;
 	const float TargetDefense = Attributes ? Attributes->GetPlayer_Defense() : 0.f;
-	const float HitMultiplier = HBDamage::IsHeadshot(Hit) ? 2.f : 1.f;
+	// 머리면 2배에, 때린 사람의 헤드샷 옵션을 곱한다. 적이 때렸으면 보너스는 0 이다.
+	float HitMultiplier = 1.f;
+	if (HBDamage::IsHeadshot(Hit))
+	{
+		const float Bonus = HBDamage::GetAttackerHeadshotBonus(InstigatorActor);
+		HitMultiplier = 2.f * FMath::Max(0.f, 1.f + Bonus);
+	}
 
 	// 막았으면 0 이다. CalculateFinalDamage 가 FMath::Max(1.f, ...) 로 최소 1 을
 	// 보장하므로, 배율을 0 으로 넣는 것만으로는 1 이 들어간다.
@@ -628,6 +691,23 @@ void AHBPlayerCharacter::ApplyStaggerTo(AActor* Target) const
 	// 상대에게 Ability.HitReact GA 가 없거나, 슈퍼아머 중이거나, 이미 경직 중이다.
 	UE_LOG(LogTemp, Warning, TEXT("[Parry] 경직 시도 | Target=%s Activated=%d"),
 		*GetNameSafe(Target), bActivated ? 1 : 0);
+}
+
+float AHBPlayerCharacter::GetSkillDamageMultiplier() const
+{
+	// PlayerState 가 아직 없으면(접속 직후) 옵션이 없는 것과 같다.
+	if (!HB_PlayerState)
+	{
+		return 1.f;
+	}
+
+	const UHB_PlayerAttributeSet* Attributes = HB_PlayerState->GetPlayerAttributeSet();
+	if (!Attributes)
+	{
+		return 1.f;
+	}
+
+	return Attributes->GetPlayer_SkillDamageMultiplier();
 }
 
 float AHBPlayerCharacter::GetAttackPower() const
@@ -956,9 +1036,7 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 	const float LifeStealRatio = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_LifeStealRatioAttribute());
 	if (LifeStealRatio > 0.f)
 	{
-		Attributes->SetPlayer_HP(FMath::Min(
-			Attributes->GetPlayer_HP() + Damage * LifeStealRatio,
-			Attributes->GetPlayer_MaxHP()));
+		ReceiveHeal(Damage * LifeStealRatio);
 	}
 
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_CombatInstinct))
@@ -975,9 +1053,7 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_CombatRecovery))
 	{
-		Attributes->SetPlayer_HP(FMath::Min(
-			Attributes->GetPlayer_HP() + Attributes->GetPlayer_MaxHP() * 0.1f,
-			Attributes->GetPlayer_MaxHP()));
+		ReceiveHeal(Attributes->GetPlayer_MaxHP() * 0.1f);
 	}
 
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_KillingMomentum))
@@ -1545,14 +1621,33 @@ void AHBPlayerCharacter::ServerTestGrantPassive_Implementation(const FName Passi
 
 void AHBPlayerCharacter::HandleItemUsed(FName ItemId, float HealAmount)
 {
-	if (AHB_PlayerState* PS = GetPlayerCurrentState())
+	ReceiveHeal(HealAmount);
+}
+
+void AHBPlayerCharacter::ReceiveHeal(float Amount)
+{
+	// 0 이하는 회복이 아니다. 피해는 GE_PlayerDamage 로 들어온다.
+	if (Amount <= 0.f)
 	{
-		if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
-		{
-			const float NewHP = AttribSet->GetPlayer_HP() + HealAmount;
-			AttribSet->SetPlayer_HP(FMath::Clamp(NewHP, 0.0f, AttribSet->GetPlayer_MaxHP()));
-		}
+		return;
 	}
+
+	AHB_PlayerState* PS = GetPlayerCurrentState();
+	if (!PS)
+	{
+		return;
+	}
+
+	UHB_PlayerAttributeSet* Attributes = PS->GetPlayerAttributeSet();
+	if (!Attributes)
+	{
+		return;
+	}
+
+	// 하한 0 은 PreAttributeChange 가 이미 보장하지만, 음수가 들어오면 회복이 피해가 되므로 한 번 더 막는다.
+	const float Multiplier = FMath::Max(0.f, Attributes->GetPlayer_HealingReceivedMultiplier());
+	const float NewHP = Attributes->GetPlayer_HP() + Amount * Multiplier;
+	Attributes->SetPlayer_HP(FMath::Clamp(NewHP, 0.f, Attributes->GetPlayer_MaxHP()));
 }
 
 void AHBPlayerCharacter::OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem)
@@ -1918,12 +2013,69 @@ void AHBPlayerCharacter::UpdateManaResource()
 	}
 
 	const float MaxMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute());
-	const float ManaToRestore = FMath::Min(MaxMana - CurrentMana, ManaRegenPerSecond * ManaResourceTickInterval);
+
+	// (기본 회복 + 옵션+) × (1.0 + 옵션%). 쿨다운과 같은 모양이다. 장비의 스태미나 회복 옵션이 여기로 온다.
+	// 0 에서 자르는 이유: - 옵션이 쌓여도 "회복" 이 마나를 깎아서는 안 된다.
+	const float RegenFlat = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenFlatAttribute());
+	const float RegenMultiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenMultiplierAttribute());
+	const float RegenPerSecond = FMath::Max(0.f, (ManaRegenPerSecond + RegenFlat) * RegenMultiplier);
+
+	const float ManaToRestore = FMath::Min(MaxMana - CurrentMana, RegenPerSecond * ManaResourceTickInterval);
 	if (ManaToRestore > 0.f)
 	{
 		ASC->ApplyModToAttribute(
 			UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, ManaToRestore);
 	}
+}
+
+void AHBPlayerCharacter::UpdateHealthRegen()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 죽은 동안은 차지 않는다. ReceiveHeal 은 죽었는지 안 본다 — 이 검사가 없으면 시체의 체력이 차오른다.
+	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		return;
+	}
+
+	// 맞은 직후에는 멈춘다. 0 이면 멈추지 않는다.
+	if (HealthRegenDelayAfterHit > 0.f)
+	{
+		const UWorld* World = GetWorld();
+		if (!World)
+		{
+			return;
+		}
+		if (World->GetTimeSeconds() - LastDamageReceivedTime < HealthRegenDelayAfterHit)
+		{
+			return;
+		}
+	}
+
+	// (기본 재생 + 옵션+) × (1.0 + 옵션%). 마나 회복과 같은 모양이다.
+	// 0 에서 자르는 이유: - 옵션이 쌓여도 "재생" 이 체력을 깎아서는 안 된다.
+	const float RegenFlat = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HealthRegenFlatAttribute());
+	const float RegenMultiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HealthRegenMultiplierAttribute());
+	const float RegenPerSecond = FMath::Max(0.f, (HealthRegenPerSecond + RegenFlat) * RegenMultiplier);
+	if (RegenPerSecond <= 0.f)
+	{
+		return;
+	}
+
+	// 풀피면 할 일이 없다. ReceiveHeal 도 최대치에서 자르지만, 매 틱 체력을 다시 쓰지 않으려고 먼저 본다.
+	const float HP = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute());
+	const float MaxHP = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute());
+	if (HP >= MaxHP)
+	{
+		return;
+	}
+
+	// ReceiveHeal 을 지나므로 회복 효과 옵션(태양의 성배 등)이 곱해진다.
+	ReceiveHeal(RegenPerSecond * HealthRegenTickInterval);
 }
 
 void AHBPlayerCharacter::StopManaActionsAtZero()
@@ -1973,13 +2125,19 @@ void AHBPlayerCharacter::RefreshMovementSpeed()
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		float GASMultiplier = MovementSpeedMultiplier;
+		float GASFlat = 0.f;
 		if (HB_PlayerState && HB_PlayerState->GetPlayerAttributeSet())
 		{
-			GASMultiplier = HB_PlayerState->GetPlayerAttributeSet()->GetPlayer_MoveSpeedMultiplier();
+			const UHB_PlayerAttributeSet* Attributes = HB_PlayerState->GetPlayerAttributeSet();
+			GASMultiplier = Attributes->GetPlayer_MoveSpeedMultiplier();
+			GASFlat = Attributes->GetPlayer_MoveSpeedFlat();
 		}
 		const float BaseSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
-		Movement->MaxWalkSpeed = BaseSpeed * GASMultiplier;
-		Movement->MaxWalkSpeedCrouched = CrouchSpeed * GASMultiplier;
+
+		// 진짜 속도(장비 이동속도 +)를 먼저 더하고 배율을 곱한다. 쿨다운 공식과 같은 순서다.
+		// 0 에서 자르는 이유: - 옵션이 쌓여도 뒤로 걷게 되면 안 된다.
+		Movement->MaxWalkSpeed = FMath::Max(0.f, (BaseSpeed + GASFlat) * GASMultiplier);
+		Movement->MaxWalkSpeedCrouched = FMath::Max(0.f, (CrouchSpeed + GASFlat) * GASMultiplier);
 	}
 }
 

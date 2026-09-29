@@ -17,6 +17,7 @@
 	#include "Item/UItemSplitPopupWidget.h"
 	#include "Blueprint/WidgetBlueprintLibrary.h"
 	#include "Item/ItemInfoPopupWidget.h"
+	#include "Item/ItemStatBinding.h"
 	#include "Framework/Application/SlateApplication.h"
 	#include "Player/HBPlayerController.h"
 	#include "ShopComponent.h"
@@ -951,6 +952,13 @@
 
 		const FItemInstance& Item = BoundInventory->GetEntries()[EntryIndex].Item;
 
+		// 서칭 중(bRevealed=false)인 아이템은 "?"로만 보여야 하므로 정보 팁을 띄우지 않는다.
+		if (!Item.bRevealed)
+		{
+			ClearHoverInfoPopup();
+			return;
+		}
+
 		// 같은 아이템 위에서 계속 움직이는 중이면 다시 만들지 않고 위치만 따라가게 한다.
 		if (HoverInfoPopup != nullptr && HoveredItemInstanceId == Item.InstanceId)
 		{
@@ -985,8 +993,14 @@
 		// 동일한 내용(기본 효과/각인 효과/내구도/설명 등)을 그대로 보여준다.
 		const FString StatText = BuildStatTextForItem(Item);
 		const FString EquipSlotLabel = GetEquipSlotDisplayName(ViewData.EquipSlotType);
+		// 초록 칸: 좋은 숫자 옵션 + 좋은 동작 효과 설명
+		// 빨강 칸: 나쁜 숫자 옵션 + 나쁜 동작 효과 설명
+		// 옛 BenefitDescription / RiskDescription 문자열은 더 안 읽는다. 옵션 배열에서 문장을 만든다.
+		const FString BenefitLines = ItemStats::FormatLines(ViewData.BenefitOptions, ViewData.BenefitEffects);
+		const FString RiskLines = ItemStats::FormatLines(ViewData.RiskOptions, ViewData.RiskEffects);
+
 		HoverInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, ViewData.Description,
-			ViewData.bIsRelic, ViewData.BenefitDescription, ViewData.RiskDescription,
+			BenefitLines, RiskLines,
 			ViewData.SellValue, IconTexture, StatText, /*bInCompact=*/false,
 			EquipSlotLabel, Item.CurrentDurability, GetMaxDurabilityForGrade(ViewData.Grade));
 
@@ -1010,53 +1024,6 @@
 			HoverInfoPopup = nullptr;
 		}
 		HoveredItemInstanceId = FGuid();
-	}
-
-	FString UInventoryWidget::BuildStatTextForItem(const FItemInstance& InItem) const
-	{
-		FString StatText;
-		const UDataTable* ItemDataTable = InItem.ItemRow.DataTable;
-		if (ItemDataTable == nullptr)
-		{
-			return StatText;
-		}
-
-		const UScriptStruct* RowStruct = ItemDataTable->GetRowStruct();
-		if (RowStruct == FWeaponData::StaticStruct())
-		{
-			if (const FWeaponData* WeaponRow = ItemDataTable->FindRow<FWeaponData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
-			{
-				const FText WeaponStatFormat = FText::FromString(TEXT("공격력: {0}\n사거리: {1}\n공격 속도: {2}초"));
-				StatText = FText::Format(WeaponStatFormat,
-					FText::AsNumber(WeaponRow->AttackPower),
-					FText::AsNumber(WeaponRow->AttackRange),
-					FText::AsNumber(WeaponRow->AttackInterval)).ToString();
-			}
-		}
-		else if (RowStruct == FShieldData::StaticStruct())
-		{
-			if (const FShieldData* ShieldRow = ItemDataTable->FindRow<FShieldData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
-			{
-				const FText ShieldStatFormat = FText::FromString(TEXT("피해 감소: {0}%\n방어 범위: {1}도"));
-				StatText = FText::Format(ShieldStatFormat,
-					FText::AsNumber(ShieldRow->DamageReduction),
-					FText::AsNumber(ShieldRow->BlockAngle)).ToString();
-			}
-		}
-		else if (RowStruct == FItemData::StaticStruct())
-		{
-			if (const FItemData* GeneralRow = ItemDataTable->FindRow<FItemData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
-			{
-				if (!GeneralRow->BonusStatType.IsEmpty())
-				{
-					const FText BonusStatFormat = FText::FromString(TEXT("{0}: {1}"));
-					StatText = FText::Format(BonusStatFormat,
-						FText::FromString(GeneralRow->BonusStatType),
-						FText::AsNumber(GeneralRow->BonusStatValue)).ToString();
-				}
-			}
-		}
-		return StatText;
 	}
 
 	void UInventoryWidget::ShowSplitPopupForDrop(FGuid InInstanceId, FIntPoint InTargetCell, FVector2D InScreenPosition)

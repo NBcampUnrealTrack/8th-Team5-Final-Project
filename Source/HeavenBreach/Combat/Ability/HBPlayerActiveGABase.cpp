@@ -9,6 +9,7 @@
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Skill/HB_SkillParamTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
+#include "Item/ItemEffectRules.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Components/CapsuleComponent.h"
@@ -38,6 +39,11 @@ UHBPlayerActiveGABase::UHBPlayerActiveGABase()
 	// 쳐낼 조건: 기본공격을 스킬로 캔슬하고 싶어지면 State.Attacking 을 Blocked 에서 빼고
 	// CancelAbilitiesWithTag 로 옮긴다. 지금은 "휘두르는 중엔 스킬 안 나감" 이다.
 	ActivationOwnedTags.AddTag(StateTag::TAG_State_Attacking);
+
+	// 스킬이 도는 동안 붙는다. 근접 트레이스가 이걸 보고 스킬 타격인지 가른다.
+	// 이 부모를 쓰는 스킬은 따로 설정하지 않아도 스킬 피해 옵션을 받는다.
+	// 기본 공격(GA_PlayerAttack)은 이 부모가 아니라 태그가 안 붙는다.
+	ActivationOwnedTags.AddTag(StateTag::TAG_State_UsingSkill);
 
 	ActivationBlockedTags.AddTag(StateTag::TAG_State_Attacking);
 	ActivationBlockedTags.AddTag(AbilityTag::TAG_State_Dead);
@@ -169,6 +175,10 @@ bool UHBPlayerActiveGABase::CheckCost(const FGameplayAbilitySpecHandle Handle, c
 
 void UHBPlayerActiveGABase::ApplyCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
 {
+	// 아이템 동작 효과의 "스킬 사용 시" (마력의 고리 등). 조건과 수치는 ItemEffectRules 와 DT.
+	// 여기 맨 위에 두는 이유: 아래는 마나 코스트가 0 이면 일찍 반환한다. 그래도 아이템 효과는 돌아야 한다.
+	ItemEffectRules::OnSkillUsed(ActorInfo);
+
 	// 증강이 요구하는 추가 코스트. 원래 코스트와 별개로 낸다.
 	// "마나 대신 체력" 은 이 GE 와 Params 의 ManaCost 0 을 같이 써서 만든다.
 	// 여기 먼저 두는 이유: 아래에서 마나 코스트가 0 이라 일찍 반환해도
