@@ -37,7 +37,12 @@ UGA_PlayerAttackRE::UGA_PlayerAttackRE()
 
 void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
-	if (!AM_Attack)
+	bComboWindowOpen = false;
+	bComboWindowPassed = false;
+	bComboInputQueued = false;
+	PlayingMontage = nullptr;
+
+	if (ComboMontages.IsEmpty() && !AM_Attack)
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
@@ -81,13 +86,22 @@ void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		return;
 	}
 
+	// 커밋 뒤에 고른다. 앞에서 실패한 발동이 콤보 번호를 넘기면 안 된다.
+	UAnimMontage* Montage = PickMontage();
+	if (!Montage)
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+		return;
+	}
+	PlayingMontage = Montage;
+
 	UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
 
 	// 공격속도 적용
 	float AttackRate = ASC ? FMath::Max(0.1f, ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_AttackSpeedAttribute())) : 1.f;
 
 	// 판정은 몽타주의 ANS_MeleeHitDetect 가 담당한다.
-	UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, AM_Attack, AttackRate);
+	UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Montage, AttackRate);
 
 	MontageTask->OnCompleted.AddDynamic(this, &UGA_PlayerAttackRE::OnMontageCompleted);
 	MontageTask->OnBlendOut.AddDynamic(this, &UGA_PlayerAttackRE::OnMontageCompleted);
@@ -111,17 +125,149 @@ void UGA_PlayerAttackRE::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	// 타격 성질을 실어 보낸다. 큐는 맞는 쪽이 쏘면서 이 태그를 읽는다.
 	ApplyImpactCueTag(ActorInfo, Player);
 
-	UE_LOG(LogTemp, Warning, TEXT("[Attack] Activate  Auth=%d  Local=%d"),
+	UE_LOG(LogTemp, Warning, TEXT("[Attack] Activate  Auth=%d  Local=%d  Montage=%s  NextCombo=%d"),
 		ActorInfo->IsNetAuthority() ? 1 : 0,
-		ActorInfo->IsLocallyControlled() ? 1 : 0);
+		ActorInfo->IsLocallyControlled() ? 1 : 0,
+		*GetNameSafe(Montage),
+		ComboIndex);
 }
 
 void UGA_PlayerAttackRE::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
+	if (const UWorld* World = GetWorld())
+	{
+		LastAttackEndTime = World->GetTimeSeconds();
+	}
+	bComboWindowOpen = false;
+	bComboInputQueued = false;
+	PlayingMontage = nullptr;
+
 	RemoveAttackSlow(ActorInfo);
 	RemoveImpactCueTag(ActorInfo);
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+UGA_PlayerAttackRE* UGA_PlayerAttackRE::FindActive(UAbilitySystemComponent* ASC)
+{
+	if (!ASC)
+	{
+		return nullptr;
+	}
+
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (!Spec.IsActive())
+		{
+			continue;
+		}
+		if (UGA_PlayerAttackRE* Attack = Cast<UGA_PlayerAttackRE>(Spec.GetPrimaryInstance()))
+		{
+			return Attack;
+		}
+	}
+	return nullptr;
+}
+
+UAnimMontage* UGA_PlayerAttackRE::PickMontage()
+{
+	if (ComboMontages.IsEmpty())
+	{
+		return AM_Attack;
+	}
+
+	// 끝난 지 오래됐거나 마지막 타까지 쳤으면 1타부터.
+	//
+	// 서버와 클라가 각자 판단한다. 경계(딱 ComboResetDelay 근처)에서 누르면
+	// 둘의 월드 시간 차이로 서로 다른 타를 고를 수 있다. 그 경우 판정 몽타주가 달라진다.
+	// 쳐낼 조건: PIE 에서 실제로 어긋나는 게 보이면 클라가 고른 번호를 이벤트로 넘긴다.
+	const UWorld* World = GetWorld();
+	const double Now = World ? World->GetTimeSeconds() : 0.0;
+	const bool bExpired = LastAttackEndTime < 0.0 || Now - LastAttackEndTime > ComboResetDelay;
+	if (bExpired || !ComboMontages.IsValidIndex(ComboIndex))
+	{
+		ComboIndex = 0;
+	}
+
+	UAnimMontage* Picked = ComboMontages[ComboIndex];
+	++ComboIndex;
+	return Picked;
+}
+
+void UGA_PlayerAttackRE::QueueComboInput()
+{
+	// 다음 타는 로컬이 발동해서 서버로 예측 전송한다. 서버 쪽 인스턴스는 기다리기만 한다.
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	// 구간이 이미 지나갔으면 이번 타로는 못 잇는다. 끝난 뒤 다시 누르면 ComboResetDelay 안이라 이어진다.
+	if (bComboWindowPassed)
+	{
+		return;
+	}
+
+	bComboInputQueued = true;
+	TryChainCombo();
+}
+
+void UGA_PlayerAttackRE::OpenComboWindow(const UAnimSequenceBase* Montage)
+{
+	if (Montage != PlayingMontage)
+	{
+		return;
+	}
+
+	bComboWindowOpen = true;
+	TryChainCombo();
+}
+
+void UGA_PlayerAttackRE::CloseComboWindow(const UAnimSequenceBase* Montage)
+{
+	// 다음 타로 넘어가면 이전 몽타주가 멈추면서 NotifyEnd 가 늦게 온다.
+	// 걸러내지 않으면 새로 시작한 타의 구간이 "지나갔음" 으로 잠긴다.
+	if (Montage != PlayingMontage)
+	{
+		return;
+	}
+
+	bComboWindowOpen = false;
+	bComboWindowPassed = true;
+	bComboInputQueued = false;
+}
+
+void UGA_PlayerAttackRE::TryChainCombo()
+{
+	if (!bComboWindowOpen || !bComboInputQueued || !IsLocallyControlled())
+	{
+		return;
+	}
+
+	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetAvatarActorFromActorInfo());
+	if (!Player)
+	{
+		return;
+	}
+
+	// 다음 타를 못 낼 거면 지금 타를 끊지 않는다. 끊고 나서 Attack() 이 마나 부족으로
+	// 조용히 돌아가면 회수 동작만 잘린 채 멈춘다.
+	const float NextManaCost = Player->ModifyManaCost(AbilityTag::TAG_Ability_BasicAttack, Player->GetAttackManaCost());
+	if (!Player->HasEnoughMana(NextManaCost))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Combo] 마나 부족으로 다음 타를 안 냄  NextCombo=%d"), ComboIndex);
+		bComboInputQueued = false;
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Combo] 다음 타로 넘어감  NextCombo=%d"), ComboIndex);
+
+	// 끝내야 State.Attacking 이 떨어져 다음 발동이 막히지 않는다.
+	// EndAbility 와 다음 발동 RPC 는 같은 ASC 채널로 순서대로 가므로 서버도 끝낸 뒤 받는다.
+	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);
+
+	// 마나·무기 파손 검사를 다시 거치도록 입력 경로를 그대로 탄다.
+	Player->Attack();
 }
 
 void UGA_PlayerAttackRE::OnMontageCompleted()

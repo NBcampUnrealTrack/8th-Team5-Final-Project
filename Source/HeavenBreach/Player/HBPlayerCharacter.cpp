@@ -10,6 +10,7 @@
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
+#include "Combat/Attack/GA_PlayerAttackRE.h"
 #include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Block/GA_PlayerParry.h"
 #include "Combat/Damage/HBDamageCalculation.h"
@@ -229,8 +230,19 @@ void AHBPlayerCharacter::Attack()
 	if (!ASC) 
 		return;
 
-	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead) || ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking)) 
+	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead) || ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
 		return;
+
+	// 공격 중이면 새로 발동하지 않고 콤보 입력으로 넘긴다.
+	// 어차피 State.Attacking 이 발동을 막으므로, 평타가 아닌 스킬 중이면 그냥 버려진다.
+	if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Attacking))
+	{
+		if (UGA_PlayerAttackRE* CurrentAttack = UGA_PlayerAttackRE::FindActive(ASC))
+		{
+			CurrentAttack->QueueComboInput();
+		}
+		return;
+	}
 
 	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
 
