@@ -290,6 +290,10 @@ private:
 	bool bIsQuickSlotBound = false;
 	FSlateBrush DefaultPotion1Brush;
 	FSlateBrush DefaultPotion2Brush;
+	/** InventoryComponent::OnInventoryChanged 바인딩 여부. QuickSlotComponent::OnQuickSlotChanged 는
+	 * 퀵슬롯에 아이템을 등록/해제할 때만 발생하고, 이미 등록된 아이템의 StackCount 만 줄어드는
+	 * 경우(포션 사용 등)엔 발생하지 않는다. 그 갱신을 받으려면 인벤토리 변경 델리게이트를 따로 구독해야 한다. */
+	bool bIsInventoryBound = false;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> ExpBarDynamicMaterial;
