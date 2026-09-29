@@ -64,10 +64,16 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
+	// head 뼈에 위치·회전 모두 붙인다. 공격·포션·상호작용 애니메이션의 머리 움직임이 그대로 화면이 된다.
+	// 값은 기문 님 1인칭 테스트(BP_Test_ComboWarrior 등)와 같다.
+	//
+	// 조준 방향으로 덮지 않는다(bUsePawnControlRotation=false). 위아래 시야는 ABP 에임오프셋이
+	// 조준 각도만큼 머리를 숙이고 들어서 만든다. 그래서 에임오프셋 범위와 컨트롤러의
+	// ViewPitchMin/Max 가 어긋나면 조준과 화면이 틀어진다.
 	FirstPersonCamera->SetupAttachment(GetMesh(), FirstPersonCameraSocketName);
-	FirstPersonCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
-	FirstPersonCamera->SetAbsolute(false, true, true);
-	FirstPersonCamera->bUsePawnControlRotation = true;
+	FirstPersonCamera->SetRelativeLocationAndRotation(FVector(-14.f, 7.7f, 0.69f), FRotator(0.f, 90.f, -90.f));
+	FirstPersonCamera->SetAbsolute(false, false, false);
+	FirstPersonCamera->bUsePawnControlRotation = false;
 
 
 #pragma region EquipmentVisual

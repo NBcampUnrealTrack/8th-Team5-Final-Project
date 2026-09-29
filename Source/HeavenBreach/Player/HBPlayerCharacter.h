@@ -217,9 +217,13 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
 
-	/** Socket whose animated position is followed by the first-person camera. */
+	/**
+	 * 1인칭 카메라가 따라가는 뼈. 소켓이 아니라 뼈 이름이다.
+	 * 예전에는 neck_02 의 FirstPersonCameraSocket 이었는데, 목은 공격 중에 거의 안 움직여
+	 * 화면 흔들림이 없었다. 생성자에서 붙이므로 BP 에서 바꿔도 부착 위치는 안 바뀐다.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Camera")
-	FName FirstPersonCameraSocketName = TEXT("FirstPersonCameraSocket");
+	FName FirstPersonCameraSocketName = TEXT("head");
 	
 #pragma region ASC
 public:

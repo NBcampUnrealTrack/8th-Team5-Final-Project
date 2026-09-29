@@ -45,7 +45,10 @@ void AHBPlayerController::BeginPlay()
 
 	if (PlayerCameraManager)
 	{
-		PlayerCameraManager->ViewPitchMax = 60.0f;
+		// 카메라가 머리 뼈에 붙어 있어, 에임오프셋(ABP 의 AimPitchMin/Max, AO_ComboWarrior_Pitch)이
+		// 따라갈 수 있는 범위를 넘으면 조준과 화면이 어긋난다. 두 값을 같이 맞춘다.
+		PlayerCameraManager->ViewPitchMin = -70.0f;
+		PlayerCameraManager->ViewPitchMax = 45.0f;
 	}
 
 	if (UEnhancedInputLocalPlayerSubsystem* InputSubsystem =
