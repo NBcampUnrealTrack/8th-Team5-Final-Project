@@ -28,23 +28,17 @@ namespace HBAugment
 	HEAVENBREACH_API float GetTierMagnitude(const FHBSkillAugment& Augment, int32 Tier);
 
 	/**
-	 * 후보 3장을 뽑는다.
+	 * 한 통에서 DrawCount 장을 무작위로 뽑는다. 모자라면 있는 만큼만.
 	 *
-	 * 규칙
-	 *   1. CommonPool 에서 최대 CommonCap 장
-	 *   2. 나머지를 Pool 에서
-	 *   3. Pool 이 모자라면 CommonPool 에서 더 채운다
+	 * 기획서 28.1: 액티브 강화·패시브 강화·신규 패시브·공통 강화를 한 통에 섞어 뽑는다.
+	 * 전에는 공통 강화를 따로 먼저 1장 뽑아서 매 화면에 공통이 꼭 1장 있었다.
+	 * 쳐낼 조건: 증강 등급·가중치가 기획에 생기면 여기서 가중 추첨으로 바꾼다.
 	 *
-	 * 3번이 상한보다 우선한다. 후반에는 스킬 증강을 다 먹고 패시브도 다 가져서
-	 * Pool 이 비는데, 상한을 고집하면 카드가 1장만 뜬다.
-	 *
-	 * Pool 과 CommonPool 은 뽑은 항목이 제거되므로 참조로 받는다.
+	 * Pool 은 뽑은 항목이 제거되므로 참조로 받는다. 한 번 뽑힌 것은 다시 안 나온다(28.3 중복 금지).
 	 */
 	HEAVENBREACH_API void DrawCandidates(
 		TArray<FHBUpgradeCandidate>& Pool,
-		TArray<FHBUpgradeCandidate>& CommonPool,
 		int32 DrawCount,
-		int32 CommonCap,
 		FRandomStream& Rng,
 		TArray<FHBUpgradeCandidate>& Out);
 }

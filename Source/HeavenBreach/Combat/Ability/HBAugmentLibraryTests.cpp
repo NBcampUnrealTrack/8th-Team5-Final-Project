@@ -117,65 +117,60 @@ bool FHBAugmentDrawTest::RunTest(const FString&)
 	FRandomStream Rng(12345);
 	TArray<FHBUpgradeCandidate> Out;
 
-	// 양쪽이 넉넉하면 3장, 공통은 상한 1장
+	// 공통 강화(C)도 다른 증강(P)과 한 통에서 똑같이 뽑힌다 (기획서 28.1).
+	// 전에는 공통을 먼저 1장 뽑아서 매 화면에 공통이 꼭 1장 있었다.
+	// 여러 번 뽑으면 공통 0장인 화면과 2장 이상인 화면이 둘 다 나와야 한다.
+	{
+		bool bSawNoCommon = false;
+		bool bSawManyCommon = false;
+		for (int32 Seed = 0; Seed < 200; ++Seed)
+		{
+			TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 5);
+			Pool.Append(MakePool(TEXT("C"), 5));
+			FRandomStream SeedRng(Seed);
+			HBAugment::DrawCandidates(Pool, 3, SeedRng, Out);
+			const int32 CommonCount = CountWithPrefix(Out, TEXT("C"));
+			bSawNoCommon |= CommonCount == 0;
+			bSawManyCommon |= CommonCount >= 2;
+		}
+		TestTrue(TEXT("공통이 하나도 안 나오는 화면이 있다"), bSawNoCommon);
+		TestTrue(TEXT("공통이 2장 이상 나오는 화면이 있다"), bSawManyCommon);
+	}
+
+	// 넉넉하면 3장
 	{
 		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 5);
-		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 7);
-		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		HBAugment::DrawCandidates(Pool, 3, Rng, Out);
 		TestEqual(TEXT("3장을 뽑는다"), Out.Num(), 3);
-		TestEqual(TEXT("공통은 1장만"), CountWithPrefix(Out, TEXT("C")), 1);
-		TestEqual(TEXT("일반이 2장"), CountWithPrefix(Out, TEXT("P")), 2);
+		TestEqual(TEXT("뽑힌 만큼 통에서 빠진다"), Pool.Num(), 2);
 	}
 
-	// 일반 풀이 모자라면 상한을 넘겨 공통으로 채운다
+	// 3장 미만이면 있는 만큼만
 	{
-		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 1);
-		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 7);
-		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
-		TestEqual(TEXT("모자라도 3장을 채운다"), Out.Num(), 3);
-		TestEqual(TEXT("일반은 있는 만큼"), CountWithPrefix(Out, TEXT("P")), 1);
-		TestEqual(TEXT("공통이 상한을 넘겨 채운다"), CountWithPrefix(Out, TEXT("C")), 2);
-	}
-
-	// 일반 풀이 비었으면 전부 공통
-	{
-		TArray<FHBUpgradeCandidate> Pool;
-		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 7);
-		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
-		TestEqual(TEXT("전부 공통으로 3장"), Out.Num(), 3);
-		TestEqual(TEXT("공통 3장"), CountWithPrefix(Out, TEXT("C")), 3);
-	}
-
-	// 공통이 비었으면 전부 일반
-	{
-		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 5);
-		TArray<FHBUpgradeCandidate> Common;
-		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
-		TestEqual(TEXT("전부 일반으로 3장"), Out.Num(), 3);
-		TestEqual(TEXT("일반 3장"), CountWithPrefix(Out, TEXT("P")), 3);
-	}
-
-	// 둘 다 합쳐 3장 미만이면 있는 만큼만
-	{
-		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 1);
-		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 1);
-		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 2);
+		HBAugment::DrawCandidates(Pool, 3, Rng, Out);
 		TestEqual(TEXT("있는 만큼만 2장"), Out.Num(), 2);
 	}
 
-	// 둘 다 비면 0장
+	// 비면 0장
 	{
 		TArray<FHBUpgradeCandidate> Pool;
-		TArray<FHBUpgradeCandidate> Common;
-		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		HBAugment::DrawCandidates(Pool, 3, Rng, Out);
 		TestEqual(TEXT("뽑을 게 없으면 0장"), Out.Num(), 0);
 	}
 
-	// 같은 후보가 두 번 나오지 않는다
+	// 0장을 달라고 하면 0장, 이전 결과도 비운다
+	{
+		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 5);
+		Out = MakePool(TEXT("Old"), 2);
+		HBAugment::DrawCandidates(Pool, 0, Rng, Out);
+		TestEqual(TEXT("DrawCount 0 이면 0장"), Out.Num(), 0);
+	}
+
+	// 같은 후보가 두 번 나오지 않는다 (28.3 동일 화면 중복 금지)
 	{
 		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 3);
-		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 3);
-		HBAugment::DrawCandidates(Pool, Common, 3, 1, Rng, Out);
+		HBAugment::DrawCandidates(Pool, 3, Rng, Out);
 		TSet<FName> Seen;
 		for (const FHBUpgradeCandidate& C : Out)
 		{
@@ -184,28 +179,17 @@ bool FHBAugmentDrawTest::RunTest(const FString&)
 		}
 	}
 
-	// 상한 0 이면 공통이 안 나온다. 단 일반이 모자라면 채우기는 여전히 동작
-	{
-		TArray<FHBUpgradeCandidate> Pool = MakePool(TEXT("P"), 5);
-		TArray<FHBUpgradeCandidate> Common = MakePool(TEXT("C"), 5);
-		HBAugment::DrawCandidates(Pool, Common, 3, 0, Rng, Out);
-		TestEqual(TEXT("상한 0 이면 공통 0장"), CountWithPrefix(Out, TEXT("C")), 0);
-		TestEqual(TEXT("일반으로 3장"), Out.Num(), 3);
-	}
-
 	// 같은 씨앗은 같은 결과를 준다
 	{
 		TArray<FHBUpgradeCandidate> PoolA = MakePool(TEXT("P"), 5);
-		TArray<FHBUpgradeCandidate> CommonA = MakePool(TEXT("C"), 5);
 		FRandomStream RngA(777);
 		TArray<FHBUpgradeCandidate> OutA;
-		HBAugment::DrawCandidates(PoolA, CommonA, 3, 1, RngA, OutA);
+		HBAugment::DrawCandidates(PoolA, 3, RngA, OutA);
 
 		TArray<FHBUpgradeCandidate> PoolB = MakePool(TEXT("P"), 5);
-		TArray<FHBUpgradeCandidate> CommonB = MakePool(TEXT("C"), 5);
 		FRandomStream RngB(777);
 		TArray<FHBUpgradeCandidate> OutB;
-		HBAugment::DrawCandidates(PoolB, CommonB, 3, 1, RngB, OutB);
+		HBAugment::DrawCandidates(PoolB, 3, RngB, OutB);
 
 		TestEqual(TEXT("같은 씨앗은 같은 장수"), OutA.Num(), OutB.Num());
 		for (int32 I = 0; I < OutA.Num() && I < OutB.Num(); ++I)

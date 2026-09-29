@@ -957,14 +957,14 @@ void AHB_PlayerState::GenerateUpgradeCandidates()
 
 	// 궁극기는 넣지 않는다. 궁극기 증강은 기획에서 폐기됐다.
 
-	TArray<FHBUpgradeCandidate> CommonPool;
-	CollectCommonAugments(CommonPool);
+	// 공통 강화도 같은 통에 넣어 똑같은 확률로 뽑는다(기획서 28.1).
+	CollectCommonAugments(Pool);
 
 	// 씨앗은 매번 새로 만든다. 재현이 필요한 곳이 아니다.
 	// DrawCandidates 가 FRandomStream 을 받는 이유는 테스트에서 고정하기
 	// 위한 것이고, 실제 플레이에서는 무작위가 맞다.
 	FRandomStream Rng(FMath::Rand());
-	HBAugment::DrawCandidates(Pool, CommonPool, 3, 1, Rng, CurrentUpgradeCandidates);
+	HBAugment::DrawCandidates(Pool, 3, Rng, CurrentUpgradeCandidates);
 
 	// 뽑을 게 하나도 없으면 선택권을 소모하고 넘긴다.
 	// 안 그러면 카드 0장짜리 선택 UI 가 영영 열려 있는다.

@@ -62,45 +62,18 @@ namespace HBAugment
 
 	void DrawCandidates(
 		TArray<FHBUpgradeCandidate>& Pool,
-		TArray<FHBUpgradeCandidate>& CommonPool,
 		const int32 DrawCount,
-		const int32 CommonCap,
 		FRandomStream& Rng,
 		TArray<FHBUpgradeCandidate>& Out)
 	{
 		Out.Reset();
-		if (DrawCount <= 0)
-		{
-			return;
-		}
 
-		// 한 통에서 무작위로 한 장 꺼낸다. RemoveAtSwap 이라 O(1) 이다.
-		auto TakeOne = [&Rng](TArray<FHBUpgradeCandidate>& From, TArray<FHBUpgradeCandidate>& Into)
-		{
-			const int32 Index = Rng.RandRange(0, From.Num() - 1);
-			Into.Add(From[Index]);
-			From.RemoveAtSwap(Index);
-		};
-
-		// 1. 공통에서 상한까지. Out 만으로는 어느 통에서 왔는지 알 수 없으므로
-		// 카운터로 직접 센다.
-		int32 CommonTaken = 0;
-		while (Out.Num() < DrawCount && CommonPool.Num() > 0 && CommonTaken < CommonCap)
-		{
-			TakeOne(CommonPool, Out);
-			++CommonTaken;
-		}
-
-		// 2. 나머지를 일반에서
+		// 무작위로 한 장씩 꺼낸다. RemoveAtSwap 이라 O(1) 이다.
 		while (Out.Num() < DrawCount && Pool.Num() > 0)
 		{
-			TakeOne(Pool, Out);
-		}
-
-		// 3. 아직 모자라면 공통에서 더. 상한보다 장수를 채우는 것이 우선이다
-		while (Out.Num() < DrawCount && CommonPool.Num() > 0)
-		{
-			TakeOne(CommonPool, Out);
+			const int32 Index = Rng.RandRange(0, Pool.Num() - 1);
+			Out.Add(Pool[Index]);
+			Pool.RemoveAtSwap(Index);
 		}
 	}
 }
