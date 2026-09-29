@@ -3,6 +3,11 @@
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBDungeonOccupancyComponent.h"
 #include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBRoomEncounterProfile.h"
+#include "PCGModule/HBEnemySpawnPoint.h"
+#include "PCGModule/HBRoomSpawnExclusionVolume.h"
+#include "AI/EnemyCharacterBase.h"
+#include "Components/BoxComponent.h"
 #include "Engine/Level.h"
 #include "Logging/MessageLog.h"
 #include "Misc/UObjectToken.h"
@@ -72,6 +77,92 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 
 	for (AHBDungeonModuleDefinition* Definition : Definitions)
 	{
+		if (Definition->EncounterProfile)
+		{
+			if (Definition->ModuleKind != EHBDungeonModuleKind::Room)
+			{
+				AddIssue(OutIssues, TEXT("CorridorEncounter"), Definition, TEXT("Encounter profiles belong to rooms, not corridors."));
+			}
+			TArray<FString> ProfileErrors;
+			Definition->EncounterProfile->Validate(ProfileErrors);
+			for (const FString& ProfileError : ProfileErrors)
+			{
+				AddIssue(OutIssues, TEXT("EncounterProfile"), Definition->EncounterProfile, ProfileError);
+			}
+		}
+		TSet<FName> SpawnPointIds;
+		int32 SpawnPointCount = 0;
+		int32 CommonPoints = 0;
+		int32 ElitePoints = 0;
+		int32 BossPointMatches = 0;
+		for (AActor* Actor : Level->Actors)
+		{
+			if (const auto* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point))
+			{
+				++SpawnPointCount;
+				if (Point->PointId.IsNone() || SpawnPointIds.Contains(Point->PointId))
+				{
+					AddIssue(OutIssues, TEXT("EnemySpawnPointId"), Actor, TEXT("PointId must be nonempty and unique within the room map."));
+				}
+				SpawnPointIds.Add(Point->PointId);
+				if (!IsUnitTransform(Point->GetActorTransform()))
+				{
+					AddIssue(OutIssues, TEXT("EnemySpawnPointTransform"), Actor, TEXT("Spawn point position and rotation must be finite, with scale (1,1,1)."));
+				}
+				if (!Point->bAllowCommon && !Point->bAllowElite && !Point->bAllowBoss)
+				{
+					AddIssue(OutIssues, TEXT("EnemySpawnPointGrade"), Actor, TEXT("Enable at least one permitted monster grade."));
+				}
+				if (!FMath::IsFinite(Point->MaxCapsuleRadius) || Point->MaxCapsuleRadius < 0.f ||
+					!FMath::IsFinite(Point->MaxCapsuleHalfHeight) || Point->MaxCapsuleHalfHeight < 0.f)
+				{
+					AddIssue(OutIssues, TEXT("EnemySpawnPointSize"), Actor, TEXT("Capsule limits must be finite and nonnegative."));
+				}
+				for (const auto& AllowedClass : Point->AllowedClasses)
+				{
+					if (!AllowedClass) AddIssue(OutIssues, TEXT("EnemySpawnPointClass"), Actor, TEXT("AllowedClasses cannot contain an empty class."));
+				}
+				CommonPoints += Point->bAllowCommon ? 1 : 0;
+				ElitePoints += Point->bAllowElite ? 1 : 0;
+				if (Definition->EncounterProfile && Point->PointId == Definition->EncounterProfile->BossPointId && Point->bAllowBoss)
+				{
+					++BossPointMatches;
+				}
+			}
+			if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion))
+			{
+				const UBoxComponent* Box = Exclusion->Bounds;
+				if (!Box || !Box->GetComponentTransform().IsValid() || !HasPositiveExtent(Box->GetScaledBoxExtent()) ||
+					!HasPositiveExtent(Box->GetComponentScale()))
+				{
+					AddIssue(OutIssues, TEXT("SpawnExclusionSize"), Actor, TEXT("Exclusion bounds must have finite transform and positive size."));
+				}
+				if (Box && (Box->GetCollisionEnabled() != ECollisionEnabled::NoCollision || Box->GetGenerateOverlapEvents() || Box->CanEverAffectNavigation()))
+				{
+					AddIssue(OutIssues, TEXT("SpawnExclusionCollision"), Actor, TEXT("Exclusion is metadata and must not collide, overlap or affect navigation."));
+				}
+			}
+		}
+		if (Definition->EncounterProfile)
+		{
+			const UHBRoomEncounterProfile* Profile = Definition->EncounterProfile;
+			if (Profile->MaxCommonCount > 0 && CommonPoints == 0)
+			{
+				AddIssue(OutIssues, TEXT("EncounterPoints"), Definition, TEXT("Common enemies need at least one common spawn point."));
+			}
+			if (Profile->MaxEliteCount > 0 && ElitePoints == 0)
+			{
+				AddIssue(OutIssues, TEXT("EncounterPoints"), Definition, TEXT("Elite enemies need at least one elite spawn point."));
+			}
+			if (Profile->BossClass && BossPointMatches != 1)
+			{
+				AddIssue(OutIssues, TEXT("BossSpawnPoint"), Definition, TEXT("BossPointId must match exactly one boss-enabled spawn point."));
+			}
+		}
+		else if (SpawnPointCount > 0)
+		{
+			AddIssue(OutIssues, TEXT("MissingEncounterProfile"), Definition, TEXT("Spawn points need a room encounter profile."));
+		}
 		if (Definition->ModuleId.IsNone())
 		{
 			AddIssue(OutIssues, TEXT("MissingModuleId"), Definition, TEXT("ModuleId must be assigned."));
