@@ -4,7 +4,7 @@
 #include "PCGModule/HBDungeonDoorSeal.h"
 #include "PCGModule/HBDungeonModuleDefinition.h"
 #include "PCGModule/HBDungeonConnectorComponent.h"
-#include "PCGModule/HBRoomEncounterComponent.h"
+#include "PCGModule/HBEncounterSubsystem.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "PCGPrototype/HBPCGPreview.h"
 #include "PCGComponent.h"
@@ -173,8 +173,14 @@ bool AHBDungeonRuntime::PrepareGameplay(FString& Error)
     return true;
 }
 APlayerStart* AHBDungeonRuntime::GetPlayerStart() const { return IsReady() ? StartPoint.Get() : nullptr; }
+ULevel* AHBDungeonRuntime::GetLoadedRoomLevel(int32 RoomId) const
+{
+	return Streams.IsValidIndex(RoomId) && IsValid(Streams[RoomId]) ? Streams[RoomId]->GetLoadedLevel() : nullptr;
+}
 bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
 {
+	UHBEncounterSubsystem* EncounterSubsystem = GetWorld()->GetSubsystem<UHBEncounterSubsystem>();
+	if (!EncounterSubsystem) { Error = TEXT("Encounter subsystem is unavailable."); return false; }
     for (const auto& Room : Rooms)
     {
         if (!Streams.IsValidIndex(Room.Id) || !IsValid(Streams[Room.Id]))
@@ -185,8 +191,7 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
         for (AActor* Actor : Level->Actors)
             if (auto* Candidate = Cast<AHBDungeonModuleDefinition>(Actor)) { Definition = Candidate; break; }
         if (!Definition) { Error = FString::Printf(TEXT("Room %d has no module definition."), Room.Id); return false; }
-        if (!Definition->EncounterProfile) continue;
-        if (!Definition->Encounter) { Error = FString::Printf(TEXT("Room %d has no encounter manager."), Room.Id); return false; }
+        if (!UHBEncounterSubsystem::HasEncounter(Level)) continue;
         TArray<FVector> Entries;
         for (AActor* Actor : Level->Actors)
         {
@@ -203,7 +208,7 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
                     if (Room.UsedConnectorIds.Contains(Connector->GetEffectiveConnectorId()))
                         Entries.Add(Connector->GetComponentLocation());
             }
-        if (!Definition->Encounter->StartEncounter(GenerationId, ActiveSeed, Room.Id, Room.Bounds, Entries, Error))
+        if (!EncounterSubsystem->StartEncounter(GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error))
         {
             Error = FString::Printf(TEXT("Room %d encounter: %s"), Room.Id, *Error);
             return false;
@@ -245,9 +250,7 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
     bool bHasEncounters = false;
     for (const auto& Stream : Streams)
         if (const ULevel* Level = IsValid(Stream) ? Stream->GetLoadedLevel() : nullptr)
-            for (AActor* Actor : Level->Actors)
-                if (const auto* Definition = Cast<AHBDungeonModuleDefinition>(Actor); Definition && Definition->EncounterProfile)
-                    bHasEncounters = true;
+            if (UHBEncounterSubsystem::HasEncounter(Level)) bHasEncounters = true;
     if (!bHasEncounters) { MarkReady(); return; }
     State = EHBDungeonRuntimeState::PreparingEncounters;
     EncounterStartTime = FPlatformTime::Seconds();
@@ -255,14 +258,9 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
 }
 void AHBDungeonRuntime::ClearGenerated()
 {
-	TArray<UHBRoomEncounterComponent*> EncountersToClear;
-    for (const auto& Stream : Streams)
-        if (ULevel* Level = IsValid(Stream) ? Stream->GetLoadedLevel() : nullptr)
-            for (AActor* Actor : Level->Actors)
-                if (auto* Definition = Cast<AHBDungeonModuleDefinition>(Actor); Definition && Definition->Encounter)
-                    EncountersToClear.Add(Definition->Encounter);
-	for (UHBRoomEncounterComponent* Encounter : EncountersToClear)
-		if (IsValid(Encounter)) Encounter->ClearEncounter();
+	if (UWorld* World = GetWorld())
+		if (UHBEncounterSubsystem* EncounterSubsystem = World->GetSubsystem<UHBEncounterSubsystem>())
+			EncounterSubsystem->ClearGeneration(GenerationId);
     for (const auto& Portal : LinkedPortals) if (IsValid(Portal)) Portal->Disconnect();
     LinkedPortals.Reset(); StartPoint = nullptr;
     for (const auto& Seal : Seals) if (IsValid(Seal)) Seal->Destroy();

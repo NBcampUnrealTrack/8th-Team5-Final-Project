@@ -6,6 +6,7 @@
 class UPCGComponent;
 class UPCGGraphInterface;
 class ULevelStreamingDynamic;
+class ULevel;
 class APlayerStart;
 class AHBDungeonPortal;
 class AHBDungeonDoorSeal;
@@ -53,6 +54,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Dungeon") void StartGeneration();
     UFUNCTION(BlueprintPure, Category="Dungeon") bool IsReady() const { return State == EHBDungeonRuntimeState::Ready; }
     UFUNCTION(BlueprintPure, Category="Dungeon") APlayerStart* GetPlayerStart() const;
+	/** Read-only access to the exact streamed instance used by a planned room. */
+	ULevel* GetLoadedRoomLevel(int32 RoomId) const;
     UFUNCTION(CallInEditor, Category="Dungeon - Modules") void RefreshModuleCatalog();
     bool PlanLayout();
     void MaterializeLayout(int32 PointCount);

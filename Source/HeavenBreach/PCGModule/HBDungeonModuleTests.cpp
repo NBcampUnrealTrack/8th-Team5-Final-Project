@@ -7,7 +7,8 @@
 #include "Engine/Level.h"
 #include "PCGModule/HBDungeonMarkerActors.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
-#include "PCGModule/HBRoomEncounterProfile.h"
+#include "PCGModule/HBEncounterSetupActor.h"
+#include "PCGModule/HBEncounterComponent.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "AI/EnemyCharacterBase.h"
 #include "Components/BoxComponent.h"
@@ -171,19 +172,20 @@ bool FHBModuleEncounterAuthoringTest::RunTest(const FString&)
 	TArray<FHBDungeonModuleIssue> Issues;
 	auto* Point = Fixture.World->SpawnActor<AHBEnemySpawnPoint>();
 	Point->PointId = TEXT("FrontLeft");
-	TestFalse(TEXT("Authored point needs a room profile"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
-	TestTrue(TEXT("Missing profile diagnostic"), HasIssue(Issues, TEXT("MissingEncounterProfile")));
+	TestFalse(TEXT("Authored point needs an encounter setup"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Missing setup diagnostic"), HasIssue(Issues, TEXT("MissingEncounterSetup")));
 
-	auto* Profile = NewObject<UHBRoomEncounterProfile>(GetTransientPackage());
-	Room->EncounterProfile = Profile;
-	Profile->MinCommonCount = 1;
-	Profile->MaxCommonCount = 1;
+	auto* Setup = Fixture.World->SpawnActor<AHBEncounterSetupActor>();
+	FHBEncounterGroup Group;
+	Group.GroupId = TEXT("Common");
+	Group.MinCount = Group.MaxCount = 1;
+	Setup->Encounter->Groups.Add(Group);
 	TestFalse(TEXT("Encounter needs a class for a positive count"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
-	TestTrue(TEXT("Invalid profile diagnostic"), HasIssue(Issues, TEXT("EncounterProfile")));
-	FHBEnemySpawnOption Common;
+	TestTrue(TEXT("Invalid setup diagnostic"), HasIssue(Issues, TEXT("EncounterComponent")));
+	FHBEncounterMonsterOption Common;
 	Common.EnemyClass = AEnemyCharacterBase::StaticClass();
-	Profile->CommonEnemies.Add(Common);
-	TestTrue(TEXT("Valid common profile and point pass"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	Setup->Encounter->Groups[0].Monsters.Add(Common);
+	TestTrue(TEXT("Valid common setup and point pass"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
 
 	auto* Duplicate = Fixture.World->SpawnActor<AHBEnemySpawnPoint>();
 	Duplicate->PointId = Point->PointId;
@@ -195,19 +197,18 @@ bool FHBModuleEncounterAuthoringTest::RunTest(const FString&)
 	TestTrue(TEXT("Point transform diagnostic"), HasIssue(Issues, TEXT("EnemySpawnPointTransform")));
 	Duplicate->SetActorScale3D(FVector::OneVector);
 
-	Profile->BossClass = AEnemyCharacterBase::StaticClass();
-	Profile->BossPointId = TEXT("BossCenter");
-	TestFalse(TEXT("Class cannot be common and boss"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
-	TestTrue(TEXT("Grade separation diagnostic"), HasIssue(Issues, TEXT("EncounterProfile")));
-	Profile->CommonEnemies.Reset();
-	Profile->MinCommonCount = 0;
-	Profile->MaxCommonCount = 0;
-	TestFalse(TEXT("Boss needs its dedicated point"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
-	TestTrue(TEXT("Missing boss point diagnostic"), HasIssue(Issues, TEXT("BossSpawnPoint")));
-	Point->PointId = TEXT("BossCenter");
+	Setup->Encounter->Groups[0].Grade = EHBEncounterGrade::Boss;
+	Setup->Encounter->Groups[0].GroupId = TEXT("Boss");
+	TestFalse(TEXT("Boss needs a boss-enabled point"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Missing boss point diagnostic"), HasIssue(Issues, TEXT("EncounterPoints")));
 	Point->bAllowCommon = false;
 	Point->bAllowBoss = true;
-	TestTrue(TEXT("Dedicated boss point passes"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Boss-enabled point passes"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	auto* SecondSetup = Fixture.World->SpawnActor<AHBEncounterSetupActor>();
+	SecondSetup->Encounter->Groups = Setup->Encounter->Groups;
+	TestFalse(TEXT("Duplicate setup actors rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Duplicate setup diagnostic"), HasIssue(Issues, TEXT("EncounterSetupCount")));
+	SecondSetup->Destroy();
 
 	auto* Exclusion = Fixture.World->SpawnActor<AHBRoomSpawnExclusionVolume>();
 	TestEqual(TEXT("Exclusion has no physical collision"), Exclusion->Bounds->GetCollisionEnabled(), ECollisionEnabled::NoCollision);

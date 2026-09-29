@@ -5,8 +5,6 @@
 #include "HBDungeonModuleDefinition.generated.h"
 
 class UHBRoomInfoComponent;
-class UHBRoomEncounterProfile;
-class UHBRoomEncounterComponent;
 class UHBDungeonConnectorComponent;
 class UHBDungeonOccupancyComponent;
 class ULevel;
@@ -53,13 +51,6 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Dungeon|Module")
 	TObjectPtr<UHBRoomInfoComponent> RoomInfo;
-
-	/** Optional for safe rooms and corridors; references an authored room encounter. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon|Encounter")
-	TObjectPtr<UHBRoomEncounterProfile> EncounterProfile;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Dungeon|Encounter")
-	TObjectPtr<UHBRoomEncounterComponent> Encounter;
 
 	/** Checks this actor's level only; does not save assets or run collision/placement tests. */
 	UFUNCTION(CallInEditor, Category="Dungeon|Validation", meta=(DisplayName="Validate Module"))

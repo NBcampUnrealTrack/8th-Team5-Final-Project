@@ -3,8 +3,8 @@
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBDungeonOccupancyComponent.h"
 #include "PCGModule/HBDungeonPortal.h"
-#include "PCGModule/HBRoomEncounterProfile.h"
-#include "PCGModule/HBRoomEncounterComponent.h"
+#include "PCGModule/HBEncounterSetupActor.h"
+#include "PCGModule/HBEncounterComponent.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "AI/EnemyCharacterBase.h"
@@ -51,8 +51,6 @@ AHBDungeonModuleDefinition::AHBDungeonModuleDefinition()
 	bReplicates = false;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("ModuleSettingsRoot"));
 	RoomInfo = CreateDefaultSubobject<UHBRoomInfoComponent>(TEXT("RoomInfo"));
-	Encounter = CreateDefaultSubobject<UHBRoomEncounterComponent>(TEXT("Encounter"));
-
 }
 
 bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonModuleIssue>& OutIssues)
@@ -79,24 +77,32 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 
 	for (AHBDungeonModuleDefinition* Definition : Definitions)
 	{
-		if (Definition->EncounterProfile)
+		AHBEncounterSetupActor* Setup = nullptr;
+		int32 SetupCount = 0;
+		for (AActor* Actor : Level->Actors)
+			if (auto* Candidate = Cast<AHBEncounterSetupActor>(Actor); IsValid(Candidate))
+			{
+				Setup = Candidate;
+				++SetupCount;
+			}
+		if (SetupCount > 1)
+			AddIssue(OutIssues, TEXT("EncounterSetupCount"), Level, TEXT("Place at most one Encounter Setup actor in a room."));
+		if (Setup)
 		{
 			if (Definition->ModuleKind != EHBDungeonModuleKind::Room)
+				AddIssue(OutIssues, TEXT("CorridorEncounter"), Setup, TEXT("Encounter setups belong to rooms, not corridors."));
+			if (!IsValid(Setup->Encounter))
+				AddIssue(OutIssues, TEXT("EncounterComponent"), Setup, TEXT("Encounter Setup needs its settings component."));
+			else
 			{
-				AddIssue(OutIssues, TEXT("CorridorEncounter"), Definition, TEXT("Encounter profiles belong to rooms, not corridors."));
-			}
-			TArray<FString> ProfileErrors;
-			Definition->EncounterProfile->Validate(ProfileErrors);
-			for (const FString& ProfileError : ProfileErrors)
-			{
-				AddIssue(OutIssues, TEXT("EncounterProfile"), Definition->EncounterProfile, ProfileError);
+				TArray<FString> ConfigErrors;
+				Setup->Encounter->Validate(ConfigErrors);
+				for (const FString& ConfigError : ConfigErrors)
+					AddIssue(OutIssues, TEXT("EncounterComponent"), Setup->Encounter, ConfigError);
 			}
 		}
 		TSet<FName> SpawnPointIds;
 		int32 SpawnPointCount = 0;
-		int32 CommonPoints = 0;
-		int32 ElitePoints = 0;
-		int32 BossPointMatches = 0;
 		for (AActor* Actor : Level->Actors)
 		{
 			if (const auto* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point))
@@ -124,12 +130,6 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 				{
 					if (!AllowedClass) AddIssue(OutIssues, TEXT("EnemySpawnPointClass"), Actor, TEXT("AllowedClasses cannot contain an empty class."));
 				}
-				CommonPoints += Point->bAllowCommon ? 1 : 0;
-				ElitePoints += Point->bAllowElite ? 1 : 0;
-				if (Definition->EncounterProfile && Point->PointId == Definition->EncounterProfile->BossPointId && Point->bAllowBoss)
-				{
-					++BossPointMatches;
-				}
 			}
 			if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion))
 			{
@@ -145,25 +145,33 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 				}
 			}
 		}
-		if (Definition->EncounterProfile)
+		if (Setup && IsValid(Setup->Encounter))
 		{
-			const UHBRoomEncounterProfile* Profile = Definition->EncounterProfile;
-			if (Profile->MaxCommonCount > 0 && CommonPoints == 0)
+			for (const FHBEncounterGroup& Group : Setup->Encounter->Groups)
 			{
-				AddIssue(OutIssues, TEXT("EncounterPoints"), Definition, TEXT("Common enemies need at least one common spawn point."));
-			}
-			if (Profile->MaxEliteCount > 0 && ElitePoints == 0)
-			{
-				AddIssue(OutIssues, TEXT("EncounterPoints"), Definition, TEXT("Elite enemies need at least one elite spawn point."));
-			}
-			if (Profile->BossClass && BossPointMatches != 1)
-			{
-				AddIssue(OutIssues, TEXT("BossSpawnPoint"), Definition, TEXT("BossPointId must match exactly one boss-enabled spawn point."));
+				int32 Eligible = 0;
+				for (AActor* Actor : Level->Actors)
+					if (const auto* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point)
+						&& (Point->GroupId.IsNone() || Point->GroupId == Group.GroupId))
+					{
+						const bool bGrade = Group.Grade == EHBEncounterGrade::Common ? Point->bAllowCommon
+							: Group.Grade == EHBEncounterGrade::Elite ? Point->bAllowElite : Point->bAllowBoss;
+						if (!bGrade) continue;
+						if (Group.Monsters.ContainsByPredicate([Point](const FHBEncounterMonsterOption& Option)
+						{
+							return Option.EnemyClass && (Point->AllowedClasses.IsEmpty()
+								|| Point->AllowedClasses.Contains(Option.EnemyClass));
+						})) ++Eligible;
+					}
+				if (Eligible < Group.MinCount)
+					AddIssue(OutIssues, TEXT("EncounterPoints"), Setup,
+						FString::Printf(TEXT("Group %s needs %d usable points but has %d."),
+							*Group.GroupId.ToString(), Group.MinCount, Eligible));
 			}
 		}
 		else if (SpawnPointCount > 0)
 		{
-			AddIssue(OutIssues, TEXT("MissingEncounterProfile"), Definition, TEXT("Spawn points need a room encounter profile."));
+			AddIssue(OutIssues, TEXT("MissingEncounterSetup"), Definition, TEXT("Spawn points need an Encounter Setup actor."));
 		}
 		if (Definition->ModuleId.IsNone())
 		{

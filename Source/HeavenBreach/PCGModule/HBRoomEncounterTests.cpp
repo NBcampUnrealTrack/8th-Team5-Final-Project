@@ -1,8 +1,10 @@
-﻿#include "PCGModule/HBRoomEncounterComponent.h"
+#include "PCGModule/HBEncounterSubsystem.h"
+#include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "AI/EnemyCharacterBase.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
+#include "Engine/Level.h"
 #include "Misc/AutomationTest.h"
 #include "Algo/Reverse.h"
 
@@ -24,9 +26,9 @@
 #endif
 
 #if WITH_DEV_AUTOMATION_TESTS
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBRoomEncounterSelectionTest, "HeavenBreach.PCGModule.EncounterSelection",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterSelectionTest, "HeavenBreach.PCGModule.EncounterSelection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
-bool FHBRoomEncounterSelectionTest::RunTest(const FString&)
+bool FHBEncounterSelectionTest::RunTest(const FString&)
 {
 	const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(false)
 		.RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
@@ -41,51 +43,71 @@ bool FHBRoomEncounterSelectionTest::RunTest(const FString&)
 		Points.Add(Point);
 	}
 	Points[0]->bRequired = true;
-	auto* Profile = NewObject<UHBRoomEncounterProfile>(GetTransientPackage());
-	Profile->MinCommonCount = 3;
-	Profile->MaxCommonCount = 3;
-	FHBEnemySpawnOption Option;
+	UHBEncounterComponent* Config = NewObject<UHBEncounterComponent>(GetTransientPackage());
+	FHBEncounterGroup Common;
+	Common.GroupId = TEXT("Common");
+	Common.MinCount = Common.MaxCount = 3;
+	FHBEncounterMonsterOption Option;
 	Option.EnemyClass = AEnemyCharacterBase::StaticClass();
-	Profile->CommonEnemies.Add(Option);
+	Common.Monsters.Add(Option);
+	Config->Groups.Add(Common);
 	TArray<FHBEncounterSpawnChoice> Placed;
 	FString Error;
 	auto Accept = [](const FHBEncounterSpawnChoice&, FString&) { return true; };
 	auto Signature = [](const TArray<FHBEncounterSpawnChoice>& Choices)
 	{
 		FString Result;
-		for (const auto& Choice : Choices) Result += Choice.PointId.ToString() + TEXT("|");
+		for (const FHBEncounterSpawnChoice& Choice : Choices) Result += Choice.PointId.ToString() + TEXT("|");
 		return Result;
 	};
 	TestTrue(TEXT("Select three common monsters"),
-		HBRoomEncounter::SelectAndPlace(*Profile, Points, 12345, 2, Accept, Placed, Error));
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
 	TestEqual(TEXT("Exact requested count"), Placed.Num(), 3);
 	TestTrue(TEXT("Required point selected"), Placed.ContainsByPredicate(
 		[&](const FHBEncounterSpawnChoice& Choice) { return Choice.PointId == Points[0]->PointId; }));
 	const FString FirstSignature = Signature(Placed);
 	Algo::Reverse(Points);
 	TestTrue(TEXT("Reordered actor enumeration accepted"),
-		HBRoomEncounter::SelectAndPlace(*Profile, Points, 12345, 2, Accept, Placed, Error));
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
 	TestEqual(TEXT("Same seed and room yield the same placement"), Signature(Placed), FirstSignature);
 	TSet<FString> RoomSignatures;
 	for (int32 RoomId = 0; RoomId < 8; ++RoomId)
 	{
 		TestTrue(TEXT("Reused module plans independently for each room"),
-			HBRoomEncounter::SelectAndPlace(*Profile, Points, 12345, RoomId, Accept, Placed, Error));
+			HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, RoomId, Accept, Placed, Error));
 		RoomSignatures.Add(Signature(Placed));
 	}
-	TestTrue(TEXT("Different room IDs can change the placement"), RoomSignatures.Num() > 1);
+	TestTrue(TEXT("Different room IDs can change placement"), RoomSignatures.Num() > 1);
+	Config->Groups[0].MinCount = 2;
+	Config->Groups[0].MaxCount = 4;
+	TSet<int32> SeenCounts;
+	for (int32 Seed = 1; Seed <= 32; ++Seed)
+	{
+		TestTrue(TEXT("Ranged count remains placeable"),
+			HBEncounterSelection::SelectAndPlace(*Config, Points, Seed, 2, Accept, Placed, Error));
+		TestTrue(TEXT("Ranged count stays within LD limits"), Placed.Num() >= 2 && Placed.Num() <= 4);
+		SeenCounts.Add(Placed.Num());
+	}
+	TestTrue(TEXT("Changing dungeon seed can vary the count"), SeenCounts.Num() > 1);
+	Config->Groups[0].MinCount = Config->Groups[0].MaxCount = 3;
+	Points[1]->GroupId = TEXT("AnotherGroup");
+	TestTrue(TEXT("Other group point is not selected"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
+	TestFalse(TEXT("Group filtering excludes the marked point"), Placed.ContainsByPredicate(
+		[&](const FHBEncounterSpawnChoice& Choice) { return Choice.PointId == Points[1]->PointId; }));
+	Points[1]->GroupId = NAME_None;
 
 	FName RejectedPoint;
 	const FName RequiredId = Points.Last()->PointId;
-	auto RejectOnePoint = [&RejectedPoint, RequiredId](const FHBEncounterSpawnChoice& Choice, FString& Reason)
+	auto RejectOne = [&RejectedPoint, RequiredId](const FHBEncounterSpawnChoice& Choice, FString& Reason)
 	{
 		if (Choice.PointId == RequiredId) return true;
 		if (RejectedPoint.IsNone()) RejectedPoint = Choice.PointId;
 		if (Choice.PointId == RejectedPoint) { Reason = TEXT("Unsafe candidate"); return false; }
 		return true;
 	};
-	TestTrue(TEXT("Rejected point is replaced by another candidate"),
-		HBRoomEncounter::SelectAndPlace(*Profile, Points, 12345, 2, RejectOnePoint, Placed, Error));
+	TestTrue(TEXT("Rejected point is replaced"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, RejectOne, Placed, Error));
 	TestEqual(TEXT("Minimum survives one rejection"), Placed.Num(), 3);
 	TestFalse(TEXT("Rejected point is absent"), Placed.ContainsByPredicate(
 		[&](const FHBEncounterSpawnChoice& Choice) { return Choice.PointId == RejectedPoint; }));
@@ -94,24 +116,27 @@ bool FHBRoomEncounterSelectionTest::RunTest(const FString&)
 		Reason = TEXT("No safe floor");
 		return false;
 	};
-	TestFalse(TEXT("Insufficient required count fails with bounded attempts"),
-		HBRoomEncounter::SelectAndPlace(*Profile, Points, 12345, 2, RejectAll, Placed, Error));
+	TestFalse(TEXT("Insufficient required count fails"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, RejectAll, Placed, Error));
 	TestTrue(TEXT("Failure names room and reason"), Error.Contains(TEXT("Room 2")) && Error.Contains(TEXT("No safe floor")));
 
-	Profile->MinCommonCount = 0;
-	Profile->MaxCommonCount = 0;
-	Profile->CommonEnemies.Reset();
-	Profile->BossClass = AEnemyCharacterBase::StaticClass();
-	Profile->BossPointId = Points.Last()->PointId;
+	Config->Groups.Reset();
+	FHBEncounterGroup Boss;
+	Boss.GroupId = TEXT("Boss");
+	Boss.Grade = EHBEncounterGrade::Boss;
+	Boss.MinCount = Boss.MaxCount = 1;
+	Boss.Monsters.Add(Option);
+	Config->Groups.Add(Boss);
 	Points.Last()->bAllowCommon = false;
 	Points.Last()->bAllowBoss = true;
-	TestTrue(TEXT("Boss is placed only at its dedicated point"),
-		HBRoomEncounter::SelectAndPlace(*Profile, Points, 12345, 2, Accept, Placed, Error));
+	Points.Last()->GroupId = TEXT("Boss");
+	TestTrue(TEXT("Boss uses its dedicated point group"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
 	TestEqual(TEXT("Exactly one boss"), Placed.Num(), 1);
 	if (Placed.Num() == 1)
 	{
-		TestEqual(TEXT("Boss point ID"), Placed[0].PointId, Profile->BossPointId);
-		TestEqual(TEXT("Boss grade"), Placed[0].Grade, EHBEnemySpawnGrade::Boss);
+		TestEqual(TEXT("Boss point ID"), Placed[0].PointId, Points.Last()->PointId);
+		TestEqual(TEXT("Boss grade"), Placed[0].Grade, EHBEncounterGrade::Boss);
 	}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);
@@ -124,16 +149,13 @@ class FHBWaitForTestMGEncounter : public IAutomationLatentCommand
 {
 	FAutomationTestBase* Test;
 	double Started = FPlatformTime::Seconds();
-
 public:
 	explicit FHBWaitForTestMGEncounter(FAutomationTestBase* InTest) : Test(InTest) {}
 	virtual bool Update() override
 	{
 		UWorld* World = nullptr;
 		for (const FWorldContext& Context : GEngine->GetWorldContexts())
-		{
 			if (Context.WorldType == EWorldType::PIE) { World = Context.World(); break; }
-		}
 		const double Elapsed = FPlatformTime::Seconds() - Started;
 		if (!World || World->GetTimeSeconds() < 1.f || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World))
 		{
@@ -142,12 +164,18 @@ public:
 			return true;
 		}
 		AHBDungeonModuleDefinition* Definition = nullptr;
+		AHBEncounterSetupActor* Setup = nullptr;
 		for (TActorIterator<AHBDungeonModuleDefinition> It(World); It; ++It) { Definition = *It; break; }
 		Test->TestNotNull(TEXT("TestMG has a module definition"), Definition);
 		if (!Definition) return true;
-		Test->TestTrue(TEXT("Standalone PIE owns the encounter on the server"), Definition->HasAuthority());
-		Test->TestNotNull(TEXT("TestMG has a room profile"), Definition->EncounterProfile.Get());
-		if (!Definition->EncounterProfile || !Definition->HasAuthority()) return true;
+		for (AActor* Actor : Definition->GetLevel()->Actors)
+			if (auto* Candidate = Cast<AHBEncounterSetupActor>(Actor)) { Setup = Candidate; break; }
+		Test->TestNotNull(TEXT("TestMG has an Encounter Setup"), Setup);
+		if (!Setup || !Setup->Encounter) return true;
+		Test->TestTrue(TEXT("Standalone PIE owns the encounter on the server"), Setup->HasAuthority());
+		UHBEncounterSubsystem* Subsystem = World->GetSubsystem<UHBEncounterSubsystem>();
+		Test->TestNotNull(TEXT("TestMG world has an encounter subsystem"), Subsystem);
+		if (!Subsystem) return true;
 		TArray<FHBDungeonModuleIssue> Issues;
 		if (!AHBDungeonModuleDefinition::ValidateLevel(Definition->GetLevel(), Issues))
 		{
@@ -155,37 +183,30 @@ public:
 				Test->AddError(FString::Printf(TEXT("TestMG authoring: %s: %s"), *Issue.Code.ToString(), *Issue.Message));
 			return true;
 		}
-
 		FBox RoomBounds(ForceInit);
 		TArray<FVector> Entries;
-		for (TActorIterator<AActor> It(World); It; ++It)
+		for (AActor* Actor : Definition->GetLevel()->Actors)
 		{
-			if (It->GetLevel() != Definition->GetLevel()) continue;
-			TInlineComponentArray<UHBDungeonOccupancyComponent*> Occupancy(*It);
+			if (!IsValid(Actor)) continue;
+			TInlineComponentArray<UHBDungeonOccupancyComponent*> Occupancy(Actor);
 			for (const auto* Box : Occupancy) RoomBounds += Box->Bounds.GetBox();
-			TInlineComponentArray<UHBDungeonConnectorComponent*> Connectors(*It);
+			TInlineComponentArray<UHBDungeonConnectorComponent*> Connectors(Actor);
 			for (const auto* Connector : Connectors) Entries.Add(Connector->GetComponentLocation());
-		}
-		for (TActorIterator<APlayerStart> It(World); It; ++It)
-		{
-			if (It->GetLevel() == Definition->GetLevel()) Entries.Add(It->GetActorLocation());
+			if (const auto* Start = Cast<APlayerStart>(Actor)) Entries.Add(Start->GetActorLocation());
 		}
 		Test->TestTrue(TEXT("TestMG has room bounds"), RoomBounds.IsValid != 0);
 		Test->TestTrue(TEXT("TestMG has an entry"), !Entries.IsEmpty());
 		if (!RoomBounds.IsValid || Entries.IsEmpty()) return true;
 		FString Error;
-		auto* Encounter = Definition->Encounter.Get();
-		Test->TestNotNull(TEXT("Definition owns encounter component"), Encounter);
-		if (!Encounter) return true;
-		if (!Encounter->StartEncounter(1, 12345, 7, RoomBounds, Entries, Error))
+		if (!Subsystem->StartEncounter(1, 12345, 7, Definition->GetLevel(), RoomBounds, Entries, Error))
 		{
 			Test->AddError(FString::Printf(TEXT("TestMG real enemy spawn failed: %s"), *Error));
 			return true;
 		}
-		Test->TestTrue(TEXT("Encounter prepared for this room"), Encounter->IsPreparedFor(1, 7));
+		Test->TestTrue(TEXT("Encounter prepared for this room"),
+			Subsystem->IsPreparedFor(1, 7, Definition->GetLevel()));
 		TArray<AEnemyCharacterBase*> Spawned;
-		int32 CommonCount = 0;
-		int32 EliteCount = 0;
+		int32 CommonCount = 0, EliteCount = 0;
 		AEnemyCharacterBase* CommonToKill = nullptr;
 		for (TActorIterator<AEnemyCharacterBase> It(World); It; ++It)
 		{
@@ -197,45 +218,47 @@ public:
 			{
 				UStateTreeAIComponent* StateTree = Controller->FindComponentByClass<UStateTreeAIComponent>();
 				Test->TestNotNull(TEXT("Spawned monster has a StateTree component"), StateTree);
-				if (StateTree)
-					Test->TestTrue(TEXT("Spawned monster StateTree is running after possession"), StateTree->IsRunning());
+				if (StateTree) Test->TestTrue(TEXT("Spawned monster StateTree runs after possession"), StateTree->IsRunning());
 			}
 			Test->TestNotNull(TEXT("Spawned monster has an ASC"), Enemy->GetEnemyASC());
 			Test->TestFalse(TEXT("Spawned monster starts alive"), Enemy->IsDead());
-			if (Definition->EncounterProfile->EliteEnemies.ContainsByPredicate(
-				[Enemy](const FHBEnemySpawnOption& Option) { return Option.EnemyClass.Get() == Enemy->GetClass(); }))
+			auto MatchesGrade = [Setup, Enemy](EHBEncounterGrade Grade)
 			{
-				++EliteCount;
-			}
-			else if (Definition->EncounterProfile->CommonEnemies.ContainsByPredicate(
-				[Enemy](const FHBEnemySpawnOption& Option) { return Option.EnemyClass.Get() == Enemy->GetClass(); }))
-			{
-				++CommonCount;
-				CommonToKill = Enemy;
-			}
+				return Setup->Encounter->Groups.ContainsByPredicate([Grade, Enemy](const FHBEncounterGroup& Group)
+				{
+					return Group.Grade == Grade && Group.Monsters.ContainsByPredicate(
+						[Enemy](const FHBEncounterMonsterOption& Option) { return Option.EnemyClass.Get() == Enemy->GetClass(); });
+				});
+			};
+			if (MatchesGrade(EHBEncounterGrade::Elite)) ++EliteCount;
+			else if (MatchesGrade(EHBEncounterGrade::Common)) { ++CommonCount; CommonToKill = Enemy; }
 			else Test->AddError(FString::Printf(TEXT("Unexpected monster class: %s"), *Enemy->GetClass()->GetName()));
 		}
 		Test->TestTrue(TEXT("One or two common monsters spawned"), CommonCount >= 1 && CommonCount <= 2);
 		Test->TestEqual(TEXT("Stone Golem elite spawned once"), EliteCount, 1);
-		Test->TestEqual(TEXT("Alive count matches real actors"), Encounter->AliveCount, Spawned.Num());
+		Test->TestEqual(TEXT("Alive count matches real actors"),
+			Subsystem->GetAliveCount(1, 7, Definition->GetLevel()), Spawned.Num());
 		if (CommonToKill)
 		{
-			const int32 BeforeDeath = Encounter->AliveCount;
+			const int32 BeforeDeath = Subsystem->GetAliveCount(1, 7, Definition->GetLevel());
 			CommonToKill->BecomeDead();
 			Test->TestTrue(TEXT("Real enemy death applied"), CommonToKill->IsDead());
-			Test->TestEqual(TEXT("Death decrements alive count once"), Encounter->AliveCount, BeforeDeath - 1);
+			Test->TestEqual(TEXT("Death decrements alive count once"),
+				Subsystem->GetAliveCount(1, 7, Definition->GetLevel()), BeforeDeath - 1);
 			CommonToKill->BecomeDead();
-			Test->TestEqual(TEXT("Repeated death does not double count"), Encounter->AliveCount, BeforeDeath - 1);
+			Test->TestEqual(TEXT("Repeated death does not double count"),
+				Subsystem->GetAliveCount(1, 7, Definition->GetLevel()), BeforeDeath - 1);
 		}
-		Encounter->ClearEncounter();
-		Test->TestEqual(TEXT("Cleanup clears alive count"), Encounter->AliveCount, 0);
-		Test->TestFalse(TEXT("Cleanup clears generation state"), Encounter->IsPreparedFor(1, 7));
+		Subsystem->ClearGeneration(1);
+		Test->TestEqual(TEXT("Cleanup clears alive count"), Subsystem->GetAliveCount(1, 7, Definition->GetLevel()), 0);
+		Test->TestFalse(TEXT("Cleanup clears generation state"), Subsystem->IsPreparedFor(1, 7, Definition->GetLevel()));
 		for (AEnemyCharacterBase* Enemy : Spawned)
 			Test->TestTrue(TEXT("Cleanup destroys each spawned monster"), !IsValid(Enemy) || Enemy->IsActorBeingDestroyed());
-		if (!Encounter->StartEncounter(2, 12345, 7, RoomBounds, Entries, Error))
+		if (!Subsystem->StartEncounter(2, 12345, 7, Definition->GetLevel(), RoomBounds, Entries, Error))
 			Test->AddError(FString::Printf(TEXT("TestMG restart after cleanup failed: %s"), *Error));
-		else Test->TestEqual(TEXT("Restart produces the same seeded count"), Encounter->AliveCount, Spawned.Num());
-		Encounter->ClearEncounter();
+		else Test->TestEqual(TEXT("Restart produces the same seeded count"),
+			Subsystem->GetAliveCount(2, 7, Definition->GetLevel()), Spawned.Num());
+		Subsystem->ClearGeneration(2);
 		return true;
 	}
 };
@@ -246,8 +269,6 @@ bool FHBTestMGEncounterIntegrationTest::RunTest(const FString&)
 {
 	const FString Map = TEXT("/Game/Levels/Test_CW/GameplaySmoke/TestMG");
 	if (!FPackageName::DoesPackageExist(Map)) { AddError(TEXT("TestMG fixture map is missing.")); return false; }
-	// Dynamically spawned AI starts its StateTree once before possession. OnPossess restarts it;
-	// the integration assertion above still requires the resulting tree to be running.
 	AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
 	AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
 	EPlayNetMode PreviousMode;
@@ -261,7 +282,6 @@ bool FHBTestMGEncounterIntegrationTest::RunTest(const FString&)
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, PreviousMapMode]()
 	{
 		for (const FWorldContext& Context : GEngine->GetWorldContexts())
-		{
 			if (Context.WorldType == EWorldType::Editor && Context.World())
 			{
 				AWorldSettings* Settings = Context.World()->GetWorldSettings();
@@ -269,7 +289,6 @@ bool FHBTestMGEncounterIntegrationTest::RunTest(const FString&)
 				Settings->DefaultGameMode = AGameModeBase::StaticClass();
 				return true;
 			}
-		}
 		AddError(TEXT("Could not isolate TestMG from the project's gameplay GameMode."));
 		return true;
 	}));

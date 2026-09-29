@@ -6,8 +6,8 @@
 #include "PCGModule/HBDungeonDoorSeal.h"
 #include "PCGModule/HBDungeonPortal.h"
 #include "PCGModule/HBDungeonModuleDefinition.h"
-#include "PCGModule/HBRoomEncounterComponent.h"
-#include "PCGModule/HBRoomEncounterProfile.h"
+#include "PCGModule/HBEncounterSubsystem.h"
+#include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGPrototype/HBPCGPreview.h"
 #include "AI/EnemyCharacterBase.h"
 #include "Player/HBPlayerCharacter.h"
@@ -18,6 +18,7 @@
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
+#include "Engine/Level.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "Tests/AutomationEditorCommon.h"
@@ -226,34 +227,45 @@ public:
 
 		int32 RoomCount = 0;
 		int32 TotalAlive = 0;
+		UHBEncounterSubsystem* EncounterSubsystem = World->GetSubsystem<UHBEncounterSubsystem>();
+		Test->TestNotNull(TEXT("Gameplay world has an encounter subsystem"), EncounterSubsystem);
+		if (!EncounterSubsystem) return true;
 		for (const FHBPrototypeRoom& Room : Dungeon->Rooms)
 		{
 			if (Room.ModuleMap.ToSoftObjectPath().GetLongPackageName() != TestMGMapPath) continue;
 			++RoomCount;
-			AHBDungeonModuleDefinition* Definition = nullptr;
-			for (TActorIterator<AHBDungeonModuleDefinition> It(World); It; ++It)
-				if (It->ModuleId == Room.ModuleId && It->Encounter
-					&& It->Encounter->ActiveRoomId == Room.Id) { Definition = *It; break; }
-			Test->TestNotNull(TEXT("Generated TestMG room has its prepared encounter"), Definition);
-			if (!Definition) continue;
+			ULevel* Level = Dungeon->GetLoadedRoomLevel(Room.Id);
+			Test->TestNotNull(TEXT("Generated TestMG room has a loaded level"), Level);
+			if (!Level) continue;
+			AHBEncounterSetupActor* Setup = nullptr;
+			for (AActor* Actor : Level->Actors)
+				if (auto* Candidate = Cast<AHBEncounterSetupActor>(Actor)) { Setup = Candidate; break; }
+			Test->TestNotNull(TEXT("Generated TestMG room has an encounter setup"), Setup);
+			if (!Setup || !Setup->Encounter) continue;
 			Test->TestTrue(TEXT("TestMG encounter prepared before dungeon Ready"),
-				Definition->Encounter->IsPreparedFor(Dungeon->GenerationId, Room.Id));
+				EncounterSubsystem->IsPreparedFor(Dungeon->GenerationId, Room.Id, Level));
 			int32 Common = 0, Elite = 0;
 			for (TActorIterator<AEnemyCharacterBase> It(World); It; ++It)
 			{
 				AEnemyCharacterBase* Enemy = *It;
-				if (Enemy->GetLevel() != Definition->GetLevel()) continue;
-				if (Definition->EncounterProfile->EliteEnemies.ContainsByPredicate(
-					[Enemy](const FHBEnemySpawnOption& Option) { return Option.EnemyClass.Get() == Enemy->GetClass(); })) ++Elite;
-				else if (Definition->EncounterProfile->CommonEnemies.ContainsByPredicate(
-					[Enemy](const FHBEnemySpawnOption& Option) { return Option.EnemyClass.Get() == Enemy->GetClass(); })) ++Common;
+				if (Enemy->GetLevel() != Level) continue;
+				auto MatchesGrade = [Setup, Enemy](EHBEncounterGrade Grade)
+				{
+					return Setup->Encounter->Groups.ContainsByPredicate([Grade, Enemy](const FHBEncounterGroup& Group)
+					{
+						return Group.Grade == Grade && Group.Monsters.ContainsByPredicate(
+							[Enemy](const FHBEncounterMonsterOption& Option) { return Option.EnemyClass.Get() == Enemy->GetClass(); });
+					});
+				};
+				if (MatchesGrade(EHBEncounterGrade::Elite)) ++Elite;
+				else if (MatchesGrade(EHBEncounterGrade::Common)) ++Common;
 				else Test->AddError(FString::Printf(TEXT("Unexpected TestMG monster: %s"), *Enemy->GetClass()->GetName()));
 			}
 			Test->TestTrue(TEXT("TestMG has one or two common monsters"), Common >= 1 && Common <= 2);
 			Test->TestEqual(TEXT("TestMG has one Stone Golem elite"), Elite, 1);
 			Test->TestEqual(TEXT("TestMG server alive count matches spawned monsters"),
-				Definition->Encounter->AliveCount, Common + Elite);
-			TotalAlive += Definition->Encounter->AliveCount;
+				EncounterSubsystem->GetAliveCount(Dungeon->GenerationId, Room.Id, Level), Common + Elite);
+			TotalAlive += EncounterSubsystem->GetAliveCount(Dungeon->GenerationId, Room.Id, Level);
 		}
 		Test->TestTrue(TEXT("Actual dungeon selected TestMG"), RoomCount > 0);
 		if (ReadyAt == 0.) { ReadyAt = FPlatformTime::Seconds(); InitialAlive = TotalAlive; return false; }
