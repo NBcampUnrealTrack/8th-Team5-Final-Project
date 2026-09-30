@@ -42,6 +42,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
 	virtual void Attack();
 
+	// 공격 키를 뗐을 때. 활을 당기는 중이면 쏜다(당긴 시간이 짧으면 취소). 근접 평타는 영향 없음.
+	void StopAttack();
+
 	// 패링을 시도한다. 방패가 유일한 전제조건이고 직업은 보지 않는다.
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
 	virtual void TryParry();

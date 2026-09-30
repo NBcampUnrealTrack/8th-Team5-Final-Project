@@ -11,6 +11,7 @@
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
 #include "Combat/Attack/GA_PlayerAttackRE.h"
+#include "Combat/Attack/GA_PlayerBowAttack.h"
 #include "Player/HBPotionDrinkComponent.h"
 #include "Player/HBInteractAnimComponent.h"
 #include "Player/HBCameraMotionComponent.h"
@@ -264,6 +265,27 @@ void AHBPlayerCharacter::Attack()
 	// 일반공격은 마나를 쓰지 않는다. 마나는 달리기·방어·스킬에만 쓴다.
 	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
 	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag));
+}
+
+void AHBPlayerCharacter::StopAttack()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	UGA_PlayerBowAttack* Bow = UGA_PlayerBowAttack::FindActive(ASC);
+	if (!Bow)
+	{
+		return;
+	}
+
+	FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromHandle(Bow->GetCurrentAbilitySpecHandle());
+	if (!Spec)
+	{
+		return;
+	}
+
+	// ASC::AbilityLocalInputReleased 와 같은 일을 한다. 이 프로젝트는 InputID 바인딩을 안 써서 직접 부른다.
+	// InvokeReplicatedEvent 가 클라에서는 서버로 보내 서버의 WaitInputRelease 도 끝낸다.
+	ASC->AbilitySpecInputReleased(*Spec);
+	ASC->InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, Spec->Handle, Bow->GetCurrentActivationInfo().GetActivationPredictionKey());
 }
 
 FGameplayTag AHBPlayerCharacter::GetImpactCueTag() const

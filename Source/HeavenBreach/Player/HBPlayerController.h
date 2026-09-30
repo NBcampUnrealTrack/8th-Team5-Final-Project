@@ -215,6 +215,7 @@ private:
 	void StartCrouch();
 	void StopCrouch();
 	void Attack();
+	void StopAttack();
 	void Block();
 	void StopBlock();
 	void ToggleInventory();
