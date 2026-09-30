@@ -23,6 +23,10 @@
 #include "Core/GameFlow/HBMatchResultSubsystem.h"
 #include "Blueprint/UserWidget.h"
 #include "UI/Settings/HBSettingsSubsystem.h"
+#include "Net/UnrealNetwork.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
+#include "UI/HUD/HB_SpectateWidget.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -583,6 +587,12 @@ void AHBPlayerController::StopCrouch()
 
 void AHBPlayerController::Attack()
 {
+	if (bSpectatingTeammates)
+	{
+		ServerSpectateNext();
+		return;
+	}
+
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Attack();
@@ -753,4 +763,102 @@ void AHBPlayerController::ToggleSkillAugment()
 				SkillAugmentScreen = nullptr;
 			});
 	}
+}
+
+void AHBPlayerController::StartSpectatingTeammates()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	bSpectatingTeammates = true;
+	// 빙의가 바뀔 때 카메라를 컨트롤러로 되돌리지 않게 한다.
+	bAutoManageActiveCameraTarget = false;
+
+	if (APawn* Target = FindNextSpectateTarget(nullptr))
+	{
+		SetViewTargetWithBlend(Target, 0.f);
+	}
+
+	GetWorldTimerManager().SetTimer(SpectateCheckTimer, this, &AHBPlayerController::CheckSpectateTarget, 0.5f, true);
+	OnRep_SpectatingTeammates();
+	ForceNetUpdate();
+}
+
+void AHBPlayerController::ServerSpectateNext_Implementation()
+{
+	if (!bSpectatingTeammates)
+	{
+		return;
+	}
+
+	if (APawn* Target = FindNextSpectateTarget(GetViewTarget()))
+	{
+		SetViewTargetWithBlend(Target, 0.f);
+	}
+}
+
+APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current) const
+{
+	const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr;
+	if (!GameState)
+	{
+		return nullptr;
+	}
+
+	TArray<APawn*> Alive;
+	for (const APlayerState* PS : GameState->PlayerArray)
+	{
+		AHBPlayerCharacter* Teammate = PS ? Cast<AHBPlayerCharacter>(PS->GetPawn()) : nullptr;
+		if (Teammate && !Teammate->IsCorpse() && PS != PlayerState)
+		{
+			Alive.Add(Teammate);
+		}
+	}
+
+	if (Alive.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	const int32 CurrentIndex = Alive.IndexOfByKey(Current);
+	return Alive[(CurrentIndex + 1) % Alive.Num()];
+}
+
+void AHBPlayerController::CheckSpectateTarget()
+{
+	const AHBPlayerCharacter* Current = Cast<AHBPlayerCharacter>(GetViewTarget());
+	if (Current && !Current->IsCorpse())
+	{
+		return;
+	}
+
+	// 생존자가 없으면 지금 화면을 그대로 둔다. 매치가 끝나면 GameMode 가 결과 맵으로 보낸다.
+	if (APawn* Target = FindNextSpectateTarget(nullptr))
+	{
+		SetViewTargetWithBlend(Target, 0.f);
+	}
+}
+
+void AHBPlayerController::OnRep_SpectatingTeammates()
+{
+	if (!IsLocalController() || !bSpectatingTeammates || SpectateWidget)
+	{
+		return;
+	}
+
+	CloseContainer();
+
+	SpectateWidget = CreateWidget<UHB_SpectateWidget>(this, UHB_SpectateWidget::StaticClass());
+	if (SpectateWidget)
+	{
+		SpectateWidget->AddToViewport();
+	}
+}
+
+void AHBPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME_CONDITION(AHBPlayerController, bSpectatingTeammates, COND_OwnerOnly);
 }

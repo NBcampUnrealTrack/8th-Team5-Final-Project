@@ -14,6 +14,7 @@ class UInputAction;
 class UInputMappingContext;
 class UInventoryUIComponent;
 class UHB_SkillAugment;
+class UHB_SpectateWidget;
 class UUserWidget;
 struct FInputActionValue;
 
@@ -52,7 +53,32 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	bool IsContainerOpen() const { return ContainerScreen != nullptr; }
 
+	// 서버 전용. 빙의를 푼 뒤 부른다. 살아 있는 팀원 시점으로 넘어간다.
+	void StartSpectatingTeammates();
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
+	UPROPERTY(ReplicatedUsing = OnRep_SpectatingTeammates)
+	bool bSpectatingTeammates = false;
+
+	UFUNCTION()
+	void OnRep_SpectatingTeammates();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSpectateNext();
+
+	// 서버. Current 다음 생존 팀원 폰. 없으면 nullptr.
+	APawn* FindNextSpectateTarget(const AActor* Current) const;
+
+	// 서버. 보던 대상이 죽거나 사라지면 다음 사람으로.
+	void CheckSpectateTarget();
+
+	FTimerHandle SpectateCheckTimer;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHB_SpectateWidget> SpectateWidget;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	TObjectPtr<UInputMappingContext> PlayerMappingContext;
 
