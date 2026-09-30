@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "PCGModule/HBDungeonConnectorComponent.h"
 #include "HBDungeonModuleDefinition.generated.h"
 
 class UHBRoomInfoComponent;
@@ -24,6 +25,7 @@ struct HEAVENBREACH_API FHBDungeonConnectorDefinition
 {
 	FName ConnectorId;
 	FTransform LocalTransform;
+	EHBDungeonConnectorRole Role = EHBDungeonConnectorRole::None;
 };
 
 struct HEAVENBREACH_API FHBDungeonOccupancyDefinition
