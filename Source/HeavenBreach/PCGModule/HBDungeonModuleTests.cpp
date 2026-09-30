@@ -9,8 +9,12 @@
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGModule/HBEncounterComponent.h"
+#include "PCGModule/HBChestSetupActor.h"
+#include "PCGModule/HBChestPlacementComponent.h"
+#include "PCGModule/HBChestSpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "AI/EnemyCharacterBase.h"
+#include "Loot/BoxActor.h"
 #include "Components/BoxComponent.h"
 #include "Misc/AutomationTest.h"
 
@@ -218,6 +222,61 @@ bool FHBModuleEncounterAuthoringTest::RunTest(const FString&)
 	Exclusion->Bounds->SetBoxExtent(FVector::ZeroVector);
 	TestFalse(TEXT("Zero-size exclusion rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
 	TestTrue(TEXT("Exclusion size diagnostic"), HasIssue(Issues, TEXT("SpawnExclusionSize")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBModuleChestAuthoringTest, "HeavenBreach.PCGModule.ChestPlacement.ModuleAuthoring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBModuleChestAuthoringTest::RunTest(const FString&)
+{
+	FModuleTestWorld Fixture;
+	AHBDungeonModuleDefinition* Room = Fixture.MakeRoom();
+	TArray<FHBDungeonModuleIssue> Issues;
+	AHBChestSpawnPoint* Point = Fixture.World->SpawnActor<AHBChestSpawnPoint>();
+	Point->PointId = TEXT("Chest_A");
+	TestFalse(TEXT("Chest point needs a setup actor"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Missing setup is diagnosed"), HasIssue(Issues, TEXT("MissingChestSetup")));
+
+	AHBChestSetupActor* Setup = Fixture.World->SpawnActor<AHBChestSetupActor>();
+	TestFalse(TEXT("Empty chest settings are rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Invalid settings are diagnosed"), HasIssue(Issues, TEXT("ChestPlacementComponent")));
+	FHBChestPlacementGroup Group;
+	Group.GroupId = TEXT("Common");
+	Group.MinCount = Group.MaxCount = 1;
+	Group.Chests.Add({ABoxActor::StaticClass(), 1});
+	Setup->Placement->Groups.Add(Group);
+	TestTrue(TEXT("Valid chest setup and point pass"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+
+	AHBChestSpawnPoint* Duplicate = Fixture.World->SpawnActor<AHBChestSpawnPoint>();
+	Duplicate->PointId = Point->PointId;
+	TestFalse(TEXT("Duplicate chest point IDs are rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Duplicate ID is diagnosed"), HasIssue(Issues, TEXT("ChestSpawnPointId")));
+	Duplicate->PointId = TEXT("Chest_B");
+	Duplicate->SetActorScale3D(FVector(2));
+	TestFalse(TEXT("Scaled chest point is rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Point scale is diagnosed"), HasIssue(Issues, TEXT("ChestSpawnPointTransform")));
+	Duplicate->SetActorScale3D(FVector::OneVector);
+	Point->GroupId = TEXT("OtherGroup");
+	Duplicate->GroupId = TEXT("OtherGroup");
+	TestFalse(TEXT("Incompatible point groups are rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Missing eligible points are diagnosed"), HasIssue(Issues, TEXT("ChestPlacementPoints")));
+	Point->GroupId = NAME_None;
+	Duplicate->GroupId = NAME_None;
+	Point->bRequired = true;
+	Duplicate->bRequired = true;
+	TestFalse(TEXT("Required points must fit the guaranteed count"),
+		AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Required count is diagnosed"), HasIssue(Issues, TEXT("ChestRequiredCount")));
+	Duplicate->bRequired = false;
+	TestTrue(TEXT("One required point fits the guaranteed count"),
+		AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	AHBChestSetupActor* SecondSetup = Fixture.World->SpawnActor<AHBChestSetupActor>();
+	TestFalse(TEXT("Duplicate chest setups are rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Duplicate setup is diagnosed"), HasIssue(Issues, TEXT("ChestSetupCount")));
+	SecondSetup->Destroy();
+	Room->ModuleKind = EHBDungeonModuleKind::Corridor;
+	TestFalse(TEXT("Corridor chest setup is rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Corridor placement is diagnosed"), HasIssue(Issues, TEXT("CorridorChestPlacement")));
 	return true;
 }
 #endif

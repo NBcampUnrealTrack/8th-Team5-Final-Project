@@ -17,7 +17,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogHBChestSpawn, Log, All);
 
 namespace
 {
-	int32 MakeRoomSeed(int32 DungeonSeed, int32 RoomId)
+	int32 MakeChestRoomSeed(int32 DungeonSeed, int32 RoomId)
 	{
 		return static_cast<int32>(HashCombineFast(HashCombineFast(
 			static_cast<uint32>(DungeonSeed), static_cast<uint32>(RoomId)), 0x48424348u));
@@ -94,7 +94,7 @@ bool HBChestSelection::SelectAndPlace(const UHBChestPlacementComponent& Config,
 		}
 		AllIds.Add(Point->PointId);
 	}
-	FRandomStream Random(MakeRoomSeed(DungeonSeed, RoomId));
+	FRandomStream Random(MakeChestRoomSeed(DungeonSeed, RoomId));
 	TSet<FName> UsedIds;
 	for (const FHBChestPlacementGroup& Group : Config.Groups)
 	{

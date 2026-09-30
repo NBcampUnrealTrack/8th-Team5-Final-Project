@@ -6,6 +6,8 @@
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
+#include "PCGModule/HBChestSpawnSubsystem.h"
+#include "PCGModule/HBChestSpawnPoint.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "PCGPrototype/HBPCGPreview.h"
 #include "PCGComponent.h"
@@ -248,17 +250,28 @@ bool AHBDungeonRuntime::IsEncounterNavigationReady() const
     for (const FHBPrototypeRoom& Room : Rooms)
     {
         ULevel* Level = GetLoadedRoomLevel(Room.Id);
-        if (!Level || !UHBEncounterSubsystem::HasEncounter(Level)) continue;
-        bool bProjectedPoint = false;
+        if (!Level) continue;
+        const bool bHasEncounter = UHBEncounterSubsystem::HasEncounter(Level);
+        const bool bHasChests = UHBChestSpawnSubsystem::HasPlacement(Level);
+        if (!bHasEncounter && !bHasChests) continue;
+        bool bProjectedEnemy = !bHasEncounter;
+        bool bProjectedChest = !bHasChests;
         for (AActor* Actor : Level->Actors)
         {
-            const AHBEnemySpawnPoint* Point = Cast<AHBEnemySpawnPoint>(Actor);
-            if (!IsValid(Point) || Point->GetLevel() != Level) continue;
+            if (!IsValid(Actor) || Actor->GetLevel() != Level) continue;
             FNavLocation OnNav;
-            if (Nav->ProjectPointToNavigation(Point->GetActorLocation(), OnNav, FVector(150, 150, 350)))
-            { bProjectedPoint = true; break; }
+            if (!bProjectedEnemy)
+                if (const AHBEnemySpawnPoint* Point = Cast<AHBEnemySpawnPoint>(Actor))
+                    bProjectedEnemy = Nav->ProjectPointToNavigation(
+                        Point->GetActorLocation(), OnNav, FVector(150, 150, 350));
+            if (!bProjectedChest)
+                if (const AHBChestSpawnPoint* Point = Cast<AHBChestSpawnPoint>(Actor))
+                    bProjectedChest = Nav->ProjectPointToNavigation(
+                        Point->GetActorLocation() + Point->GetActorForwardVector() * 120.f,
+                        OnNav, FVector(100, 100, 200));
+            if (bProjectedEnemy && bProjectedChest) break;
         }
-        if (!bProjectedPoint) return false;
+        if (!bProjectedEnemy || !bProjectedChest) return false;
     }
     return true;
 }
@@ -266,6 +279,8 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
 {
 	UHBEncounterSubsystem* EncounterSubsystem = GetWorld()->GetSubsystem<UHBEncounterSubsystem>();
 	if (!EncounterSubsystem) { Error = TEXT("Encounter subsystem is unavailable."); return false; }
+    UHBChestSpawnSubsystem* ChestSubsystem = GetWorld()->GetSubsystem<UHBChestSpawnSubsystem>();
+    if (!ChestSubsystem) { Error = TEXT("Chest spawn subsystem is unavailable."); return false; }
     for (const auto& Room : Rooms)
     {
         if (!Streams.IsValidIndex(Room.Id) || !IsValid(Streams[Room.Id]))
@@ -276,7 +291,9 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
         for (AActor* Actor : Level->Actors)
             if (auto* Candidate = Cast<AHBDungeonModuleDefinition>(Actor)) { Definition = Candidate; break; }
         if (!Definition) { Error = FString::Printf(TEXT("Room %d has no module definition."), Room.Id); return false; }
-        if (!UHBEncounterSubsystem::HasEncounter(Level)) continue;
+        const bool bHasEncounter = UHBEncounterSubsystem::HasEncounter(Level);
+        const bool bHasChests = UHBChestSpawnSubsystem::HasPlacement(Level);
+        if (!bHasEncounter && !bHasChests) continue;
         TArray<FVector> Entries;
         for (AActor* Actor : Level->Actors)
         {
@@ -293,9 +310,16 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
                     if (Room.UsedConnectorIds.Contains(Connector->GetEffectiveConnectorId()))
                         Entries.Add(Connector->GetComponentLocation());
             }
-        if (!EncounterSubsystem->StartEncounter(GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error))
+        if (bHasEncounter && !EncounterSubsystem->StartEncounter(
+            GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error))
         {
             Error = FString::Printf(TEXT("Room %d encounter: %s"), Room.Id, *Error);
+            return false;
+        }
+        if (bHasChests && !ChestSubsystem->StartPlacement(
+            GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error))
+        {
+            Error = FString::Printf(TEXT("Room %d chest placement: %s"), Room.Id, *Error);
             return false;
         }
     }
@@ -304,7 +328,7 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
 void AHBDungeonRuntime::MarkReady()
 {
     State = EHBDungeonRuntimeState::Ready;
-    Status = TEXT("READY - gameplay dungeon and encounters prepared.");
+    Status = TEXT("READY - gameplay dungeon and room spawns prepared.");
     UE_LOG(LogHBDungeonRuntime, Display, TEXT("%s Seed=%d Rooms=%d Seals=%d"), *Status, ActiveSeed, Rooms.Num(), Seals.Num());
     OnReady.Broadcast();
 }
@@ -318,7 +342,7 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
     if (State == EHBDungeonRuntimeState::PreparingEncounters)
     {
         if (FPlatformTime::Seconds() - EncounterStartTime > EncounterTimeoutSeconds)
-        { Fail(TEXT("Room encounter/navigation preparation timed out. Check NavMesh and streamed rooms.")); return; }
+        { Fail(TEXT("Room spawn/navigation preparation timed out. Check NavMesh and streamed rooms.")); return; }
         if (!IsEncounterNavigationReady()) return;
         FString Error;
         if (!PrepareEncounters(Error)) { Fail(Error); return; }
@@ -331,20 +355,25 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
     FString Error;
     if (!PrepareGameplay(Error)) { Fail(Error); return; }
     if (!CreateDungeonNavigationBounds(Error)) { Fail(Error); return; }
-    bool bHasEncounters = false;
+    bool bHasRoomSpawns = false;
     for (const auto& Stream : Streams)
         if (const ULevel* Level = IsValid(Stream) ? Stream->GetLoadedLevel() : nullptr)
-            if (UHBEncounterSubsystem::HasEncounter(Level)) bHasEncounters = true;
-    if (!bHasEncounters) { MarkReady(); return; }
+            if (UHBEncounterSubsystem::HasEncounter(Level) || UHBChestSpawnSubsystem::HasPlacement(Level))
+                bHasRoomSpawns = true;
+    if (!bHasRoomSpawns) { MarkReady(); return; }
     State = EHBDungeonRuntimeState::PreparingEncounters;
     EncounterStartTime = FPlatformTime::Seconds();
-    Status = TEXT("Waiting for navigation and room encounters...");
+    Status = TEXT("Waiting for navigation and room spawns...");
 }
 void AHBDungeonRuntime::ClearGenerated()
 {
 	if (UWorld* World = GetWorld())
+	{
 		if (UHBEncounterSubsystem* EncounterSubsystem = World->GetSubsystem<UHBEncounterSubsystem>())
 			EncounterSubsystem->ClearGeneration(GenerationId);
+		if (UHBChestSpawnSubsystem* ChestSubsystem = World->GetSubsystem<UHBChestSpawnSubsystem>())
+			ChestSubsystem->ClearGeneration(GenerationId);
+	}
     for (const auto& Portal : LinkedPortals) if (IsValid(Portal)) Portal->Disconnect();
     LinkedPortals.Reset(); StartPoint = nullptr;
     for (const auto& Seal : Seals) if (IsValid(Seal)) Seal->Destroy();
