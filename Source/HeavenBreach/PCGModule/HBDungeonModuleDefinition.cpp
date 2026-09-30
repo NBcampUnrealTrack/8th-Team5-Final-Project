@@ -3,6 +3,12 @@
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBDungeonOccupancyComponent.h"
 #include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBEncounterSetupActor.h"
+#include "PCGModule/HBEncounterComponent.h"
+#include "PCGModule/HBEnemySpawnPoint.h"
+#include "PCGModule/HBRoomSpawnExclusionVolume.h"
+#include "AI/EnemyCharacterBase.h"
+#include "Components/BoxComponent.h"
 #include "Engine/Level.h"
 #include "Logging/MessageLog.h"
 #include "Misc/UObjectToken.h"
@@ -45,7 +51,6 @@ AHBDungeonModuleDefinition::AHBDungeonModuleDefinition()
 	bReplicates = false;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("ModuleSettingsRoot"));
 	RoomInfo = CreateDefaultSubobject<UHBRoomInfoComponent>(TEXT("RoomInfo"));
-
 }
 
 bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonModuleIssue>& OutIssues)
@@ -72,6 +77,102 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 
 	for (AHBDungeonModuleDefinition* Definition : Definitions)
 	{
+		AHBEncounterSetupActor* Setup = nullptr;
+		int32 SetupCount = 0;
+		for (AActor* Actor : Level->Actors)
+			if (auto* Candidate = Cast<AHBEncounterSetupActor>(Actor); IsValid(Candidate))
+			{
+				Setup = Candidate;
+				++SetupCount;
+			}
+		if (SetupCount > 1)
+			AddIssue(OutIssues, TEXT("EncounterSetupCount"), Level, TEXT("Place at most one Encounter Setup actor in a room."));
+		if (Setup)
+		{
+			if (Definition->ModuleKind != EHBDungeonModuleKind::Room)
+				AddIssue(OutIssues, TEXT("CorridorEncounter"), Setup, TEXT("Encounter setups belong to rooms, not corridors."));
+			if (!IsValid(Setup->Encounter))
+				AddIssue(OutIssues, TEXT("EncounterComponent"), Setup, TEXT("Encounter Setup needs its settings component."));
+			else
+			{
+				TArray<FString> ConfigErrors;
+				Setup->Encounter->Validate(ConfigErrors);
+				for (const FString& ConfigError : ConfigErrors)
+					AddIssue(OutIssues, TEXT("EncounterComponent"), Setup->Encounter, ConfigError);
+			}
+		}
+		TSet<FName> SpawnPointIds;
+		int32 SpawnPointCount = 0;
+		for (AActor* Actor : Level->Actors)
+		{
+			if (const auto* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point))
+			{
+				++SpawnPointCount;
+				if (Point->PointId.IsNone() || SpawnPointIds.Contains(Point->PointId))
+				{
+					AddIssue(OutIssues, TEXT("EnemySpawnPointId"), Actor, TEXT("PointId must be nonempty and unique within the room map."));
+				}
+				SpawnPointIds.Add(Point->PointId);
+				if (!IsUnitTransform(Point->GetActorTransform()))
+				{
+					AddIssue(OutIssues, TEXT("EnemySpawnPointTransform"), Actor, TEXT("Spawn point position and rotation must be finite, with scale (1,1,1)."));
+				}
+				if (!Point->bAllowCommon && !Point->bAllowElite && !Point->bAllowBoss)
+				{
+					AddIssue(OutIssues, TEXT("EnemySpawnPointGrade"), Actor, TEXT("Enable at least one permitted monster grade."));
+				}
+				if (!FMath::IsFinite(Point->MaxCapsuleRadius) || Point->MaxCapsuleRadius < 0.f ||
+					!FMath::IsFinite(Point->MaxCapsuleHalfHeight) || Point->MaxCapsuleHalfHeight < 0.f)
+				{
+					AddIssue(OutIssues, TEXT("EnemySpawnPointSize"), Actor, TEXT("Capsule limits must be finite and nonnegative."));
+				}
+				for (const auto& AllowedClass : Point->AllowedClasses)
+				{
+					if (!AllowedClass) AddIssue(OutIssues, TEXT("EnemySpawnPointClass"), Actor, TEXT("AllowedClasses cannot contain an empty class."));
+				}
+			}
+			if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion))
+			{
+				const UBoxComponent* Box = Exclusion->Bounds;
+				if (!Box || !Box->GetComponentTransform().IsValid() || !HasPositiveExtent(Box->GetScaledBoxExtent()) ||
+					!HasPositiveExtent(Box->GetComponentScale()))
+				{
+					AddIssue(OutIssues, TEXT("SpawnExclusionSize"), Actor, TEXT("Exclusion bounds must have finite transform and positive size."));
+				}
+				if (Box && (Box->GetCollisionEnabled() != ECollisionEnabled::NoCollision || Box->GetGenerateOverlapEvents() || Box->CanEverAffectNavigation()))
+				{
+					AddIssue(OutIssues, TEXT("SpawnExclusionCollision"), Actor, TEXT("Exclusion is metadata and must not collide, overlap or affect navigation."));
+				}
+			}
+		}
+		if (Setup && IsValid(Setup->Encounter))
+		{
+			for (const FHBEncounterGroup& Group : Setup->Encounter->Groups)
+			{
+				int32 Eligible = 0;
+				for (AActor* Actor : Level->Actors)
+					if (const auto* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point)
+						&& (Point->GroupId.IsNone() || Point->GroupId == Group.GroupId))
+					{
+						const bool bGrade = Group.Grade == EHBEncounterGrade::Common ? Point->bAllowCommon
+							: Group.Grade == EHBEncounterGrade::Elite ? Point->bAllowElite : Point->bAllowBoss;
+						if (!bGrade) continue;
+						if (Group.Monsters.ContainsByPredicate([Point](const FHBEncounterMonsterOption& Option)
+						{
+							return Option.EnemyClass && (Point->AllowedClasses.IsEmpty()
+								|| Point->AllowedClasses.Contains(Option.EnemyClass));
+						})) ++Eligible;
+					}
+				if (Eligible < Group.MinCount)
+					AddIssue(OutIssues, TEXT("EncounterPoints"), Setup,
+						FString::Printf(TEXT("Group %s needs %d usable points but has %d."),
+							*Group.GroupId.ToString(), Group.MinCount, Eligible));
+			}
+		}
+		else if (SpawnPointCount > 0)
+		{
+			AddIssue(OutIssues, TEXT("MissingEncounterSetup"), Definition, TEXT("Spawn points need an Encounter Setup actor."));
+		}
 		if (Definition->ModuleId.IsNone())
 		{
 			AddIssue(OutIssues, TEXT("MissingModuleId"), Definition, TEXT("ModuleId must be assigned."));

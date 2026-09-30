@@ -17,6 +17,7 @@ class UProgressBar;
 class UEquipmentComponent;
 class UInventoryComponent;
 class UItemInfoPopupWidget;
+class UInventoryWidget;
 
 UCLASS()
 class HEAVENBREACH_API UEquipmentSlotWidget : public UUserWidget
@@ -48,6 +49,9 @@ public:
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
 
+	UPROPERTY()
+	TObjectPtr<UInventoryWidget> OwningInventoryWidget;
+
 	// 장착 슬롯에 마우스를 올렸을 때 띄울 아이템 정보 팝업 클래스. InventoryWidget의
 	// ItemInfoPopupClass와 동일하게, 이 슬롯이 속한 WBP(예: WBP_EquipmentSlot)의
 	// Class Defaults에서 WBP_ItemInfoPopup으로 지정해줘야 실제로 뜬다 - 비워두면
@@ -55,7 +59,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Item Info")
 	TSubclassOf<UItemInfoPopupWidget> ItemInfoPopupClass;
 
-	void InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory);
+	void InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory, UInventoryWidget* InOwningInventoryWidget = nullptr);
 	void UpdateSlot(bool bHasItem, const FString& DisplayName, UTexture2D* IconTexture);
 
 protected:
@@ -66,6 +70,7 @@ protected:
 	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+	virtual void NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 	virtual void NativePreConstruct() override;
 	virtual void NativeDestruct() override;

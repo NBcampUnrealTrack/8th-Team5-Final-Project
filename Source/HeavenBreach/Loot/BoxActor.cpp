@@ -243,6 +243,7 @@ void ABoxActor::GenerateLoot()
 		return;
 	}
 
+
 	TArray<TPair<EItemGrade, float>> Weights;
 	float TotalWeight = 0.0f;
 	for (const TPair<EItemGrade, float>& W : Cfg->ItemGradeWeights)

@@ -89,7 +89,8 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UWidget> RelicDivider;
 
-	// 각인 시스템 미구현 상태에서, 장비/악세사리에 "각인 효과: 미정" 플레이스홀더를 보여주는 텍스트.
+	// 옛 "각인 효과: 미정" 자리표시. 각인이 생긴 뒤로 안 쓴다 — 항상 숨긴다 (ItemInfoPopupWidget.cpp SetupInfo).
+	// 쳐낼 조건: WBP_ItemInfoPopup 에서 이 위젯을 지우면 이 칸도 지운다.
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> RelicPlaceholderText;
 

@@ -11,11 +11,22 @@
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "GameFramework/GameStateBase.h"
 #include "TimerManager.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Item/ItemEngraving.h"
 
 UInventoryComponent::UInventoryComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	SetIsReplicatedByDefault(true);
+
+	// HB_PlayerState 가 상점 · 제작 표를 넣는 방식과 같다.
+	// 쳐낼 조건: DT_Engrave 를 옮기거나 이름을 바꾸면 이 경로도 고친다.
+	static ConstructorHelpers::FObjectFinder<UDataTable> EngraveTableFinder(
+		TEXT("/Game/Items/DataTables/DT_Engrave.DT_Engrave"));
+	if (EngraveTableFinder.Succeeded())
+	{
+		EngraveTable = EngraveTableFinder.Object;
+	}
 }
 
 void UInventoryComponent::Server_MoveItemIn_Implementation(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated)
@@ -351,6 +362,8 @@ bool UInventoryComponent::TryAddItem(const FItemInstance& InItem, int32& OutRema
 
 		FInventoryEntry NewEntry;
 		NewEntry.Item = InItem;
+		// 각인 입구. 새로 들어오는 장비는 여기서 발린다. 이미 발린 건 그대로 (창고 이동 · 장착 해제 등).
+		EnsureEngraved(NewEntry.Item);
 		NewEntry.Item.StackCount = FMath::Min(ViewData.MaxStack, OutRemainder);
 		NewEntry.Position = FreePosition;
 
@@ -391,6 +404,8 @@ bool UInventoryComponent::TryAddItemAt(const FItemInstance& InItem, FIntPoint In
 
 	FInventoryEntry NewEntry;
 	NewEntry.Item = InItem;
+	// 각인 입구. TryAddItem 과 같다.
+	EnsureEngraved(NewEntry.Item);
 	NewEntry.Position = InPosition;
 
 	Entries.Add(NewEntry);
@@ -649,6 +664,7 @@ void UInventoryComponent::RevealNextItem()
 		{
 			Entry.Item.bRevealed = true;
 			OnInventoryChanged.Broadcast();
+			Multicast_OnItemRevealed();
 			return;
 		}
 	}
@@ -937,7 +953,7 @@ bool UInventoryComponent::MergeStackFrom(UInventoryComponent* InSource, FGuid In
 
 	return true;
 }
-bool UInventoryComponent::DropItem(FGuid InInstanceId)
+bool UInventoryComponent::SpawnDroppedItemActor(const FItemInstance& InItem)
 {
 	if (GetOwnerRole() != ROLE_Authority)
 	{
@@ -958,6 +974,10 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	// 내구도가 깎인 장비를 버렸다가 다시 주우면 내구도가 초기화(풀피)되던 문제 수정:
 	// 드롭 시점에 내구도도 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
 	const float DroppedDurability = Entries[EntryIndex].Item.CurrentDurability;
+	// 각인도 같은 이유로 실어 보낸다. 안 실으면 주울 때 입구에서 새로 굴려진다
+	// — 버렸다 줍기로 각인을 다시 뽑을 수 있게 된다.
+	const FItemEngraving DroppedEngraving = Entries[EntryIndex].Item.Engraving;
+
 	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
 	{
 		return false;
@@ -1038,6 +1058,7 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	NewItemActor->StackCount = FMath::Max(1, DroppedStackCount);
 	NewItemActor->bIsFavorite = bWasFavorite;
 	NewItemActor->CurrentDurability = DroppedDurability;
+	NewItemActor->Engraving = DroppedEngraving;
 	NewItemActor->FinishSpawning(SpawnTransform);
 
 	// 던진 사람과는 한동안 충돌 무시해서 스폰 직후 캐릭터에 끼어서 튕기는 걸 방지.
@@ -1048,10 +1069,52 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 		NewItemActor->MeshComponent->SetPhysicsAngularVelocityInDegrees(FVector(0.f, 90.f, 0.f));
 	}
 
+	return true;
+}
+
+bool UInventoryComponent::DropItem(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	if (!SpawnDroppedItemActor(Entries[EntryIndex].Item))
+	{
+		return false;
+	}
+
 	FItemInstance RemovedItem;
 	RemoveItem(InInstanceId, RemovedItem);
 
 	return true;
+}
+
+bool UInventoryComponent::DropEquippedItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot)
+{
+	if (GetOwnerRole() != ROLE_Authority || InEquipment == nullptr)
+	{
+		return false;
+	}
+
+	FItemInstance EquippedItem;
+	if (!InEquipment->GetItemInSlot(InSlot, EquippedItem))
+	{
+		return false;
+	}
+
+	if (!SpawnDroppedItemActor(EquippedItem))
+	{
+		return false;
+	}
+
+	return InEquipment->ClearSlot(InSlot);
 }
 
 void UInventoryComponent::ClearAll()
@@ -1337,10 +1400,29 @@ void UInventoryComponent::Server_DropItem_Implementation(FGuid InInstanceId)
 	DropItem(InInstanceId);
 }
 
+void UInventoryComponent::Server_DropItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)
+{
+	if (InSource == nullptr)
+	{
+		return;
+	}
+	InSource->DropItem(InInstanceId);
+}
+
+void UInventoryComponent::Server_DropEquippedItem_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot)
+{
+	DropEquippedItem(InEquipment, InSlot);
+}
+
 void UInventoryComponent::Client_PlayActionResult_Implementation(bool bSuccess, bool bEquipment)
 {
 	UHBUIAudioLibrary::PlayForOwner(this, !bSuccess ? EHBUIAudioEvent::Error
 		: (bEquipment ? EHBUIAudioEvent::ItemEquip : EHBUIAudioEvent::ItemMove));
+}
+
+void UInventoryComponent::Multicast_OnItemRevealed_Implementation()
+{
+	OnItemRevealed.Broadcast();
 }
 
 void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)
@@ -1357,6 +1439,24 @@ void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
 	}
 
 	Entries = InEntries;
+
+	// 각인 입구. 불러오는 쪽이 먼저 발랐으면 여기서는 아무것도 안 한다.
+	// 그래도 두는 이유: 나중에 다른 곳이 SetEntries 를 불러도 안 발린 장비가 새어 들어오지 않게.
+	for (FInventoryEntry& Entry : Entries)
+	{
+		EnsureEngraved(Entry.Item);
+	}
+
 	RebuildCache();
 	OnInventoryChanged.Broadcast();
+}
+
+bool UInventoryComponent::EnsureEngraved(FItemInstance& InOutItem) const
+{
+	// 클라가 굴리면 서버와 다른 값이 나온다. 클라는 Entries 복제로 서버 값을 받는다.
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+	return ItemEngraving::EnsureRolled(InOutItem, EngraveTable);
 }

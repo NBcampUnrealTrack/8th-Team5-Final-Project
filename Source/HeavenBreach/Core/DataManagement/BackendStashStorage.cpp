@@ -6,6 +6,7 @@
 #include "Interfaces/IHttpResponse.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Item/ItemEngraving.h"
 
 bool FBackendStashStorage::Initialize()
 {
@@ -77,6 +78,9 @@ void FBackendStashStorage::LoadStashAsync(const FString& InAccountId, FOnStashLo
 					(*ItemObject)->TryGetNumberField(TEXT("currentDurability"), LoadedDurability);
 					Entry.Item.CurrentDurability = static_cast<float>(LoadedDurability);
 
+					// 각인. 모양은 ItemEngraving 이 정한다 (로드아웃 저장과 같이 쓴다)
+					ItemEngraving::ReadJson(*ItemObject, Entry.Item.Engraving);
+
 					Entry.Position = FIntPoint(
 						(*ItemObject)->GetIntegerField(TEXT("posX")),
 						(*ItemObject)->GetIntegerField(TEXT("posY")));
@@ -116,6 +120,7 @@ void FBackendStashStorage::SaveStashAsync(const FString& InAccountId, const TArr
 		ItemObject->SetNumberField(TEXT("stackCount"), Entry.Item.StackCount);
 		ItemObject->SetBoolField(TEXT("rotated"), Entry.Item.bRotated);
 		ItemObject->SetNumberField(TEXT("currentDurability"), Entry.Item.CurrentDurability);
+		ItemEngraving::WriteJson(Entry.Item.Engraving, ItemObject);
 		ItemObject->SetNumberField(TEXT("posX"), Entry.Position.X);
 		ItemObject->SetNumberField(TEXT("posY"), Entry.Position.Y);
 

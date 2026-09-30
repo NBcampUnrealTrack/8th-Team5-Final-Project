@@ -1465,17 +1465,9 @@ void AHBPlayerCharacter::ResetCombatInstinct()
 
 float AHBPlayerCharacter::GetAttackRange() const
 {
-	if (GetEquipment())
-	{
-		FItemInstance WeaponItem;
-		if (GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
-		{
-			if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetAttackRange")))
-			{
-				return WeaponData->AttackRange;
-			}
-		}
-	}
+	// 무기 행의 사거리 칸을 지워서 캐릭터 값 하나만 남았다.
+	// 부르는 곳: 옛 공격 GA(GA_PlayerAttack, 테스트 맵 BP_HB_Warrior) · 전사 액티브(부여 안 됨).
+	// 쳐낼 조건: 두 곳이 정리되면 이 함수와 BaseAttackRange 도 지운다.
 	return BaseAttackRange;
 }
 
@@ -2054,7 +2046,7 @@ void AHBPlayerCharacter::UpdateManaResource()
 
 	const float MaxMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute());
 
-	// (기본 회복 + 옵션+) × (1.0 + 옵션%). 쿨다운과 같은 모양이다. 장비의 스태미나 회복 옵션이 여기로 온다.
+	// (기본 회복 + 옵션+) × (1.0 + 옵션%). 쿨다운과 같은 모양이다. 장비의 마나 회복 옵션이 여기로 온다.
 	// 0 에서 자르는 이유: - 옵션이 쌓여도 "회복" 이 마나를 깎아서는 안 된다.
 	const float RegenFlat = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenFlatAttribute());
 	const float RegenMultiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenMultiplierAttribute());
