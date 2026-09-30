@@ -577,6 +577,27 @@ void AHeavenBreachGameMode::HandleMatchTimeExpired()
 	FinishExtractionMatch();
 }
 
+bool AHeavenBreachGameMode::HandleAlivePlayerLeaving(AController* Controller)
+{
+	APlayerState* PlayerState = Controller ? Controller->PlayerState.Get() : nullptr;
+	if (!HasAuthority() || !IsMatchInProgress() || !IsValid(PlayerState) || !ActivePlayers.Contains(PlayerState))
+	{
+		return false;
+	}
+
+	const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(Controller->GetPawn());
+	if (!Character || Character->IsCorpse())
+	{
+		return false;
+	}
+
+	// 뒤이은 Logout 이 다시 처리하지 않게 여기서 뺀다.
+	FailedPlayers.Add(PlayerState);
+	ActivePlayers.Remove(PlayerState);
+	LeaveCorpse(Controller, PlayerState, false);
+	return true;
+}
+
 void AHeavenBreachGameMode::LeaveCorpse(AController* Controller, APlayerState* PlayerState, bool bSpectate)
 {
 	AHBPlayerCharacter* Character = PlayerState ? Cast<AHBPlayerCharacter>(PlayerState->GetPawn()) : nullptr;
@@ -590,7 +611,7 @@ void AHeavenBreachGameMode::LeaveCorpse(AController* Controller, APlayerState* P
 		HBPlayerState->ForfeitCarriedItems(nullptr);
 	}
 
-	// 빙의를 풀어야 접속이 끊겨도 폰(=시체)이 같이 지워지지 않는다.
+	// 빙의를 푼다. 접속 끊김은 PawnLeavingGame 에서 먼저 여기로 와 폰(=시체)이 지워지지 않는다.
 	if (Controller)
 	{
 		Controller->UnPossess();

@@ -52,6 +52,9 @@ public:
 	void TravelPlayersToPostMatchMap(EHBPostMatchReason Reason);
 	void TravelPlayerToPostMatchMap(APlayerState* PlayerState, EHBPostMatchReason Reason);
 
+	// 서버. 살아 있는 채로 접속이 끊길 때(Logout 전, 폰이 지워지기 전) 시체를 남긴다. 남겼으면 true.
+	bool HandleAlivePlayerLeaving(AController* Controller);
+
 protected:
     UFUNCTION() void HandleDungeonReady();
     UFUNCTION() void HandleDungeonFailed(const FString& Reason);
