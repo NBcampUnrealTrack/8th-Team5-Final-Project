@@ -765,10 +765,7 @@ void AHBPlayerController::StartSpectatingTeammates()
 		PlayerCameraManager->bUseClientSideCameraUpdates = false;
 	}
 
-	if (APawn* Target = FindNextSpectateTarget(nullptr))
-	{
-		SetViewTargetWithBlend(Target, 0.f);
-	}
+	SetSpectateTarget(FindNextSpectateTarget(nullptr));
 
 	GetWorldTimerManager().SetTimer(SpectateCheckTimer, this, &AHBPlayerController::CheckSpectateTarget, 0.5f, true);
 	OnRep_SpectatingTeammates();
@@ -797,10 +794,8 @@ void AHBPlayerController::ServerSpectateNext_Implementation()
 		return;
 	}
 
-	if (APawn* Target = FindNextSpectateTarget(GetViewTarget()))
-	{
-		SetViewTargetWithBlend(Target, 0.f);
-	}
+	APawn* Target = FindNextSpectateTarget(SpectateTarget);
+	SetSpectateTarget(Target);
 }
 
 APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current) const
@@ -833,17 +828,37 @@ APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current) const
 
 void AHBPlayerController::CheckSpectateTarget()
 {
-	const AHBPlayerCharacter* Current = Cast<AHBPlayerCharacter>(GetViewTarget());
+	const AHBPlayerCharacter* Current = Cast<AHBPlayerCharacter>(SpectateTarget);
 	if (Current && !Current->IsCorpse() && !Current->IsHidden())
 	{
 		return;
 	}
 
 	// 생존자가 없으면 지금 화면을 그대로 둔다. 매치가 끝나면 GameMode 가 결과 맵으로 보낸다.
-	if (APawn* Target = FindNextSpectateTarget(GetViewTarget()))
+	SetSpectateTarget(FindNextSpectateTarget(SpectateTarget));
+}
+
+void AHBPlayerController::SetSpectateTarget(APawn* NewTarget)
+{
+	if (!HasAuthority() || NewTarget == nullptr)
 	{
-		SetViewTargetWithBlend(Target, 0.f);
+		return;
 	}
+
+	SpectateTarget = NewTarget;
+	SetViewTargetWithBlend(NewTarget, 0.f);
+	ForceNetUpdate();
+}
+
+void AHBPlayerController::OnRep_SpectateTarget()
+{
+	if (SpectateTarget == nullptr)
+	{
+		return;
+	}
+
+	bAutoManageActiveCameraTarget = false;
+	SetViewTarget(SpectateTarget);
 }
 
 void AHBPlayerController::OnRep_SpectatingTeammates()
@@ -874,4 +889,5 @@ void AHBPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME_CONDITION(AHBPlayerController, bSpectatingTeammates, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(AHBPlayerController, SpectateTarget, COND_OwnerOnly);
 }

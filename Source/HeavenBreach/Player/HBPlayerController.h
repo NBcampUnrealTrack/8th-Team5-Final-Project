@@ -68,6 +68,18 @@ protected:
 	UFUNCTION()
 	void OnRep_SpectatingTeammates();
 
+	// 지금 보고 있는 팀원. 시점을 RPC(ClientSetViewTarget)로만 보내면 클라에서 Pawn=null 복제가
+	// 뒤따라 와 엔진이 시점을 컨트롤러로 되돌린다(APlayerController::SetPawn → AutoManageActiveCameraTarget).
+	// 복제 변수의 OnRep 은 엔진의 OnRep_Pawn 보다 뒤에 불리므로 마지막에 이 값이 이긴다.
+	UPROPERTY(ReplicatedUsing = OnRep_SpectateTarget)
+	TObjectPtr<APawn> SpectateTarget;
+
+	UFUNCTION()
+	void OnRep_SpectateTarget();
+
+	// 서버. 관전 대상을 바꾸고 서버 쪽 시점도 맞춘다.
+	void SetSpectateTarget(APawn* NewTarget);
+
 	UFUNCTION(Server, Reliable)
 	void ServerSpectateNext();
 
