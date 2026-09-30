@@ -835,7 +835,7 @@ void AHBPlayerController::CheckSpectateTarget()
 	}
 
 	// 생존자가 없으면 지금 화면을 그대로 둔다. 매치가 끝나면 GameMode 가 결과 맵으로 보낸다.
-	if (APawn* Target = FindNextSpectateTarget(nullptr))
+	if (APawn* Target = FindNextSpectateTarget(GetViewTarget()))
 	{
 		SetViewTargetWithBlend(Target, 0.f);
 	}
@@ -843,7 +843,15 @@ void AHBPlayerController::CheckSpectateTarget()
 
 void AHBPlayerController::OnRep_SpectatingTeammates()
 {
-	if (!IsLocalController() || !bSpectatingTeammates || SpectateWidget)
+	if (!bSpectatingTeammates)
+	{
+		return;
+	}
+
+	// 서버에서 바꾼 플래그는 복제되지 않으므로, 클라도 폰이 없어질 때 카메라를 컨트롤러로 되돌리지 않게 직접 끈다.
+	bAutoManageActiveCameraTarget = false;
+
+	if (!IsLocalController() || SpectateWidget)
 	{
 		return;
 	}
