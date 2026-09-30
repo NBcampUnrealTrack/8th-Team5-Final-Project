@@ -6,8 +6,12 @@
 #include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGModule/HBEncounterComponent.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
+#include "PCGModule/HBChestSetupActor.h"
+#include "PCGModule/HBChestPlacementComponent.h"
+#include "PCGModule/HBChestSpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "AI/EnemyCharacterBase.h"
+#include "Loot/BoxActor.h"
 #include "Components/BoxComponent.h"
 #include "Engine/Level.h"
 #include "Logging/MessageLog.h"
@@ -173,6 +177,100 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 		{
 			AddIssue(OutIssues, TEXT("MissingEncounterSetup"), Definition, TEXT("Spawn points need an Encounter Setup actor."));
 		}
+		AHBChestSetupActor* ChestSetup = nullptr;
+		int32 ChestSetupCount = 0;
+		TArray<AHBChestSpawnPoint*> ChestPoints;
+		TSet<FName> ChestPointIds;
+		for (AActor* Actor : Level->Actors)
+		{
+			if (!IsValid(Actor) || Actor->GetLevel() != Level) continue;
+			if (auto* Candidate = Cast<AHBChestSetupActor>(Actor))
+			{
+				ChestSetup = Candidate;
+				++ChestSetupCount;
+			}
+			if (auto* Point = Cast<AHBChestSpawnPoint>(Actor))
+			{
+				ChestPoints.Add(Point);
+				if (Point->PointId.IsNone() || ChestPointIds.Contains(Point->PointId))
+					AddIssue(OutIssues, TEXT("ChestSpawnPointId"), Point,
+						TEXT("Chest PointId must be nonempty and unique within the room map."));
+				ChestPointIds.Add(Point->PointId);
+				if (!IsUnitTransform(Point->GetActorTransform()))
+					AddIssue(OutIssues, TEXT("ChestSpawnPointTransform"), Point,
+						TEXT("Chest point transform must be finite, with scale (1,1,1)."));
+				for (const TSubclassOf<ABoxActor>& Allowed : Point->AllowedClasses)
+					if (!Allowed) AddIssue(OutIssues, TEXT("ChestSpawnPointClass"), Point,
+						TEXT("Chest AllowedClasses cannot contain an empty class."));
+			}
+		}
+		if (ChestSetupCount > 1)
+			AddIssue(OutIssues, TEXT("ChestSetupCount"), Level,
+				TEXT("Place at most one Chest Setup actor in a room."));
+		if (ChestSetup)
+		{
+			if (Definition->ModuleKind != EHBDungeonModuleKind::Room)
+				AddIssue(OutIssues, TEXT("CorridorChestPlacement"), ChestSetup,
+					TEXT("Chest setups belong to rooms, not corridors."));
+			if (!IsValid(ChestSetup->Placement))
+				AddIssue(OutIssues, TEXT("ChestPlacementComponent"), ChestSetup,
+					TEXT("Chest Setup needs its placement component."));
+			else
+			{
+				TArray<FString> ConfigErrors;
+				ChestSetup->Placement->Validate(ConfigErrors);
+				for (const FString& ConfigError : ConfigErrors)
+					AddIssue(OutIssues, TEXT("ChestPlacementComponent"), ChestSetup->Placement, ConfigError);
+				int64 MinimumChests = 0;
+				for (const FHBChestPlacementGroup& Group : ChestSetup->Placement->Groups)
+				{
+					MinimumChests += FMath::Max(0, Group.MinCount);
+					int32 Eligible = 0;
+					int32 DedicatedRequired = 0;
+					for (const AHBChestSpawnPoint* Point : ChestPoints)
+					{
+						if (Point->bRequired && Point->GroupId == Group.GroupId) ++DedicatedRequired;
+						if ((Point->GroupId.IsNone() || Point->GroupId == Group.GroupId)
+							&& Group.Chests.ContainsByPredicate([Point](const FHBChestClassOption& Option)
+							{
+								return Option.ChestClass && (Point->AllowedClasses.IsEmpty()
+									|| Point->AllowedClasses.Contains(Option.ChestClass));
+							})) ++Eligible;
+					}
+					if (Eligible < Group.MinCount || (Group.MaxCount > 0 && Eligible == 0))
+						AddIssue(OutIssues, TEXT("ChestPlacementPoints"), ChestSetup,
+							FString::Printf(TEXT("Chest group %s needs usable points; %d are eligible for a minimum of %d."),
+								*Group.GroupId.ToString(), Eligible, Group.MinCount));
+					if (DedicatedRequired > Group.MinCount)
+						AddIssue(OutIssues, TEXT("ChestRequiredCount"), ChestSetup,
+							FString::Printf(TEXT("Chest group %s has %d required points but its minimum count is %d."),
+								*Group.GroupId.ToString(), DedicatedRequired, Group.MinCount));
+				}
+				int32 RequiredCount = 0;
+				for (const AHBChestSpawnPoint* Point : ChestPoints)
+					if (Point->bRequired)
+					{
+						++RequiredCount;
+						if (!ChestSetup->Placement->Groups.ContainsByPredicate([Point](const FHBChestPlacementGroup& Group)
+						{
+							return Group.MaxCount > 0 && (Point->GroupId.IsNone() || Point->GroupId == Group.GroupId)
+								&& Group.Chests.ContainsByPredicate([Point](const FHBChestClassOption& Option)
+								{
+									return Option.ChestClass && (Point->AllowedClasses.IsEmpty()
+										|| Point->AllowedClasses.Contains(Option.ChestClass));
+								});
+						}))
+							AddIssue(OutIssues, TEXT("ChestRequiredPoint"), const_cast<AHBChestSpawnPoint*>(Point),
+								TEXT("Required chest point has no compatible group and box class."));
+					}
+				if (RequiredCount > MinimumChests)
+					AddIssue(OutIssues, TEXT("ChestRequiredCount"), ChestSetup,
+						TEXT("Required chest points exceed the combined minimum chest count."));
+			}
+		}
+		else if (!ChestPoints.IsEmpty())
+			AddIssue(OutIssues, TEXT("MissingChestSetup"), Definition,
+				TEXT("Chest spawn points need a Chest Setup actor."));
 		if (Definition->ModuleId.IsNone())
 		{
 			AddIssue(OutIssues, TEXT("MissingModuleId"), Definition, TEXT("ModuleId must be assigned."));
@@ -232,6 +330,8 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 				AddIssue(OutIssues, TEXT("ConnectorId"), Connector, TEXT("ConnectorId must be nonempty and unique within the module."));
 			}
 			Ids.Add(Connector->GetEffectiveConnectorId());
+			if (static_cast<uint8>(Connector->Role) > static_cast<uint8>(EHBDungeonConnectorRole::DungeonSide))
+				AddIssue(OutIssues, TEXT("ConnectorRole"), Connector, TEXT("Invalid connector role."));
 			if (!IsUnitTransform(Connector->GetComponentTransform()) || !IsUnitTransform(Connector->GetRelativeTransform()))
 			{
 				AddIssue(OutIssues, TEXT("ConnectorTransform"), Connector, TEXT("Connector transforms must be finite with scale (1,1,1). Move and rotate the marker instead of scaling."));
@@ -300,7 +400,7 @@ bool AHBDungeonModuleDefinition::ReadModuleGeometry(const FTransform& ModuleToWo
 	for (const UHBDungeonConnectorComponent* Connector : Connectors)
 	{
 		OutConnectors.Add({ Connector->GetEffectiveConnectorId(),
-			Connector->GetComponentTransform().GetRelativeTransform(ModuleToWorld) });
+			Connector->GetComponentTransform().GetRelativeTransform(ModuleToWorld), Connector->Role });
 	}
 	OutConnectors.Sort([](const auto& A, const auto& B) { return A.ConnectorId.LexicalLess(B.ConnectorId); });
 	auto Boxes = GatherComponents<UHBDungeonOccupancyComponent>(GetLevel());
