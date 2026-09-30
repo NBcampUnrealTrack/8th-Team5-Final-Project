@@ -21,6 +21,7 @@ class UShopComponent;
 class ILoadoutStorage;
 class UCraftComponent;
 class UHBCommonAugmentSet;
+class UHBPlayerCorpseInventory;
 
 struct FPlayerLoadout;
 
@@ -375,6 +376,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Loadout")
 	void SaveLoadout();
+
+	// 서버 전용. 들고 있던 가방·장비·퀵슬롯을 잃는다.
+	// Corpse 가 있으면 먼저 그쪽으로 옮긴다(사망). 없으면 그냥 비운다(시간 종료).
+	// 디바운스 없이 바로 저장한다 — 곧 맵을 떠나거나 접속이 끊긴다.
+	void ForfeitCarriedItems(UHBPlayerCorpseInventory* Corpse);
 private:
 	UPROPERTY()
 	TObjectPtr<UStashComponent> Stash;

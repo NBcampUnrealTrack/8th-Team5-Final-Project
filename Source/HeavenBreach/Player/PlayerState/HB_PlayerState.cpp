@@ -16,6 +16,7 @@
 #include "InventoryComponent.h"
 #include "EquipmentComponent.h"
 #include "Inventory/QuickSlotComponent.h"
+#include "Player/HBPlayerCorpseInventory.h"
 #include "Shop/ShopComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/DataTable.h"
@@ -294,6 +295,62 @@ void AHB_PlayerState::HandleLoadoutSaved(bool bSuccess)
 		bLoadoutSavePending = false;
 		SaveLoadout();
 	}
+}
+
+void AHB_PlayerState::ForfeitCarriedItems(UHBPlayerCorpseInventory* Corpse)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (Corpse)
+	{
+		TArray<FItemInstance> Equipped;
+		if (Equipment)
+		{
+			for (uint8 Index = 0; Index < static_cast<uint8>(EEquipSlotType::MAX); ++Index)
+			{
+				FItemInstance Item;
+				if (Equipment->GetItemInSlot(static_cast<EEquipSlotType>(Index), Item))
+				{
+					Equipped.Add(Item);
+				}
+			}
+		}
+
+		Corpse->FillFrom(Equipped, Inventory ? Inventory->GetEntries() : TArray<FInventoryEntry>());
+	}
+
+	if (Equipment)
+	{
+		for (uint8 Index = 0; Index < static_cast<uint8>(EEquipSlotType::MAX); ++Index)
+		{
+			Equipment->ClearSlot(static_cast<EEquipSlotType>(Index));
+		}
+	}
+
+	if (Inventory)
+	{
+		Inventory->ClearAll();
+	}
+
+	if (QuickSlot)
+	{
+		TArray<FGuid> EmptySlots;
+		EmptySlots.SetNum(UQuickSlotComponent::NumQuickSlots);
+		QuickSlot->ApplyLoadedSlots(EmptySlots);
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(LoadoutSaveTimer);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Loadout: forfeited carried items (corpse=%s, inFlight=%d)"),
+		Corpse ? TEXT("yes") : TEXT("no"), bLoadoutSaveInFlight ? 1 : 0);
+
+	SaveLoadout();
 }
 
 void AHB_PlayerState::LoadLoadout()
