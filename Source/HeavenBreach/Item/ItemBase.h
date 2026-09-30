@@ -94,6 +94,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
 	float CurrentDurability = -1.f;
 
+	// 각인. bIsFavorite · CurrentDurability 와 같은 방식이다.
+	// 버릴 때 실어 두고(UInventoryComponent::DropItem), 주울 때 되살린다(TryPickUp).
+	// 레벨에 미리 놓아 둔 아이템은 비어 있고(bEngraved false), 주울 때 인벤토리 입구에서 새로 굴린다.
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Item")
+	FItemEngraving Engraving;
+
 	// ----- �Լ� -----
 	// ItemID / SourceTable �������� �ش� DataTable���� ���� �о�� ĳ�� �ʵ带 ä���,
 	// EquipMeshPath(����/����) �Ǵ� WorldMeshPath(����)�� �ε��ؼ� MeshComponent/SkeletalMeshComponent�� �����Ѵ�.

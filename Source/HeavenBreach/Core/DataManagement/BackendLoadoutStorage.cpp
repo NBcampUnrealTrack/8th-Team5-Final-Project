@@ -6,6 +6,7 @@
 #include "Interfaces/IHttpResponse.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Item/ItemEngraving.h"
 
 namespace
 {
@@ -30,6 +31,9 @@ namespace
 		Object->SetBoolField(TEXT("rotated"), InItem.bRotated);
 		Object->SetNumberField(TEXT("currentDurability"), InItem.CurrentDurability);
 
+		// 각인. 모양은 ItemEngraving 이 정한다 (창고 저장과 같이 쓴다)
+		ItemEngraving::WriteJson(InItem.Engraving, Object);
+
 		return Object;
 	}
 
@@ -48,6 +52,8 @@ namespace
 		double LoadedDurability = -1.0;
 		InObject->TryGetNumberField(TEXT("currentDurability"), LoadedDurability);
 		OutItem.CurrentDurability = static_cast<float>(LoadedDurability);
+
+		ItemEngraving::ReadJson(InObject, OutItem.Engraving);
 	}
 }
 

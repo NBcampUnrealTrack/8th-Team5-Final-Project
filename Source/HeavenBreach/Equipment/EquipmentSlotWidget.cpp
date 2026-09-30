@@ -425,9 +425,9 @@ void UEquipmentSlotWidget::UpdateHoverInfoPopup()
 	const FString EquipSlotLabel = GetEquipSlotDisplayName(ViewData.EquipSlotType);
 
 	// InventoryWidget::UpdateHoverInfoPopup과 동일 - 옛 BenefitDescription / RiskDescription 문자열은
-	// 더 안 읽는다. 옵션 배열에서 문장을 만든다.
-	const FString BenefitLines = ItemStats::FormatLines(ViewData.BenefitOptions, ViewData.BenefitEffects);
-	const FString RiskLines = ItemStats::FormatLines(ViewData.RiskOptions, ViewData.RiskEffects);
+	// 더 안 읽는다. 옵션 배열에서 문장을 만든다. 각인도 같은 함수가 붙인다.
+	const FString BenefitLines = BuildBenefitLinesForItem(EquippedItem, ViewData);
+	const FString RiskLines = BuildRiskLinesForItem(EquippedItem, ViewData);
 
 	HoverInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, ViewData.Description,
 		BenefitLines, RiskLines,

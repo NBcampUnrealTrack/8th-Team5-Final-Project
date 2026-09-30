@@ -1105,11 +1105,11 @@
 		// 동일한 내용(기본 효과/각인 효과/내구도/설명 등)을 그대로 보여준다.
 		const FString StatText = BuildStatTextForItem(Item);
 		const FString EquipSlotLabel = GetEquipSlotDisplayName(ViewData.EquipSlotType);
-		// 초록 칸: 좋은 숫자 옵션 + 좋은 동작 효과 설명
-		// 빨강 칸: 나쁜 숫자 옵션 + 나쁜 동작 효과 설명
+		// 초록 칸: 좋은 숫자 옵션 + 좋은 각인 + 좋은 동작 효과 설명
+		// 빨강 칸: 나쁜 숫자 옵션 + 나쁜 각인 + 나쁜 동작 효과 설명
 		// 옛 BenefitDescription / RiskDescription 문자열은 더 안 읽는다. 옵션 배열에서 문장을 만든다.
-		const FString BenefitLines = ItemStats::FormatLines(ViewData.BenefitOptions, ViewData.BenefitEffects);
-		const FString RiskLines = ItemStats::FormatLines(ViewData.RiskOptions, ViewData.RiskEffects);
+		const FString BenefitLines = BuildBenefitLinesForItem(Item, ViewData);
+		const FString RiskLines = BuildRiskLinesForItem(Item, ViewData);
 
 		HoverInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, ViewData.Description,
 			BenefitLines, RiskLines,

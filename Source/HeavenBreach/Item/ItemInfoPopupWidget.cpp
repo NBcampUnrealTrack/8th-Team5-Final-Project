@@ -247,8 +247,10 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
 
     if (RelicSectionHeader != nullptr)
     {
-        // 장비/악세사리는 실제 각인 효과가 없어도 섹션 자체는 보여주고, 없으면 "미정" 플레이스홀더로 채운다.
-        const bool bShowRelicSection = !bInCompact && (bHasRelicEffect || bIsEquipment);
+        // 옵션 · 각인 줄이 있을 때만 섹션을 보인다.
+        // 예전엔 각인이 없어서 장비면 "미정" 자리표시를 띄웠다. 각인이 생긴 뒤로는
+        // 일반 등급처럼 각인을 안 받는 장비에 "추후 업데이트 예정" 이 떠서 사실과 달라졌다.
+        const bool bShowRelicSection = !bInCompact && bHasRelicEffect;
         RelicSectionHeader->SetVisibility(bShowRelicSection ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
         if (RelicSectionLabel != nullptr)
         {
@@ -263,14 +265,8 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
 
         if (RelicPlaceholderText != nullptr)
         {
-            const bool bShowPlaceholder = bShowRelicSection && !bHasRelicEffect;
-            if (bShowPlaceholder)
-            {
-                RelicPlaceholderText->SetText(FText::FromString(TEXT("각인 효과 — 미정 (추후 업데이트 예정)")));
-                RelicPlaceholderText->SetColorAndOpacity(FSlateColor(MutedTextColor));
-                ApplyFontSize(RelicPlaceholderText, 12);
-            }
-            RelicPlaceholderText->SetVisibility(bShowPlaceholder ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+            // 자리표시는 더 안 쓴다. WBP 에 위젯이 남아 있어서 숨기기만 한다.
+            RelicPlaceholderText->SetVisibility(ESlateVisibility::Collapsed);
         }
     }
 
