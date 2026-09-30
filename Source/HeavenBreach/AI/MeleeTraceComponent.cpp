@@ -434,7 +434,19 @@ void UMeleeTraceComponent::TriggerHitStop()
 		return;
 	}
 
-	UAnimMontage* Montage = AnimInstance->GetCurrentActiveMontage();
+	// 멈출 몽타주는 ASC 가 튼 것(공격)이다.
+	// AnimInstance 의 "마지막 몽타주" 를 쓰면 적이 피격 모션(PlayHit) 중일 때 그 몽타주를 집어서,
+	// 히트스톱이 끝날 때 공격 몽타주를 엉뚱한 속도로 되돌린다.
+	UAnimMontage* Montage = nullptr;
+	if (UAbilitySystemComponent* OwnerASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner()))
+	{
+		Montage = OwnerASC->GetCurrentMontage();
+	}
+	if (!Montage)
+	{
+		// ASC 없이 튼 몽타주. 예전 방식 그대로
+		Montage = AnimInstance->GetCurrentActiveMontage();
+	}
 	if (!Montage)
 	{
 		UE_LOG(LogEnemyAI, Warning, TEXT("[HitStop] 재생 중인 몽타주 없음"));
