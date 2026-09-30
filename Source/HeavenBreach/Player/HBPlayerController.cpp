@@ -775,6 +775,11 @@ void AHBPlayerController::StartSpectatingTeammates()
 	bSpectatingTeammates = true;
 	// 빙의가 바뀔 때 카메라를 컨트롤러로 되돌리지 않게 한다.
 	bAutoManageActiveCameraTarget = false;
+	// 폰 없는 클라는 카메라 위치를 안 보내 관련성 기준이 시체에 머문다. 서버가 뷰타깃으로 직접 계산한다.
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->bUseClientSideCameraUpdates = false;
+	}
 
 	if (APawn* Target = FindNextSpectateTarget(nullptr))
 	{
@@ -784,6 +789,21 @@ void AHBPlayerController::StartSpectatingTeammates()
 	GetWorldTimerManager().SetTimer(SpectateCheckTimer, this, &AHBPlayerController::CheckSpectateTarget, 0.5f, true);
 	OnRep_SpectatingTeammates();
 	ForceNetUpdate();
+}
+
+void AHBPlayerController::PawnLeavingGame()
+{
+	if (HasAuthority())
+	{
+		AHeavenBreachGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>() : nullptr;
+		// 시체로 남겼으면 Super 가 폰(=시체)을 지우지 않게 여기서 끝낸다.
+		if (GameMode && GameMode->HandleAlivePlayerLeaving(this))
+		{
+			return;
+		}
+	}
+
+	Super::PawnLeavingGame();
 }
 
 void AHBPlayerController::ServerSpectateNext_Implementation()
@@ -811,7 +831,8 @@ APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current) const
 	for (const APlayerState* PS : GameState->PlayerArray)
 	{
 		AHBPlayerCharacter* Teammate = PS ? Cast<AHBPlayerCharacter>(PS->GetPawn()) : nullptr;
-		if (Teammate && !Teammate->IsCorpse() && PS != PlayerState)
+		// 탈출한 폰은 숨겨진 채 남아 있어 건너뛴다.
+		if (Teammate && !Teammate->IsCorpse() && !Teammate->IsHidden() && PS != PlayerState)
 		{
 			Alive.Add(Teammate);
 		}
@@ -829,7 +850,7 @@ APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current) const
 void AHBPlayerController::CheckSpectateTarget()
 {
 	const AHBPlayerCharacter* Current = Cast<AHBPlayerCharacter>(GetViewTarget());
-	if (Current && !Current->IsCorpse())
+	if (Current && !Current->IsCorpse() && !Current->IsHidden())
 	{
 		return;
 	}

@@ -2712,6 +2712,13 @@ void AHBPlayerCharacter::OnRep_CorpseState()
 
 	StartCorpseRagdoll();
 	RefreshEquippedVisuals();
+
+	// 내 캐릭터가 시체가 되면 떠 있던 상호작용 프롬프트를 치운다. 빙의가 풀리면 포커스 갱신이 멈춰 스스로 안 꺼진다.
+	if (InteractionPromptWidgetInstance)
+	{
+		InteractionPromptWidgetInstance->RemoveFromParent();
+		InteractionPromptWidgetInstance = nullptr;
+	}
 }
 
 void AHBPlayerCharacter::StartCorpseRagdoll()

@@ -271,9 +271,13 @@ void AHB_PlayerState::SaveLoadout()
 	}
 
 	FPlayerLoadout Loadout;
-	if (Inventory) { Loadout.InventoryEntries = Inventory->GetEntries(); }
-	if (Equipment) { Loadout.EquipmentSlots = Equipment->GetSlots(); }
-	if (QuickSlot) { Loadout.QuickSlots = QuickSlot->GetSlots(); }
+	// 손실 뒤 상자·시체에서 가방으로 다시 옮겨도(시간 종료 직후, 조작된 클라) 그 아이템은 저장에 싣지 않는다.
+	if (!bCarriedItemsForfeited)
+	{
+		if (Inventory) { Loadout.InventoryEntries = Inventory->GetEntries(); }
+		if (Equipment) { Loadout.EquipmentSlots = Equipment->GetSlots(); }
+		if (QuickSlot) { Loadout.QuickSlots = QuickSlot->GetSlots(); }
+	}
 
 	bLoadoutSaveInFlight = true;
 	bLoadoutSavePending = false;
@@ -347,10 +351,34 @@ void AHB_PlayerState::ForfeitCarriedItems(UHBPlayerCorpseInventory* Corpse)
 		World->GetTimerManager().ClearTimer(LoadoutSaveTimer);
 	}
 
+	bCarriedItemsForfeited = true;
+
 	UE_LOG(LogTemp, Log, TEXT("Loadout: forfeited carried items (corpse=%s, inFlight=%d)"),
 		Corpse ? TEXT("yes") : TEXT("no"), bLoadoutSaveInFlight ? 1 : 0);
 
-	SaveLoadout();
+	if (!LoadoutStorage.IsValid() || LoadoutAccountId.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Loadout: forfeit save skipped (storage=%d, account=%s)"),
+			LoadoutStorage.IsValid() ? 1 : 0, *LoadoutAccountId);
+		return;
+	}
+
+	// 전송 중이어도 기다리지 않고 바로 빈 상태를 보낸다. 이 PlayerState 는 곧 파괴될 수 있어
+	// 기존 콜백 경로(BindUObject)에 맡기면 빈 저장이 누락된다. 그래서 콜백은 수명과 무관한 로그만.
+	FOnLoadoutSaved Callback = FOnLoadoutSaved::CreateLambda([](bool bSuccess)
+		{
+			if (!bSuccess)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Loadout: forfeit save failed"));
+			}
+		});
+	LoadoutStorage->SaveLoadoutAsync(LoadoutAccountId, FPlayerLoadout(), Callback);
+
+	// 앞선 전송이 이 빈 저장보다 늦게 도착할 수 있다. 살아 있으면 그 콜백에서 한 번 더 빈 상태로 덮는다.
+	if (bLoadoutSaveInFlight)
+	{
+		bLoadoutSavePending = true;
+	}
 }
 
 void AHB_PlayerState::LoadLoadout()

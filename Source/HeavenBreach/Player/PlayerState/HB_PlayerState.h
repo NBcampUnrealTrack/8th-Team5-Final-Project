@@ -63,6 +63,9 @@ private:
 	bool bLoadoutSaveInFlight = false;
 	bool bLoadoutSavePending = false;
 
+	// 서버. 손실 뒤엔 무엇이 다시 들어와도 빈 상태로만 저장한다. 매치마다 새 PlayerState 라 복제·리셋 불필요.
+	bool bCarriedItemsForfeited = false;
+
 	// ��� �׽�Ʈ
 	UFUNCTION()
 	void HandleStashLoadCompleted(bool bSuccess);

@@ -21,9 +21,17 @@ void UHBPlayerCorpseInventory::FillFrom(const TArray<FItemInstance>& EquippedIte
 		return;
 	}
 
-	while (!TryFillAll(EquippedItems, BagEntries) && CorpseRows < MaxCorpseRows)
+	bool bAllFit = TryFillAll(EquippedItems, BagEntries);
+	while (!bAllFit && CorpseRows < MaxCorpseRows)
 	{
 		++CorpseRows;
+		bAllFit = TryFillAll(EquippedItems, BagEntries);
+	}
+
+	if (!bAllFit)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("CorpseInventory: %d rows reached, some items did not fit and are lost (owner=%s)"),
+			MaxCorpseRows, *GetNameSafe(GetOwner()));
 	}
 
 	// 칸 수가 바뀌었을 수 있으니 서버 캐시도 새 크기로 다시 맞춘다.

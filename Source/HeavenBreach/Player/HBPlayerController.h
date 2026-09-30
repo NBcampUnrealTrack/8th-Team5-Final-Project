@@ -59,6 +59,9 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
+	// 접속이 끊기면 Logout 보다 먼저 불려 폰을 지운다. 살아 있던 사람은 여기서 시체로 남긴다.
+	virtual void PawnLeavingGame() override;
+
 	UPROPERTY(ReplicatedUsing = OnRep_SpectatingTeammates)
 	bool bSpectatingTeammates = false;
 
