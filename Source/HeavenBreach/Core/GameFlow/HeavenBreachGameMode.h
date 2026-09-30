@@ -88,6 +88,13 @@ protected:
 	UPROPERTY(Transient)
 	TSet<TObjectPtr<APlayerState>> PostMatchTravelRequestedPlayers;
 	
+	// 아이템을 잃은 사람(사망·시간 종료). 매치가 끝날 때 Died 사유로 보낸다.
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<APlayerState>> FailedPlayers;
+
+	// 서버. 시체를 남기고 빙의를 푼다. bSpectate 면 관전으로 넘긴다.
+	void LeaveCorpse(AController* Controller, APlayerState* PlayerState, bool bSpectate);
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match | Timer", meta = (ClamMin = "1.0"))
 	float MatchDurationSeconds = 1500.0f;
 	

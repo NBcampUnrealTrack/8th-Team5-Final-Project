@@ -147,7 +147,9 @@ void AHeavenBreachGameMode::NotifyPlayerDied(APlayerState* PlayerState)
 		ActivePlayers.Num()
 		);
 
-	TravelPlayerToPostMatchMap(PlayerState, EHBPostMatchReason::Died);
+	// 바로 결과 맵으로 보내지 않는다. 시체를 남기고 매치가 끝날 때까지 팀원을 관전한다.
+	FailedPlayers.Add(PlayerState);
+	LeaveCorpse(PlayerState->GetOwningController(), PlayerState, true);
 	EvaluateMatchEnd();
 }
 
@@ -208,6 +210,12 @@ void AHeavenBreachGameMode::TravelPlayerToPostMatchMap(APlayerState* PlayerState
 	if (!HasAuthority() || !IsValid(PlayerState) || PostMatchTravelRequestedPlayers.Contains(PlayerState))
 	{
 		return;
+	}
+
+	// 아이템을 잃은 사람은 매치가 어떻게 끝났든 사망 결과를 본다. (Died 가 아니면 탈출 성공 창이 뜬다)
+	if (FailedPlayers.Contains(PlayerState))
+	{
+		Reason = EHBPostMatchReason::Died;
 	}
 
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
@@ -293,6 +301,12 @@ void AHeavenBreachGameMode::Logout(AController* Exiting)
 	
 	if (IsMatchInProgress() && IsValid(ExitingPlayerState))
 	{
+		// 살아 있는 채로 나가면 죽은 것과 같다. 강제 종료로 아이템을 지키지 못하게 한다.
+		if (ActivePlayers.Contains(ExitingPlayerState))
+		{
+			LeaveCorpse(Exiting, ExitingPlayerState, false);
+		}
+
 		const int32 RemovedCount =
 		   ActivePlayers.Remove(ExitingPlayerState);
 
@@ -375,6 +389,7 @@ void AHeavenBreachGameMode::InitializeActivePlayers()
 {
 	ActivePlayers.Reset();
 	PostMatchTravelRequestedPlayers.Reset();
+	FailedPlayers.Reset();
 	
 	AHeavenBreachGameState* HBGameState = GetGameState<AHeavenBreachGameState>();
 	if (!HBGameState)
@@ -549,5 +564,43 @@ void AHeavenBreachGameMode::HandleMatchTimeExpired()
 		TEXT("HeavenBreachGM | Match Time Expired")
 		);
 	
+	// 시간 안에 못 나간 사람은 들고 있던 것을 잃는다.
+	for (APlayerState* PlayerState : ActivePlayers)
+	{
+		if (AHB_PlayerState* HBPlayerState = Cast<AHB_PlayerState>(PlayerState))
+		{
+			HBPlayerState->ForfeitCarriedItems(nullptr);
+			FailedPlayers.Add(PlayerState);
+		}
+	}
+
 	FinishExtractionMatch();
+}
+
+void AHeavenBreachGameMode::LeaveCorpse(AController* Controller, APlayerState* PlayerState, bool bSpectate)
+{
+	AHBPlayerCharacter* Character = PlayerState ? Cast<AHBPlayerCharacter>(PlayerState->GetPawn()) : nullptr;
+	if (Character)
+	{
+		Character->BecomeCorpse();
+	}
+	else if (AHB_PlayerState* HBPlayerState = Cast<AHB_PlayerState>(PlayerState))
+	{
+		// 폰이 없으면 옮길 곳이 없다. 잃기만 한다.
+		HBPlayerState->ForfeitCarriedItems(nullptr);
+	}
+
+	// 빙의를 풀어야 접속이 끊겨도 폰(=시체)이 같이 지워지지 않는다.
+	if (Controller)
+	{
+		Controller->UnPossess();
+	}
+
+	if (bSpectate)
+	{
+		if (AHBPlayerController* HBPlayerController = Cast<AHBPlayerController>(Controller))
+		{
+			HBPlayerController->StartSpectatingTeammates();
+		}
+	}
 }
