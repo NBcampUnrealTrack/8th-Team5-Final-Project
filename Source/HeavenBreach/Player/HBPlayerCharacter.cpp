@@ -285,12 +285,6 @@ FGameplayTag AHBPlayerCharacter::GetImpactCueTag() const
 	return CueTag::TAG_GameplayCue_Hit_Blunt;
 }
 
-bool AHBPlayerCharacter::IsUnarmed() const
-{
-	FItemInstance WeaponItem;
-	return !(GetEquipment() && GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem));
-}
-
 FGameplayTag AHBPlayerCharacter::GetEquippedWeaponTag() const
 {
 	FItemInstance WeaponItem;

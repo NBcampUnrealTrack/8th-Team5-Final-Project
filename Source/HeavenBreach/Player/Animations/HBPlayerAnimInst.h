@@ -30,10 +30,6 @@ protected:
 	UPROPERTY(BlueprintReadOnly)
 	bool bIsCrouching;
 
-	// 주무기를 안 들었다. ABP 상체 분기(Blend Poses by bool)가 맨손 가드 자세로 바꾸는 데 쓴다.
-	UPROPERTY(BlueprintReadOnly, Category = "Animation|Weapon")
-	bool bIsUnarmed = false;
-
 #pragma region AimOffset
 	UPROPERTY(BlueprintReadOnly, Category = "Animation|Aim Offset")
 	float AimPitch = 0.0f;

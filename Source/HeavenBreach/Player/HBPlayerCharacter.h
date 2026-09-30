@@ -136,13 +136,6 @@ public:
 	// 장착 무기의 WeaponType을 태그로 변환한다. 올바르지 않거나 타입이 없으면 Weapon.Unarmed.
 	UFUNCTION(BlueprintPure, Category = "Player|Combat")
 	FGameplayTag GetEquippedWeaponTag() const;
-
-	// 주무기 칸이 비었는가. 맨손 가드 자세(ABP)가 쓴다.
-	// 무기 태그로 보지 않는 이유: 태그가 등록되지 않은 무기(단검 등)도 Weapon.Unarmed 로 나와서,
-	// 단검을 든 채 주먹 가드 자세를 취하게 된다. 장비는 모두에게 복제되어 남의 캐릭터에서도 맞다.
-	UFUNCTION(BlueprintPure, Category = "Player|Combat")
-	bool IsUnarmed() const;
-
 #pragma region Interaction
 public:
 	virtual void PawnClientRestart() override;
