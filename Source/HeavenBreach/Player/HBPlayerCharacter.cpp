@@ -298,7 +298,7 @@ FGameplayTag AHBPlayerCharacter::GetImpactCueTag() const
 {
 	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
 
-	if (WeaponTag == ItemTag::TAG_Weapon_Sword)
+	if (WeaponTag == ItemTag::TAG_Weapon_Sword || WeaponTag == ItemTag::TAG_Weapon_Dagger)
 	{
 		return CueTag::TAG_GameplayCue_Hit_Slash;
 	}
@@ -308,8 +308,6 @@ FGameplayTag AHBPlayerCharacter::GetImpactCueTag() const
 	}
 
 	// 지팡이와 맨손은 둔타로 친다. 지팡이 마법은 별도 어빌리티가 자기 큐를 쏜다.
-	// 단검(DT_Weapon 의 DAG_*)은 Weapon.Dagger 태그가 등록돼 있지 않아
-	// GetEquippedWeaponTag 가 Weapon.Unarmed 를 돌려주므로 여기로 온다.
 	return CueTag::TAG_GameplayCue_Hit_Blunt;
 }
 
