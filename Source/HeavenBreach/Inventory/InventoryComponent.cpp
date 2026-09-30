@@ -1017,23 +1017,17 @@ bool UInventoryComponent::SpawnDroppedItemActor(const FItemInstance& InItem)
 		return false;
 	}
 
-	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
-	if (EntryIndex == INDEX_NONE)
-	{
-		return false;
-	}
-
-	const FDataTableRowHandle ItemRow = Entries[EntryIndex].Item.ItemRow;
-	const int32 DroppedStackCount = Entries[EntryIndex].Item.StackCount;
+	const FDataTableRowHandle ItemRow = InItem.ItemRow;
+	const int32 DroppedStackCount = InItem.StackCount;
 	// 즐겨찾기한 아이템을 버렸다가 다시 주우면 즐겨찾기가 풀려있던 문제 수정:
 	// 드롭 시점에 즐겨찾기 여부를 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
-	const bool bWasFavorite = Entries[EntryIndex].Item.bIsFavorite;
+	const bool bWasFavorite = InItem.bIsFavorite;
 	// 내구도가 깎인 장비를 버렸다가 다시 주우면 내구도가 초기화(풀피)되던 문제 수정:
 	// 드롭 시점에 내구도도 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
-	const float DroppedDurability = Entries[EntryIndex].Item.CurrentDurability;
+	const float DroppedDurability = InItem.CurrentDurability;
 	// 각인도 같은 이유로 실어 보낸다. 안 실으면 주울 때 입구에서 새로 굴려진다
 	// — 버렸다 줍기로 각인을 다시 뽑을 수 있게 된다.
-	const FItemEngraving DroppedEngraving = Entries[EntryIndex].Item.Engraving;
+	const FItemEngraving DroppedEngraving = InItem.Engraving;
 
 	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
 	{
