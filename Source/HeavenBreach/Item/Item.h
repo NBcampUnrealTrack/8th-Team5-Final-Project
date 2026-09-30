@@ -21,10 +21,14 @@ struct FWeaponData : public FTableRowBase
 	EEquipSlotType EquipSlotType = EEquipSlotType::PrimaryWeapon;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float AttackPower = 0.f;
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
-	float AttackRange = 0.f;
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
-	float AttackInterval = 0.f;
+	// 옛 AttackRange(사거리) 칸은 지웠다. 던전 기본 공격(GA_PlayerAttackRE)은 무기 휘두르기 판정이라
+	// 이 값을 안 읽었다. 읽던 곳은 테스트 맵의 옛 공격 GA 와 부여되지 않는 전사 액티브뿐이었다.
+	// 공격 속도 배율. 1 = 기본, 0.8 = 20% 느림, 1.2 = 20% 빠름.
+	// 각인 · 악세서리의 공격 속도 % 와 같은 칸에 더해진다 — 0.8 은 -20% 로 들어간다.
+	//   전사 1.0 + 검 0.8 = 0.8 / 궁수 1.2 + 검 0.8 = 1.0 (곱이 아니라 합)
+	// 왜 바꿨나: 옛 칸은 "공격 간격(초)"(AttackInterval)이었는데 읽는 곳이 툴팁뿐이라 실제로는 반영되지 않았다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.1"))
+	float AttackSpeedRate = 1.f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	int32 SellValue = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
@@ -57,8 +61,7 @@ struct FShieldData : public FTableRowBase
 	EItemGrade Grade = EItemGrade::Normal;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	EEquipSlotType EquipSlotType = EEquipSlotType::SecondaryEquip;
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
-	float DamageReduction = 0.f;
+	// 옛 DamageReduction(피해 감소 %) 칸은 지웠다. 막기는 각도 안이면 100% 무효라 읽는 곳이 툴팁뿐이었다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float BlockAngle = 0.f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)

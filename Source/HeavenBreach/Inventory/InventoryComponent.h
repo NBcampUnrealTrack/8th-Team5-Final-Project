@@ -8,6 +8,7 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChanged);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUsed, FName, ItemId, float, HealAmount);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUseBegan, FGuid, InstanceId, FName, ItemId);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnItemRevealed);
 
 class UDataTable;
 class UEquipmentComponent;
@@ -50,6 +51,9 @@ public:
 	 */
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnItemUseBegan OnItemUseBegan;
+
+	UPROPERTY(BlueprintAssignable, Category = "Inventory")
+	FOnItemRevealed OnItemRevealed;
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void InitializeGrid(int32 InWidth, int32 InHeight);
@@ -143,6 +147,8 @@ public:
 
 	bool DropItem(FGuid InInstanceId);
 
+	bool DropEquippedItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot);
+
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ClearAll();
 
@@ -191,15 +197,16 @@ public:
 
 	void SetEntries(const TArray<FInventoryEntry>& InEntries);
 
+	// 아직 각인이 안 발린 장비면 이 컴포넌트의 각인 표로 굴린다. 새로 발랐으면 true. 서버에서만 동작한다.
+	// 입구(TryAddItem · TryAddItemAt · SetEntries)가 알아서 부른다.
+	// 밖에서 부르는 곳은 불러오기(창고 · 로드아웃)뿐이다 — 새로 발린 게 있어야 저장을 요청할 수 있어서.
+	bool EnsureEngraved(FItemInstance& InOutItem) const;
+
 	UFUNCTION(Server, Reliable)
 	void Server_UseItem(FGuid InInstanceId);
 	UFUNCTION(Server, Reliable)
 	void Server_ToggleFavorite(FGuid InInstanceId);
 
-	/** 루팅 컨테이너 화면을 닫을 때 클라이언트가 부른다. InTargetContainer(상자/시체)의
-	 * 서칭 타이머를 멈춘다. 상자/시체 쪽 인벤토리 컴포넌트는 이 플레이어가 소유한 액터가
-	 * 아니라서 거기에 직접 Server RPC를 걸면 전송이 실패한다(BindPanels의 OwningInventory
-	 * 주석과 동일한 이유) - 그래서 항상 플레이어 자신의 인벤토리를 거쳐서 보낸다. */
 	UFUNCTION(Server, Reliable)
 	void Server_PauseContainerReveal(UInventoryComponent* InTargetContainer);
 
@@ -215,6 +222,12 @@ public:
 	UFUNCTION(Server, Reliable)
 	void Server_DropItem(FGuid InInstanceId);
 
+	UFUNCTION(Server, Reliable)
+	void Server_DropItemFrom(UInventoryComponent* InSource, FGuid InInstanceId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_DropEquippedItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot);
+
 
 protected:
 
@@ -227,6 +240,9 @@ private:
 	UFUNCTION(Client, Reliable)
 	void Client_PlayActionResult(bool bSuccess, bool bEquipment);
 
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_OnItemRevealed();
+
 	void RebuildCache();
 
 	void MarkCells(int32 InEntryIndex, FIntPoint InPosition, FIntPoint InSize);
@@ -234,6 +250,8 @@ private:
 	int32 CoordToIndex(FIntPoint InCoord) const { return InCoord.Y * Width + InCoord.X; }
 
 	bool GetEntrySize(const FItemInstance& InItem, FIntPoint& OutSize) const;
+
+	bool SpawnDroppedItemActor(const FItemInstance& InItem);
 
 	bool HasMergeableSpace(FName InRowName, int32 InMaxStack) const;
 
@@ -283,6 +301,12 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Drop")
 	TSubclassOf<AItemBase> DropItemClass;
+
+	// 랜덤 각인 표 (DT_Engrave). 생성자가 경로로 넣는다.
+	// 컨테이너(플레이어 · 창고 · 시체 · 상자)가 전부 이 컴포넌트라 BP 마다 넣지 않아도 된다.
+	// 특정 컨테이너만 다른 표를 써야 하면 그 BP 의 컴포넌트 디테일에서 바꾼다.
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Engrave")
+	TObjectPtr<UDataTable> EngraveTable;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Entries)
 	TArray<FInventoryEntry> Entries;

@@ -65,10 +65,11 @@ namespace
 			Attr::GetPlayer_MaxHPAttribute(), TAG_Data_Equipment_MaxHP_Flat,
 			Attr::GetPlayer_MaxHPAttribute(), TAG_Data_Equipment_MaxHP_Percent, Multiply);
 
-		// 최대 스태미나 = (직업 + 옵션+) × (1 + 옵션%). 마나 칸
-		AddBinding(B, TAG_Stat_MaxStamina, TEXT("최대 스태미나"),
-			Attr::GetPlayer_MaxManaAttribute(), TAG_Data_Equipment_MaxStamina_Flat,
-			Attr::GetPlayer_MaxManaAttribute(), TAG_Data_Equipment_MaxStamina_Percent, Multiply);
+		// 최대 마나 = (직업 + 옵션+) × (1 + 옵션%)
+		// 태그는 원래 Stat.MaxStamina 였다 (2026-09-29 이름 바꿈). 나중에 진짜 스태미나가 생겨도 겹치지 않게
+		AddBinding(B, TAG_Stat_MaxMana, TEXT("최대 마나"),
+			Attr::GetPlayer_MaxManaAttribute(), TAG_Data_Equipment_MaxMana_Flat,
+			Attr::GetPlayer_MaxManaAttribute(), TAG_Data_Equipment_MaxMana_Percent, Multiply);
 
 		// ===== 칸에 배율 — % 는 배율에 더한다 =====
 		// + 를 배율 칸에 넣으면 1.0 + 10 = 11배라 따로 둔 고정치 칸으로 보낸다. 없으면 NoAttribute.
@@ -83,10 +84,10 @@ namespace
 			Attr::GetPlayer_MoveSpeedFlatAttribute(), TAG_Data_Equipment_MoveSpeed_Flat,
 			Attr::GetPlayer_MoveSpeedMultiplierAttribute(), TAG_Data_Equipment_MoveSpeed_Percent, Add);
 
-		// 스태미나 회복 = (초당 회복 + 옵션+) × (1.0 + 옵션%)
-		AddBinding(B, TAG_Stat_StaminaRegen, TEXT("스태미나 회복"),
-			Attr::GetPlayer_ManaRegenFlatAttribute(), TAG_Data_Equipment_StaminaRegen_Flat,
-			Attr::GetPlayer_ManaRegenMultiplierAttribute(), TAG_Data_Equipment_StaminaRegen_Percent, Add);
+		// 마나 회복 = (초당 회복 + 옵션+) × (1.0 + 옵션%)
+		AddBinding(B, TAG_Stat_ManaRegen, TEXT("마나 회복"),
+			Attr::GetPlayer_ManaRegenFlatAttribute(), TAG_Data_Equipment_ManaRegen_Flat,
+			Attr::GetPlayer_ManaRegenMultiplierAttribute(), TAG_Data_Equipment_ManaRegen_Percent, Add);
 
 		// 쿨다운 = (스킬 쿨 + 옵션+) × (1.0 + 옵션%). 줄이려면 - 를 적는다
 		AddBinding(B, TAG_Stat_Cooldown, TEXT("쿨다운"),
@@ -118,7 +119,7 @@ namespace
 			NoAttribute, NoTag,
 			Attr::GetPlayer_HealingReceivedMultiplierAttribute(), TAG_Data_Equipment_HealingReceived_Percent, Add);
 
-		// 초당 체력 회복 = (기본 재생 + 옵션+) × (1.0 + 옵션%). 스태미나 회복과 같은 모양
+		// 초당 체력 회복 = (기본 재생 + 옵션+) × (1.0 + 옵션%). 마나 회복과 같은 모양
 		// 기본 재생이 0 이라, % 만 있고 + 가 없으면 차지 않는다.
 		AddBinding(B, TAG_Stat_HealthRegen, TEXT("초당 체력 회복"),
 			Attr::GetPlayer_HealthRegenFlatAttribute(), TAG_Data_Equipment_HealthRegen_Flat,

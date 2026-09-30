@@ -343,13 +343,22 @@ void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& I
 		return;
 	}
 
+	// 각인 입구 (불러오기). 각인이 생기기 전에 저장된 장비는 여기서 한 번 발린다.
+	// 저장 연결(AddUniqueDynamic)이 아이템을 다 넣은 뒤라 넣는 도중엔 저장이 안 나간다. 그래서 따로 센다.
+	bool bNewlyEngraved = false;
+
 	if (Inventory)
 	{
 		Inventory->ClearAll();
 
 		for (const FInventoryEntry& Entry : InLoadout.InventoryEntries)
 		{
-			Inventory->TryAddItemAt(Entry.Item, Entry.Position);
+			FItemInstance Item = Entry.Item;
+			if (Inventory->EnsureEngraved(Item))
+			{
+				bNewlyEngraved = true;
+			}
+			Inventory->TryAddItemAt(Item, Entry.Position);
 		}
 
 		Inventory->OnInventoryChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
@@ -357,7 +366,21 @@ void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& I
 
 	if (Equipment)
 	{
-		Equipment->ApplyLoadedSlots(InLoadout.EquipmentSlots);
+		// 장착 장비는 인벤토리 입구를 안 거친다 (ApplyLoadedSlots 가 칸에 바로 넣는다). 여기서 바른다.
+		// 표는 같은 플레이어의 인벤토리 것을 쓴다 — 장비 컴포넌트에 표를 하나 더 두지 않으려고.
+		TArray<FItemInstance> LoadedSlots = InLoadout.EquipmentSlots;
+		if (Inventory)
+		{
+			for (FItemInstance& Slot : LoadedSlots)
+			{
+				if (Inventory->EnsureEngraved(Slot))
+				{
+					bNewlyEngraved = true;
+				}
+			}
+		}
+
+		Equipment->ApplyLoadedSlots(LoadedSlots);
 
 		Equipment->OnEquipmentChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
 	}
@@ -367,6 +390,12 @@ void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& I
 		QuickSlot->ApplyLoadedSlots(InLoadout.QuickSlots);
 
 		QuickSlot->OnQuickSlotChanged.AddUObject(this, &AHB_PlayerState::HandleQuickSlotChanged);
+	}
+
+	// 새로 발린 게 있으면 저장한다 — 안 하면 다음 접속 때 다시 굴려져 값이 바뀐다.
+	if (bNewlyEngraved)
+	{
+		RequestSaveLoadout();
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("Loadout: applied inv=%d"), InLoadout.InventoryEntries.Num());

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
 #include "Item/ItemOptionTypes.h"
+#include "Item/ItemEngravingTypes.h"
 #include "InventoryTypes.generated.h"
 
 class UTexture2D;
@@ -123,6 +124,11 @@ struct FItemInstance
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	float CurrentDurability = -1.f;
 
+	// 랜덤 각인. 장비(방어구 · 무기 · 방패)만 받는다. 규칙은 Item/ItemEngraving.
+	// 복제 · 창고 이동 · 저장 · 버리기/줍기로 통째로 따라다닌다.
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FItemEngraving Engraving;
+
 	bool IsBroken() const { return CurrentDurability == 0.f; }
 
 	bool IsValid() const;
@@ -176,3 +182,9 @@ HEAVENBREACH_API FString GetEquipSlotDisplayName(EEquipSlotType InSlot);
 // 전용 private 멤버였는데, EquipmentSlotWidget(장착 슬롯 호버)에서도 동일한 팝업을 띄우려면
 // 같이 써야 해서 공용 함수로 뺐다.
 HEAVENBREACH_API FString BuildStatTextForItem(const FItemInstance& InItem);
+
+// 툴팁 초록 / 빨강 칸 문구. DT 의 옵션 · 동작 효과에 이 아이템에 발린 각인을 더한다.
+// 인벤토리 칸 호버와 장착 슬롯 호버가 같이 쓴다 — 한쪽 툴팁에만 각인이 보이는 일이 없게.
+// BuildStatTextForItem 과 같은 이유로 공용 함수다.
+HEAVENBREACH_API FString BuildBenefitLinesForItem(const FItemInstance& InItem, const FItemViewData& InViewData);
+HEAVENBREACH_API FString BuildRiskLinesForItem(const FItemInstance& InItem, const FItemViewData& InViewData);

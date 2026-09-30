@@ -162,8 +162,27 @@ void UStashComponent::HandleLoadCompleted(bool bSuccess, const TArray<FInventory
 {
 	if (bSuccess)
 	{
-		SetEntries(InEntries);
+		// 각인 입구 (불러오기). 각인이 생기기 전에 저장된 장비는 여기서 한 번 발린다.
+		// SetEntries 도 바르지만, 새로 발린 게 있는지 알아야 저장을 요청할 수 있어서 먼저 바른다.
+		TArray<FInventoryEntry> Loaded = InEntries;
+		bool bNewlyEngraved = false;
+		for (FInventoryEntry& Entry : Loaded)
+		{
+			if (EnsureEngraved(Entry.Item))
+			{
+				bNewlyEngraved = true;
+			}
+		}
+
+		SetEntries(Loaded);
 		bIsLoaded = true;
+
+		// SetEntries 의 변경 알림은 bIsLoaded 전이라 저장이 안 나간다.
+		// 새로 발린 게 있으면 여기서 저장한다 — 안 하면 다음 접속 때 다시 굴려져 값이 바뀐다.
+		if (bNewlyEngraved)
+		{
+			HandleStashChanged();
+		}
 	}
 
 	OnStashLoadCompleted.Broadcast(bSuccess);
