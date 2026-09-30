@@ -1495,6 +1495,7 @@ void AHBPlayerCharacter::SetupInteractionPrompt()
 
 	InteractionPromptWidgetInstance->AddToViewport();
 	InteractionPromptWidgetInstance->HidePrompt();
+	InteractionPromptWidgetInstance->SetInteractionSource(InteractionComp);
 
 	InteractionComp->OnFocusChanged.AddDynamic(this, &AHBPlayerCharacter::HandleInteractableFocusChanged);
 }
