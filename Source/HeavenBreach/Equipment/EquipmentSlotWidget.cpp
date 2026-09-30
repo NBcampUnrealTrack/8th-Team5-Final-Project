@@ -11,12 +11,14 @@
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Item/ItemInfoPopupWidget.h"
 #include "Item/ItemStatBinding.h"
+#include "InventoryWidget.h"
 
-void UEquipmentSlotWidget::InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory)
+void UEquipmentSlotWidget::InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory, UInventoryWidget* InOwningInventoryWidget)
 {
 	SlotType = InSlotType;
 	BoundEquipment = InEquipment;
 	BoundInventory = InInventory;
+	OwningInventoryWidget = InOwningInventoryWidget;
 }
 
 FReply UEquipmentSlotWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
@@ -142,6 +144,27 @@ bool UEquipmentSlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
 	}
 
 	return false;
+}
+
+void UEquipmentSlotWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	const bool bSuppressed = OwningInventoryWidget != nullptr && OwningInventoryWidget->ShouldSuppressDropOnCancel();
+
+	if (!bSuppressed)
+	{
+		if (const UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation))
+		{
+			if (Operation->SourceEquipment == BoundEquipment
+				&& Operation->SourceSlot == SlotType
+				&& BoundEquipment != nullptr
+				&& BoundInventory != nullptr)
+			{
+				BoundInventory->Server_DropEquippedItem(BoundEquipment, SlotType);
+			}
+		}
+	}
+
+	Super::NativeOnDragCancelled(InDragDropEvent, InOperation);
 }
 
 void UEquipmentSlotWidget::NativeDestruct()

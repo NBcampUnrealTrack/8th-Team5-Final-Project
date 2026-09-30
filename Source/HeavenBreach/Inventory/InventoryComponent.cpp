@@ -664,6 +664,7 @@ void UInventoryComponent::RevealNextItem()
 		{
 			Entry.Item.bRevealed = true;
 			OnInventoryChanged.Broadcast();
+			Multicast_OnItemRevealed();
 			return;
 		}
 	}
@@ -952,7 +953,7 @@ bool UInventoryComponent::MergeStackFrom(UInventoryComponent* InSource, FGuid In
 
 	return true;
 }
-bool UInventoryComponent::DropItem(FGuid InInstanceId)
+bool UInventoryComponent::SpawnDroppedItemActor(const FItemInstance& InItem)
 {
 	if (GetOwnerRole() != ROLE_Authority)
 	{
@@ -976,6 +977,7 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	// 각인도 같은 이유로 실어 보낸다. 안 실으면 주울 때 입구에서 새로 굴려진다
 	// — 버렸다 줍기로 각인을 다시 뽑을 수 있게 된다.
 	const FItemEngraving DroppedEngraving = Entries[EntryIndex].Item.Engraving;
+
 	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
 	{
 		return false;
@@ -1067,10 +1069,52 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 		NewItemActor->MeshComponent->SetPhysicsAngularVelocityInDegrees(FVector(0.f, 90.f, 0.f));
 	}
 
+	return true;
+}
+
+bool UInventoryComponent::DropItem(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	if (!SpawnDroppedItemActor(Entries[EntryIndex].Item))
+	{
+		return false;
+	}
+
 	FItemInstance RemovedItem;
 	RemoveItem(InInstanceId, RemovedItem);
 
 	return true;
+}
+
+bool UInventoryComponent::DropEquippedItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot)
+{
+	if (GetOwnerRole() != ROLE_Authority || InEquipment == nullptr)
+	{
+		return false;
+	}
+
+	FItemInstance EquippedItem;
+	if (!InEquipment->GetItemInSlot(InSlot, EquippedItem))
+	{
+		return false;
+	}
+
+	if (!SpawnDroppedItemActor(EquippedItem))
+	{
+		return false;
+	}
+
+	return InEquipment->ClearSlot(InSlot);
 }
 
 void UInventoryComponent::ClearAll()
@@ -1356,10 +1400,29 @@ void UInventoryComponent::Server_DropItem_Implementation(FGuid InInstanceId)
 	DropItem(InInstanceId);
 }
 
+void UInventoryComponent::Server_DropItemFrom_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)
+{
+	if (InSource == nullptr)
+	{
+		return;
+	}
+	InSource->DropItem(InInstanceId);
+}
+
+void UInventoryComponent::Server_DropEquippedItem_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot)
+{
+	DropEquippedItem(InEquipment, InSlot);
+}
+
 void UInventoryComponent::Client_PlayActionResult_Implementation(bool bSuccess, bool bEquipment)
 {
 	UHBUIAudioLibrary::PlayForOwner(this, !bSuccess ? EHBUIAudioEvent::Error
 		: (bEquipment ? EHBUIAudioEvent::ItemEquip : EHBUIAudioEvent::ItemMove));
+}
+
+void UInventoryComponent::Multicast_OnItemRevealed_Implementation()
+{
+	OnItemRevealed.Broadcast();
 }
 
 void UInventoryComponent::SetGridSize(int32 InWidth, int32 InHeight)

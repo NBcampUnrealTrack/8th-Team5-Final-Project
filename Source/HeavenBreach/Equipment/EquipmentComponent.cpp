@@ -598,34 +598,6 @@ bool UEquipmentComponent::CanEquip(const FItemInstance& InItem, EEquipSlotType I
 		return false;
 	}
 
-	// 활/지팡이(원거리 무기)와 방패는 서로 병행 불가 - 한쪽을 이미 낀 상태에서 반대쪽을
-	// 장착하려 하면 막는다. 한손검은 이 제약과 무관하게 방패와 자유롭게 병행 가능.
-	if (InSlot == EEquipSlotType::SecondaryEquip)
-	{
-		FItemInstance CurrentWeapon;
-		if (GetItemInSlot(EEquipSlotType::PrimaryWeapon, CurrentWeapon))
-		{
-			if (const FWeaponData* CurrentWeaponData = CurrentWeapon.ItemRow.GetRow<FWeaponData>(TEXT("CanEquip")))
-			{
-				if (IsShieldIncompatibleWeaponType(CurrentWeaponData->WeaponType))
-				{
-					return false;
-				}
-			}
-		}
-	}
-	else if (InSlot == EEquipSlotType::PrimaryWeapon)
-	{
-		if (const FWeaponData* NewWeaponData = InItem.ItemRow.GetRow<FWeaponData>(TEXT("CanEquip")))
-		{
-			if (IsShieldIncompatibleWeaponType(NewWeaponData->WeaponType)
-				&& IsSlotOccupied(EEquipSlotType::SecondaryEquip))
-			{
-				return false;
-			}
-		}
-	}
-
 	return true;
 }
 
@@ -665,6 +637,28 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 	if (!CanEquip(SourceItem, InSlot))
 	{
 		return false;
+	}
+
+	if (InSlot == EEquipSlotType::SecondaryEquip && IsSecondarySlotLockedByWeapon())
+	{
+		if (!UnequipToInventory(EEquipSlotType::PrimaryWeapon, InSource))
+		{
+			return false;
+		}
+	}
+
+	if (InSlot == EEquipSlotType::PrimaryWeapon && IsSlotOccupied(EEquipSlotType::SecondaryEquip))
+	{
+		if (const FWeaponData* NewWeaponData = SourceItem.ItemRow.GetRow<FWeaponData>(TEXT("EquipFromInventory")))
+		{
+			if (IsShieldIncompatibleWeaponType(NewWeaponData->WeaponType))
+			{
+				if (!UnequipToInventory(EEquipSlotType::SecondaryEquip, InSource))
+				{
+					return false;
+				}
+			}
+		}
 	}
 
 	const int32 SlotIndex = SlotToIndex(InSlot);
@@ -745,6 +739,25 @@ bool UEquipmentComponent::UnequipToInventoryAt(EEquipSlotType InSlot, UInventory
 	}
 
 	Slots[SlotIndex] = FItemInstance();
+
+	OnEquipmentChanged.Broadcast();
+
+	return true;
+}
+
+bool UEquipmentComponent::ClearSlot(EEquipSlotType InSlot)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (!IsSlotOccupied(InSlot))
+	{
+		return false;
+	}
+
+	Slots[SlotToIndex(InSlot)] = FItemInstance();
 
 	OnEquipmentChanged.Broadcast();
 
