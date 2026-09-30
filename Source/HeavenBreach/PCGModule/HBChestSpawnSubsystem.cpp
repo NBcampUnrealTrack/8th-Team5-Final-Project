@@ -4,6 +4,7 @@
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "Loot/BoxActor.h"
 #include "Components/BoxComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -14,6 +15,35 @@
 #include "CollisionQueryParams.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogHBChestSpawn, Log, All);
+
+namespace HBChestSpawnGeometry
+{
+	bool MakeGroundedTransform(const UClass* ChestClass, const FTransform& PointTransform,
+		float FloorZ, FTransform& OutTransform, FString& OutError)
+	{
+		OutError.Reset();
+		const ABoxActor* Defaults = ChestClass ? ChestClass->GetDefaultObject<ABoxActor>() : nullptr;
+		const UStaticMeshComponent* Mesh = Defaults
+			? Cast<UStaticMeshComponent>(Defaults->GetRootComponent()) : nullptr;
+		if (!Mesh || !Mesh->GetStaticMesh())
+		{
+			OutError = TEXT("Box Blueprint needs a static mesh on its root component.");
+			return false;
+		}
+		const FTransform MeshTransform = Mesh->GetRelativeTransform() * PointTransform;
+		const FBoxSphereBounds Bounds = Mesh->CalcBounds(MeshTransform);
+		const float BottomZ = Bounds.Origin.Z - Bounds.BoxExtent.Z;
+		if (!FMath::IsFinite(BottomZ) || !FMath::IsFinite(FloorZ))
+		{
+			OutError = TEXT("Box mesh or floor bounds are not finite.");
+			return false;
+		}
+		constexpr float FloorClearance = 2.f;
+		OutTransform = PointTransform;
+		OutTransform.AddToTranslation(FVector(0, 0, FloorZ + FloorClearance - BottomZ));
+		return true;
+	}
+}
 
 namespace
 {
@@ -370,10 +400,14 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 	Params.Owner = &Setup;
 	Params.OverrideLevel = &RoomLevel;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
-	OutChest = World->SpawnActor<ABoxActor>(Choice.ChestClass, Choice.Point->GetActorTransform(), Params);
+	FTransform SpawnTransform;
+	if (!HBChestSpawnGeometry::MakeGroundedTransform(Choice.ChestClass.Get(),
+		Choice.Point->GetActorTransform(), Ground.Z, SpawnTransform, OutReason)) return false;
+	OutChest = World->SpawnActor<ABoxActor>(Choice.ChestClass, SpawnTransform, Params);
 	if (!IsValid(OutChest))
 	{
-		OutReason = TEXT("Box spawn was rejected by collision handling.");
+		OutReason = FString::Printf(TEXT("Box %s at %s was blocked after floor alignment (floor Z=%.1f)."),
+			*GetNameSafe(Choice.ChestClass.Get()), *SpawnTransform.GetLocation().ToString(), Ground.Z);
 		return false;
 	}
 	if (OutChest->GetLevel() != &RoomLevel)

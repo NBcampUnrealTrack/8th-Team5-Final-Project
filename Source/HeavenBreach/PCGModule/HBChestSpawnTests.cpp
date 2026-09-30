@@ -2,12 +2,59 @@
 #include "PCGModule/HBChestSetupActor.h"
 #include "PCGModule/HBChestSpawnPoint.h"
 #include "Loot/BoxActor.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
 #include "Algo/Reverse.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
+namespace HBChestSpawnGeometry
+{
+	bool MakeGroundedTransform(const UClass* ChestClass, const FTransform& PointTransform,
+		float FloorZ, FTransform& OutTransform, FString& OutError);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestGroundedTransformTest,
+	"HeavenBreach.PCGModule.ChestSpawn.GroundedTransform",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBChestGroundedTransformTest::RunTest(const FString&)
+{
+	constexpr float FloorZ = 1000.f;
+	const FTransform PointTransform(FRotator(0, 45, 0), FVector(120, 240, FloorZ + 10.f));
+	for (const TCHAR* Path : {
+		TEXT("/Game/Loot/Blueprints/BP_Box_Common.BP_Box_Common_C"),
+		TEXT("/Game/Loot/Blueprints/BP_Box_Celestial.BP_Box_Celestial_C") })
+	{
+		UClass* ChestClass = LoadClass<ABoxActor>(nullptr, Path);
+		TestNotNull(TEXT("Existing fixed-grade box Blueprint loads"), ChestClass);
+		if (!ChestClass) continue;
+		const ABoxActor* Defaults = ChestClass->GetDefaultObject<ABoxActor>();
+		const UStaticMeshComponent* Mesh = Defaults
+			? Cast<UStaticMeshComponent>(Defaults->GetRootComponent()) : nullptr;
+		TestTrue(TEXT("Box Blueprint has a root mesh"), Mesh && Mesh->GetStaticMesh());
+		if (!Mesh || !Mesh->GetStaticMesh()) continue;
+		FTransform Grounded;
+		FString Error;
+		TestTrue(TEXT("Box can be aligned to the traced floor"),
+			HBChestSpawnGeometry::MakeGroundedTransform(ChestClass, PointTransform, FloorZ, Grounded, Error));
+		const FBoxSphereBounds Bounds = Mesh->CalcBounds(Mesh->GetRelativeTransform() * Grounded);
+		TestTrue(TEXT("Box mesh bottom clears the floor by 2 cm"),
+			FMath::IsNearlyEqual(Bounds.Origin.Z - Bounds.BoxExtent.Z, FloorZ + 2.f, 0.1f));
+		TestTrue(TEXT("Point horizontal position is preserved"),
+			FVector::Dist2D(Grounded.GetLocation(), PointTransform.GetLocation()) < 0.01f);
+		TestTrue(TEXT("Point rotation is preserved"), Grounded.GetRotation().Equals(PointTransform.GetRotation()));
+		FTransform ElevatedPoint = PointTransform;
+		ElevatedPoint.AddToTranslation(FVector(0, 0, 80));
+		FTransform GroundedAgain;
+		TestTrue(TEXT("Marker height does not raise the box off the floor"),
+			HBChestSpawnGeometry::MakeGroundedTransform(ChestClass, ElevatedPoint, FloorZ, GroundedAgain, Error));
+		TestTrue(TEXT("Both marker heights produce the same box height"),
+			FMath::IsNearlyEqual(GroundedAgain.GetLocation().Z, Grounded.GetLocation().Z, 0.1f));
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestSpawnSelectionTest,
 	"HeavenBreach.PCGModule.ChestSpawn.Selection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
