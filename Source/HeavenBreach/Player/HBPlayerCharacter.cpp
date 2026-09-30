@@ -2711,6 +2711,13 @@ void AHBPlayerCharacter::OnRep_CorpseState()
 		return;
 	}
 
+	// 죽는 순간 누르고 있던 홀드를 끊는다. 안 끊으면 봉인문 같은 대상이 시체 상태로 완료된다.
+	// 서버는 BecomeCorpse 에서 직접 여기로 오므로 서버·소유 클라 양쪽이 이 한 곳에서 정리된다.
+	if (UInteractionComponent* InteractionComp = FindComponentByClass<UInteractionComponent>())
+	{
+		InteractionComp->AbortHold();
+	}
+
 	StartCorpseRagdoll();
 	RefreshEquippedVisuals();
 

@@ -178,6 +178,28 @@ void UInteractionComponent::EndHold()
 	Server_EndHold();
 }
 
+void UInteractionComponent::AbortHold()
+{
+	if (GetOwnerRole() == ROLE_Authority)
+	{
+		CancelHoldOnServer();
+	}
+
+	if (HeldTarget == nullptr)
+	{
+		return;
+	}
+
+	HeldTarget = nullptr;
+	HoldDuration = 0.0f;
+	HoldStartTime = 0.0f;
+
+	if (UHBInteractAnimComponent* InteractAnim = GetOwner()->FindComponentByClass<UHBInteractAnimComponent>())
+	{
+		InteractAnim->SetInteracting(false);
+	}
+}
+
 float UInteractionComponent::GetHoldProgress() const
 {
 	if (HeldTarget == nullptr || HoldDuration <= 0.0f || GetWorld() == nullptr)
