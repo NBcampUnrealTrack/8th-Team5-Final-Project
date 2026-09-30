@@ -35,6 +35,7 @@ public:
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeOnActivated() override;
 
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
@@ -59,6 +60,13 @@ private:
 	void RebuildCards();
 
 	AHB_PlayerState* GetHBPlayerState() const;
+
+	// 카드를 한 번 고르면 켠다. 켜진 뒤로는 카드를 다시 그리지 않고 클릭도 받지 않는다.
+	//
+	// 왜 필요한가: 호스트에서는 선택 요청이 그 자리에서 적용되고 다음 후보까지 방송된다.
+	// 화면은 닫히는 중이지만 스택의 페이드아웃 동안 남아 있어서, 다음 카드가 그려져
+	// 미리 보였고 그 카드를 한 번 더 누르면 선택권이 하나 더 소모됐다.
+	bool bSelectionSubmitted = false;
 
 	// 화면이 열려 있는 동안 후보가 복제돼 오면 다시 그린다.
 	// 열리는 시점에 아직 복제가 안 닿았을 수 있어서 이 경로가 필요하다.

@@ -17,4 +17,6 @@ namespace CueTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Bite, "GameplayCue.Hit.Bite", "딜버 물기")
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Hit_Magic, "GameplayCue.Hit.Magic", "마법")
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Skill_WarCry, "GameplayCue.Skill.WarCry", "전투의 함성 발동 연출")
 }

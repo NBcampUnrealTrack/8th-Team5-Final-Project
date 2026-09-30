@@ -49,7 +49,7 @@ namespace WarriorTag
 	// ---------------- 증강: 패시브 ----------------
 	// 지금은 패시브당 하나.
 
-	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_CombatBreath_Free);       // 전투 호흡의 일반 공격 마나 0
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_CombatBreath_Free);       // 쓰이지 않음. 전투 호흡이 달리기 패시브로 바뀌기 전의 "일반 공격 마나 0". 증강 라이브러리 테스트가 샘플 태그로만 쓴다
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_StrongBody_Defense);      // 강인한 육체의 방어력도 증가
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Rage_AttackSpeed);        // 분노의 공격의 속도도 상승
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_WeaponMaster_Damage);     // 무기의 달인 공격력 상승

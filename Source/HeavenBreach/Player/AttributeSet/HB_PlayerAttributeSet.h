@@ -38,7 +38,7 @@ public:
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_CooldownFlat);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_CooldownMultiplier);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_LifeStealRatio);
-	ATTRIBUTE_ACCESSORS(ThisClass, Player_BasicAttackManaCostMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_SprintManaCostMultiplier);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_LowHealthAttackBonus);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_LowHealthAttackThreshold);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_MoveSpeedFlat);
@@ -98,11 +98,11 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_LifeStealRatio, BlueprintReadOnly, Category = "Attribute|Combat")
 	FGameplayAttributeData Player_LifeStealRatio;
 
-	// 일반공격 마나 소비 % 보정. 1.0 이 기본, 0.5 는 절반.
+	// 달리기 마나 소비 % 보정. 1.0 이 기본, 0 이면 달리기에 마나를 안 쓴다(전투 호흡).
 	// 기존 Player_ManaCostMultiplier 와 별개인 이유: 그쪽은 하한이 0.2 라 0 을 못 만든다.
-	// 전투 호흡의 증강 Free(마나 0)를 표현하려면 하한 0 인 어트리뷰트가 필요하다.
-	UPROPERTY(ReplicatedUsing = OnRep_BasicAttackManaCostMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
-	FGameplayAttributeData Player_BasicAttackManaCostMultiplier;
+	// 전에는 일반공격 마나 보정(BasicAttackManaCostMultiplier)이었다. 일반공격이 마나를 안 쓰게 되며 바꿨다.
+	UPROPERTY(ReplicatedUsing = OnRep_SprintManaCostMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_SprintManaCostMultiplier;
 
 	// 저체력 공격력 보너스의 최대치. 0.5 면 최대 +50%.
 	// 0 이면 이 기능이 꺼진 것이므로 패시브 태그를 따로 볼 필요가 없다.
@@ -193,7 +193,7 @@ protected:
 	UFUNCTION()
 	void OnRep_LifeStealRatio(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
-	void OnRep_BasicAttackManaCostMultiplier(const FGameplayAttributeData& OldValue);
+	void OnRep_SprintManaCostMultiplier(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_LowHealthAttackBonus(const FGameplayAttributeData& OldValue);
 	UFUNCTION()

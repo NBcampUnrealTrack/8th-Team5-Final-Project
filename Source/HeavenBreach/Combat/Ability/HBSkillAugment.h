@@ -8,6 +8,25 @@ class UGameplayEffect;
 class UTexture2D;
 
 /**
+ * 이번 판에서 어떤 증강을 몇 단계까지 먹었는지.
+ *
+ * 왜 TMap 이 아닌가: UPROPERTY 복제가 TMap 을 지원하지 않는다.
+ * PlayerState 가 이 배열을 복제하고 UI 가 그대로 읽는다.
+ */
+USTRUCT(BlueprintType)
+struct HEAVENBREACH_API FHBAugmentStack
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	FGameplayTag AugmentTag;
+
+	// 1 부터 시작한다. 0 은 목록에 없는 것과 같으므로 저장하지 않는다.
+	UPROPERTY(BlueprintReadOnly)
+	int32 Tier = 0;
+};
+
+/**
  * 스킬 하나가 가질 수 있는 증강 하나.
  *
  * 왜 넣었나: 증강이 지금까지 태그로만 존재해서, UI 가 "이 스킬에 어떤 증강이 있고
@@ -65,6 +84,19 @@ struct HEAVENBREACH_API FHBSkillAugment
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment")
 	TMap<FGameplayTag, float> Params;
 
+	/**
+	 * 단계별 수치. 그 단계에서의 최종값이며 누적값이 아니다.
+	 * 1단계 10, 2단계 15 면 2단계는 15 다. 25 가 아니다.
+	 *
+	 * 비우면 단계 없는 1회성 증강으로 동작한다. 최대 단계는 이 배열의 길이다.
+	 * 기획서의 "최대 3단계" 는 여기 3개를 넘겨 넣지 않는 것으로 지킨다.
+	 *
+	 * 모디파이어가 Multiply 인 증강(이동속도)은 배율 자체를 적는다. 5% 증가면
+	 * 0.05 가 아니라 1.05 다. Add 인 증강은 더할 값을 적는다.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment")
+	TArray<float> TierMagnitudes;
+
 	// 증강을 고른 순간 영구로 붙일 GE. 전역 효과가 없으면 비워 둔다.
 	// 이동속도, 공격력처럼 어트리뷰트가 있는 것은 전부 이쪽이다.
 	//
@@ -91,4 +123,61 @@ struct HEAVENBREACH_API FHBSkillAugment
 	// 치환자 이름은 항목 태그의 마지막 조각이다.
 	// SkillParam.Cooldown → {Cooldown}
 	FText GetFormattedDescription() const;
+};
+
+UENUM(BlueprintType)
+enum class EHBUpgradeCandidateType : uint8
+{
+	// 이미 가진 스킬에 증강을 하나 붙인다. 액티브든 패시브든 상관없다.
+	Augment,
+	// 아직 없는 패시브를 통째로 얻는다.
+	NewPassive
+};
+
+/**
+ * 레벨업 때 뜨는 카드 한 장.
+ *
+ * 작동방식: 서버가 GenerateUpgradeCandidates 로 최대 3장을 만들어 복제하고,
+ * 플레이어가 CandidateId 를 골라 보내면 서버가 그 장을 찾아 적용한다.
+ *
+ * 쳐낼 조건: 카드 종류가 셋 이상 되면 Type 대신 각자의 구조체로 나눈다.
+ * 지금은 "증강 붙이기" 와 "패시브 얻기" 둘뿐이라 한 구조체로 충분하다.
+ *
+ * 왜 여기 있나: 원래 HB_PlayerState.h 에 있었다. 증강 후보는 증강 데이터에
+ * 속하는 개념이고 PlayerState 는 그것을 담는 그릇일 뿐이라 이쪽으로 옮겼다.
+ * DrawCandidates 처럼 액터에 얽매이지 않는 순수 함수가 이 타입을 값으로
+ * 다루려면, PlayerState 헤더를 끌어오지 않고도 정의를 볼 수 있어야 한다.
+ */
+USTRUCT(BlueprintType)
+struct HEAVENBREACH_API FHBUpgradeCandidate
+{
+	GENERATED_BODY()
+
+	// 선택을 서버로 보낼 때 쓰는 식별자. 종류마다 다른 규칙으로 만든다.
+	UPROPERTY(BlueprintReadOnly)
+	FName CandidateId;
+
+	UPROPERTY(BlueprintReadOnly)
+	EHBUpgradeCandidateType Type = EHBUpgradeCandidateType::Augment;
+
+	// 이 카드를 고르면 올라갈 단계. 단계 없는 증강은 1.
+	UPROPERTY(BlueprintReadOnly)
+	int32 Tier = 1;
+
+	// 어느 스킬의 카드인가. NewPassive 면 얻게 될 패시브의 SkillId 다.
+	UPROPERTY(BlueprintReadOnly)
+	FName TargetSkillId;
+
+	// Type == Augment 일 때만 유효하다. 고르면 이 태그가 TakenAugments 에 들어간다.
+	UPROPERTY(BlueprintReadOnly)
+	FGameplayTag AugmentTag;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText DisplayName;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText Description;
+
+	UPROPERTY(BlueprintReadOnly)
+	TSoftObjectPtr<UTexture2D> Icon;
 };
