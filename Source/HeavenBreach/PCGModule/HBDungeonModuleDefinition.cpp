@@ -232,6 +232,8 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 				AddIssue(OutIssues, TEXT("ConnectorId"), Connector, TEXT("ConnectorId must be nonempty and unique within the module."));
 			}
 			Ids.Add(Connector->GetEffectiveConnectorId());
+			if (static_cast<uint8>(Connector->Role) > static_cast<uint8>(EHBDungeonConnectorRole::DungeonSide))
+				AddIssue(OutIssues, TEXT("ConnectorRole"), Connector, TEXT("Invalid connector role."));
 			if (!IsUnitTransform(Connector->GetComponentTransform()) || !IsUnitTransform(Connector->GetRelativeTransform()))
 			{
 				AddIssue(OutIssues, TEXT("ConnectorTransform"), Connector, TEXT("Connector transforms must be finite with scale (1,1,1). Move and rotate the marker instead of scaling."));
@@ -300,7 +302,7 @@ bool AHBDungeonModuleDefinition::ReadModuleGeometry(const FTransform& ModuleToWo
 	for (const UHBDungeonConnectorComponent* Connector : Connectors)
 	{
 		OutConnectors.Add({ Connector->GetEffectiveConnectorId(),
-			Connector->GetComponentTransform().GetRelativeTransform(ModuleToWorld) });
+			Connector->GetComponentTransform().GetRelativeTransform(ModuleToWorld), Connector->Role });
 	}
 	OutConnectors.Sort([](const auto& A, const auto& B) { return A.ConnectorId.LexicalLess(B.ConnectorId); });
 	auto Boxes = GatherComponents<UHBDungeonOccupancyComponent>(GetLevel());

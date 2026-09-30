@@ -78,6 +78,8 @@ namespace
 				if (C.ConnectorId.IsNone() || ConnectorIds.Contains(C.ConnectorId))
 					return Fail(TEXT("Invalid/duplicate connector ID."));
 				ConnectorIds.Add(C.ConnectorId);
+				if (static_cast<uint8>(C.Role) > static_cast<uint8>(EHBDungeonConnectorRole::DungeonSide))
+					return Fail(TEXT("Invalid connector role."));
 				if (!Upright(C.LocalTransform))
 					return Fail(TEXT("Connector ") + C.ConnectorId.ToString() + TEXT(" must point horizontally with +Z up and unit scale. Move/rotate it in yaw; do not tilt it."));
 			}
@@ -170,6 +172,7 @@ namespace
 						if (!Budget()) { return false; }
 						++Steps;
 						const auto& Connector = M.Connectors[Entry];
+						if (!HBConnectorRolesMatch(ParentConnector.Role, Connector.Role)) { continue; }
 						const FTransform Transform = HBConnectorLayout::Align(ParentWorld, Connector.LocalTransform);
 						if (!Upright(Transform)) { continue; }
 						bool bOverlap = false;
@@ -309,6 +312,8 @@ bool HBConnectorLayout::Validate(const TArray<FHBModuleCatalogEntry>& Catalog,
 			const auto* C = FindConnector(M, R.EntryConnectorId);
 			if (!P || !C || Used[R.ParentId].Contains(R.ParentConnectorId) || Used[I].Contains(R.EntryConnectorId))
 				return Fail(TEXT("Missing or reused connector."));
+			if (!HBConnectorRolesMatch(P->Role, C->Role))
+				return Fail(TEXT("Incompatible connector roles."));
 			Used[R.ParentId].Add(R.ParentConnectorId); Used[I].Add(R.EntryConnectorId);
 			const FTransform PW = P->LocalTransform * Rooms[R.ParentId].Transform;
 			const FTransform CW = C->LocalTransform * R.Transform;

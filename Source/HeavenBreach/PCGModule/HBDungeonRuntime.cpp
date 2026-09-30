@@ -135,6 +135,7 @@ bool AHBDungeonRuntime::PrepareGameplay(FString& Error)
         { Error = FString::Printf(TEXT("Room %d no longer matches the source module."), Room.Id); return false; }
         for (int32 I = 0; I < Connectors.Num(); ++I)
             if (Connectors[I].ConnectorId != Module->Connectors[I].ConnectorId
+				|| Connectors[I].Role != Module->Connectors[I].Role
                 || !Connectors[I].LocalTransform.Equals(Module->Connectors[I].LocalTransform, 0.1))
             { Error = TEXT("Loaded connector geometry differs from the plan."); return false; }
         for (int32 I = 0; I < Occupancy.Num(); ++I)

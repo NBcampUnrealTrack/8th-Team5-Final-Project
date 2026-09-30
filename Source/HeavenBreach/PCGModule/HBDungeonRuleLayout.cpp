@@ -3,6 +3,13 @@
 
 namespace
 {
+	bool MatchesProgression(EHBDungeonConnectorRole Parent, EHBDungeonConnectorRole Entry, bool bCorridor, bool bBoss)
+	{
+		using R = EHBDungeonConnectorRole;
+		if (bCorridor) return Parent == R::None && Entry == R::DungeonSide;
+		if (bBoss) return Parent == R::BossSide && Entry == R::BossEntrance;
+		return HBConnectorRolesMatch(Parent, Entry);
+	}
 	bool Allows(const FHBModuleCatalogEntry& M, int32 Floor)
 	{
 		return M.AllowedFloor == EHBAllowedFloor::Any || static_cast<int32>(M.AllowedFloor) == Floor;
@@ -37,6 +44,31 @@ namespace
 		if (Catalog[Corridor].Kind != EHBDungeonModuleKind::Corridor || Catalog[Corridor].Role != EHBPrototypeRoomRole::Unassigned
 			|| Catalog[Corridor].Connectors.Num() < 2 || !Allows(Catalog[Corridor], 2))
 			return Fail(TEXT("BossCorridorMap must be a Corridor module with two or more doors, allowed on floor 2."));
+		using CR = EHBDungeonConnectorRole;
+		auto HasRole = [](const FHBModuleCatalogEntry& M, CR Role)
+		{ return M.Connectors.ContainsByPredicate([Role](const auto& C) { return C.Role == Role; }); };
+		if (!HasRole(Catalog[Corridor], CR::DungeonSide) || !HasRole(Catalog[Corridor], CR::BossSide))
+		{
+			Error = FString::Printf(TEXT("Boss corridor %s requires Dungeon Side and Boss Side connectors."), *Catalog[Corridor].ModuleId.ToString());
+			return false;
+		}
+		for (const auto& M : Catalog)
+		{
+			if (M.Role == EHBPrototypeRoomRole::Boss && !HasRole(M, CR::BossEntrance))
+			{
+				Error = FString::Printf(TEXT("Boss module %s requires a Boss Entrance connector."), *M.ModuleId.ToString());
+				return false;
+			}
+			for (const auto& C : M.Connectors)
+			{
+				if ((C.Role == CR::BossEntrance && (M.Kind != EHBDungeonModuleKind::Room || M.Role != EHBPrototypeRoomRole::Boss))
+					|| ((C.Role == CR::BossSide || C.Role == CR::DungeonSide) && M.Kind != EHBDungeonModuleKind::Corridor))
+				{
+					Error = FString::Printf(TEXT("Connector role is invalid for module %s, connector %s. Boss Entrance belongs to a Boss room; Boss Side/Dungeon Side belong to a corridor."), *M.ModuleId.ToString(), *C.ConnectorId.ToString());
+					return false;
+				}
+			}
+		}
 		if (R.Floor1ExitPortalId.IsNone() || R.Floor2EntryPortalId.IsNone()
 			|| !Catalog[Exit].Portals.ContainsByPredicate([&](const auto& P) { return P.PortalId == R.Floor1ExitPortalId; })
 			|| !Catalog[Entry].Portals.ContainsByPredicate([&](const auto& P) { return P.PortalId == R.Floor2EntryPortalId; }))
@@ -73,6 +105,15 @@ namespace
 			const auto& R = Rooms[I];
 			const auto* M = Catalog.FindByPredicate([&](const auto& C) { return C.ModuleId == R.ModuleId; });
 			if (!M || R.Floor < 1 || R.Floor > 2 || !Allows(*M, R.Floor)) return Fail(TEXT("Module placed on a forbidden floor."));
+			if (I > 0 && R.Connection == EHBDungeonConnection::Door)
+			{
+				const auto& Parent = Rooms[R.ParentId];
+				const auto* PM = Catalog.FindByPredicate([&](const auto& C) { return C.ModuleId == Parent.ModuleId; });
+				const auto* PC = PM ? PM->Connectors.FindByPredicate([&](const auto& C) { return C.ConnectorId == R.ParentConnectorId; }) : nullptr;
+				const auto* EC = M->Connectors.FindByPredicate([&](const auto& C) { return C.ConnectorId == R.EntryConnectorId; });
+				if (!PC || !EC || !MatchesProgression(PC->Role, EC->Role, R.bCorridor, R.Role == EHBPrototypeRoomRole::Boss))
+					return Fail(TEXT("Invalid connector progression: None -> Dungeon Side / Boss Side -> Boss Entrance required."));
+			}
 			if (!S.bAllowModuleReuse && UsedModules.Contains(R.ModuleId)) return Fail(TEXT("Module reused while reuse is disabled."));
 			UsedModules.Add(R.ModuleId);
 			if (I == 0 && (R.Floor != 1 || R.Role != EHBPrototypeRoomRole::Adventure || R.bBranch || R.bFloorExit || R.bCorridor))
@@ -299,6 +340,8 @@ namespace
 						for (int32 Port : Ports)
 							for (int32 Entry : Entries)
 							{
+								if (!MatchesProgression(Catalog[Chosen[Parent]].Connectors[Port].Role,
+									Catalog[Module].Connectors[Entry].Role, Slot.bCorridor, Slot.bBoss)) continue;
 								const FTransform PW = Catalog[Chosen[Parent]].Connectors[Port].LocalTransform * Rooms[Parent].Transform;
 								if (Place(Module, Slot, Parent, Port, Entry, HBConnectorLayout::Align(PW, Catalog[Module].Connectors[Entry].LocalTransform))) return true;
 								if (bLimited) return false;
