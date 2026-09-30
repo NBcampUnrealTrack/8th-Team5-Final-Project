@@ -7,6 +7,7 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChanged);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUsed, FName, ItemId, float, HealAmount);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnItemRevealed);
 
 class UDataTable;
 class UEquipmentComponent;
@@ -41,6 +42,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnItemUsed OnItemUsed;
+
+	UPROPERTY(BlueprintAssignable, Category = "Inventory")
+	FOnItemRevealed OnItemRevealed;
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void InitializeGrid(int32 InWidth, int32 InHeight);
@@ -127,6 +131,8 @@ public:
 
 	bool DropItem(FGuid InInstanceId);
 
+	bool DropEquippedItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot);
+
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ClearAll();
 
@@ -180,10 +186,6 @@ public:
 	UFUNCTION(Server, Reliable)
 	void Server_ToggleFavorite(FGuid InInstanceId);
 
-	/** 루팅 컨테이너 화면을 닫을 때 클라이언트가 부른다. InTargetContainer(상자/시체)의
-	 * 서칭 타이머를 멈춘다. 상자/시체 쪽 인벤토리 컴포넌트는 이 플레이어가 소유한 액터가
-	 * 아니라서 거기에 직접 Server RPC를 걸면 전송이 실패한다(BindPanels의 OwningInventory
-	 * 주석과 동일한 이유) - 그래서 항상 플레이어 자신의 인벤토리를 거쳐서 보낸다. */
 	UFUNCTION(Server, Reliable)
 	void Server_PauseContainerReveal(UInventoryComponent* InTargetContainer);
 
@@ -199,6 +201,12 @@ public:
 	UFUNCTION(Server, Reliable)
 	void Server_DropItem(FGuid InInstanceId);
 
+	UFUNCTION(Server, Reliable)
+	void Server_DropItemFrom(UInventoryComponent* InSource, FGuid InInstanceId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_DropEquippedItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot);
+
 
 protected:
 
@@ -211,6 +219,9 @@ private:
 	UFUNCTION(Client, Reliable)
 	void Client_PlayActionResult(bool bSuccess, bool bEquipment);
 
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_OnItemRevealed();
+
 	void RebuildCache();
 
 	void MarkCells(int32 InEntryIndex, FIntPoint InPosition, FIntPoint InSize);
@@ -218,6 +229,8 @@ private:
 	int32 CoordToIndex(FIntPoint InCoord) const { return InCoord.Y * Width + InCoord.X; }
 
 	bool GetEntrySize(const FItemInstance& InItem, FIntPoint& OutSize) const;
+
+	bool SpawnDroppedItemActor(const FItemInstance& InItem);
 
 	bool HasMergeableSpace(FName InRowName, int32 InMaxStack) const;
 
