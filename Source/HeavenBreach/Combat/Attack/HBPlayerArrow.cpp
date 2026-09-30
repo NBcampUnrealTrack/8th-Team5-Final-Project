@@ -70,6 +70,9 @@ void AHBPlayerArrow::OnHit(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveC
 	}
 	bHasHit = true;
 
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살 명중  대상=%s  컴포넌트=%s  본=%s"),
+		*GetNameSafe(OtherActor), *GetNameSafe(Hit.GetComponent()), *Hit.BoneName.ToString());
+
 	if (OtherActor && OtherActor != Shooter)
 	{
 		ApplyArrowDamage(OtherActor, Hit);
@@ -82,11 +85,13 @@ void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 {
 	if (!Shooter || !Target->Implements<UDamageableInterface>())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Bow] 피해 없음 (Damageable 아님)  대상=%s"), *GetNameSafe(Target));
 		return;
 	}
 
 	if (!IDamageableInterface::Execute_CanBeDamaged(Target, Shooter))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Bow] 피해 없음 (대상이 거부)  대상=%s"), *GetNameSafe(Target));
 		return;
 	}
 
@@ -96,6 +101,7 @@ void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 	FinalDamage = Shooter->ModifyOutgoingDamage(Target, FinalDamage);
 
 	IDamageableInterface::Execute_ApplyMeleeHit(Target, Shooter, FinalDamage, Hit, EHBDamageSource::Ranged);
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 피해 %.1f → %s"), FinalDamage, *GetNameSafe(Target));
 
 	const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 	const bool bKilled = TargetASC && TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);

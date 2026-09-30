@@ -94,8 +94,13 @@ void UGA_PlayerBowAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		DrawTask->ReadyForActivation();
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 당기기 시작  Auth=%d  Local=%d  ArrowClass=%s"),
+		ActorInfo->IsNetAuthority() ? 1 : 0, ActorInfo->IsLocallyControlled() ? 1 : 0, *GetNameSafe(ArrowClass));
+
 	// 서버·클라가 각자 기다린다. 클라의 떼기는 InputReleased 이벤트로 서버에 복제된다.
-	UAbilityTask_WaitInputRelease* ReleaseTask = UAbilityTask_WaitInputRelease::WaitInputRelease(this, true);
+	// bTestAlreadyReleased 는 false 여야 한다. 이 프로젝트는 스펙의 InputPressed 를 켜지 않아서,
+	// true 면 시작하자마자 "이미 뗐다"로 보고 0초 당김(취소)이 된다.
+	UAbilityTask_WaitInputRelease* ReleaseTask = UAbilityTask_WaitInputRelease::WaitInputRelease(this, false);
 	ReleaseTask->OnRelease.AddDynamic(this, &UGA_PlayerBowAttack::OnReleased);
 	ReleaseTask->ReadyForActivation();
 }
@@ -112,6 +117,10 @@ void UGA_PlayerBowAttack::OnReleased(const float TimeHeld)
 
 	// TimeHeld 는 각자 잰 값이다. 발사는 서버 값으로만 한다.
 	const FHBBowShot Shot = HBBow::ComputeShot(TimeHeld, Params);
+
+	const FGameplayAbilityActorInfo* Info = GetCurrentActorInfo();
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 뗌  Auth=%d  TimeHeld=%.2f  Fire=%d  Speed=%.0f  Coef=%.2f"),
+		Info && Info->IsNetAuthority() ? 1 : 0, TimeHeld, Shot.bFire ? 1 : 0, Shot.Speed, Shot.DamageCoef);
 
 	if (!Shot.bFire)
 	{
@@ -151,6 +160,9 @@ void UGA_PlayerBowAttack::SpawnArrow(AHBPlayerCharacter* Player, const float Spe
 	}
 	Arrow->FinishSpawning(SpawnTransform);
 	Arrow->Launch(Player, Speed, DamageCoef);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살 스폰 %s  위치=%s  방향=%s"),
+		*GetNameSafe(Arrow), *SpawnTransform.GetLocation().ToCompactString(), *EyeRotation.ToCompactString());
 }
 
 void UGA_PlayerBowAttack::PlayFinishAndEnd(UAnimMontage* Montage)

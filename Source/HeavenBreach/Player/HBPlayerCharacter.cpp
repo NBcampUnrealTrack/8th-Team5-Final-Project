@@ -264,7 +264,11 @@ void AHBPlayerCharacter::Attack()
 
 	// 일반공격은 마나를 쓰지 않는다. 마나는 달리기·방어·스킬에만 쓴다.
 	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
-	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag));
+	if (!ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag)))
+	{
+		// 이 무기 태그(AssetTags)를 가진 평타 GA 가 DefaultAbilities 에 없거나, 막는 태그가 붙어 있을 때.
+		UE_LOG(LogTemp, Warning, TEXT("[Attack] 평타 발동 실패  WeaponTag=%s"), *WeaponTag.ToString());
+	}
 }
 
 void AHBPlayerCharacter::StopAttack()
@@ -275,6 +279,8 @@ void AHBPlayerCharacter::StopAttack()
 	{
 		return;
 	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 공격 키 뗌 → 떼기 전달"));
 
 	FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromHandle(Bow->GetCurrentAbilitySpecHandle());
 	if (!Spec)
