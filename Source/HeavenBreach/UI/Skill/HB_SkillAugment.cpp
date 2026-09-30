@@ -42,6 +42,16 @@ void UHB_SkillAugment::NativeDestruct()
 	Super::NativeDestruct();
 }
 
+void UHB_SkillAugment::NativeOnActivated()
+{
+	Super::NativeOnActivated();
+
+	// 스택이 위젯 인스턴스를 풀에서 재사용하므로 열릴 때마다 잠금을 푼다.
+	// 재사용 시 NativeConstruct 가 다시 불린다는 보장이 없어서 카드도 여기서 다시 그린다.
+	bSelectionSubmitted = false;
+	RebuildCards();
+}
+
 UWidget* UHB_SkillAugment::NativeGetDesiredFocusTarget() const
 {
 	// Menu 입력 모드라 포커스 대상이 있어야 키보드/패드로 고를 수 있다.
@@ -75,6 +85,12 @@ AHB_PlayerState* UHB_SkillAugment::GetHBPlayerState() const
 
 void UHB_SkillAugment::HandleUpgradeCandidatesChanged()
 {
+	// 이미 골랐으면 닫히는 중이다. 여기서 다시 그리면 다음 후보가 보인다.
+	if (bSelectionSubmitted)
+	{
+		return;
+	}
+
 	RebuildCards();
 }
 
@@ -122,6 +138,13 @@ void UHB_SkillAugment::RebuildCards()
 
 void UHB_SkillAugment::OnAugmentCardClicked(FName ClickedCandidateId)
 {
+	// 페이드아웃 중에 들어온 두 번째 클릭은 버린다.
+	if (bSelectionSubmitted)
+	{
+		return;
+	}
+	bSelectionSubmitted = true;
+
 	// 적용은 서버가 한다. 클라는 고른 후보의 이름만 보낸다.
 	if (AHB_PlayerState* HBPS = GetHBPlayerState())
 	{

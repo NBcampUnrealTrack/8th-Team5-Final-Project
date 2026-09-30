@@ -29,4 +29,10 @@ namespace CueTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Bite)
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Magic)
+
+	// ================ 스킬 발동 연출 ================
+	// 타격이 아니라 시전자 본인에게서 터지는 것. 맞은 대상도 재질도 없다.
+	// 위의 Hit 계열과 달리 ResolveCueTag 를 거치지 않는다.
+	// UHBPlayerActiveGABase 의 ActivationCueTag 에 애셋이 직접 지정한다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Skill_WarCry)
 }
