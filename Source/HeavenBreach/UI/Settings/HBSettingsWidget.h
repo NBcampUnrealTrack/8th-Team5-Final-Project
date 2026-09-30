@@ -55,6 +55,9 @@ protected:
 	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> Text_Sensitivity;
 	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> Text_VSync;
 	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> Text_CameraShake;
+	// 카메라 움직임(머리 흔들림) 0~100%. WBP 에 아직 없을 수 있어 선택 항목이다. 없으면 기존 값을 유지한다.
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<USlider> Slider_CameraMotion;
+	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> Text_CameraMotion;
 	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> Text_Description;
 	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> Text_Status;
 	UPROPERTY(meta=(BindWidget)) TObjectPtr<UWidget> VideoConfirmation;
