@@ -2,11 +2,17 @@
 #include "PCGModule/HBDungeonRuntimeValidation.h"
 #include "PCGModule/HBDungeonPortal.h"
 #include "PCGModule/HBDungeonDoorSeal.h"
+#include "PCGModule/HBDungeonModuleDefinition.h"
+#include "PCGModule/HBDungeonConnectorComponent.h"
+#include "PCGModule/HBEncounterSubsystem.h"
+#include "PCGModule/HBEnemySpawnPoint.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "PCGPrototype/HBPCGPreview.h"
 #include "PCGComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/ArrowComponent.h"
+#include "Components/BrushComponent.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -14,6 +20,10 @@
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/Character.h"
 #include "CollisionQueryParams.h"
+#include "NavigationSystem.h"
+#include "NavigationData.h"
+#include "NavMesh/NavMeshBoundsVolume.h"
+#include "PhysicsEngine/BodySetup.h"
 DEFINE_LOG_CATEGORY_STATIC(LogHBDungeonRuntime, Log, All);
 
 AHBDungeonRuntime::AHBDungeonRuntime()
@@ -60,9 +70,12 @@ void AHBDungeonRuntime::StartGeneration()
     { Fail(TEXT("Configure a door seal class, positive extent and spawn tag.")); return; }
     if (!FMath::IsFinite(LoadTimeoutSeconds) || LoadTimeoutSeconds <= 0)
     { Fail(TEXT("Load timeout must be positive and finite.")); return; }
+    if (!FMath::IsFinite(EncounterTimeoutSeconds) || EncounterTimeoutSeconds <= 0)
+    { Fail(TEXT("Encounter timeout must be positive and finite.")); return; }
     if (!HBDungeonModuleCatalog::Build(ModuleMaps, ModuleCatalog, CatalogErrors))
     { Fail(FString::Join(CatalogErrors, TEXT("\n"))); return; }
     ActiveSeed = bRandomSeedOnStart ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
+    ++GenerationId;
     ActiveRules = DungeonRules;
     ActiveSettings.Seed = ActiveSeed;
     ActiveSettings.Origin = GetActorTransform();
@@ -164,28 +177,179 @@ bool AHBDungeonRuntime::PrepareGameplay(FString& Error)
     return true;
 }
 APlayerStart* AHBDungeonRuntime::GetPlayerStart() const { return IsReady() ? StartPoint.Get() : nullptr; }
+ULevel* AHBDungeonRuntime::GetLoadedRoomLevel(int32 RoomId) const
+{
+	return Streams.IsValidIndex(RoomId) && IsValid(Streams[RoomId]) ? Streams[RoomId]->GetLoadedLevel() : nullptr;
+}
+bool AHBDungeonRuntime::CreateDungeonNavigationBounds(FString& Error)
+{
+    if (IsValid(DungeonNavigationBounds)) return true;
+    UWorld* World = GetWorld();
+    UNavigationSystemV1* Nav = World ? UNavigationSystemV1::GetCurrent(World) : nullptr;
+    if (!World || !Nav || Rooms.IsEmpty())
+    { Error = TEXT("Dungeon navigation system or planned rooms are unavailable."); return false; }
+
+    FBox DungeonBounds(ForceInit);
+    for (const FHBPrototypeRoom& Room : Rooms)
+    {
+        if (!Room.Bounds.IsValid)
+        { Error = FString::Printf(TEXT("Room %d has invalid navigation bounds."), Room.Id); return false; }
+        DungeonBounds += Room.Bounds;
+    }
+    DungeonBounds = DungeonBounds.ExpandBy(FVector(500, 500, 500));
+    const FVector Extent = DungeonBounds.GetExtent();
+    if (Extent.ContainsNaN() || Extent.GetMin() <= 0.f)
+    { Error = TEXT("Dungeon navigation bounds have invalid size."); return false; }
+
+    FActorSpawnParameters Params;
+    Params.Owner = this;
+    Params.OverrideLevel = World->PersistentLevel;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    ANavMeshBoundsVolume* Volume = World->SpawnActor<ANavMeshBoundsVolume>(
+        ANavMeshBoundsVolume::StaticClass(), DungeonBounds.GetCenter(), FRotator::ZeroRotator, Params);
+    UBrushComponent* Brush = Volume ? Volume->GetBrushComponent() : nullptr;
+    if (!Brush)
+    {
+        if (IsValid(Volume)) Volume->Destroy();
+        Error = TEXT("Could not create the dungeon navigation bounds volume.");
+        return false;
+    }
+    UBodySetup* Body = NewObject<UBodySetup>(Brush);
+    FKBoxElem Box;
+    Box.X = Extent.X * 2.f;
+    Box.Y = Extent.Y * 2.f;
+    Box.Z = Extent.Z * 2.f;
+    Body->AggGeom.BoxElems.Add(Box);
+    Brush->BrushBodySetup = Body;
+    Brush->UpdateBounds();
+    const FBox ActualBounds = Volume->GetComponentsBoundingBox(true);
+    // The box extent is stored as floats; center +/- extent can differ by a fraction of a cm.
+    const FBox BoundsWithRoundingTolerance = ActualBounds.ExpandBy(1.f);
+    if (!ActualBounds.IsValid || !BoundsWithRoundingTolerance.IsInsideOrOn(DungeonBounds.Min)
+        || !BoundsWithRoundingTolerance.IsInsideOrOn(DungeonBounds.Max))
+    {
+        Volume->Destroy();
+        Error = FString::Printf(TEXT("Runtime navigation volume does not cover the planned dungeon. Planned=%s Actual=%s"),
+            *DungeonBounds.ToString(), *ActualBounds.ToString());
+        return false;
+    }
+    DungeonNavigationBounds = Volume;
+    Nav->OnNavigationBoundsUpdated(Volume);
+    return true;
+}
+bool AHBDungeonRuntime::IsEncounterNavigationReady() const
+{
+    UWorld* World = GetWorld();
+    UNavigationSystemV1* Nav = World ? UNavigationSystemV1::GetCurrent(World) : nullptr;
+    if (!Nav || !IsValid(DungeonNavigationBounds)
+        || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World)
+        || !Nav->GetDefaultNavDataInstance(FNavigationSystem::DontCreate)) return false;
+    for (const FHBPrototypeRoom& Room : Rooms)
+    {
+        ULevel* Level = GetLoadedRoomLevel(Room.Id);
+        if (!Level || !UHBEncounterSubsystem::HasEncounter(Level)) continue;
+        bool bProjectedPoint = false;
+        for (AActor* Actor : Level->Actors)
+        {
+            const AHBEnemySpawnPoint* Point = Cast<AHBEnemySpawnPoint>(Actor);
+            if (!IsValid(Point) || Point->GetLevel() != Level) continue;
+            FNavLocation OnNav;
+            if (Nav->ProjectPointToNavigation(Point->GetActorLocation(), OnNav, FVector(150, 150, 350)))
+            { bProjectedPoint = true; break; }
+        }
+        if (!bProjectedPoint) return false;
+    }
+    return true;
+}
+bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
+{
+	UHBEncounterSubsystem* EncounterSubsystem = GetWorld()->GetSubsystem<UHBEncounterSubsystem>();
+	if (!EncounterSubsystem) { Error = TEXT("Encounter subsystem is unavailable."); return false; }
+    for (const auto& Room : Rooms)
+    {
+        if (!Streams.IsValidIndex(Room.Id) || !IsValid(Streams[Room.Id]))
+        { Error = FString::Printf(TEXT("Missing streamed room %d for encounter preparation."), Room.Id); return false; }
+        ULevel* Level = Streams[Room.Id]->GetLoadedLevel();
+        if (!Level) { Error = FString::Printf(TEXT("Room %d was unloaded before encounter preparation."), Room.Id); return false; }
+        AHBDungeonModuleDefinition* Definition = nullptr;
+        for (AActor* Actor : Level->Actors)
+            if (auto* Candidate = Cast<AHBDungeonModuleDefinition>(Actor)) { Definition = Candidate; break; }
+        if (!Definition) { Error = FString::Printf(TEXT("Room %d has no module definition."), Room.Id); return false; }
+        if (!UHBEncounterSubsystem::HasEncounter(Level)) continue;
+        TArray<FVector> Entries;
+        for (AActor* Actor : Level->Actors)
+        {
+            if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal) && IsValid(Portal->TargetPortal))
+                Entries.Add(Portal->Arrival->GetComponentLocation());
+            if (const auto* Start = Cast<APlayerStart>(Actor); IsValid(Start) && Start->PlayerStartTag == SpawnTag)
+                Entries.Add(Start->GetActorLocation());
+        }
+        for (AActor* Actor : Level->Actors)
+            if (IsValid(Actor))
+            {
+                TInlineComponentArray<UHBDungeonConnectorComponent*> Connectors(Actor);
+                for (const auto* Connector : Connectors)
+                    if (Room.UsedConnectorIds.Contains(Connector->GetEffectiveConnectorId()))
+                        Entries.Add(Connector->GetComponentLocation());
+            }
+        if (!EncounterSubsystem->StartEncounter(GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error))
+        {
+            Error = FString::Printf(TEXT("Room %d encounter: %s"), Room.Id, *Error);
+            return false;
+        }
+    }
+    return true;
+}
+void AHBDungeonRuntime::MarkReady()
+{
+    State = EHBDungeonRuntimeState::Ready;
+    Status = TEXT("READY - gameplay dungeon and encounters prepared.");
+    UE_LOG(LogHBDungeonRuntime, Display, TEXT("%s Seed=%d Rooms=%d Seals=%d"), *Status, ActiveSeed, Rooms.Num(), Seals.Num());
+    OnReady.Broadcast();
+}
 void AHBDungeonRuntime::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    if (State != EHBDungeonRuntimeState::Generating && State != EHBDungeonRuntimeState::Loading) return;
-    if (FPlatformTime::Seconds() - GenerationStartTime > LoadTimeoutSeconds)
+    if (State != EHBDungeonRuntimeState::Generating && State != EHBDungeonRuntimeState::Loading
+        && State != EHBDungeonRuntimeState::PreparingEncounters) return;
+    if (State != EHBDungeonRuntimeState::PreparingEncounters && FPlatformTime::Seconds() - GenerationStartTime > LoadTimeoutSeconds)
     { Fail(TEXT("Dungeon generation/loading timed out. Check graph and source maps.")); return; }
+    if (State == EHBDungeonRuntimeState::PreparingEncounters)
+    {
+        if (FPlatformTime::Seconds() - EncounterStartTime > EncounterTimeoutSeconds)
+        { Fail(TEXT("Room encounter/navigation preparation timed out. Check NavMesh and streamed rooms.")); return; }
+        if (!IsEncounterNavigationReady()) return;
+        FString Error;
+        if (!PrepareEncounters(Error)) { Fail(Error); return; }
+        MarkReady();
+        return;
+    }
     if (State != EHBDungeonRuntimeState::Loading || PCG->IsGenerating()) return;
     for (const auto& Stream : Streams)
         if (!IsValid(Stream) || !Stream->IsLevelLoaded() || !Stream->IsLevelVisible()) return;
     FString Error;
     if (!PrepareGameplay(Error)) { Fail(Error); return; }
-    State = EHBDungeonRuntimeState::Ready;
-    Status = TEXT("READY - gameplay dungeon and spawn prepared.");
-    UE_LOG(LogHBDungeonRuntime, Display, TEXT("%s Seed=%d Rooms=%d Seals=%d"), *Status, ActiveSeed, Rooms.Num(), Seals.Num());
-    OnReady.Broadcast();
+    if (!CreateDungeonNavigationBounds(Error)) { Fail(Error); return; }
+    bool bHasEncounters = false;
+    for (const auto& Stream : Streams)
+        if (const ULevel* Level = IsValid(Stream) ? Stream->GetLoadedLevel() : nullptr)
+            if (UHBEncounterSubsystem::HasEncounter(Level)) bHasEncounters = true;
+    if (!bHasEncounters) { MarkReady(); return; }
+    State = EHBDungeonRuntimeState::PreparingEncounters;
+    EncounterStartTime = FPlatformTime::Seconds();
+    Status = TEXT("Waiting for navigation and room encounters...");
 }
 void AHBDungeonRuntime::ClearGenerated()
 {
+	if (UWorld* World = GetWorld())
+		if (UHBEncounterSubsystem* EncounterSubsystem = World->GetSubsystem<UHBEncounterSubsystem>())
+			EncounterSubsystem->ClearGeneration(GenerationId);
     for (const auto& Portal : LinkedPortals) if (IsValid(Portal)) Portal->Disconnect();
     LinkedPortals.Reset(); StartPoint = nullptr;
     for (const auto& Seal : Seals) if (IsValid(Seal)) Seal->Destroy();
     Seals.Reset();
+    if (IsValid(DungeonNavigationBounds)) DungeonNavigationBounds->Destroy();
+    DungeonNavigationBounds = nullptr;
     for (const auto& Stream : Streams) if (IsValid(Stream))
     { Stream->SetShouldBeVisible(false); Stream->SetShouldBeLoaded(false); Stream->SetIsRequestingUnloadAndRemoval(true); }
     Streams.Reset();

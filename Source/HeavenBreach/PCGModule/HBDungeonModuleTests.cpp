@@ -6,6 +6,12 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "PCGModule/HBDungeonMarkerActors.h"
+#include "PCGModule/HBEnemySpawnPoint.h"
+#include "PCGModule/HBEncounterSetupActor.h"
+#include "PCGModule/HBEncounterComponent.h"
+#include "PCGModule/HBRoomSpawnExclusionVolume.h"
+#include "AI/EnemyCharacterBase.h"
+#include "Components/BoxComponent.h"
 #include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -154,6 +160,64 @@ bool FHBModuleCoordinatesTest::RunTest(const FString&)
 	Fixture.Door->SetActorScale3D(FVector(2));
 	TestFalse(TEXT("Invalid geometry cannot be exported"), Room->ReadModuleGeometry(ModuleToWorld, Connectors, Boxes, Issues));
 	TestTrue(TEXT("Failure clears both outputs"), Connectors.IsEmpty() && Boxes.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBModuleEncounterAuthoringTest, "HeavenBreach.PCGModule.EncounterAuthoring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBModuleEncounterAuthoringTest::RunTest(const FString&)
+{
+	FModuleTestWorld Fixture;
+	auto* Room = Fixture.MakeRoom();
+	TArray<FHBDungeonModuleIssue> Issues;
+	auto* Point = Fixture.World->SpawnActor<AHBEnemySpawnPoint>();
+	Point->PointId = TEXT("FrontLeft");
+	TestFalse(TEXT("Authored point needs an encounter setup"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Missing setup diagnostic"), HasIssue(Issues, TEXT("MissingEncounterSetup")));
+
+	auto* Setup = Fixture.World->SpawnActor<AHBEncounterSetupActor>();
+	FHBEncounterGroup Group;
+	Group.GroupId = TEXT("Common");
+	Group.MinCount = Group.MaxCount = 1;
+	Setup->Encounter->Groups.Add(Group);
+	TestFalse(TEXT("Encounter needs a class for a positive count"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Invalid setup diagnostic"), HasIssue(Issues, TEXT("EncounterComponent")));
+	FHBEncounterMonsterOption Common;
+	Common.EnemyClass = AEnemyCharacterBase::StaticClass();
+	Setup->Encounter->Groups[0].Monsters.Add(Common);
+	TestTrue(TEXT("Valid common setup and point pass"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+
+	auto* Duplicate = Fixture.World->SpawnActor<AHBEnemySpawnPoint>();
+	Duplicate->PointId = Point->PointId;
+	TestFalse(TEXT("Duplicate point IDs rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Duplicate point diagnostic"), HasIssue(Issues, TEXT("EnemySpawnPointId")));
+	Duplicate->PointId = TEXT("BackRight");
+	Duplicate->SetActorScale3D(FVector(2.f));
+	TestFalse(TEXT("Scaled point rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Point transform diagnostic"), HasIssue(Issues, TEXT("EnemySpawnPointTransform")));
+	Duplicate->SetActorScale3D(FVector::OneVector);
+
+	Setup->Encounter->Groups[0].Grade = EHBEncounterGrade::Boss;
+	Setup->Encounter->Groups[0].GroupId = TEXT("Boss");
+	TestFalse(TEXT("Boss needs a boss-enabled point"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Missing boss point diagnostic"), HasIssue(Issues, TEXT("EncounterPoints")));
+	Point->bAllowCommon = false;
+	Point->bAllowBoss = true;
+	TestTrue(TEXT("Boss-enabled point passes"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	auto* SecondSetup = Fixture.World->SpawnActor<AHBEncounterSetupActor>();
+	SecondSetup->Encounter->Groups = Setup->Encounter->Groups;
+	TestFalse(TEXT("Duplicate setup actors rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Duplicate setup diagnostic"), HasIssue(Issues, TEXT("EncounterSetupCount")));
+	SecondSetup->Destroy();
+
+	auto* Exclusion = Fixture.World->SpawnActor<AHBRoomSpawnExclusionVolume>();
+	TestEqual(TEXT("Exclusion has no physical collision"), Exclusion->Bounds->GetCollisionEnabled(), ECollisionEnabled::NoCollision);
+	TestFalse(TEXT("Exclusion has no overlap events"), Exclusion->Bounds->GetGenerateOverlapEvents());
+	TestFalse(TEXT("Exclusion does not affect navigation"), Exclusion->Bounds->CanEverAffectNavigation());
+	TestTrue(TEXT("Valid exclusion passes"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	Exclusion->Bounds->SetBoxExtent(FVector::ZeroVector);
+	TestFalse(TEXT("Zero-size exclusion rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Exclusion size diagnostic"), HasIssue(Issues, TEXT("SpawnExclusionSize")));
 	return true;
 }
 #endif

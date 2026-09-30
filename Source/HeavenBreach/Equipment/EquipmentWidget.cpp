@@ -22,7 +22,7 @@ void UEquipmentWidget::EnsureSlotMapInitialized()
 	SlotMap.Add(EEquipSlotType::Accessory, Slot_Accessory);
 }
 
-void UEquipmentWidget::BindToEquipment(UEquipmentComponent* InEquipment, UInventoryComponent* InInventory)
+void UEquipmentWidget::BindToEquipment(UEquipmentComponent* InEquipment, UInventoryComponent* InInventory, UInventoryWidget* InOwningInventoryWidget)
 {
 	EnsureSlotMapInitialized();
 
@@ -33,6 +33,7 @@ void UEquipmentWidget::BindToEquipment(UEquipmentComponent* InEquipment, UInvent
 
 	BoundEquipment = InEquipment;
 	BoundInventory = InInventory;
+	OwningInventoryWidget = InOwningInventoryWidget;
 
 	if (BoundEquipment != nullptr)
 	{
@@ -44,12 +45,28 @@ void UEquipmentWidget::BindToEquipment(UEquipmentComponent* InEquipment, UInvent
 	{
 		if (UEquipmentSlotWidget* SlotWidget = Pair.Value)
 		{
-			SlotWidget->InitSlot(Pair.Key, BoundEquipment, BoundInventory);
+			SlotWidget->InitSlot(Pair.Key, BoundEquipment, BoundInventory, OwningInventoryWidget);
 			InitializedCount++;
 		}
 	}
 
 	RefreshSlots();
+}
+
+UEquipmentSlotWidget* UEquipmentWidget::GetHoveredSlotWidget() const
+{
+	for (const auto& Pair : SlotMap)
+	{
+		if (UEquipmentSlotWidget* SlotWidget = Pair.Value)
+		{
+			if (SlotWidget->IsHovered())
+			{
+				return SlotWidget;
+			}
+		}
+	}
+
+	return nullptr;
 }
 
 void UEquipmentWidget::NativeDestruct()
