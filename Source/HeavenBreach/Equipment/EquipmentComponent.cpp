@@ -108,27 +108,41 @@ float UEquipmentComponent::SumArmorDefense() const
 	return Total;
 }
 
-float UEquipmentComponent::SumWeaponAttackPower() const
+const FWeaponData* UEquipmentComponent::FindUsableWeaponRow() const
 {
-	// 부서진 무기로는 공격 자체가 안 나가므로(각 공격 GA 가 막는다) 공격력도 0 으로 둔다.
+	// 부서진 무기로는 공격 자체가 안 나가므로(각 공격 GA 가 막는다) 기초 스탯도 없는 것으로 둔다.
 	if (IsEquippedItemBroken(EEquipSlotType::PrimaryWeapon))
 	{
-		return 0.f;
+		return nullptr;
 	}
 
 	FItemInstance WeaponItem;
 	if (!GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
 	{
-		return 0.f;
+		return nullptr;
 	}
 
-	const FWeaponData* WeaponRow = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("SumWeaponAttackPower"));
+	return WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("FindUsableWeaponRow"));
+}
+
+float UEquipmentComponent::SumWeaponAttackPower() const
+{
+	const FWeaponData* WeaponRow = FindUsableWeaponRow();
 	if (!WeaponRow)
 	{
 		return 0.f;
 	}
-
 	return WeaponRow->AttackPower;
+}
+
+float UEquipmentComponent::GetWeaponAttackSpeedRate() const
+{
+	const FWeaponData* WeaponRow = FindUsableWeaponRow();
+	if (!WeaponRow)
+	{
+		return 1.f;
+	}
+	return WeaponRow->AttackSpeedRate;
 }
 
 void UEquipmentComponent::RefreshEquipmentStats()
@@ -214,6 +228,14 @@ FItemStatTotals UEquipmentComponent::CollectStatTotals() const
 	Totals.FindOrAdd(ItemTag::TAG_Stat_AttackPower).Flat += SumWeaponAttackPower();
 	Totals.FindOrAdd(ItemTag::TAG_Stat_Defense).Flat += SumArmorDefense();
 
+	// 무기 공격 속도. 배율을 % 로 바꿔 옵션 한 줄로 넣는다 (0.8 → -20).
+	// 옵션으로 넣는 이유: "10 = 10%" 환산을 AddOptionToTotals 한 곳에 두려고.
+	FItemOption WeaponSpeed;
+	WeaponSpeed.Stat = ItemTag::TAG_Stat_AttackSpeed;
+	WeaponSpeed.ValueType = EItemOptionValueType::Percent;
+	WeaponSpeed.Value = (GetWeaponAttackSpeedRate() - 1.f) * 100.f;
+	ItemStats::AddOptionToTotals(WeaponSpeed, Totals);
+
 	for (int32 Index = 0; Index < Slots.Num(); ++Index)
 	{
 		const EEquipSlotType SlotType = static_cast<EEquipSlotType>(Index);
@@ -230,9 +252,10 @@ FItemStatTotals UEquipmentComponent::CollectStatTotals() const
 			continue;
 		}
 
-		// 각인이 들어오면 여기에 인스턴스 옵션을 더한다. 아래 DT 조회보다 위에 둔다 —
-		// DT 조회가 실패해도 각인 옵션은 살아야 한다.
-		//   AddOptionsTo(Item.Options, Item.ItemRow.RowName, Totals);
+		// 각인. 아래 DT 조회보다 위에 둔다 — DT 조회가 실패해도 각인 옵션은 살아야 한다.
+		// 좋은 쪽 나쁜 쪽 구분 없이 적힌 부호 그대로 더한다. 나뉜 건 툴팁 색뿐이다.
+		AddOptionsTo(Item.Engraving.Benefits, Item.ItemRow.RowName, Totals);
+		AddOptionsTo(Item.Engraving.Risks, Item.ItemRow.RowName, Totals);
 
 		// 행 종류를 가리지 않는다. 무기·방패 행은 옵션 배열이 비어서 온다.
 		FItemViewData ViewData;

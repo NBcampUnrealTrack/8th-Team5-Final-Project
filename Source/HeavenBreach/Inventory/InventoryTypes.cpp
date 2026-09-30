@@ -2,6 +2,7 @@
 #include "Item/Item.h"
 #include "Engine/Texture2D.h"
 #include "AbilitySystemComponent.h"
+#include "Item/ItemStatBinding.h"
 
 
 namespace
@@ -124,20 +125,18 @@ FString BuildStatTextForItem(const FItemInstance& InItem)
 	{
 		if (const FWeaponData* WeaponRow = ItemDataTable->FindRow<FWeaponData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
 		{
-			const FText WeaponStatFormat = FText::FromString(TEXT("공격력: {0}\n사거리: {1}\n공격 속도: {2}초"));
+			const FText WeaponStatFormat = FText::FromString(TEXT("공격력: {0}\n공격 속도: {1}배"));
 			StatText = FText::Format(WeaponStatFormat,
 				FText::AsNumber(WeaponRow->AttackPower),
-				FText::AsNumber(WeaponRow->AttackRange),
-				FText::AsNumber(WeaponRow->AttackInterval)).ToString();
+				FText::AsNumber(WeaponRow->AttackSpeedRate)).ToString();
 		}
 	}
 	else if (RowStruct == FShieldData::StaticStruct())
 	{
 		if (const FShieldData* ShieldRow = ItemDataTable->FindRow<FShieldData>(InItem.ItemRow.RowName, TEXT("ItemInfoHover")))
 		{
-			const FText ShieldStatFormat = FText::FromString(TEXT("피해 감소: {0}%\n방어 범위: {1}도"));
+			const FText ShieldStatFormat = FText::FromString(TEXT("방어 범위: {0}도"));
 			StatText = FText::Format(ShieldStatFormat,
-				FText::AsNumber(ShieldRow->DamageReduction),
 				FText::AsNumber(ShieldRow->BlockAngle)).ToString();
 		}
 	}
@@ -313,4 +312,20 @@ UTexture2D* LoadItemIcon(const FString& InIconPath)
 	}
 
 	return LoadObject<UTexture2D>(nullptr, *ObjectPath);
+}
+
+// 각인은 악세서리 숫자 옵션과 같은 타입이라 한 목록으로 이어 붙여 같은 문장 규칙을 탄다.
+//   "공격력 +2", "방어력 -3%"
+FString BuildBenefitLinesForItem(const FItemInstance& InItem, const FItemViewData& InViewData)
+{
+	TArray<FItemOption> Options = InViewData.BenefitOptions;
+	Options.Append(InItem.Engraving.Benefits);
+	return ItemStats::FormatLines(Options, InViewData.BenefitEffects);
+}
+
+FString BuildRiskLinesForItem(const FItemInstance& InItem, const FItemViewData& InViewData)
+{
+	TArray<FItemOption> Options = InViewData.RiskOptions;
+	Options.Append(InItem.Engraving.Risks);
+	return ItemStats::FormatLines(Options, InViewData.RiskEffects);
 }

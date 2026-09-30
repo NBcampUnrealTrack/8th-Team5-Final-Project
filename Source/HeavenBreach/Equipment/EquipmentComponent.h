@@ -12,6 +12,7 @@ class UInventoryComponent;
 class UAbilitySystemComponent;
 struct FItemOption;
 struct FItemEffect;
+struct FWeaponData;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEquipmentChanged);
 
@@ -118,6 +119,13 @@ private:
 
 	// 부서지지 않은 주무기의 FWeaponData::AttackPower.
 	float SumWeaponAttackPower() const;
+
+	// 부서지지 않은 주무기의 공격 속도 배율. 무기가 없거나 부서졌으면 1(영향 없음).
+	float GetWeaponAttackSpeedRate() const;
+
+	// 공격에 쓸 수 있는 주무기의 행. 없거나 부서졌으면 nullptr.
+	// 무기 기초 스탯이 둘이 되어서 "부서지면 0" 규칙을 한 곳에 모았다.
+	const FWeaponData* FindUsableWeaponRow() const;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Slots)
 	TArray<FItemInstance> Slots;
