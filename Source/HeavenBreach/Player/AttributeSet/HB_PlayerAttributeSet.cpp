@@ -22,7 +22,7 @@ UHB_PlayerAttributeSet::UHB_PlayerAttributeSet()
 	InitPlayer_CooldownFlat(0.f);
 	InitPlayer_CooldownMultiplier(1.f);
 	InitPlayer_LifeStealRatio(0.f);
-	InitPlayer_BasicAttackManaCostMultiplier(1.f);
+	InitPlayer_SprintManaCostMultiplier(1.f);
 	InitPlayer_LowHealthAttackBonus(0.f);
 	// 중립값 0 이다. 실제 임계값은 패시브 GE 가 Override 로 지정한다.
 	// 여기에 0.3 을 박아두면 밸런스가 임계값을 바꿀 때 C++ 을 고쳐야 한다.
@@ -60,7 +60,7 @@ void UHB_PlayerAttributeSet::GetLifetimeReplicatedProps(TArray<class FLifetimePr
 	DOREPLIFETIME(ThisClass,Player_CooldownFlat);
 	DOREPLIFETIME(ThisClass,Player_CooldownMultiplier);
 	DOREPLIFETIME(ThisClass,Player_LifeStealRatio);
-	DOREPLIFETIME(ThisClass,Player_BasicAttackManaCostMultiplier);
+	DOREPLIFETIME(ThisClass,Player_SprintManaCostMultiplier);
 	DOREPLIFETIME(ThisClass,Player_LowHealthAttackBonus);
 	DOREPLIFETIME(ThisClass,Player_LowHealthAttackThreshold);
 	DOREPLIFETIME(ThisClass,Player_MoveSpeedFlat);
@@ -107,9 +107,9 @@ void UHB_PlayerAttributeSet::PreAttributeChange(const FGameplayAttribute& Attrib
 	{
 		NewValue = FMath::Clamp(NewValue, 0.2f, 2.f);
 	}
-	else if (Attribute == GetPlayer_BasicAttackManaCostMultiplierAttribute())
+	else if (Attribute == GetPlayer_SprintManaCostMultiplierAttribute())
 	{
-		// 하한 0 이라야 전투 호흡의 증강 Free(마나 0)가 성립한다.
+		// 하한 0 이라야 전투 호흡(달리기 마나 0)이 성립한다.
 		// 상한 2 는 소비 증가 디버프용.
 		NewValue = FMath::Clamp(NewValue, 0.f, 2.f);
 	}
@@ -309,9 +309,9 @@ void UHB_PlayerAttributeSet::OnRep_LifeStealRatio(const FGameplayAttributeData& 
 	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_LifeStealRatio, OldValue);
 }
 
-void UHB_PlayerAttributeSet::OnRep_BasicAttackManaCostMultiplier(const FGameplayAttributeData& OldValue)
+void UHB_PlayerAttributeSet::OnRep_SprintManaCostMultiplier(const FGameplayAttributeData& OldValue)
 {
-	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_BasicAttackManaCostMultiplier, OldValue);
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_SprintManaCostMultiplier, OldValue);
 }
 
 void UHB_PlayerAttributeSet::OnRep_LowHealthAttackBonus(const FGameplayAttributeData& OldValue)

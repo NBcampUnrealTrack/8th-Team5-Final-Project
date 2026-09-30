@@ -8,6 +8,9 @@
 #include "Player/HBPlayerCharacter.h"
 #include "Player/Job/HBJobData.h"
 #include "Combat/Ability/HBPlayerSkillGABase.h"
+#include "Combat/Ability/HBAugmentLibrary.h"
+#include "Combat/Ability/HBCommonAugmentSet.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "GameplayEffect.h"
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
@@ -49,6 +52,61 @@ namespace
 		}
 
 		return Cast<UHBPlayerSkillGABase>(Skill->AbilityClass->GetDefaultObject());
+	}
+
+	// 단계가 있는 증강은 카드 제목에 단계를 붙인다. 전용 위젯을 만들지 않고
+	// 제목에 넣는 이유는 WBP 수정 없이 돌아가게 하려는 것이다.
+	// UHB_AugmentCard 의 바인딩이 BindWidgetOptional 이라 나중에 전용 위젯으로
+	// 옮기는 길은 열려 있다.
+	FText MakeTieredDisplayName(const FText& Base, const int32 Tier, const int32 MaxTier)
+	{
+		if (MaxTier <= 1)
+		{
+			return Base;   // 단계 없는 증강은 그대로
+		}
+		return FText::Format(NSLOCTEXT("HBAugment", "TieredName", "{0} ({1}단계)"),
+			Base, FText::AsNumber(Tier));
+	}
+
+	// 증강 하나를 후보 한 장으로 만들어 통에 넣는다. 최대 단계면 아무것도 안 넣는다.
+	//
+	// 왜 뺐나: 스킬 증강과 공통 강화의 수집 코드가 단계 필터 아래로는 글자 하나까지
+	// 같았다. 다른 건 어느 통에서 증강을 꺼내는가(GA CDO / DataAsset)와 그래서
+	// TargetSkillId 에 뭘 넣는가 뿐이고, 그건 이 함수를 부르는 쪽 반복문에 남아 있다.
+	// 붙여넣기로 두면 카드 표기 규칙이 바뀔 때마다 두 곳을 같이 고쳐야 하고,
+	// 한쪽만 고치면 공통 강화 카드만 다르게 보이는 식으로 어긋난다.
+	//
+	// 멤버가 아니라 자유 함수인 이유: 필요한 상태를 전부 인자로 받는다.
+	// PlayerState 를 만들지 않아도 부를 수 있어야 나중에 테스트가 붙는다.
+	void AddAugmentCandidate(
+		const FHBSkillAugment& Augment,
+		const FName TargetSkillId,
+		const TArray<FHBAugmentStack>& TakenAugments,
+		TArray<FHBUpgradeCandidate>& OutPool)
+	{
+		if (!Augment.AugmentTag.IsValid())
+		{
+			return;
+		}
+
+		const int32 CurrentTier = HBAugment::FindTier(TakenAugments, Augment.AugmentTag);
+		const int32 MaxTier = HBAugment::GetMaxTier(Augment);
+		if (CurrentTier >= MaxTier)
+		{
+			return;   // 최대 단계에 도달했다. 후보에서 사라진다
+		}
+
+		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
+		Candidate.Tier = CurrentTier + 1;
+		Candidate.CandidateId = FName(*FString::Printf(
+			TEXT("Augment.%s.T%d"), *Augment.AugmentTag.GetTagName().ToString(), Candidate.Tier));
+		Candidate.Type = EHBUpgradeCandidateType::Augment;
+		// 공통 강화면 호출부가 NAME_None 을 넘긴다. 그게 "공통" 의 표시다.
+		Candidate.TargetSkillId = TargetSkillId;
+		Candidate.AugmentTag = Augment.AugmentTag;
+		Candidate.DisplayName = MakeTieredDisplayName(Augment.DisplayName, Candidate.Tier, MaxTier);
+		Candidate.Description = Augment.GetFormattedDescription();
+		Candidate.Icon = Augment.Icon;
 	}
 }
 
@@ -564,6 +622,7 @@ void AHB_PlayerState::ResetMatchProgression()
 
 	// 증강은 이번 판에서만 유효하다. 태그와 그 태그가 붙인 GE 를 같이 걷는다.
 	// GE 를 안 걷으면 로비에서도 공격력이 오른 채로 남는다.
+	// 핸들 컨테이너 둘은 RemoveAllAugmentEffects 안에서 같이 비워진다.
 	RemoveAllAugmentEffects();
 	TakenAugments.Reset();
 
@@ -614,60 +673,175 @@ bool AHB_PlayerState::HasAugment(const FGameplayTag AugmentTag) const
 		return false;
 	}
 
-	// 정확히 일치하는 것만 본다. 부모 태그로 물으면 다른 증강이 걸린다.
-	return TakenAugments.HasTagExact(AugmentTag);
+	// 단계가 1 이상이면 보유다.
+	return HBAugment::FindTier(TakenAugments, AugmentTag) > 0;
 }
 
-void AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag AugmentTag)
+FGameplayTagContainer AHB_PlayerState::GetTakenAugments() const
 {
-	if (!HasAuthority())
+	FGameplayTagContainer Out;
+	for (const FHBAugmentStack& Stack : TakenAugments)
 	{
-		return;
+		if (Stack.AugmentTag.IsValid())
+		{
+			Out.AddTag(Stack.AugmentTag);
+		}
 	}
+	return Out;
+}
+
+int32 AHB_PlayerState::GetAugmentTier(const FGameplayTag AugmentTag) const
+{
+	return HBAugment::FindTier(TakenAugments, AugmentTag);
+}
+
+bool AHB_PlayerState::FindAugmentAnywhere(
+	const FName TargetSkillId, const FGameplayTag AugmentTag, FHBSkillAugment& Out) const
+{
 	if (!AugmentTag.IsValid())
 	{
-		return;
-	}
-	if (TakenAugments.HasTagExact(AugmentTag))
-	{
-		return;   // 같은 증강을 두 번 고를 수는 없다
+		return false;
 	}
 
-	TakenAugments.AddTag(AugmentTag);
-
-	// 전역 효과가 있으면 여기서 붙인다. 수치만 쓰는 증강은 GrantEffect 가 비어 있다.
-	const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
-	const UHBJobData* JobData = Character ? Character->GetJobData() : nullptr;
-	const UHBPlayerSkillGABase* SkillCDO = GetSkillCDO(JobData, TargetSkillId);
-	if (!SkillCDO)
+	// 스킬에 딸린 증강이면 그 스킬의 CDO 가 주인이다.
+	if (!TargetSkillId.IsNone())
 	{
-		return;
+		const AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(GetPawn());
+		const UHBJobData* JobData = Character ? Character->GetJobData() : nullptr;
+		if (const UHBPlayerSkillGABase* SkillCDO = GetSkillCDO(JobData, TargetSkillId))
+		{
+			return SkillCDO->FindAugment(AugmentTag, Out);
+		}
+		return false;
+	}
+
+	// 비어 있으면 공통 강화다.
+	if (CommonAugmentSet)
+	{
+		if (const FHBSkillAugment* Found = CommonAugmentSet->FindAugment(AugmentTag))
+		{
+			Out = *Found;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AHB_PlayerState::ApplyAugment(const FName TargetSkillId, const FGameplayTag AugmentTag)
+{
+	if (!HasAuthority() || !AugmentTag.IsValid())
+	{
+		return false;
 	}
 
 	FHBSkillAugment Augment;
-	if (!SkillCDO->FindAugment(AugmentTag, Augment))
+	if (!FindAugmentAnywhere(TargetSkillId, AugmentTag, Augment))
 	{
-		return;
-	}
-	if (!Augment.GrantEffect)
-	{
-		return;
-	}
-	if (!AbilitySystemComponent)
-	{
-		return;
+		UE_LOG(LogTemp, Warning, TEXT("[Augment] %s 를 스킬(%s)도 공통 세트도 갖고 있지 않다"),
+			*AugmentTag.ToString(), *TargetSkillId.ToString());
+		return false;
 	}
 
+	// 단계는 서버가 센다. 후보에 실린 Tier 를 신뢰하지 않는다.
+	const int32 MaxTier = HBAugment::GetMaxTier(Augment);
+	if (!HBAugment::RaiseTier(TakenAugments, AugmentTag, MaxTier))
+	{
+		return false;   // 이미 최대 단계다
+	}
+	const int32 NewTier = HBAugment::FindTier(TakenAugments, AugmentTag);
+
+	// 수치만 쓰는 증강은 GrantEffect 가 비어 있다. 단계는 올랐으니 성공이다.
+	if (!Augment.GrantEffect || !AbilitySystemComponent)
+	{
+		return true;
+	}
+
+	// GE 는 있는데 TierMagnitudes 가 비면 GetTierMagnitude 가 1단계에도 0 을 준다.
+	// 공통 강화 GE 는 전부 SetByCaller 로 수치를 받으므로 결과는 "0 만큼 강해지는"
+	// 무효 증강이다. 그런데 GetMaxTier 가 1 을 돌려주니 바로 최대 단계가 되어
+	// 후보에서도 사라진다. 에러 없이 조용히 사라지는 애셋 설정 실수라서,
+	// 애셋을 만드는 단계에서 바로 보이도록 시끄럽게 남긴다.
+	//
+	// 막지는 않는다. "비면 단계 없는 1회성" 이라는 기존 뜻을 그대로 두고
+	// 알려만 준다. GE 가 SetByCaller 를 안 쓰는 경우도 있을 수 있다.
+	if (Augment.TierMagnitudes.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Augment] '%s' 는 GrantEffect 가 있는데 TierMagnitudes 가 비었다. ")
+			TEXT("SetByCaller 수치가 0 으로 들어간다. 애셋에 단계 수치를 채워라."),
+			*AugmentTag.GetTagName().ToString());
+	}
+
+	// 새 스펙을 먼저 만든다. 이전 GE 를 먼저 떼면, 새 스펙이 실패했을 때
+	// 증강이 아무 효과도 없이 남는다. 검증된 교체본이 손에 있을 때만 뗀다.
 	FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(
 		Augment.GrantEffect, 1.f, AbilitySystemComponent->MakeEffectContext());
 	if (!Spec.IsValid())
 	{
-		return;
+		return true;   // 단계는 올랐다. GE 만 실패했다. 이전 GE 는 그대로 둔다
 	}
 
-	// 핸들을 들고 있는 이유는 개별 취소가 아니라 매치 리셋 때 걷기 위해서다.
-	AugmentEffectHandles.Add(
-		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
+	// 이제야 이전 단계 GE 를 뗀다. TierMagnitudes 가 최종 수치라서 겹쳐 붙이면
+	// 합산되어 뜻이 달라진다.
+	if (const FActiveGameplayEffectHandle* Previous = AugmentEffectByTag.Find(AugmentTag))
+	{
+		AbilitySystemComponent->RemoveActiveGameplayEffect(*Previous);
+		AugmentEffectHandles.Remove(*Previous);
+		AugmentEffectByTag.Remove(AugmentTag);
+	}
+
+	Spec.Data->SetSetByCallerMagnitude(
+		AbilityTag::TAG_SetByCaller_AugmentMagnitude,
+		HBAugment::GetTierMagnitude(Augment, NewTier));
+
+	const FActiveGameplayEffectHandle Handle =
+		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	if (!Handle.IsValid())
+	{
+		// 붙이기가 거절됐다 (면역, ApplicationTagRequirements 등). 이 시점에는
+		// 이전 단계 GE 를 이미 뗐으므로, 그냥 두면 단계는 N 인데 붙은 GE 는
+		// 하나도 없는 상태가 된다. 게다가 N 이 최대 미만이어도 다음 후보에는
+		// N+1 만 뜨니 없어진 효과를 되찾을 길이 영영 없다.
+		//
+		// 두 수습안 중 단계 되돌리기를 골랐다. 뗀 GE 를 다시 붙이는 쪽은
+		// 방금 실패한 ApplyGameplayEffectSpecToSelf 를 같은 GE 애셋으로 한 번 더
+		// 부르는 것이라, 거절 사유(면역·태그 요구)가 그대로면 똑같이 실패한다.
+		// 실패의 실패는 알릴 방법도 없다. 단계 되돌리기는 항상 성공한다.
+		//
+		// 되돌린 뒤 false 를 준다. 호출부(ApplyUpgradeCandidate)가 false 면
+		// 선택권을 소모하지 않으므로 플레이어는 카드를 잃지 않고, 증강은
+		// 최대 단계 미만이라 다음 레벨업 후보에 다시 뜬다. 거절 사유가
+		// 그때 사라져 있으면 그대로 붙는다.
+		LowerAugmentTier(AugmentTag);
+
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Augment] '%s' %d단계 GE 적용이 거절됐다. 단계를 %d 로 되돌린다."),
+			*AugmentTag.GetTagName().ToString(), NewTier, NewTier - 1);
+		return false;
+	}
+
+	AugmentEffectHandles.Add(Handle);
+	AugmentEffectByTag.Add(AugmentTag, Handle);
+	return true;
+}
+
+void AHB_PlayerState::LowerAugmentTier(const FGameplayTag AugmentTag)
+{
+	for (int32 Index = 0; Index < TakenAugments.Num(); ++Index)
+	{
+		if (TakenAugments[Index].AugmentTag != AugmentTag)
+		{
+			continue;
+		}
+
+		// 1단계에서 실패했으면 아예 안 먹은 것으로 되돌린다. Tier 0 짜리 항목을
+		// 남기면 GetTakenAugments 가 안 먹은 증강을 보유로 세어 UI 에 뜬다.
+		if (--TakenAugments[Index].Tier <= 0)
+		{
+			TakenAugments.RemoveAt(Index);
+		}
+		return;
+	}
 }
 
 void AHB_PlayerState::RemoveAllAugmentEffects()
@@ -684,6 +858,12 @@ void AHB_PlayerState::RemoveAllAugmentEffects()
 		}
 	}
 	AugmentEffectHandles.Reset();
+
+	// 태그->핸들 맵도 같이 비운다. 두 컨테이너는 같은 핸들을 두 모양으로 들고
+	// 있는 하나의 상태다. 여기서 안 비우면 죽음/리스폰처럼 호출부가 늘었을 때
+	// 이미 떼어낸 핸들이 맵에 남고, 다음 단계 상승이 그 죽은 핸들을 떼려 든다.
+	// 호출부가 따로 Reset 해 주기를 기대하는 건 계약이 아니라 우연이었다.
+	AugmentEffectByTag.Reset();
 }
 
 // ================ 폐기 예정 ================
@@ -747,8 +927,9 @@ void AHB_PlayerState::ApplyUpgradeCandidate(const FName CandidateId)
 
 	if (Candidate->Type == EHBUpgradeCandidateType::Augment)
 	{
-		ApplyAugment(Candidate->TargetSkillId, Candidate->AugmentTag);
-		bApplied = true;
+		// 실패하면 선택권을 소모하지 않는다. 예전에는 무조건 true 였고,
+		// 증강을 못 찾거나 GrantEffect 가 비면 카드 한 장을 잃었다.
+		bApplied = ApplyAugment(Candidate->TargetSkillId, Candidate->AugmentTag);
 	}
 	else
 	{
@@ -805,14 +986,14 @@ void AHB_PlayerState::GenerateUpgradeCandidates()
 
 	// 궁극기는 넣지 않는다. 궁극기 증강은 기획에서 폐기됐다.
 
-	// 앞에서부터 3장을 뽑는다. 뽑을 때마다 마지막 것과 자리를 바꿔 O(1) 로 제거한다.
-	const int32 DrawCount = FMath::Min(3, Pool.Num());
-	for (int32 Drawn = 0; Drawn < DrawCount; ++Drawn)
-	{
-		const int32 Index = FMath::RandRange(0, Pool.Num() - 1);
-		CurrentUpgradeCandidates.Add(Pool[Index]);
-		Pool.RemoveAtSwap(Index);
-	}
+	// 공통 강화도 같은 통에 넣어 똑같은 확률로 뽑는다(기획서 28.1).
+	CollectCommonAugments(Pool);
+
+	// 씨앗은 매번 새로 만든다. 재현이 필요한 곳이 아니다.
+	// DrawCandidates 가 FRandomStream 을 받는 이유는 테스트에서 고정하기
+	// 위한 것이고, 실제 플레이에서는 무작위가 맞다.
+	FRandomStream Rng(FMath::Rand());
+	HBAugment::DrawCandidates(Pool, 3, Rng, CurrentUpgradeCandidates);
 
 	// 뽑을 게 하나도 없으면 선택권을 소모하고 넘긴다.
 	// 안 그러면 카드 0장짜리 선택 UI 가 영영 열려 있는다.
@@ -888,25 +1069,22 @@ void AHB_PlayerState::CollectSkillAugments(TArray<FHBUpgradeCandidate>& OutPool,
 
 	for (const FHBSkillAugment& Augment : SkillCDO->GetAugments())
 	{
-		if (!Augment.AugmentTag.IsValid())
-		{
-			continue;
-		}
-		if (TakenAugments.HasTagExact(Augment.AugmentTag))
-		{
-			continue;   // 이미 고른 증강은 다시 안 나온다
-		}
+		// 이 스킬에 딸린 증강이라 TargetSkillId 에 스킬을 적는다.
+		AddAugmentCandidate(Augment, SkillId, TakenAugments, OutPool);
+	}
+}
 
-		FHBUpgradeCandidate& Candidate = OutPool.AddDefaulted_GetRef();
-		Candidate.CandidateId = FName(*FString::Printf(
-			TEXT("Augment.%s"), *Augment.AugmentTag.GetTagName().ToString()));
-		Candidate.Type = EHBUpgradeCandidateType::Augment;
-		Candidate.TargetSkillId = SkillId;
-		Candidate.AugmentTag = Augment.AugmentTag;
-		Candidate.DisplayName = Augment.DisplayName;
-		// 설명의 {Cooldown} 같은 치환자를 실제 수치로 바꿔서 넘긴다.
-		Candidate.Description = Augment.GetFormattedDescription();
-		Candidate.Icon = Augment.Icon;
+void AHB_PlayerState::CollectCommonAugments(TArray<FHBUpgradeCandidate>& OutPool) const
+{
+	if (!CommonAugmentSet)
+	{
+		return;   // 애셋이 지정되지 않았다. 공통 강화 없이 동작한다
+	}
+
+	for (const FHBSkillAugment& Augment : CommonAugmentSet->Augments)
+	{
+		// TargetSkillId 를 비운다. 이것이 "공통" 의 표시다.
+		AddAugmentCandidate(Augment, NAME_None, TakenAugments, OutPool);
 	}
 }
 

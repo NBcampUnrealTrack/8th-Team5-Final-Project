@@ -98,10 +98,44 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UQuickSlotComponent* GetQuickSlot() const;
 
+	// ================ 디버그 ================
+
+	/**
+	 * 콘솔에서 아이템 하나를 만들어 인벤토리에 넣고 바로 장착한다.
+	 * PIE 에서 무기 없이 스킬을 못 쓰는 상황을 넘기려고 둔 것이다.
+	 *
+	 * 쓰는 법: PIE 중 ` 로 콘솔을 열고  DebugEquip WPN_001
+	 *   DT_Weapon  WPN_001~004(검) / BOW_001~004 / DAG_001~004
+	 *   DT_Shield  SHD_001~004
+	 *
+	 * 슬롯을 인자로 받지 않는 이유: UEquipmentComponent::CanEquip 이 행 데이터의
+	 * EquipSlotType 을 읽어 판정한다. 아이템이 자기 자리를 알고 있다.
+	 *
+	 * 쳐낼 조건: 로비를 거치는 테스트 경로가 안정되면 지운다.
+	 */
+	UFUNCTION(Exec, Category = "Player|Debug")
+	void DebugEquip(FName RowName);
+
+	UFUNCTION(Server, Reliable)
+	void ServerDebugEquip(FName RowName);
+
+	/**
+	 * 장착 무기에 맞는 타격 성질 큐 태그. 맨손이면 둔타다.
+	 *
+	 * 왜 필요한가: 큐는 맞는 쪽이 쏘고 공격자의 ASC 태그에서 성질을 읽는다
+	 * (HitCuePlay::ResolveCueTag). 그런데 ActivationOwnedTags 는 생성자에서
+	 * 정해지는 상수라 런타임에 바뀌는 장착 무기를 담을 수 없다.
+	 * 그래서 공격 어빌리티가 발동 중에만 이 태그를 루즈 태그로 붙인다.
+	 *
+	 * 쳐낼 조건: 무기마다 성질을 따로 정해야 하면 DT_Weapon 에 칸을 만들고
+	 * 여기 대신 그 값을 읽는다. 그때 이 매핑은 폴백으로만 남는다.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Player|Combat")
+	FGameplayTag GetImpactCueTag() const;
+
 	// 장착 무기의 WeaponType을 태그로 변환한다. 올바르지 않거나 타입이 없으면 Weapon.Unarmed.
 	UFUNCTION(BlueprintPure, Category = "Player|Combat")
 	FGameplayTag GetEquippedWeaponTag() const;
-
 #pragma region Interaction
 public:
 	virtual void PawnClientRestart() override;
@@ -182,9 +216,17 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
 
-	/** Socket whose animated position is followed by the first-person camera. */
+	// 머리 흔들림이 화면에 들어가는 세기(BP 기본값 x 설정 메뉴). 1 이면 아무것도 안 한다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Camera")
+	TObjectPtr<class UHBCameraMotionComponent> CameraMotionComp;
+
+	/**
+	 * 1인칭 카메라가 따라가는 뼈. 소켓이 아니라 뼈 이름이다.
+	 * 예전에는 neck_02 의 FirstPersonCameraSocket 이었는데, 목은 공격 중에 거의 안 움직여
+	 * 화면 흔들림이 없었다. 생성자에서 붙이므로 BP 에서 바꿔도 부착 위치는 안 바뀐다.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Camera")
-	FName FirstPersonCameraSocketName = TEXT("FirstPersonCameraSocket");
+	FName FirstPersonCameraSocketName = TEXT("head");
 	
 #pragma region ASC
 public:
@@ -280,7 +322,9 @@ public:
 
 	// 비용만큼 마나가 있는가. 클라도 읽어서 즉시 막는다.
 	bool HasEnoughMana(float Cost) const;
-	float GetAttackManaCost() const { return AttackManaCost; }
+
+	// 달리기의 초당 마나. 전역 보정 뒤 전투 호흡(SprintManaCostMultiplier)까지 곱한 값.
+	float GetSprintManaCostPerSecond() const;
 
 	// 스킬id로 해당 스킬의 남은 쿨타임 / 총 쿨타임.
 	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
@@ -457,17 +501,15 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
 	float ManaRegenPerSecond = 10.f;
 
+	// 일반공격이 마나를 안 쓰게 되며 5 에서 절반으로 줄였다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float SprintManaCostPerSecond = 5.f;
+	float SprintManaCostPerSecond = 2.5f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
 	float BlockManaCostPerSecond = 4.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
 	float ManaResourceTickInterval = 0.25f;
-	// 공격 1회당 마나.
-	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin = "0.0"))
-	float AttackManaCost = 10.f;
 
 	FTimerHandle ManaResourceTimer;
 	double LastManaActivityTime = 0.0;
@@ -519,8 +561,11 @@ public:
 	bool CanSprint() const;
 
 	void StartSprint();
-	
+
 	void StopSprint();
+
+	// 복제되는 값이라 남의 캐릭터에서도 맞다. 발소리가 걷기·달리기를 가르는 데 쓴다.
+	bool IsSprinting() const { return bIsSprinting; }
 
 	void SetMovementSpeedMultiplier(float NewMultiplier);
 
@@ -535,7 +580,36 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly,Category="Player|Movement")
 	float CrouchSpeed = 300.f;
-	
+
+	// ===== 관성 =====
+	// 엔진 기본값(가속·제동 2048, 마찰 8)은 0.1초 안에 붙고 멈춰 관성이 없다.
+	// 아래 기본값: 걷기 속도까지 약 0.3초, 걷다 멈추면 약 0.24초, 달리다 멈추면 약 0.4초 미끄러진다.
+
+	// 출발 가속. 작을수록 늦게 붙는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="1.0"))
+	float InertiaAcceleration = 1000.f;
+
+	// 입력을 놓았을 때 고정 감속. 작을수록 멀리 미끄러진다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="0.0"))
+	float InertiaBrakingDeceleration = 1000.f;
+
+	// 입력을 놓았을 때 속도 비례 감속(곱하기 2 가 되어 들어간다). 빠를수록 더 세게 잡는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="0.0"))
+	float InertiaBrakingFriction = 1.f;
+
+	// 방향 전환 시 옆으로 밀리는 정도. 작을수록 크게 돌아 나간다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="0.0"))
+	float InertiaGroundFriction = 4.f;
+
+	// 무게 배율. 1 이 기본, 클수록 느리게 붙고 멀리 미끄러진다. 위 값을 전부 이것으로 나눈다.
+	// 기획서에 무게 시스템은 아직 없다. 장비 무게 같은 것이 생기면 여기에 넣는다.
+	// 런타임에 바꾸게 되면 클라 예측과 어긋나지 않게 복제해야 한다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Inertia", meta=(ClampMin="0.1"))
+	float MovementWeight = 1.f;
+
+	// 위 값을 이동 컴포넌트에 넣는다. RefreshMovementSpeed 가 부른다.
+	void ApplyMovementInertia(class UCharacterMovementComponent* Movement) const;
+
 	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
 	bool bIsSprinting = false;
 
@@ -565,6 +639,18 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Combat")
 	TObjectPtr<class UMeleeTraceComponent> MeleeTraceComp;
+
+	// 포션 마시는 동작. 인벤토리의 사용 시작 → 끝까지 마시면 확정, 도중에 행동하면 취소.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Item")
+	TObjectPtr<class UHBPotionDrinkComponent> PotionDrinkComp;
+
+	// 상자·시체를 뒤지는 동작. 켜고 끄는 건 InteractionComponent(길게 누르기)와 컨트롤러(상자 창)가 한다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Interaction")
+	TObjectPtr<class UHBInteractAnimComponent> InteractAnimComp;
+
+	// 걷기·달리기 발소리. 사운드는 BP 에서 넣는다. 비어 있으면 소리가 안 난다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Movement")
+	TObjectPtr<class UHBFootstepComponent> FootstepComp;
 	
 	#pragma region ModularEquipmentMesh
 	// Modular equipment meshes copy the character mesh pose instead of attaching to a socket.

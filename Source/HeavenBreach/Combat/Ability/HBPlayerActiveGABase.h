@@ -118,6 +118,25 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Skill|Buff")
 	TSubclassOf<UGameplayEffect> DuringAbilityEffect;
 
+	// ---- 발동 연출 ----
+
+	// 발동 순간 터뜨릴 GameplayCue. 비우면 아무것도 안 한다.
+	//
+	// 왜 몽타주 AnimNotify 가 아닌가: 몽타주를 공유하는 스킬끼리 연출이 섞인다.
+	// AM_Warrior_Buff 를 전투의 함성과 피의 광란이 같이 쓰고 있어서,
+	// 거기 노티파이를 달면 함성 이펙트가 피의 광란에서도 터진다.
+	// 연출의 주인은 몽타주가 아니라 스킬 애셋이어야 한다.
+	//
+	// 쳐낼 조건: 한 스킬이 발동 중 여러 시점에 연출을 내야 하면 그건 타이밍이
+	// 애니메이션에 묶인 것이다. 그때는 전용 몽타주를 파고 노티파이로 옮긴다.
+	UPROPERTY(EditDefaultsOnly, Category = "Skill|Cue")
+	FGameplayTag ActivationCueTag;
+
+	// 큐를 발밑에서 터뜨린다. 바닥에 퍼지는 연출은 true, 몸에서 나는 것은 false.
+	// 액터 위치는 캡슐 중심이라 false 면 가슴 높이에서 난다.
+	UPROPERTY(EditDefaultsOnly, Category = "Skill|Cue")
+	bool bActivationCueAtFeet = true;
+
 	// ================ ActorInfo 를 직접 받는 것 ================
 	// 위 오버라이드 넷에서 쓴다. CurrentActorInfo 가 아직 없는 시점이라 인자를 써야 한다.
 	// GetASC / GetPlayerFrom 은 부모에 있다.
@@ -139,6 +158,9 @@ protected:
 
 private:
 	void ApplySelfBuff(const FGameplayAbilityActorInfo* ActorInfo);
+
+	// ActivationCueTag 를 발동 위치에서 터뜨린다. 태그가 비어 있으면 아무것도 안 한다.
+	void ExecuteActivationCue(const FGameplayAbilityActorInfo* ActorInfo);
 
 	// DuringAbilityEffect 를 붙이고 뗀다. 어빌리티 수명과 정확히 같아야 하므로
 	// 붙이는 곳과 떼는 곳을 한 쌍으로 묶어 두었다.

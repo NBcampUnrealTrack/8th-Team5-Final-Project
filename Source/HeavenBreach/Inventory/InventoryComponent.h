@@ -7,6 +7,7 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChanged);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUsed, FName, ItemId, float, HealAmount);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUseBegan, FGuid, InstanceId, FName, ItemId);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnItemRevealed);
 
 class UDataTable;
@@ -42,6 +43,14 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnItemUsed OnItemUsed;
+
+	/**
+	 * 소모품 사용이 "시작"됐다. 아직 소모·쿨타임·회복은 일어나지 않았다.
+	 * 듣는 쪽(캐릭터의 포션 음용)이 끝나면 CommitItemUse, 끊기면 CancelItemUse 를 불러야 한다.
+	 * 아무도 안 들으면 UseItem 이 예전처럼 그 자리에서 바로 소모한다.
+	 */
+	UPROPERTY(BlueprintAssignable, Category = "Inventory")
+	FOnItemUseBegan OnItemUseBegan;
 
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnItemRevealed OnItemRevealed;
@@ -88,8 +97,15 @@ public:
 
 	bool RemoveStackCount(FGuid InInstanceId, int32 InCount);
 
+	/** 소모품 사용 요청. 검사를 통과하면 OnItemUseBegan 을 보내고 true. 실제 소모는 CommitItemUse 에서 한다. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool UseItem(FGuid InInstanceId);
+
+	/** 시작된 사용을 마무리한다. 쿨타임 → OnItemUsed → 1개 소모. 그 사이 아이템이 사라졌으면 false. */
+	bool CommitItemUse(FGuid InInstanceId);
+
+	/** 시작된 사용을 없던 일로 한다. 아무것도 소모하지 않는다. */
+	void CancelItemUse(FGuid InInstanceId);
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool ToggleFavorite(FGuid InInstanceId);
 
@@ -241,6 +257,13 @@ private:
 
 	/** InItemId 쿨타임을 지금(InServerTime)으로 갱신. 기존 기록 있으면 덮어쓰고, 없으면 새로 추가. */
 	void SetItemCooldown(FName InItemId, float InServerTime);
+
+	/** 사용 가능 여부만 본다(존재, 소모품, 쿨타임, 최대 체력). 상태는 바꾸지 않는다. */
+	bool CanUseItem(FGuid InInstanceId, FItemInstance& OutItem, FItemViewData& OutViewData) const;
+
+	// UseItem 으로 시작돼 Commit/Cancel 을 기다리는 아이템. 서버 전용이라 복제하지 않는다.
+	// 하나만 둔다: 마시는 도중 다른 소모품을 또 쓰는 것을 막는다.
+	FGuid PendingUseInstanceId;
 
 	/** ItemRevealTimerHandle이 부른다(서버 전용). 서칭 안 된 첫 아이템을 하나 공개하고,
 	 * 더 이상 없으면 타이머를 스스로 멈춘다. */
