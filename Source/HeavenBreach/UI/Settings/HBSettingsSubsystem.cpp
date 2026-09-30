@@ -161,6 +161,12 @@ void UHBSettingsSubsystem::SavePreferences(float Master, float Music, float Effe
 	ApplyAudio(GetWorld());
 }
 
+void UHBSettingsSubsystem::SaveCameraMotionScale(float InScale)
+{
+	CameraMotionScale = FMath::Clamp(InScale, 0.0f, 1.0f);
+	SaveConfig();
+}
+
 void UHBSettingsSubsystem::ApplyAudio(UWorld* World)
 {
 	if (!World || World->GetNetMode() == NM_DedicatedServer || !VolumeMix || !MusicClass || !EffectsClass)

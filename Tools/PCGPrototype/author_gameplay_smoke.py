@@ -42,6 +42,10 @@ def module(name, role, floor=unreal.HBAllowedFloor.ANY, corridor=False, portal=F
         x,y = math.cos(angle),math.sin(angle)
         c = actors.spawn_actor_from_class(unreal.HBDungeonConnector, unreal.Vector(x*500,y*500,0), unreal.Rotator(pitch=0,yaw=i*90,roll=0))
         c.get_editor_property('connector').set_editor_property('connector_id','Door'+str(i))
+        if role == unreal.HBPrototypeRoomRole.BOSS:
+            c.get_editor_property('connector').set_editor_property('role', unreal.HBDungeonConnectorRole.BOSS_ENTRANCE)
+        elif corridor and i in (0, 2):
+            c.get_editor_property('connector').set_editor_property('role', unreal.HBDungeonConnectorRole.DUNGEON_SIDE if i == 0 else unreal.HBDungeonConnectorRole.BOSS_SIDE)
         # Two wall segments leave a 300 cm opening in the center of each side.
         for side in (-325,325):
             cube((x*490-y*side,y*490+x*side,200), (0.2,3.5,4) if i%2==0 else (3.5,0.2,4))

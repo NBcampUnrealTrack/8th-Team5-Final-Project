@@ -51,6 +51,10 @@ void UHBSettingsWidget::NativeOnInitialized()
 	{
 		Slider->OnValueChanged.AddUniqueDynamic(this, &ThisClass::OnSliderChanged);
 	}
+	if (Slider_CameraMotion)
+	{
+		Slider_CameraMotion->OnValueChanged.AddUniqueDynamic(this, &ThisClass::OnSliderChanged);
+	}
 	Check_VSync->OnCheckStateChanged.AddUniqueDynamic(this, &ThisClass::OnToggleChanged);
 	Check_CameraShake->OnCheckStateChanged.AddUniqueDynamic(this, &ThisClass::OnToggleChanged);
 }
@@ -160,6 +164,12 @@ void UHBSettingsWidget::LoadValues()
 	Slider_Sensitivity->SetMaxValue(3.0f);
 	Slider_Sensitivity->SetValue(Settings->GetMouseSensitivity());
 	Check_CameraShake->SetIsChecked(Settings->IsCombatCameraShakeEnabled());
+	if (Slider_CameraMotion)
+	{
+		Slider_CameraMotion->SetMinValue(0.0f);
+		Slider_CameraMotion->SetMaxValue(1.0f);
+		Slider_CameraMotion->SetValue(Settings->GetCameraMotionScale());
+	}
 	ResetOptions(Combo_DLSS);
 	Combo_DLSS->AddOption(TEXT("끄기"));
 	DLSSModes = {0};
@@ -216,6 +226,10 @@ void UHBSettingsWidget::RefreshValueLabels()
 	Text_Sensitivity->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), Slider_Sensitivity->GetValue())));
 	Text_VSync->SetText(Check_VSync->IsChecked() ? LOCTEXT("On", "켜기") : LOCTEXT("Off", "끄기"));
 	Text_CameraShake->SetText(Check_CameraShake->IsChecked() ? LOCTEXT("On", "켜기") : LOCTEXT("Off", "끄기"));
+	if (Slider_CameraMotion && Text_CameraMotion)
+	{
+		Text_CameraMotion->SetText(FText::FromString(FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Slider_CameraMotion->GetValue() * 100))));
+	}
 }
 
 void UHBSettingsWidget::OnSliderChanged(float Value) { RefreshValueLabels(); }
@@ -253,6 +267,10 @@ void UHBSettingsWidget::ResetCurrentTab()
 	case 2:
 		Slider_Sensitivity->SetValue(1.0f);
 		Check_CameraShake->SetIsChecked(true);
+		if (Slider_CameraMotion)
+		{
+			Slider_CameraMotion->SetValue(1.0f);
+		}
 		break;
 	}
 	RefreshValueLabels();
@@ -344,6 +362,10 @@ void UHBSettingsWidget::CommitChanges()
 	Graphics->SaveSettings();
 	Settings->SavePreferences(Slider_Master->GetValue(), Slider_Music->GetValue(), Slider_Effects->GetValue(),
 		Slider_Sensitivity->GetValue(), Check_CameraShake->IsChecked());
+	if (Slider_CameraMotion)
+	{
+		Settings->SaveCameraMotionScale(Slider_CameraMotion->GetValue());
+	}
 	UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Confirm);
 	Text_Status->SetText(LOCTEXT("Saved", "설정을 적용하고 저장했습니다."));
 }
@@ -372,10 +394,11 @@ void UHBSettingsWidget::NativeTick(const FGeometry& Geometry, float DeltaTime)
 	Super::NativeTick(Geometry, DeltaTime);
 	const TCHAR* Rows[] = {TEXT("Row_WindowMode"), TEXT("Row_Resolution"), TEXT("Row_Quality"), TEXT("Row_FrameRate"),
 		TEXT("Row_VSync"), TEXT("Row_DLSS"), TEXT("Row_Master"), TEXT("Row_Music"), TEXT("Row_Effects"),
-		TEXT("Row_Sensitivity"), TEXT("Row_CameraShake")};
+		TEXT("Row_Sensitivity"), TEXT("Row_CameraShake"), TEXT("Row_CameraMotion")};
 	const int32 PageIndex = SettingsPages->GetActiveWidgetIndex();
 	const int32 FirstRow = PageIndex == 0 ? 0 : (PageIndex == 1 ? 6 : 9);
-	const int32 LastRow = PageIndex == 0 ? 6 : (PageIndex == 1 ? 9 : 11);
+	// Row_CameraMotion 은 WBP 에 아직 없을 수 있다. 없으면 GetWidgetFromName 이 null 이라 건너뛴다.
+	const int32 LastRow = PageIndex == 0 ? 6 : (PageIndex == 1 ? 9 : 12);
 	for (int32 RowIndex = FirstRow; RowIndex < LastRow; ++RowIndex)
 	{
 		UWidget* Row = GetWidgetFromName(Rows[RowIndex]);

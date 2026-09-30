@@ -22,6 +22,10 @@ public:
 
 	float GetMouseSensitivity() const { return MouseSensitivity; }
 	bool IsCombatCameraShakeEnabled() const { return bCombatCameraShake; }
+
+	// 1인칭 카메라가 머리 움직임을 따라가는 세기. 0~1. UHBCameraMotionComponent 가 읽는다.
+	float GetCameraMotionScale() const { return CameraMotionScale; }
+	void SaveCameraMotionScale(float InScale);
 	float GetMasterVolume() const { return MasterVolume; }
 	float GetMusicVolume() const { return MusicVolume; }
 	float GetEffectsVolume() const { return EffectsVolume; }
@@ -55,6 +59,9 @@ private:
 	float MouseSensitivity = 1.0f;
 	UPROPERTY(Config)
 	bool bCombatCameraShake = true;
+	// 전투 카메라 흔들림(맞을 때 등)과 별개다. 걷기·공격 중 머리 움직임이 화면에 들어가는 정도.
+	UPROPERTY(Config)
+	float CameraMotionScale = 1.0f;
 	UPROPERTY(Config)
 	int32 DLSSMode = 0;
 	bool bDLSSApplied = false;

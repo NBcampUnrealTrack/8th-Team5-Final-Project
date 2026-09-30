@@ -522,6 +522,48 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 		return false;
 	}
 
+	// 이미 마시는 중이면 다른 소모품을 겹쳐 쓰지 않는다.
+	if (PendingUseInstanceId.IsValid())
+	{
+		return false;
+	}
+
+	FItemInstance Item;
+	FItemViewData ViewData;
+	if (!CanUseItem(InInstanceId, Item, ViewData))
+	{
+		return false;
+	}
+
+	// 듣는 쪽이 없으면(애니메이션 없이 쓰는 곳) 예전처럼 그 자리에서 소모한다.
+	if (!OnItemUseBegan.IsBound())
+	{
+		PendingUseInstanceId = InInstanceId;
+		return CommitItemUse(InInstanceId);
+	}
+
+	// 소모·쿨타임·회복은 음용이 끝날 때 CommitItemUse 가 한다. 끊기면 아무것도 잃지 않는다.
+	PendingUseInstanceId = InInstanceId;
+	OnItemUseBegan.Broadcast(InInstanceId, Item.ItemRow.RowName);
+	return true;
+}
+
+bool UInventoryComponent::CommitItemUse(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority || !InInstanceId.IsValid() || PendingUseInstanceId != InInstanceId)
+	{
+		return false;
+	}
+	PendingUseInstanceId.Invalidate();
+
+	// 마시는 사이 버리거나 옮겼을 수 있어 다시 검사한다.
+	FItemInstance Item;
+	FItemViewData ViewData;
+	if (!CanUseItem(InInstanceId, Item, ViewData))
+	{
+		return false;
+	}
+
 	const UWorld* World = GetWorld();
 	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
 	if (GameState == nullptr)
@@ -529,10 +571,26 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 		return false;
 	}
 
-	const float CurrentTime = static_cast<float>(GameState->GetServerWorldTimeSeconds());
+	const FName CooldownKey = Item.ItemRow.RowName;
+	SetItemCooldown(CooldownKey, static_cast<float>(GameState->GetServerWorldTimeSeconds()));
+	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);
+	RemoveStackCount(InInstanceId, 1);
+	return true;
+}
+
+void UInventoryComponent::CancelItemUse(FGuid InInstanceId)
+{
+	if (PendingUseInstanceId == InInstanceId)
+	{
+		PendingUseInstanceId.Invalidate();
+	}
+}
+
+bool UInventoryComponent::CanUseItem(FGuid InInstanceId, FItemInstance& OutItem, FItemViewData& OutViewData) const
+{
 	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
 	if (EntryIndex == INDEX_NONE) return false;
-	const FItemInstance Item = Entries[EntryIndex].Item;
+	const FItemInstance& Item = Entries[EntryIndex].Item;
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(Item.ItemRow, ViewData)) return false;
 	if (!ViewData.IsConsumable()) return false;
@@ -560,9 +618,8 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 		}
 	}
 
-	SetItemCooldown(CooldownKey, CurrentTime);
-	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);
-	RemoveStackCount(InInstanceId, 1);
+	OutItem = Item;
+	OutViewData = ViewData;
 	return true;
 }
 
@@ -960,23 +1017,18 @@ bool UInventoryComponent::SpawnDroppedItemActor(const FItemInstance& InItem)
 		return false;
 	}
 
-	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
-	if (EntryIndex == INDEX_NONE)
-	{
-		return false;
-	}
-
-	const FDataTableRowHandle ItemRow = Entries[EntryIndex].Item.ItemRow;
-	const int32 DroppedStackCount = Entries[EntryIndex].Item.StackCount;
+	const FDataTableRowHandle ItemRow = InItem.ItemRow;
+	const int32 DroppedStackCount = InItem.StackCount;
 	// 즐겨찾기한 아이템을 버렸다가 다시 주우면 즐겨찾기가 풀려있던 문제 수정:
 	// 드롭 시점에 즐겨찾기 여부를 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
-	const bool bWasFavorite = Entries[EntryIndex].Item.bIsFavorite;
+	const bool bWasFavorite = InItem.bIsFavorite;
 	// 내구도가 깎인 장비를 버렸다가 다시 주우면 내구도가 초기화(풀피)되던 문제 수정:
 	// 드롭 시점에 내구도도 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
-	const float DroppedDurability = Entries[EntryIndex].Item.CurrentDurability;
+	const float DroppedDurability = InItem.CurrentDurability;
 	// 각인도 같은 이유로 실어 보낸다. 안 실으면 주울 때 입구에서 새로 굴려진다
-	// — 버렸다 줍기로 각인을 다시 뽑을 수 있게 된다.
-	const FItemEngraving DroppedEngraving = Entries[EntryIndex].Item.Engraving;
+
+	// — 버렸다 줍기로 각인을 다시 뽑을 수 있게 된다. 장착 칸에서 바로 버릴 때(DropEquippedItem)도 이 함수를 탄다.
+	const FItemEngraving DroppedEngraving = InItem.Engraving;
 
 	if (ItemRow.IsNull() || ItemRow.DataTable == nullptr)
 	{

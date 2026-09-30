@@ -19,4 +19,11 @@ namespace AbilityTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_Cooldown, "SetByCaller.Cooldown");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_Duration, "SetByCaller.Duration");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_SetByCaller_ManaCost, "SetByCaller.ManaCost");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_SetByCaller_AugmentMagnitude, "SetByCaller.AugmentMagnitude", "증강 GE 에 단계 수치를 넘기는 통로");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Common_MaxHP, "Augment.Common.MaxHP", "공통 강화 - 최대 체력");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Common_AttackPower, "Augment.Common.AttackPower", "공통 강화 - 기본 공격력");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Common_Defense, "Augment.Common.Defense", "공통 강화 - 방어력");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Common_MoveSpeed, "Augment.Common.MoveSpeed", "공통 강화 - 이동속도 배율");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Common_MaxStamina, "Augment.Common.MaxStamina", "공통 강화 - 최대 스태미나(현재 Player_MaxMana 에 건다)");
 }
