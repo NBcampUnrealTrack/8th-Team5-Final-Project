@@ -24,6 +24,8 @@ bool FHBChestGroundedTransformTest::RunTest(const FString&)
 	const FTransform PointTransform(FRotator(0, 45, 0), FVector(120, 240, FloorZ + 10.f));
 	for (const TCHAR* Path : {
 		TEXT("/Game/Loot/Blueprints/BP_Box_Common.BP_Box_Common_C"),
+		TEXT("/Game/Loot/Blueprints/BP_Box_Rare.BP_Box_Rare_C"),
+		TEXT("/Game/Loot/Blueprints/BP_Box_Epic.BP_Box_Epic_C"),
 		TEXT("/Game/Loot/Blueprints/BP_Box_Celestial.BP_Box_Celestial_C") })
 	{
 		UClass* ChestClass = LoadClass<ABoxActor>(nullptr, Path);
