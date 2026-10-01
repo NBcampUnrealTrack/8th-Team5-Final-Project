@@ -573,7 +573,7 @@ bool UInventoryComponent::CommitItemUse(FGuid InInstanceId)
 
 	const FName CooldownKey = Item.ItemRow.RowName;
 	SetItemCooldown(CooldownKey, static_cast<float>(GameState->GetServerWorldTimeSeconds()));
-	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount);
+	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount, ViewData.ManaAmount);
 	RemoveStackCount(InInstanceId, 1);
 	return true;
 }
@@ -603,14 +603,19 @@ bool UInventoryComponent::CanUseItem(FGuid InInstanceId, FItemInstance& OutItem,
 		return false;
 	}
 
-	// 최대 체력 상태에서는 체력 회복 아이템을 사용할 수 없다 (개발 기획 18장 남은 기능).
-	if (ViewData.HealAmount > 0.f)
+	// 최대 체력 상태에서는 체력 회복 아이템을, 최대 마나 상태에서는 마나 회복 아이템을 사용할 수 없다
+	// (개발 기획 18장 남은 기능). 한 아이템이 둘 다 가질 일은 없지만 각자 자기 자원만 본다.
+	if (ViewData.HealAmount > 0.f || ViewData.ManaAmount > 0.f)
 	{
 		if (const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner()))
 		{
 			if (const UHB_PlayerAttributeSet* AttribSet = OwnerPlayerState->GetPlayerAttributeSet())
 			{
-				if (AttribSet->GetPlayer_HP() >= AttribSet->GetPlayer_MaxHP())
+				if (ViewData.HealAmount > 0.f && AttribSet->GetPlayer_HP() >= AttribSet->GetPlayer_MaxHP())
+				{
+					return false;
+				}
+				if (ViewData.ManaAmount > 0.f && AttribSet->GetPlayer_Mana() >= AttribSet->GetPlayer_MaxMana())
 				{
 					return false;
 				}

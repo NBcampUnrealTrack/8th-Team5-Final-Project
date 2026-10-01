@@ -6,7 +6,7 @@
 #include "InventoryComponent.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChanged);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUsed, FName, ItemId, float, HealAmount);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnItemUsed, FName, ItemId, float, HealAmount, float, ManaAmount);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnItemUseBegan, FGuid, InstanceId, FName, ItemId);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnItemRevealed);
 

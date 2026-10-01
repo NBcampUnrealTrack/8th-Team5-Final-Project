@@ -212,7 +212,7 @@ private:
 
 private:
 	UFUNCTION()
-	void HandleItemUsed(FName ItemId, float HealAmount);
+	void HandleItemUsed(FName ItemId, float HealAmount, float ManaAmount);
 
 protected:
 	virtual void OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem);
@@ -333,7 +333,11 @@ public:
 	// 새 회복을 만들면 SetPlayer_HP 대신 이걸 부른다.
 	void ReceiveHeal(float Amount);
 
-	UFUNCTION(BlueprintPure, Category="Player|Combat")
+	// 마나 회복은 전부 여기를 지난다. ReceiveHeal 과 같은 이유 - 포션 외에 다른 마나 회복이
+	// 생겨도 전부 이걸 부르면 한 곳에서만 관리하면 된다.
+	void ReceiveMana(float Amount);
+
+	UFUNCTION(BlueprintPure, Category = "Player|Combat")
 	float GetAttackRange() const;
 	
 	// 정면 판정 각도. 패링과 방어태세가 같은 값을 쓴다.

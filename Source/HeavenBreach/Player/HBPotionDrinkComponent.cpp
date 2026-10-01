@@ -130,8 +130,21 @@ void UHBPotionDrinkComponent::HandleItemUseBegan(FGuid InstanceId, FName ItemId)
 	const float Duration = Anim ? Anim->GetPlayLength() : 3.3f;
 	GetWorld()->GetTimerManager().SetTimer(DrinkTimerHandle, this, &UHBPotionDrinkComponent::FinishDrink, Duration, false);
 
+	// 마시는 병 외형은 아이템별 WorldMeshPath 를 따른다. 못 찾으면 Multicast 쪽에서
+	// 기본 BottleMesh 로 떨어진다.
+	FString BottleMeshPath;
+	const int32 EntryIndex = Inventory->FindEntryIndexById(InstanceId);
+	if (EntryIndex != INDEX_NONE)
+	{
+		FItemViewData ViewData;
+		if (ResolveItemViewData(Inventory->GetEntries()[EntryIndex].Item.ItemRow, ViewData))
+		{
+			BottleMeshPath = ViewData.WorldMeshPath;
+		}
+	}
+
 	UE_LOG(LogTemp, Warning, TEXT("[Potion] 음용 시작  Item=%s  Duration=%.2f"), *ItemId.ToString(), Duration);
-	Multicast_StartDrink();
+	Multicast_StartDrink(BottleMeshPath);
 }
 
 void UHBPotionDrinkComponent::HandleInterruptTagChanged(const FGameplayTag Tag, int32 NewCount)
@@ -193,7 +206,7 @@ void UHBPotionDrinkComponent::StopListeningInterrupts()
 	InterruptHandles.Reset();
 }
 
-void UHBPotionDrinkComponent::Multicast_StartDrink_Implementation()
+void UHBPotionDrinkComponent::Multicast_StartDrink_Implementation(const FString& InBottleMeshPath)
 {
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
@@ -216,7 +229,15 @@ void UHBPotionDrinkComponent::Multicast_StartDrink_Implementation()
 
 	if (BottleComp)
 	{
-		if (UStaticMesh* Mesh = BottleMesh.LoadSynchronous())
+		// 아이템의 WorldMeshPath 를 우선 쓰고, 못 찾으면 기본 BottleMesh 로 떨어진다.
+		UStaticMesh* Mesh = !InBottleMeshPath.IsEmpty()
+			? TSoftObjectPtr<UStaticMesh>(FSoftObjectPath(InBottleMeshPath)).LoadSynchronous()
+			: nullptr;
+		if (!Mesh)
+		{
+			Mesh = BottleMesh.LoadSynchronous();
+		}
+		if (Mesh)
 		{
 			BottleComp->SetStaticMesh(Mesh);
 		}

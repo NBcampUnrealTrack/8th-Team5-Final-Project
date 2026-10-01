@@ -1662,9 +1662,10 @@ void AHBPlayerCharacter::ServerTestGrantPassive_Implementation(const FName Passi
 	TestGrantPassive(PassiveSkillId);
 }
 
-void AHBPlayerCharacter::HandleItemUsed(FName ItemId, float HealAmount)
+void AHBPlayerCharacter::HandleItemUsed(FName ItemId, float HealAmount, float ManaAmount)
 {
 	ReceiveHeal(HealAmount);
+	ReceiveMana(ManaAmount);
 }
 
 void AHBPlayerCharacter::ReceiveHeal(float Amount)
@@ -1691,6 +1692,29 @@ void AHBPlayerCharacter::ReceiveHeal(float Amount)
 	const float Multiplier = FMath::Max(0.f, Attributes->GetPlayer_HealingReceivedMultiplier());
 	const float NewHP = Attributes->GetPlayer_HP() + Amount * Multiplier;
 	Attributes->SetPlayer_HP(FMath::Clamp(NewHP, 0.f, Attributes->GetPlayer_MaxHP()));
+}
+
+void AHBPlayerCharacter::ReceiveMana(float Amount)
+{
+	if (Amount <= 0.f)
+	{
+		return;
+	}
+
+	AHB_PlayerState* PS = GetPlayerCurrentState();
+	if (!PS)
+	{
+		return;
+	}
+
+	UHB_PlayerAttributeSet* Attributes = PS->GetPlayerAttributeSet();
+	if (!Attributes)
+	{
+		return;
+	}
+
+	const float NewMana = Attributes->GetPlayer_Mana() + Amount;
+	Attributes->SetPlayer_Mana(FMath::Clamp(NewMana, 0.f, Attributes->GetPlayer_MaxMana()));
 }
 
 void AHBPlayerCharacter::OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem)
