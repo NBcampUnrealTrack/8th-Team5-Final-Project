@@ -9,7 +9,10 @@
 bool AHBLobbyGameState::AreGuestsReady(int32 MinimumPlayers) const
 {
 	if (!IsValid(HostPlayerState) || !PlayerArray.Contains(HostPlayerState)
-		|| PlayerArray.Num() < FMath::Max(1, MinimumPlayers) || PlayerArray.Num() > 4) return false;
+		|| PlayerArray.Num() > 4) return false;
+	// A lone host may start immediately. With guests, keep the configured
+	// minimum and require every guest to be ready.
+	if (PlayerArray.Num() > 1 && PlayerArray.Num() < FMath::Max(1, MinimumPlayers)) return false;
 	for (APlayerState* Player : PlayerArray)
 	{
 		const auto* Guest = Cast<AHBLobbyPlayerState>(Player);

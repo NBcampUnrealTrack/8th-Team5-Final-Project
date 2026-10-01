@@ -8,6 +8,7 @@
 #include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "Components/EditableTextBox.h"
 #include "Components/CheckBox.h"
@@ -49,12 +50,14 @@ bool FHBGuestReadyTest::RunTest(const FString&)
     auto* Guest = World->SpawnActor<AHBLobbyPlayerState>();
     State->HostPlayerState = Host;
     State->PlayerArray = {Host};
-    TestFalse(TEXT("Default minimum blocks a lone host"), State->AreGuestsReady(2));
+    TestTrue(TEXT("A lone host can start without guests or host Ready"), State->AreGuestsReady(2));
+    TestTrue(TEXT("Solo start works with an existing higher minimum override"), State->AreGuestsReady(4));
     State->PlayerArray.Add(Guest);
     TestFalse(TEXT("Unready guest blocks start"), State->AreGuestsReady(2));
     Guest->SetReady(true);
     TestFalse(TEXT("Host never needs to toggle Ready"), Host->IsReady());
     TestTrue(TEXT("Only guest readiness is required"), State->AreGuestsReady(2));
+    TestFalse(TEXT("A multiplayer roster still respects a higher minimum"), State->AreGuestsReady(4));
     Guest->SetReady(false);
     TestFalse(TEXT("Ready cancellation blocks start"), State->AreGuestsReady(2));
     Guest->SetReady(true);
@@ -63,6 +66,8 @@ bool FHBGuestReadyTest::RunTest(const FString&)
         auto* Extra = World->SpawnActor<AHBLobbyPlayerState>(); Extra->SetReady(true); State->PlayerArray.Add(Extra);
     }
     TestFalse(TEXT("More than four players cannot start"), State->AreGuestsReady(2));
+    State->PlayerArray = {Host};
+    TestTrue(TEXT("Host can start alone after guests leave"), State->AreGuestsReady(2));
     State->PlayerArray = {Guest};
     TestFalse(TEXT("Host must remain in the roster"), State->AreGuestsReady(1));
     World->DestroyWorld(false);
@@ -89,7 +94,7 @@ namespace
     {
         FAutomationTestBase* Test;
         TWeakObjectPtr<UGameInstance> Instance;
-        enum class EPhase { Host, Friends, Menu, Search } Phase = EPhase::Host;
+        enum class EPhase { Host, Friends, SoloMatch, Menu, Search } Phase = EPhase::Host;
         double Started = FPlatformTime::Seconds();
         bool bFailed = false;
         bool bCapturedLobby = false;
@@ -107,7 +112,7 @@ namespace
                 if (Service) Service->RequestLeaveToMenu();
                 return true;
             }
-            if (!World || !Service || !Screen) return false;
+            if (!World || !Service || (!Screen && Phase != EPhase::SoloMatch)) return false;
             if (Service->GetLobbyOperationState() == EHBLobbyOperationState::Failed && !bFailed)
             {
                 bFailed = true; Test->AddError(Service->GetLastLobbyOperationError());
@@ -135,7 +140,9 @@ namespace
                 Test->TestEqual(TEXT("Entered room name replicates through GameState"), State->RoomName, FString(TEXT("UI 기능 테스트")));
                 Test->TestEqual(TEXT("UI creates exactly four slots"), Session->SessionSettings.NumPublicConnections, 4);
                 auto* Start = Cast<UButton>(Screen->GetWidgetFromName(TEXT("StartMatchButton")));
-                Test->TestTrue(TEXT("A single host cannot start a two-player match"), Start && !Start->GetIsEnabled());
+                // Native UI refreshes periodically after host creation completes.
+                if (Start && !Start->GetIsEnabled()) return false;
+                Test->TestTrue(TEXT("A single host can start without any guests"), Start && Start->GetIsEnabled());
                 FString Salt; Session->SessionSettings.Get(FName(TEXT("HB_SALT")), Salt);
                 FString Error;
                 const auto UserId = OSS->GetIdentityInterface()->GetUniquePlayerId(0);
@@ -162,8 +169,33 @@ namespace
                     Service->RequestLeaveToMenu(); Phase = EPhase::Menu; bFailed = true;
                     return false;
                 }
-                if (!Click(Test, Screen, TEXT("FriendsBackButton")) || !Click(Test, Screen, TEXT("LeaveRoomButton"))) return true;
+                if (!Click(Test, Screen, TEXT("FriendsBackButton"))) return true;
+                if (FParse::Param(FCommandLine::Get(), TEXT("HBTestSoloStart")))
+                {
+                    if (!Click(Test, Screen, TEXT("StartMatchButton"))) return true;
+                    Phase = EPhase::SoloMatch; Started = FPlatformTime::Seconds();
+                    return false;
+                }
+                if (!Click(Test, Screen, TEXT("LeaveRoomButton"))) return true;
                 Phase = EPhase::Menu; Started = FPlatformTime::Seconds();
+                return false;
+            }
+            if (Phase == EPhase::SoloMatch)
+            {
+                if (Service->GetServerTravelState() == EHBServerTravelState::Failed)
+                {
+                    Test->AddError(Service->GetServerTravelError());
+                    Service->RequestLeaveToMenu(); Phase = EPhase::Menu; bFailed = true;
+                    return false;
+                }
+                if (Service->GetServerTravelState() != EHBServerTravelState::Complete) return false;
+                Test->TestEqual(TEXT("Solo Start button travels to the gameplay map"), World->GetOutermost()->GetName(), FString(TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay")));
+                Test->TestEqual(TEXT("Solo gameplay retains its listen server"), World->GetNetMode(), NM_ListenServer);
+                Test->TestTrue(TEXT("Starting solo closes admission"), Service->IsMatchAdmissionClosed());
+                Test->TestNull(TEXT("Solo gameplay removes the lobby screen"), FindScreen(World));
+                Test->TestTrue(TEXT("Solo gameplay releases the UI input block"), World->GetGameViewport() && !World->GetGameViewport()->IgnoreInput());
+                Test->AddInfo(TEXT("Actual Steam UI Start button verified solo host travel to gameplay."));
+                Service->RequestLeaveToMenu(); Phase = EPhase::Menu; Started = FPlatformTime::Seconds();
                 return false;
             }
             if (World->GetNetMode() != NM_Standalone || World->GetOutermost()->GetName() != TEXT("/Game/Levels/Test_CW/Multiplayer/L_MultiplayerTestMenu")) return false;
@@ -192,6 +224,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBSteamUITest, "HeavenBreach.Multiplayer.Steam
     EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 bool FHBSteamUITest::RunTest(const FString&)
 {
+    if (FParse::Param(FCommandLine::Get(), TEXT("nullrhi")))
+    { AddError(TEXT("UMG UI tests require rendering for widget ticks; use -RenderOffscreen instead of -nullrhi.")); return false; }
     auto* OSS = IOnlineSubsystem::Get();
     if (!FParse::Param(FCommandLine::Get(), TEXT("HBSteamListenTest")) || !OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) || OSS->GetAppId() != TEXT("480"))
     { AddError(TEXT("Steam UI test requires -game -HBSteamListenTest, logged-in Steam and AppId 480.")); return false; }
@@ -200,6 +234,11 @@ bool FHBSteamUITest::RunTest(const FString&)
     auto* Screen = World ? FindScreen(World) : nullptr;
     if (!Screen || World->GetNetMode() != NM_Standalone || World->GetOutermost()->GetName() != TEXT("/Game/Levels/Test_CW/Multiplayer/L_MultiplayerTestMenu"))
     { AddError(TEXT("Start Steam UI test on L_MultiplayerTestMenu.")); return false; }
+    if (FParse::Param(FCommandLine::Get(), TEXT("HBTestSoloStart")))
+    {
+        // Existing gameplay asset errors are reported separately from lobby logic.
+        AddExpectedErrorPlain(TEXT("Null input trigger detected in mapping to input action 'IA_Interact'"), EAutomationExpectedErrorFlags::Contains, 0);
+    }
     // Revisit the panel to verify that native widget reconstruction keeps its actions bound.
     if (!Click(this, Screen, TEXT("OpenCreateButton")) || !Click(this, Screen, TEXT("CancelCreateButton"))) return false;
     if (!Click(this, Screen, TEXT("OpenCreateButton"))) return false;

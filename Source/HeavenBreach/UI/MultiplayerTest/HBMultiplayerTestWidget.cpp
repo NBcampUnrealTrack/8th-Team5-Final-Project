@@ -221,7 +221,7 @@ void UHBMultiplayerTestWidget::Refresh()
     if (!Service || !Body) return;
     const bool bBusy = Service->IsLobbyOperationInProgress();
     Body->SetIsEnabled(!bBusy && !bModal);
-    Status->SetText(FText::FromString(bBusy ? TEXT("처리 중입니다...") : Service->IsReadingFriends() ? TEXT("친구 목록을 불러오는 중...") : TEXT("최대 4명 / 시작 인원 2명 이상")));
+    Status->SetText(FText::FromString(bBusy ? TEXT("처리 중입니다...") : Service->IsReadingFriends() ? TEXT("친구 목록을 불러오는 중...") : TEXT("최대 4명 / 혼자 시작 가능 / 게스트 전원 Ready 필요")));
     FString Error = Service->GetLastLobbyOperationError();
     if (Error != LastError)
     {

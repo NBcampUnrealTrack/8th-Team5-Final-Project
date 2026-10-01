@@ -638,6 +638,9 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 	PendingHostMap.Reset();
 	SetLobbyOperationState(EHBLobbyOperationState::InLobby);
 	PublishGamePresence(TEXT("Lobby"));
+	// PostLogin ran while host creation was still busy. Reevaluate now so a
+	// lone host can start without waiting for another player or Ready change.
+	if (auto* Lobby = LoadedWorld->GetAuthGameMode<AHBLobbyGameMode>()) Lobby->EvaluateCanStartMatch();
 }
 
 void UHBOnlineSessionSubsystem::HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error)
