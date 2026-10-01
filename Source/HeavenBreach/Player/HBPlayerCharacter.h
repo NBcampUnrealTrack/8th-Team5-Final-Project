@@ -150,7 +150,7 @@ public:
 
 	// 활을 당기고 있는가. 활 AnimBP · 장전 화살 · 다른 클라 화면이 이걸 본다.
 	UFUNCTION(BlueprintPure, Category = "Player|Bow")
-	bool IsBowDrawing() const { return bBowDrawing; }
+	bool IsBowDrawing() const { return bDrawingBow; }
 
 	// 활 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
 	void SetBowDrawing(bool bDrawing);
@@ -519,8 +519,10 @@ private:
 	TWeakObjectPtr<AActor> ConsecutiveTarget;
 
 	// 활 당김 상태. 소유 클라는 GA 가 직접 세팅하므로 복제에서 뺀다(COND_SkipOwner).
+	// 이름을 bBowDrawing 으로 하지 않는다: 기문 님 테스트 BP(BP_Test_BowCharacter, 이 클래스의 자식)에
+	// 같은 이름의 BP 변수가 있어 충돌하면 그쪽 변수가 bBowDrawing_0 으로 바뀌어 테스트가 깨진다.
 	UPROPERTY(Replicated)
-	bool bBowDrawing = false;
+	bool bDrawingBow = false;
 
 	// 무기에 따른 교체 전의 AnimBP(BP 기본값 또는 직업 데이터). 무기를 내려놓으면 이걸로 돌아간다.
 	UPROPERTY()

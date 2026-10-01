@@ -245,7 +245,7 @@ void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
 	DOREPLIFETIME(ThisClass,bIsSprinting);
-	DOREPLIFETIME_CONDITION(ThisClass, bBowDrawing, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(ThisClass, bDrawingBow, COND_SkipOwner);
 	DOREPLIFETIME(ThisClass,MovementSpeedMultiplier);
 	DOREPLIFETIME(ThisClass,SelectedSkillQId);
 	DOREPLIFETIME(ThisClass,SelectedSkillEId);
@@ -2279,6 +2279,7 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 {
 	if (bEnableEquipmentVisualTest)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[WeaponVisual] %s 장비 외형 테스트 모드라 실제 장비를 안 그림 (bEnableEquipmentVisualTest)"), *GetName());
 		ApplyTemporaryEquipmentVisualTest();
 		return;
 	}
@@ -2335,6 +2336,14 @@ void AHBPlayerCharacter::RefreshWeaponVisual()
 		WeaponMeshComp->SetStaticMesh(WeaponMesh);
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("[WeaponVisual] %s Role=%d  Item=%s Type=%s  Table=%s Presentation=%d  Skeletal=%s(Visible=%d Socket=%s)  Static=%s"),
+		*GetName(), static_cast<int32>(GetLocalRole()),
+		*WeaponItem.ItemRow.RowName.ToString(), WeaponData ? *WeaponData->WeaponType : TEXT("-"),
+		*GetNameSafe(WeaponPresentationTable), CachedWeaponPresentation ? 1 : 0,
+		*GetNameSafe(SkeletalWeapon), WeaponSkeletalMeshComp && WeaponSkeletalMeshComp->IsVisible() ? 1 : 0,
+		WeaponSkeletalMeshComp ? *WeaponSkeletalMeshComp->GetAttachSocketName().ToString() : TEXT("-"),
+		*GetNameSafe(WeaponMeshComp->GetStaticMesh()));
+
 	RefreshCharacterAnimClass();
 }
 
@@ -2361,13 +2370,14 @@ void AHBPlayerCharacter::RefreshCharacterAnimClass()
 	// 같으면 안 바꾼다. 바꾸면 애님 인스턴스가 새로 만들어져 진행 중인 몽타주가 끊긴다.
 	if (Wanted && Body->GetAnimClass() != Wanted)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[WeaponVisual] AnimBP 교체 %s → %s"), *GetNameSafe(Body->GetAnimClass()), *GetNameSafe(Wanted));
 		Body->SetAnimInstanceClass(Wanted);
 	}
 }
 
 void AHBPlayerCharacter::SetBowDrawing(const bool bDrawing)
 {
-	bBowDrawing = bDrawing;
+	bDrawingBow = bDrawing;
 }
 
 UStaticMesh* AHBPlayerCharacter::GetHeldArrowMesh() const
