@@ -16,6 +16,8 @@
 #include "Player/HBInteractAnimComponent.h"
 #include "Player/HBCameraMotionComponent.h"
 #include "Player/HBWeaponPresentation.h"
+#include "Player/HBJumpFeel.h"
+#include "Player/HBFootstepComponent.h"
 #include "Player/HBFootstepComponent.h"
 #include "Player/HBPlayerCorpseInventory.h"
 #include "Combat/Block/GA_GuardStance.h"
@@ -59,7 +61,9 @@
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// 점프 감각(공중 중력·착지 회복)에만 쓴다. 평소에는 꺼 두고 공중에 뜰 때 켠다.
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = true;
@@ -170,6 +174,12 @@ void AHBPlayerCharacter::BeginPlay()
 
 	// 서버와 모든 클라가 같은 값을 가져야 이동 예측이 어긋나지 않는다. 역할을 가리지 않는다.
 	ApplyMovementInertia(GetCharacterMovement());
+
+	if (const UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		BaseJumpZVelocity = Movement->JumpZVelocity;
+		BaseGravityScale = Movement->GravityScale;
+	}
 
 	if (HasAuthority() && GetWorld())
 	{
@@ -2248,12 +2258,122 @@ void AHBPlayerCharacter::RefreshMovementSpeed()
 		const float BaseSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
 
 		// 진짜 속도(장비 이동속도 +)를 먼저 더하고 배율을 곱한다. 쿨다운 공식과 같은 순서다.
+		// 착지 직후 잠깐 느려졌다 회복한다(높이 떨어질수록 더). 회복 중에는 Tick 이 매 프레임 다시 부른다.
+		const float LandingScale = GetWorld()
+			? HBJumpFeel::LandingSpeedScale(LastLandImpact, LandMaxSlow, GetWorld()->GetTimeSeconds() - LastLandedTime, LandSlowDuration)
+			: 1.f;
+
 		// 0 에서 자르는 이유: - 옵션이 쌓여도 뒤로 걷게 되면 안 된다.
-		Movement->MaxWalkSpeed = FMath::Max(0.f, (BaseSpeed + GASFlat) * GASMultiplier);
-		Movement->MaxWalkSpeedCrouched = FMath::Max(0.f, (CrouchSpeed + GASFlat) * GASMultiplier);
+		Movement->MaxWalkSpeed = FMath::Max(0.f, (BaseSpeed + GASFlat) * GASMultiplier * LandingScale);
+		Movement->MaxWalkSpeedCrouched = FMath::Max(0.f, (CrouchSpeed + GASFlat) * GASMultiplier * LandingScale);
 
 		ApplyMovementInertia(Movement);
 	}
+}
+
+void AHBPlayerCharacter::Tick(const float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	UpdateJumpFeel();
+
+	// 착지 감속이 회복되는 동안은 속도를 매 프레임 다시 계산한다.
+	const bool bRecovering = GetWorld() && (GetWorld()->GetTimeSeconds() - LastLandedTime) <= LandSlowDuration;
+	if (bRecovering || LastLandImpact > 0.f)
+	{
+		RefreshMovementSpeed();
+		if (!bRecovering)
+		{
+			LastLandImpact = 0.f;
+		}
+	}
+
+	if (!NeedsJumpFeelTick())
+	{
+		UpdateJumpFeel();
+		SetActorTickEnabled(false);
+	}
+}
+
+bool AHBPlayerCharacter::NeedsJumpFeelTick() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (Movement && Movement->IsFalling())
+	{
+		return true;
+	}
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+	const double SinceLanded = World->GetTimeSeconds() - LastLandedTime;
+	return SinceLanded <= FMath::Max(LandSlowDuration, RejumpWindow) || LastLandImpact > 0.f;
+}
+
+void AHBPlayerCharacter::UpdateJumpFeel()
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const UWorld* World = GetWorld();
+	if (!Movement || !World)
+	{
+		return;
+	}
+
+	// 내려올 때만 중력을 키운다. 같은 속도 값으로 서버와 소유 클라가 같은 결과를 낸다.
+	const bool bDescending = Movement->IsFalling() && Movement->Velocity.Z <= 0.f;
+	Movement->GravityScale = BaseGravityScale * (bDescending ? FallGravityScale : 1.f);
+
+	// 착지 직후 다시 뛰면 낮게. 점프가 실행되는 순간 이 값이 쓰인다.
+	const float SinceLanded = static_cast<float>(World->GetTimeSeconds() - LastLandedTime);
+	Movement->JumpZVelocity = BaseJumpZVelocity * HBJumpFeel::JumpHeightScale(SinceLanded, RejumpWindow, RejumpHeightScale);
+}
+
+void AHBPlayerCharacter::OnMovementModeChanged(const EMovementMode PrevMovementMode, const uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PrevMovementMode, PreviousCustomMode);
+
+	if (GetCharacterMovement() && GetCharacterMovement()->IsFalling())
+	{
+		SetActorTickEnabled(true);
+	}
+}
+
+void AHBPlayerCharacter::Landed(const FHitResult& Hit)
+{
+	// 부모가 속도를 정리하기 전에 착지 직전 하강 속도를 읽는다.
+	const float DownSpeed = GetCharacterMovement() ? -GetCharacterMovement()->Velocity.Z : 0.f;
+
+	Super::Landed(Hit);
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	LastLandedTime = World->GetTimeSeconds();
+	LastLandImpact = HBJumpFeel::LandingImpact(DownSpeed, LandSoftSpeed, LandHardSpeed);
+
+	RefreshMovementSpeed();
+	UpdateJumpFeel();
+	SetActorTickEnabled(true);
+
+	// 화면 눌림은 본인 화면에만.
+	if (IsLocallyControlled() && CameraMotionComp)
+	{
+		CameraMotionComp->NotifyLanded(LastLandImpact);
+	}
+
+	// 착지 소리. 사운드 에셋이 없으면 아무 소리도 안 난다.
+	if (FootstepComp && GetNetMode() != NM_DedicatedServer)
+	{
+		FootstepComp->PlayFootstep(LastLandImpact > 0.5f);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Jump] 착지 %s  하강속도=%.0f  충격=%.2f  속도배율 시작=%.2f"),
+		*GetName(), DownSpeed, LastLandImpact,
+		HBJumpFeel::LandingSpeedScale(LastLandImpact, LandMaxSlow, 0.f, LandSlowDuration));
 }
 
 void AHBPlayerCharacter::ApplyMovementInertia(UCharacterMovementComponent* Movement) const

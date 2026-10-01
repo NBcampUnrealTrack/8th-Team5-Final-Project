@@ -715,6 +715,50 @@ protected:
 	// 위 값을 이동 컴포넌트에 넣는다. RefreshMovementSpeed 가 부른다.
 	void ApplyMovementInertia(class UCharacterMovementComponent* Movement) const;
 
+	// ----- 점프 감각 (Docs/점프-감각-설계.md) -----
+	// 서버와 소유 클라가 같은 규칙으로 각자 계산한다. 복제 값은 없다.
+
+	// 정점을 지나 내려올 때만 중력에 곱한다. 오를 때는 그대로라 점프 높이는 안 바뀐다. 둥둥 뜨는 느낌을 없앤다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="1.0"))
+	float FallGravityScale = 1.6f;
+
+	// 착지 직전 하강 속도가 이 이하면 충격 0(보통 점프 ≈ 530). 이 위로는 비례해서 커진다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="cm/s"))
+	float LandSoftSpeed = 600.f;
+
+	// 이 속도 이상으로 떨어지면 충격 1(최대).
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="cm/s"))
+	float LandHardSpeed = 1100.f;
+
+	// 충격 1 일 때 착지 순간 줄어드는 이동 속도 비율. 0.4 면 60% 속도에서 시작해 회복.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float LandMaxSlow = 0.4f;
+
+	// 착지 감속이 원래 속도로 돌아오는 시간.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="s"))
+	float LandSlowDuration = 0.35f;
+
+	// 착지 후 이 시간 안에 다시 뛰면 점프가 낮다(연속 점프 억제). 막지는 않는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="s"))
+	float RejumpWindow = 0.3f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float RejumpHeightScale = 0.75f;
+
+	// 이동 컴포넌트의 원래 값. 공중·착지 처리 동안 바꿨다가 되돌린다.
+	float BaseJumpZVelocity = 0.f;
+	float BaseGravityScale = 1.f;
+
+	// 마지막 착지 시각(월드 시간)과 그때의 충격 0~1.
+	double LastLandedTime = -1000.0;
+	float LastLandImpact = 0.f;
+
+	// 공중이거나 착지 회복 중이면 true. 이때만 틱을 켜 둔다.
+	bool NeedsJumpFeelTick() const;
+
+	// 점프 감각 값(중력·점프 높이)을 이동 컴포넌트에 넣는다. 공중·착지 회복 중 매 틱.
+	void UpdateJumpFeel();
+
 	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
 	bool bIsSprinting = false;
 
@@ -846,6 +890,11 @@ protected:
 	FName ShieldSocketName = TEXT("SecondWeaponSocket");
 	
 	virtual void BeginPlay() override;
+
+	// 점프 감각: 공중·착지 회복 중에만 켜진다.
+	virtual void Tick(float DeltaSeconds) override;
+	virtual void Landed(const FHitResult& Hit) override;
+	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
 
 	// 나가거나 파괴될 때 아이템 동작 효과로 파티원에게 건 것을 거둔다. 안 거두면 버프가 영원히 남는다.
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
