@@ -15,6 +15,7 @@
 #include "Player/HBPotionDrinkComponent.h"
 #include "Player/HBInteractAnimComponent.h"
 #include "Player/HBCameraMotionComponent.h"
+#include "Player/HBWeaponPresentation.h"
 #include "Player/HBFootstepComponent.h"
 #include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Block/GA_PlayerParry.h"
@@ -87,6 +88,12 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	WeaponMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	WeaponMeshComp->ComponentTags.Add(TEXT("Weapon"));
 	
+	// 소켓은 외형 행이 정한다(활: BowSocket). 장비가 바뀔 때 다시 붙인다.
+	WeaponSkeletalMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponSkeletalMeshComp"));
+	WeaponSkeletalMeshComp->SetupAttachment(GetMesh());
+	WeaponSkeletalMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponSkeletalMeshComp->SetVisibility(false);
+	
 	ShieldMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShieldMeshComp"));
 	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
 	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -140,6 +147,21 @@ UAnimMontage* AHBPlayerCharacter::GetGuardMontage() const
 void AHBPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 시위 AnimBP 가 몸의 손 위치·커브를 읽으므로 몸 포즈가 먼저 평가돼야 한다.
+	if (WeaponSkeletalMeshComp)
+	{
+		WeaponSkeletalMeshComp->AddTickPrerequisiteComponent(GetMesh());
+	}
+
+	// 장전 화살은 보이기만 하는 것이라 머신마다 로컬로 만든다. 데디 서버는 볼 사람이 없어 만들지 않는다.
+	if (HeldArrowActorClass && GetNetMode() != NM_DedicatedServer && GetWorld())
+	{
+		FActorSpawnParameters Params;
+		Params.Owner = this;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		HeldArrowActor = GetWorld()->SpawnActor<AActor>(HeldArrowActorClass, GetActorTransform(), Params);
+	}
 	SetUnderwearVisible(bUnderwearVisible);
 
 	BindToPlayerStateComponents();
@@ -191,6 +213,12 @@ void AHBPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		ItemEffectRules::Clear(this, ItemEffectRuntime);
 	}
 
+	if (HeldArrowActor)
+	{
+		HeldArrowActor->Destroy();
+		HeldArrowActor = nullptr;
+	}
+
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -217,6 +245,7 @@ void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
 	DOREPLIFETIME(ThisClass,bIsSprinting);
+	DOREPLIFETIME_CONDITION(ThisClass, bBowDrawing, COND_SkipOwner);
 	DOREPLIFETIME(ThisClass,MovementSpeedMultiplier);
 	DOREPLIFETIME(ThisClass,SelectedSkillQId);
 	DOREPLIFETIME(ThisClass,SelectedSkillEId);
@@ -1842,6 +1871,8 @@ void AHBPlayerCharacter::ApplyJobAppearance()
 	if (JobData->AnimInstanceClass)
 	{
 		GetMesh()->SetAnimInstanceClass(JobData->AnimInstanceClass);
+		// 무기를 내려놓으면 돌아갈 AnimBP 도 직업 것으로.
+		BaseAnimClass = JobData->AnimInstanceClass;
 	}
 	SetUnderwearVisible(bUnderwearVisible);
 	RefreshEquippedVisuals();
@@ -2271,19 +2302,96 @@ void AHBPlayerCharacter::RefreshWeaponVisual()
 	}
 	
 	FItemInstance WeaponItem;
+	const FWeaponData* WeaponData = nullptr;
 	if (GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
 	{
-		if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("RefreshWeaponVisual")))
-		{
-			if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*WeaponData->EquipMeshPath))
-			{
-				WeaponMeshComp->SetStaticMesh(WeaponMesh);
-				return;
-			}
-		}
+		WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("RefreshWeaponVisual"));
 	}
-	
-	WeaponMeshComp->SetStaticMesh(nullptr);
+
+	// 외형 행: 아이템 행 이름(BOW_001) → 무기 종류(Bow) 순서로 찾는다.
+	CachedWeaponPresentation = WeaponData
+		? HBWeaponPresentation::Find(WeaponPresentationTable, WeaponItem.ItemRow.RowName, WeaponData->WeaponType)
+		: nullptr;
+
+	USkeletalMesh* SkeletalWeapon = CachedWeaponPresentation ? CachedWeaponPresentation->SkeletalMesh.LoadSynchronous() : nullptr;
+	if (SkeletalWeapon && WeaponSkeletalMeshComp)
+	{
+		// 시위가 움직이는 무기. 스태틱 표시는 비운다.
+		WeaponSkeletalMeshComp->SetSkeletalMeshAsset(SkeletalWeapon);
+		WeaponSkeletalMeshComp->SetAnimInstanceClass(CachedWeaponPresentation->SkeletalMeshAnimClass);
+		WeaponSkeletalMeshComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, CachedWeaponPresentation->AttachSocket);
+		WeaponSkeletalMeshComp->SetVisibility(true);
+		WeaponMeshComp->SetStaticMesh(nullptr);
+	}
+	else
+	{
+		if (WeaponSkeletalMeshComp)
+		{
+			WeaponSkeletalMeshComp->SetVisibility(false);
+			WeaponSkeletalMeshComp->SetSkeletalMeshAsset(nullptr);
+		}
+
+		UStaticMesh* WeaponMesh = WeaponData ? LoadObject<UStaticMesh>(nullptr, *WeaponData->EquipMeshPath) : nullptr;
+		WeaponMeshComp->SetStaticMesh(WeaponMesh);
+	}
+
+	RefreshCharacterAnimClass();
+}
+
+void AHBPlayerCharacter::RefreshCharacterAnimClass()
+{
+	USkeletalMeshComponent* Body = GetMesh();
+	if (!Body)
+	{
+		return;
+	}
+
+	// 처음 한 번, 무기로 바꾸기 전의 AnimBP 를 기억한다(BP 기본값 또는 직업 데이터가 정한 것).
+	if (!BaseAnimClass)
+	{
+		BaseAnimClass = Body->GetAnimClass();
+	}
+
+	TSubclassOf<UAnimInstance> Wanted = BaseAnimClass;
+	if (CachedWeaponPresentation && CachedWeaponPresentation->CharacterAnimClass)
+	{
+		Wanted = CachedWeaponPresentation->CharacterAnimClass;
+	}
+
+	// 같으면 안 바꾼다. 바꾸면 애님 인스턴스가 새로 만들어져 진행 중인 몽타주가 끊긴다.
+	if (Wanted && Body->GetAnimClass() != Wanted)
+	{
+		Body->SetAnimInstanceClass(Wanted);
+	}
+}
+
+void AHBPlayerCharacter::SetBowDrawing(const bool bDrawing)
+{
+	bBowDrawing = bDrawing;
+}
+
+UStaticMesh* AHBPlayerCharacter::GetHeldArrowMesh() const
+{
+	return CachedWeaponPresentation ? CachedWeaponPresentation->HeldArrowMesh.LoadSynchronous() : nullptr;
+}
+
+FVector AHBPlayerCharacter::ComputeAimPoint(const float MaxDistance) const
+{
+	const FVector Start = FirstPersonCamera ? FirstPersonCamera->GetComponentLocation() : GetPawnViewLocation();
+	const FVector End = Start + GetBaseAimRotation().Vector() * MaxDistance;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HBAimPoint), false, this);
+	if (HeldArrowActor)
+	{
+		Params.AddIgnoredActor(HeldArrowActor);
+	}
+
+	FHitResult Hit;
+	if (GetWorld() && GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		return Hit.ImpactPoint;
+	}
+	return End;
 }
 
 void AHBPlayerCharacter::RefreshShieldVisual()

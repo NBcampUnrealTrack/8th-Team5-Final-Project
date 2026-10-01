@@ -24,6 +24,8 @@ struct FHBStartingLoadout;
 class USkeletalMesh;
 class UStaticMesh;
 class UQuickSlotComponent;
+class UDataTable;
+struct FHBWeaponPresentation;
 
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface
@@ -139,6 +141,30 @@ public:
 	// 장착 무기의 WeaponType을 태그로 변환한다. 올바르지 않거나 타입이 없으면 Weapon.Unarmed.
 	UFUNCTION(BlueprintPure, Category = "Player|Combat")
 	FGameplayTag GetEquippedWeaponTag() const;
+
+	// 장착 무기의 외형 행(DT_WeaponPresentation). 장비가 바뀔 때 갱신해 둔 값이다. 없으면 nullptr.
+	const FHBWeaponPresentation* GetWeaponPresentation() const { return CachedWeaponPresentation; }
+
+	// 외형 행에 스켈레탈 메시가 있는 무기(활)를 들었을 때 보이는 메시. 아니면 숨겨져 있다.
+	USkeletalMeshComponent* GetWeaponSkeletalMesh() const { return WeaponSkeletalMeshComp; }
+
+	// 활을 당기고 있는가. 활 AnimBP · 장전 화살 · 다른 클라 화면이 이걸 본다.
+	UFUNCTION(BlueprintPure, Category = "Player|Bow")
+	bool IsBowDrawing() const { return bBowDrawing; }
+
+	// 활 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
+	void SetBowDrawing(bool bDrawing);
+
+	// 장전 중 손에 보이는 화살 메시. 외형 행에 없으면 nullptr.
+	UFUNCTION(BlueprintPure, Category = "Player|Bow")
+	UStaticMesh* GetHeldArrowMesh() const;
+
+	// 화면 중앙(카메라)에서 조준 방향으로 쏜 트레이스의 끝. 맞은 곳이 있으면 그 지점.
+	// 장전 화살 표시와 서버의 화살 발사가 같은 값을 쓴다.
+	UFUNCTION(BlueprintPure, Category = "Player|Bow")
+	FVector ComputeAimPoint(float MaxDistance = 10000.f) const;
+
+	UCameraComponent* GetFirstPersonCamera() const { return FirstPersonCamera; }
 #pragma region Interaction
 public:
 	virtual void PawnClientRestart() override;
@@ -491,6 +517,20 @@ private:
 	void ResetCombatInstinct();
 
 	TWeakObjectPtr<AActor> ConsecutiveTarget;
+
+	// 활 당김 상태. 소유 클라는 GA 가 직접 세팅하므로 복제에서 뺀다(COND_SkipOwner).
+	UPROPERTY(Replicated)
+	bool bBowDrawing = false;
+
+	// 무기에 따른 교체 전의 AnimBP(BP 기본값 또는 직업 데이터). 무기를 내려놓으면 이걸로 돌아간다.
+	UPROPERTY()
+	TSubclassOf<UAnimInstance> BaseAnimClass;
+
+	// DataTable 행 포인터. 표는 에디터 애셋이라 게임 중에 행이 옮겨지지 않는다.
+	const FHBWeaponPresentation* CachedWeaponPresentation = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<AActor> HeldArrowActor;
 	int32 ConsecutiveHitCount = 0;
 	TWeakObjectPtr<AActor> LastDamageInstigator;
 	double LastDamageReceivedTime = -1000.0;
@@ -644,6 +684,19 @@ protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
 
+	// 시위가 움직이는 무기(활). 외형 행에 SkeletalMesh 가 있을 때만 보이고, 그때 WeaponMeshComp 는 비운다.
+	// "Weapon" 컴포넌트 태그를 달지 않는다 — 근접 트레이스 대상이 아니다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> WeaponSkeletalMeshComp;
+
+	// 무기별 외형·애니 표. 행 구조체 FHBWeaponPresentation. 비어 있으면 예전처럼 스태틱 무기만 보인다.
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Equipment")
+	TObjectPtr<UDataTable> WeaponPresentationTable;
+
+	// 장전 중 손에 보이는 화살 액터(BP_BowHeldArrow). 모든 머신이 각자 로컬로 만든다. 복제하지 않는다.
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Bow")
+	TSubclassOf<AActor> HeldArrowActorClass;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Combat")
 	TObjectPtr<class UMeleeTraceComponent> MeleeTraceComp;
 
@@ -743,6 +796,10 @@ protected:
 	void RefreshEquippedVisuals();
 	
 	void RefreshWeaponVisual();
+
+	// 외형 행의 CharacterAnimClass 로 AnimBP 를 바꾼다. 없으면 BaseAnimClass 로 되돌린다.
+	void RefreshCharacterAnimClass();
+
 	void RefreshShieldVisual();
 	void RefreshHelmetVisual();
 	void RefreshChestVisual();
