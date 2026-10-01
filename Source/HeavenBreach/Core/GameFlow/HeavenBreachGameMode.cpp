@@ -40,11 +40,58 @@ void AHeavenBreachGameMode::StartPlay()
 {
     if (auto* Dungeon = GetDungeonGenerator())
     {
+        BoundDungeon = Dungeon;
+        DungeonLayoutPlannedHandle = Dungeon->OnLayoutPlanned.AddUObject(this, &AHeavenBreachGameMode::HandleDungeonLayoutPlanned);
         Dungeon->OnReady.AddUniqueDynamic(this, &AHeavenBreachGameMode::HandleDungeonReady);
         Dungeon->OnFailed.AddUniqueDynamic(this, &AHeavenBreachGameMode::HandleDungeonFailed);
     }
     Super::StartPlay();
     if (auto* Dungeon = GetDungeonGenerator()) Dungeon->StartGeneration();
+}
+
+void AHeavenBreachGameMode::ClearDungeonPlayerLoading()
+{
+    LoadedDungeonGenerations.Reset();
+    DungeonLoadWaitStarted.Reset();
+}
+
+void AHeavenBreachGameMode::HandleDungeonLayoutPlanned()
+{
+    // A new generation needs new acknowledgements and a full loading timeout.
+    ClearDungeonPlayerLoading();
+}
+
+bool AHeavenBreachGameMode::RegenerateDungeon()
+{
+    if (!HasAuthority() || GetNetMode() == NM_Client || GetMatchState() != MatchState::WaitingToStart) return false;
+    auto* Dungeon = GetDungeonGenerator();
+    if (!Dungeon || !Dungeon->ResetGeneration()) return false;
+    ClearDungeonPlayerLoading();
+    StopMatchTimer();
+    GetWorldTimerManager().ClearTimer(MatchMapReloadTimerHandle);
+    bMatchMapReloadScheduled = false;
+    Dungeon->StartGeneration();
+    return Dungeon->State != EHBDungeonRuntimeState::Failed;
+}
+
+void AHeavenBreachGameMode::EndPlay(const EEndPlayReason::Type Reason)
+{
+    StopMatchTimer();
+    GetWorldTimerManager().ClearTimer(MatchMapReloadTimerHandle);
+    bMatchMapReloadScheduled = false;
+    ClearDungeonPlayerLoading();
+    ActivePlayers.Reset();
+    PostMatchTravelRequestedPlayers.Reset();
+    if (BoundDungeon.IsValid())
+    {
+        BoundDungeon->OnReady.RemoveDynamic(this, &AHeavenBreachGameMode::HandleDungeonReady);
+        BoundDungeon->OnFailed.RemoveDynamic(this, &AHeavenBreachGameMode::HandleDungeonFailed);
+        BoundDungeon->OnLayoutPlanned.Remove(DungeonLayoutPlannedHandle);
+        BoundDungeon->ShutdownGeneration();
+    }
+    BoundDungeon.Reset();
+    DungeonLayoutPlannedHandle.Reset();
+    Super::EndPlay(Reason);
 }
 
 void AHeavenBreachGameMode::StartMatch()
@@ -87,9 +134,11 @@ bool AHeavenBreachGameMode::IsPlayerDungeonLoaded(APlayerController* Player) con
     auto* Dungeon = GetDungeonGenerator();
     if (!Dungeon) return true;
     if (!IsValid(Player) || !Dungeon->IsReady()) return false;
+    const auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>();
+    if (!Source || Source->GetDungeonSnapshot().State != EHBDungeonSnapshotState::Active
+        || Source->GetDungeonSnapshot().GenerationId != Dungeon->GetGenerationId()) return false;
     // The listen host uses this same world; no network acknowledgement is needed.
     if (Player->IsLocalController()) return true;
-    const auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>();
     const int32* Loaded = LoadedDungeonGenerations.Find(Player);
     return Source && Loaded && *Loaded > 0 && *Loaded == Source->GetDungeonSnapshot().GenerationId
         && *Loaded == Dungeon->GetGenerationId();
@@ -117,18 +166,19 @@ bool AHeavenBreachGameMode::ReportDungeonLoaded(APlayerController* Player, int32
     auto* Dungeon = GetDungeonGenerator();
     if (!HasAuthority() || GetNetMode() == NM_Client || !IsValid(Player) || Player->GetWorld() != GetWorld() || !Player->PlayerState
         || Player->PlayerState->IsOnlyASpectator() || !Source || !Dungeon || GenerationId <= 0
+        || Source->GetDungeonSnapshot().State != EHBDungeonSnapshotState::Active
         || GenerationId != Source->GetDungeonSnapshot().GenerationId
         || Dungeon->State == EHBDungeonRuntimeState::Failed) return false;
     bool bConnected = false;
     for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
         if (It->Get() == Player) { bConnected = true; break; }
     if (!bConnected) return false;
-    if (const int32* Existing = LoadedDungeonGenerations.Find(Player); Existing && *Existing == GenerationId) return true;
     if (!bSucceeded)
     {
         Dungeon->Fail(TEXT("A client failed to prepare the current dungeon generation."));
         return false;
     }
+    if (const int32* Existing = LoadedDungeonGenerations.Find(Player); Existing && *Existing == GenerationId) return true;
     // Clients can finish before the host. Preserve their acknowledgement until host readiness.
     LoadedDungeonGenerations.Add(Player, GenerationId);
     DungeonLoadWaitStarted.Remove(Player);
@@ -163,7 +213,13 @@ void AHeavenBreachGameMode::Tick(float DeltaSeconds)
 void AHeavenBreachGameMode::HandleDungeonFailed(const FString& Reason)
 {
     UE_LOG(LogTemp, Error, TEXT("HeavenBreachGM | Dungeon unavailable; player start blocked | %s"), *Reason);
-    if (IsMatchInProgress()) { StopMatchTimer(); AbortMatch(); }
+    ClearDungeonPlayerLoading();
+    ActivePlayers.Reset();
+    PostMatchTravelRequestedPlayers.Reset();
+    StopMatchTimer();
+    GetWorldTimerManager().ClearTimer(MatchMapReloadTimerHandle);
+    bMatchMapReloadScheduled = false;
+    if (IsMatchInProgress()) AbortMatch();
 }
 
 void AHeavenBreachGameMode::StartExtractionMatch()
@@ -460,6 +516,11 @@ void AHeavenBreachGameMode::HandleMatchHasEnded()
 
 void AHeavenBreachGameMode::HandleLeavingMap()
 {
+    StopMatchTimer();
+    GetWorldTimerManager().ClearTimer(MatchMapReloadTimerHandle);
+    bMatchMapReloadScheduled = false;
+    ClearDungeonPlayerLoading();
+    if (auto* Dungeon = GetDungeonGenerator()) Dungeon->ShutdownGeneration();
 	Super::HandleLeavingMap();
 }
 

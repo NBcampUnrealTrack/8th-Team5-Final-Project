@@ -187,7 +187,86 @@ bool FHBDungeonLoadAckTest::RunTest(const FString&)
     TestFalse(TEXT("Old acknowledgements do not unlock a new generation"), Mode->AreDungeonPlayersLoaded());
     Player->PlayerState->SetIsOnlyASpectator(true);
     TestFalse(TEXT("Spectator cannot report participant readiness"), Mode->ReportDungeonLoaded(Player, 2, true));
+    Player->PlayerState->SetIsOnlyASpectator(false);
+    TestTrue(TEXT("Current generation loading can be acknowledged"), Mode->ReportDungeonLoaded(Player, 2, true));
+    AddExpectedErrorPlain(TEXT("FAILED: A client failed to prepare the current dungeon generation."), EAutomationExpectedErrorFlags::Contains, 1);
+    // The host generation normally advances before it publishes. Stage that identity in this socket-free fixture.
+    Dungeon->GenerationId = 2;
+    TestFalse(TEXT("Failure after a successful acknowledgement is not ignored"), Mode->ReportDungeonLoaded(Player, 2, false));
+    TestEqual(TEXT("Failed acknowledgement invalidates the server snapshot"), Source->GetDungeonSnapshot().State, EHBDungeonSnapshotState::Failed);
+    TestFalse(TEXT("Late success cannot resurrect a failed generation"), Mode->ReportDungeonLoaded(Player, 2, true));
     World->SetNetDriver(nullptr);
+    Driver->SetWorld(nullptr);
+    World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonLifecycleBoundaryTest, "HeavenBreach.PCGModule.Gameplay.GenerationLifecycle",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBDungeonLifecycleBoundaryTest::RunTest(const FString&)
+{
+    const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
+        .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    auto* Dungeon = World->SpawnActor<AHBDungeonRuntime>();
+    auto* Source = World->SpawnActor<AHeavenBreachGameState>();
+    World->SetGameState(Source);
+    FHBPrototypeRoom Room;
+    Room.Id = 0; Room.ModuleId = TEXT("LifecycleModule");
+    Room.ModuleMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Engine/Maps/Entry.Entry")));
+    TestTrue(TEXT("Publish the first lifecycle generation"), Source->PublishDungeonLayout(1, 42, {Room}, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
+    const FHBDungeonSnapshot OldLayout = Source->GetDungeonSnapshot();
+    auto* Driver = NewObject<UIpNetDriver>(World);
+    Driver->SetWorld(World);
+    auto* Connection = NewObject<UChildConnection>(Driver);
+    Driver->ServerConnection = Connection;
+    World->SetNetDriver(Driver);
+    Dungeon->Tick(0.f);
+    TestEqual(TEXT("Client started loading"), Dungeon->State, EHBDungeonRuntimeState::Loading);
+    TestFalse(TEXT("Client cannot reset a server generation"), Dungeon->ResetGeneration());
+    TestFalse(TEXT("Client cannot invalidate the shared snapshot"), Source->InvalidateDungeonLayout(1));
+
+    Driver->ServerConnection = nullptr;
+    TestFalse(TEXT("Unrelated cleanup cannot invalidate the current generation"), Source->InvalidateDungeonLayout(0));
+    TestTrue(TEXT("Server marks the generation cleared"), Source->InvalidateDungeonLayout(1));
+    TestTrue(TEXT("Repeated invalidation is harmless"), Source->InvalidateDungeonLayout(1));
+    TestFalse(TEXT("Cleared generation cannot be republished"), Source->PublishDungeonLayout(1, 42, {Room}, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
+    Driver->ServerConnection = Connection;
+    Source->OnDungeonSnapshotChanged.Broadcast();
+    TestEqual(TEXT("Client honors a terminal update for the same generation"), Dungeon->State, EHBDungeonRuntimeState::Idle);
+    TestTrue(TEXT("Terminal update clears local room data"), Dungeon->Rooms.IsEmpty() && !Dungeon->GetLoadedRoomLevel(0));
+    TestFalse(TEXT("Old layout cannot restart a cleared client generation"), Dungeon->ApplyServerLayout(OldLayout));
+
+    Driver->ServerConnection = nullptr;
+    TestTrue(TEXT("Pre-layout failure still publishes its generation identity"), Source->InvalidateDungeonLayout(2, TEXT("Lifecycle pre-layout failure")));
+    Driver->ServerConnection = Connection;
+    Source->OnDungeonSnapshotChanged.Broadcast();
+    TestEqual(TEXT("Client receives failure without a published room layout"), Dungeon->State, EHBDungeonRuntimeState::Failed);
+    TestEqual(TEXT("Failure advances the client generation"), Dungeon->GetGenerationId(), 2);
+    TestEqual(TEXT("Failure reason is retained for late subscribers"), Dungeon->Status, FString(TEXT("Lifecycle pre-layout failure")));
+    auto* LateDungeon = World->SpawnActor<AHBDungeonRuntime>();
+    LateDungeon->Tick(0.f);
+    TestEqual(TEXT("Late subscriber consumes terminal state without loading old rooms"), LateDungeon->State, EHBDungeonRuntimeState::Failed);
+    TestTrue(TEXT("Late subscriber has no stale rooms"), LateDungeon->Rooms.IsEmpty());
+    LateDungeon->ShutdownGeneration();
+
+    Driver->ServerConnection = nullptr;
+    TestTrue(TEXT("New generation replaces terminal state"), Source->PublishDungeonLayout(3, 43, {Room}, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
+    Driver->ServerConnection = Connection;
+    Source->OnDungeonSnapshotChanged.Broadcast();
+    TestEqual(TEXT("Client resumes only for a newer generation"), Dungeon->State, EHBDungeonRuntimeState::Loading);
+    TestTrue(TEXT("Runtime is subscribed before shutdown"), Source->OnDungeonSnapshotChanged.IsBoundToObject(Dungeon));
+    Dungeon->ShutdownGeneration();
+    Dungeon->ShutdownGeneration();
+    TestFalse(TEXT("Shutdown removes snapshot subscription"), Source->OnDungeonSnapshotChanged.IsBoundToObject(Dungeon));
+    TestTrue(TEXT("Shutdown clears every local room reference"), Dungeon->Rooms.IsEmpty() && !Dungeon->GetLoadedRoomLevel(0));
+    FHBDungeonSnapshot NewLayout = OldLayout; NewLayout.GenerationId = 4;
+    TestFalse(TEXT("An ended runtime cannot resume from a later snapshot"), Dungeon->ApplyServerLayout(NewLayout));
+    Dungeon->Tick(0.f);
+    TestFalse(TEXT("An ended runtime cannot resubscribe"), Source->OnDungeonSnapshotChanged.IsBoundToObject(Dungeon));
+    World->SetNetDriver(nullptr);
+    Driver->ServerConnection = nullptr;
     Driver->SetWorld(nullptr);
     World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
     return true;

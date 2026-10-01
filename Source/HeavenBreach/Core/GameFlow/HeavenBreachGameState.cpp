@@ -14,11 +14,26 @@ bool AHeavenBreachGameState::PublishDungeonLayout(int32 GenerationId, int32 Seed
     FString Error;
     if (!HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error)
         || !AHBDungeonDoorSeal::ValidateSettings(SealClass, SealExtent, Error)) return false;
+    DungeonSnapshot.State = EHBDungeonSnapshotState::Active;
+    DungeonSnapshot.FailureReason.Reset();
     DungeonSnapshot.GenerationId = GenerationId;
     DungeonSnapshot.Seed = Seed;
     DungeonSnapshot.Rooms = Rooms;
     DungeonSnapshot.DoorSealClass = SealClass.Get();
     DungeonSnapshot.DoorSealExtent = SealExtent;
+    ForceNetUpdate();
+    OnDungeonSnapshotChanged.Broadcast();
+    return true;
+}
+
+bool AHeavenBreachGameState::InvalidateDungeonLayout(int32 GenerationId, const FString& FailureReason)
+{
+    if (!HasAuthority() || GetNetMode() == NM_Client || GenerationId <= 0 || GenerationId < DungeonSnapshot.GenerationId) return false;
+    if (GenerationId == DungeonSnapshot.GenerationId && DungeonSnapshot.State != EHBDungeonSnapshotState::Active) return true;
+    DungeonSnapshot = FHBDungeonSnapshot();
+    DungeonSnapshot.GenerationId = GenerationId;
+    DungeonSnapshot.State = FailureReason.IsEmpty() ? EHBDungeonSnapshotState::Cleared : EHBDungeonSnapshotState::Failed;
+    DungeonSnapshot.FailureReason = FailureReason.Left(1024);
     ForceNetUpdate();
     OnDungeonSnapshotChanged.Broadcast();
     return true;

@@ -21,6 +21,9 @@ class HEAVENBREACH_API AHeavenBreachGameMode : public AGameMode
 public:
 	AHeavenBreachGameMode();
     virtual void StartPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+    /** Internal server logic; UI may invoke this later while WaitingToStart. */
+    bool RegenerateDungeon();
     virtual void StartMatch() override;
     virtual void RestartPlayer(AController* NewPlayer) override;
     virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
@@ -57,6 +60,10 @@ public:
 	void TravelPlayerToPostMatchMap(APlayerState* PlayerState, EHBPostMatchReason Reason);
 
 protected:
+    void HandleDungeonLayoutPlanned();
+    void ClearDungeonPlayerLoading();
+    TWeakObjectPtr<AHBDungeonRuntime> BoundDungeon;
+    FDelegateHandle DungeonLayoutPlannedHandle;
     TMap<TWeakObjectPtr<APlayerController>, int32> LoadedDungeonGenerations;
     TMap<TWeakObjectPtr<APlayerController>, double> DungeonLoadWaitStarted;
     UPROPERTY(EditDefaultsOnly, Category="Match|Dungeon", meta=(ClampMin="1"))

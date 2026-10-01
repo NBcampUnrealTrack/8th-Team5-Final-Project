@@ -10,6 +10,7 @@
 #include "PCGModule/HBChestSpawnPoint.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
+#include "Player/HBPlayerController.h"
 #include "PCGPrototype/HBPCGPreview.h"
 #include "PCGComponent.h"
 #include "Components/BoxComponent.h"
@@ -68,6 +69,9 @@ void AHBDungeonRuntime::StartGeneration()
     if (State != EHBDungeonRuntimeState::Idle) return;
     if (!GetWorld() || !GetWorld()->IsGameWorld()) return;
     if (!CanPlanGeneration()) return;
+    if (const auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>())
+        GenerationId = FMath::Max(GenerationId, Source->GetDungeonSnapshot().GenerationId);
+    ++GenerationId;
     int32 Count = 0;
     for (TActorIterator<AHBDungeonRuntime> It(GetWorld()); It; ++It) ++Count;
     if (Count != 1) { Fail(TEXT("Place exactly one gameplay dungeon generator.")); return; }
@@ -81,7 +85,6 @@ void AHBDungeonRuntime::StartGeneration()
     if (!HBDungeonModuleCatalog::Build(ModuleMaps, ModuleCatalog, CatalogErrors))
     { Fail(FString::Join(CatalogErrors, TEXT("\n"))); return; }
     ActiveSeed = bRandomSeedOnStart ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
-    ++GenerationId;
     ActiveRules = DungeonRules;
     ActiveDoorSealClass = DoorSealClass;
     ActiveDoorSealExtent = DoorSealExtent;
@@ -125,8 +128,18 @@ void AHBDungeonRuntime::MaterializeLayout(int32 PointCount)
 bool AHBDungeonRuntime::CanPlanGeneration() const
 {
     // A non-replicated map actor can have authority even in a client world.
-    return GetWorld() && GetWorld()->IsGameWorld() && HasAuthority()
+    return !bEndingPlay && GetWorld() && GetWorld()->IsGameWorld() && HasAuthority()
         && (GetNetMode() == NM_Standalone || GetNetMode() == NM_ListenServer);
+}
+bool AHBDungeonRuntime::ResetGeneration()
+{
+    const auto* Mode = GetWorld() ? GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>() : nullptr;
+    if (!CanPlanGeneration() || (Mode && Mode->GetMatchState() != MatchState::WaitingToStart)) return false;
+    State = EHBDungeonRuntimeState::Idle;
+    if (auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>()) Source->InvalidateDungeonLayout(GenerationId);
+    ClearGenerated();
+    Status = TEXT("Waiting for a new server dungeon generation.");
+    return true;
 }
 bool AHBDungeonRuntime::ValidateLocalSettings(FString& Error) const
 {
@@ -138,7 +151,8 @@ bool AHBDungeonRuntime::ValidateLocalSettings(FString& Error) const
 }
 bool AHBDungeonRuntime::ApplyServerLayout(const FHBDungeonSnapshot& Snapshot)
 {
-    if (!GetWorld() || !GetWorld()->IsGameWorld() || GetNetMode() != NM_Client || Snapshot.GenerationId <= 0) return false;
+    if (bEndingPlay || !GetWorld() || !GetWorld()->IsGameWorld() || GetNetMode() != NM_Client
+        || Snapshot.State != EHBDungeonSnapshotState::Active || Snapshot.GenerationId <= 0) return false;
     if (Snapshot.GenerationId < GenerationId) return false;
     if (Snapshot.GenerationId == GenerationId) return State == EHBDungeonRuntimeState::Loading || IsReady();
     FString Error;
@@ -296,8 +310,27 @@ void AHBDungeonRuntime::BindSnapshotSource()
 }
 void AHBDungeonRuntime::ConsumeServerSnapshot()
 {
-    if (GetNetMode() != NM_Client || !SnapshotSource.IsValid()) return;
+    if (bEndingPlay || GetNetMode() != NM_Client || !SnapshotSource.IsValid()) return;
     const auto& Snapshot = SnapshotSource->GetDungeonSnapshot();
+    if (Snapshot.GenerationId <= 0 || Snapshot.GenerationId < GenerationId) return;
+    if (Snapshot.State == EHBDungeonSnapshotState::Cleared || Snapshot.State == EHBDungeonSnapshotState::Failed)
+    {
+        const auto TerminalState = Snapshot.State == EHBDungeonSnapshotState::Failed
+            ? EHBDungeonRuntimeState::Failed : EHBDungeonRuntimeState::Idle;
+        if (Snapshot.GenerationId == GenerationId && State == TerminalState)
+        {
+            Status = Snapshot.State == EHBDungeonSnapshotState::Failed ? Snapshot.FailureReason : TEXT("Server cleared this dungeon generation.");
+            return;
+        }
+        State = TerminalState;
+        ClearGenerated();
+        GenerationId = Snapshot.GenerationId;
+        Status = Snapshot.State == EHBDungeonSnapshotState::Failed ? Snapshot.FailureReason : TEXT("Server cleared this dungeon generation.");
+        // This terminal snapshot is already known by the server. Do not echo a failure RPC.
+        if (State == EHBDungeonRuntimeState::Failed) OnFailed.Broadcast(Status);
+        return;
+    }
+    if (Snapshot.State != EHBDungeonSnapshotState::Active) return;
     if (Snapshot.GenerationId <= GenerationId) return;
     if (!ApplyServerLayout(Snapshot))
         Fail(TEXT("Could not apply replicated dungeon layout."));
@@ -485,6 +518,7 @@ void AHBDungeonRuntime::MarkReady()
 void AHBDungeonRuntime::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (bEndingPlay) return;
     if (GetNetMode() == NM_Client) BindSnapshotSource();
     if (State != EHBDungeonRuntimeState::Generating && State != EHBDungeonRuntimeState::Loading
         && State != EHBDungeonRuntimeState::PreparingEncounters) return;
@@ -525,6 +559,10 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
 }
 void AHBDungeonRuntime::ClearGenerated()
 {
+    if (bClearingGeneration) return;
+    TGuardValue<bool> ClearingGuard(bClearingGeneration, true);
+    // Cancel queued Plan/Load nodes before releasing the room instances they use.
+    if (IsValid(PCG) && GetNetMode() != NM_Client) PCG->CancelGeneration();
     bEncountersActive = false;
 	if (UWorld* World = GetWorld(); World && World->GetNetMode() != NM_Client)
 	{
@@ -542,21 +580,50 @@ void AHBDungeonRuntime::ClearGenerated()
     for (const auto& Stream : Streams) if (IsValid(Stream))
     { Stream->SetShouldBeVisible(false); Stream->SetShouldBeLoaded(false); Stream->SetIsRequestingUnloadAndRemoval(true); }
     Streams.Reset();
+    Rooms.Reset();
+    ActiveSeed = 0;
+    ActiveDoorSealClass = nullptr;
+    ActiveDoorSealExtent = FVector::ZeroVector;
+    GenerationStartTime = 0;
+    EncounterStartTime = 0;
 }
 void AHBDungeonRuntime::Fail(const FString& Reason)
 {
-    if (State == EHBDungeonRuntimeState::Failed) return;
-    State = EHBDungeonRuntimeState::Failed; Status = Reason;
+    if (bEndingPlay || State == EHBDungeonRuntimeState::Failed) return;
+    State = EHBDungeonRuntimeState::Failed;
+    Status = Reason.IsEmpty() ? TEXT("Dungeon generation failed.") : Reason;
+    if (GetNetMode() != NM_Client)
+    {
+        if (auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>()) Source->InvalidateDungeonLayout(GenerationId, Status);
+    }
+    else if (SnapshotSource.IsValid() && SnapshotSource->GetDungeonSnapshot().State == EHBDungeonSnapshotState::Active
+        && SnapshotSource->GetDungeonSnapshot().GenerationId == GenerationId)
+    {
+        // A local failure can occur after the controller already sent its one loading acknowledgement.
+        // Reuse its existing owned RPC without changing player/controller implementation.
+        if (auto* Player = Cast<AHBPlayerController>(GetWorld()->GetFirstPlayerController()); Player && Player->IsLocalController())
+            Player->ServerReportDungeonLoaded(SnapshotSource.Get(), GenerationId, false);
+    }
     ClearGenerated();
-    UE_LOG(LogHBDungeonRuntime, Error, TEXT("FAILED: %s"), *Reason);
-    OnFailed.Broadcast(Reason);
+    UE_LOG(LogHBDungeonRuntime, Error, TEXT("FAILED: %s"), *Status);
+    OnFailed.Broadcast(Status);
 }
-void AHBDungeonRuntime::EndPlay(const EEndPlayReason::Type Reason)
+void AHBDungeonRuntime::ShutdownGeneration()
 {
+    if (bEndingPlay) return;
+    const bool bServer = CanPlanGeneration();
+    bEndingPlay = true;
+    State = EHBDungeonRuntimeState::Idle;
+    SetActorTickEnabled(false);
+    if (bServer)
+        if (auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>()) Source->InvalidateDungeonLayout(GenerationId);
     if (SnapshotSource.IsValid()) SnapshotSource->OnDungeonSnapshotChanged.Remove(SnapshotChangedHandle);
     SnapshotSource.Reset();
     SnapshotChangedHandle.Reset();
-    State = EHBDungeonRuntimeState::Idle;
     ClearGenerated();
+}
+void AHBDungeonRuntime::EndPlay(const EEndPlayReason::Type Reason)
+{
+    ShutdownGeneration();
     Super::EndPlay(Reason);
 }

@@ -63,6 +63,10 @@ public:
     bool PlanLayout();
     void MaterializeLayout(int32 PointCount);
     bool CanPlanGeneration() const;
+    /** Server-only reset before gameplay; generation IDs are never reused. */
+    bool ResetGeneration();
+    /** Also used by EndPlay; permanently stop work in a world being left. */
+    void ShutdownGeneration();
     bool ApplyServerLayout(const FHBDungeonSnapshot& Snapshot);
     int32 GetGenerationId() const { return GenerationId; }
     bool ActivateEncounters(FString& Error);
@@ -83,6 +87,8 @@ private:
     void MarkReady();
     void ClearGenerated();
     bool bEncountersActive = false;
+    bool bEndingPlay = false;
+    bool bClearingGeneration = false;
     HBConnectorLayout::FSettings ActiveSettings;
     FHBDungeonGenerationRules ActiveRules;
     UPROPERTY(Transient) TSubclassOf<AHBDungeonDoorSeal> ActiveDoorSealClass;

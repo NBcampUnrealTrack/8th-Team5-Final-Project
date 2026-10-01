@@ -9,12 +9,15 @@
 #include "Components/ArrowComponent.h"
 #include "Components/BoxComponent.h"
 #include "Engine/StaticMesh.h"
+#include "PCGComponent.h"
+#include "NavMesh/NavMeshBoundsVolume.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBChestSpawnSubsystem.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "AI/EnemyCharacterBase.h"
+#include "AIController.h"
 #include "AI/GAS/EnemyAbilitySystemComponent.h"
 #include "Components/StateTreeAIComponent.h"
 #include "Player/HBPlayerCharacter.h"
@@ -70,9 +73,13 @@ namespace
         bool bSeparateServer = false;
         TArray<FNetDriverDefinition> Drivers;
         bool bConfigured = false;
+        TArray<TWeakObjectPtr<AActor>> EndPlayActors;
+        TWeakObjectPtr<AHBDungeonRuntime> ModifiedEditorDungeon;
+        int32 SavedFloor1MainRooms = 0;
 
         void Restore() const
         {
+            if (ModifiedEditorDungeon.IsValid()) ModifiedEditorDungeon->DungeonRules.Floor1MainRooms = SavedFloor1MainRooms;
             GEngine->NetDriverDefinitions = Drivers;
             auto* Settings = GetMutableDefault<ULevelEditorPlaySettings>();
             Settings->SetPlayNetMode(Mode);
@@ -568,7 +575,178 @@ namespace
             return true;
         }
     };
-    enum class EHBDungeonNetworkTest { Replication, Activation, Geometry };
+    class FHBWaitForDungeonLifecycle : public IAutomationLatentCommand
+    {
+        FAutomationTestBase* Test;
+        TSharedRef<FHBReplicationFixture> Fixture;
+        double Started = FPlatformTime::Seconds();
+        int32 Phase = 0;
+        int32 OldGeneration = 0;
+        int32 PreviousActorCount = 0;
+        TArray<TWeakObjectPtr<AActor>> RetiredActors;
+        TArray<TWeakObjectPtr<ULevel>> RetiredLevels;
+        TArray<TWeakObjectPtr<AHBDungeonPortal>> RetiredPortals;
+
+        int32 CaptureActors(UWorld* World)
+        {
+            int32 Count = 0;
+            for (TActorIterator<AActor> It(World); It; ++It)
+                if (It->IsA<AEnemyCharacterBase>() || It->IsA<ABoxActor>() || It->IsA<AHBDungeonDoorSeal>()
+                    || It->IsA<ANavMeshBoundsVolume>() || It->IsA<AAIController>())
+                { RetiredActors.Add(*It); ++Count; }
+            return Count;
+        }
+
+        void CaptureRooms(AHBDungeonRuntime* Dungeon)
+        {
+            for (const auto& Room : Dungeon->Rooms)
+                if (ULevel* Level = Dungeon->GetLoadedRoomLevel(Room.Id))
+                {
+                    RetiredLevels.Add(Level);
+                    for (AActor* Actor : Level->Actors)
+                        if (auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal) && IsValid(Portal->TargetPortal)) RetiredPortals.Add(Portal);
+                }
+        }
+
+        bool IsRetired(UWorld* Server, UWorld* Client) const
+        {
+            for (const auto& Actor : RetiredActors)
+                if (Actor.IsValid() && !Actor->IsActorBeingDestroyed()) return false;
+            for (const auto& Level : RetiredLevels)
+                if (Level.IsValid() && (Server->GetLevels().Contains(Level.Get()) || Client->GetLevels().Contains(Level.Get()))) return false;
+            for (const auto& Portal : RetiredPortals)
+                if (Portal.IsValid() && IsValid(Portal->TargetPortal)) return false;
+            return true;
+        }
+
+    public:
+        FHBWaitForDungeonLifecycle(FAutomationTestBase* InTest, TSharedRef<FHBReplicationFixture> InFixture)
+            : Test(InTest), Fixture(InFixture) {}
+
+        virtual bool Update() override
+        {
+            if (!Fixture->bConfigured) return true;
+            if (FPlatformTime::Seconds() - Started > 90.)
+            { Test->AddError(FString::Printf(TEXT("Listen generation lifecycle timed out in phase %d."), Phase)); return true; }
+            UWorld* Server = nullptr;
+            UWorld* Client = nullptr;
+            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            {
+                if (Context.WorldType != EWorldType::PIE || !Context.World()) continue;
+                if (Context.World()->GetNetMode() == NM_ListenServer) Server = Context.World();
+                if (Context.World()->GetNetMode() == NM_Client) Client = Context.World();
+            }
+            auto* Mode = Server ? Server->GetAuthGameMode<AHeavenBreachGameMode>() : nullptr;
+            if (Mode) FindFProperty<FBoolProperty>(Mode->GetClass(), TEXT("bAutoStartMatch"))->SetPropertyValue_InContainer(Mode, false);
+            auto* HostDungeon = FindDungeon(Server);
+            auto* ClientDungeon = FindDungeon(Client);
+            auto* Source = Server ? Server->GetGameState<AHeavenBreachGameState>() : nullptr;
+            auto* ClientSource = Client ? Client->GetGameState<AHeavenBreachGameState>() : nullptr;
+            APlayerController* Local = Client ? Client->GetFirstPlayerController() : nullptr;
+            if (!Mode || !HostDungeon || !ClientDungeon || !Source || !ClientSource || !Local) return false;
+            APlayerController* Remote = nullptr;
+            for (FConstPlayerControllerIterator It = Server->GetPlayerControllerIterator(); It; ++It)
+                if (It->IsValid() && !It->Get()->IsLocalController()) Remote = It->Get();
+            if (!Remote) return false;
+            if (Phase < 3 && (HostDungeon->State == EHBDungeonRuntimeState::Failed || ClientDungeon->State == EHBDungeonRuntimeState::Failed))
+            { Test->AddError(FString::Printf(TEXT("Unexpected lifecycle preparation failure: host=%s client=%s"), *HostDungeon->Status, *ClientDungeon->Status)); return true; }
+            if (Phase == 0)
+            {
+                if (!HostDungeon->IsReady() || !ClientDungeon->IsReady() || !Mode->AreDungeonPlayersLoaded()) return false;
+                OldGeneration = HostDungeon->GetGenerationId();
+                PreviousActorCount = CaptureActors(Server);
+                CaptureActors(Client);
+                CaptureRooms(HostDungeon); CaptureRooms(ClientDungeon);
+                Test->TestTrue(TEXT("Lifecycle fixture has managed spawns to clean"), PreviousActorCount > 0);
+                Local->SetActorTickEnabled(false);
+                Test->TestFalse(TEXT("Client cannot initiate regeneration"), ClientDungeon->ResetGeneration());
+                if (!Mode->RegenerateDungeon()) { Test->AddError(TEXT("GameMode rejected pre-match regeneration.")); return true; }
+                Test->TestEqual(TEXT("Regeneration advances the identity once"), HostDungeon->GetGenerationId(), OldGeneration + 1);
+                Phase = 1;
+                return false;
+            }
+            if (Phase == 1)
+            {
+                if (!HostDungeon->IsReady() || !ClientDungeon->IsReady() || ClientDungeon->GetGenerationId() != OldGeneration + 1
+                    || !IsRetired(Server, Client)) return false;
+                Test->TestTrue(TEXT("Old room streams, walls, encounters and portal links are retired"), IsRetired(Server, Client));
+                Test->TestFalse(TEXT("New generation requires a fresh client acknowledgement"), Mode->IsPlayerDungeonLoaded(Remote));
+                Test->TestFalse(TEXT("Old acknowledgement is rejected after regeneration"), Mode->ReportDungeonLoaded(Remote, OldGeneration, true));
+                Mode->StartMatch();
+                Test->TestFalse(TEXT("Regeneration cannot reuse the previous readiness gate"), Mode->IsMatchInProgress());
+                RetiredActors.Reset(); RetiredLevels.Reset(); RetiredPortals.Reset();
+                Test->TestEqual(TEXT("Regeneration recreates the expected spawns without duplicates"), CaptureActors(Server), PreviousActorCount);
+                RetiredActors.Reset();
+                Local->SetActorTickEnabled(true);
+                Phase = 2;
+                return false;
+            }
+            if (Phase == 2)
+            {
+                if (!Mode->AreDungeonPlayersLoaded()) return false;
+                if (!SupplyFixtureLoadouts(Test, Mode)) return true;
+                Mode->StartMatch();
+                Test->TestTrue(TEXT("New acknowledgements start the regenerated dungeon"), Mode->IsMatchInProgress());
+                if (!Mode->IsMatchInProgress()) return true;
+                Test->TestFalse(TEXT("GameMode rejects regeneration during gameplay"), Mode->RegenerateDungeon());
+                Test->TestFalse(TEXT("Direct runtime reset also rejects active gameplay"), HostDungeon->ResetGeneration());
+                CaptureActors(Server); CaptureActors(Client);
+                CaptureRooms(HostDungeon); CaptureRooms(ClientDungeon);
+                Test->TestTrue(TEXT("An existing client acknowledgement was accepted before its later failure"), Mode->IsPlayerDungeonLoaded(Remote));
+                ClientDungeon->Fail(TEXT("Lifecycle fixture client failure"));
+                Phase = 3;
+                return false;
+            }
+            if (HostDungeon->State != EHBDungeonRuntimeState::Failed || Source->GetDungeonSnapshot().State != EHBDungeonSnapshotState::Failed
+                || ClientSource->GetDungeonSnapshot().State != EHBDungeonSnapshotState::Failed || !IsRetired(Server, Client)) return false;
+            Test->TestEqual(TEXT("Failure propagates to the current generation"), ClientSource->GetDungeonSnapshot().GenerationId, OldGeneration + 1);
+            Test->TestEqual(TEXT("Client receives the authoritative failure reason"), ClientDungeon->Status, Source->GetDungeonSnapshot().FailureReason);
+            Test->TestEqual(TEXT("Failure aborts an active match"), Mode->GetMatchState(), MatchState::Aborted);
+            Test->TestEqual(TEXT("Failure stops the replicated match timer"), Source->GetMatchEndServerTime(), 0.);
+            Test->TestTrue(TEXT("Failure clears room data on both peers"), HostDungeon->Rooms.IsEmpty() && ClientDungeon->Rooms.IsEmpty());
+            Test->TestTrue(TEXT("Failed snapshot cannot replay old room data"), Source->GetDungeonSnapshot().Rooms.IsEmpty());
+            Test->TestFalse(TEXT("Failure cancels pending server graph work"), HostDungeon->PCG->IsGenerating());
+            Test->TestFalse(TEXT("Late success cannot reactivate a failed generation"), Mode->ReportDungeonLoaded(Remote, OldGeneration + 1, true));
+            Test->TestFalse(TEXT("Old Plan node cannot resume after failure"), HostDungeon->PlanLayout());
+            HostDungeon->MaterializeLayout(1);
+            Test->TestTrue(TEXT("Old Load node cannot restore cleared rooms"), HostDungeon->Rooms.IsEmpty());
+            Fixture->EndPlayActors = {Mode, HostDungeon, ClientDungeon};
+            Test->AddInfo(TEXT("Listen lifecycle verified pre-match regeneration, fresh acknowledgements, late client failure and complete room/AI cleanup."));
+            return true;
+        }
+    };
+    class FHBWaitForPlanFailure : public IAutomationLatentCommand
+    {
+        FAutomationTestBase* Test;
+        TSharedRef<FHBReplicationFixture> Fixture;
+        double Started = FPlatformTime::Seconds();
+    public:
+        FHBWaitForPlanFailure(FAutomationTestBase* InTest, TSharedRef<FHBReplicationFixture> InFixture)
+            : Test(InTest), Fixture(InFixture) {}
+        virtual bool Update() override
+        {
+            if (!Fixture->bConfigured) return true;
+            if (FPlatformTime::Seconds() - Started > 90.) { Test->AddError(TEXT("Listen Plan-node failure propagation timed out.")); return true; }
+            AHBDungeonRuntime* Host = nullptr;
+            AHBDungeonRuntime* Client = nullptr;
+            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            {
+                if (Context.WorldType != EWorldType::PIE || !Context.World()) continue;
+                if (Context.World()->GetNetMode() == NM_ListenServer) Host = FindDungeon(Context.World());
+                if (Context.World()->GetNetMode() == NM_Client) Client = FindDungeon(Context.World());
+            }
+            if (!Host || !Client || Host->State != EHBDungeonRuntimeState::Failed || Client->State != EHBDungeonRuntimeState::Failed) return false;
+            Test->TestEqual(TEXT("Pre-layout failure reaches the client with the server identity"), Client->GetGenerationId(), Host->GetGenerationId());
+            Test->TestTrue(TEXT("Failed Plan node never materializes room levels"), Host->Rooms.IsEmpty() && Client->Rooms.IsEmpty()
+                && !Host->GetLoadedRoomLevel(0) && !Client->GetLoadedRoomLevel(0));
+            Test->TestFalse(TEXT("Failure from inside Plan cancels the active graph"), Host->PCG->IsGenerating());
+            Test->TestEqual(TEXT("Client receives the planning failure reason"), Client->Status, Host->Status);
+            Fixture->EndPlayActors = {Host, Client};
+            Test->AddInfo(TEXT("Listen Plan-node failure verified cancellation and terminal snapshot propagation before any layout was published."));
+            return true;
+        }
+    };
+    enum class EHBDungeonNetworkTest { Replication, Activation, Geometry, Lifecycle, PlanFailure };
 }
 
 static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, EHBDungeonNetworkTest Kind)
@@ -576,8 +754,22 @@ static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, EHBDungeonNetwork
     const FString Map = TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay");
     if (!FPackageName::DoesPackageExist(Map)) { Test->AddError(TEXT("Dungeon network fixture map is missing.")); return false; }
     Test->AddExpectedErrorPlain(TEXT("Null input trigger detected in mapping to input action 'IA_Interact'"), EAutomationExpectedErrorFlags::Contains, 0);
-    Test->AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
-    Test->AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
+    if (Kind != EHBDungeonNetworkTest::PlanFailure)
+    {
+        Test->AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
+        Test->AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
+    }
+    if (Kind == EHBDungeonNetworkTest::Lifecycle)
+    {
+        Test->AddExpectedErrorPlain(TEXT("FAILED: Lifecycle fixture client failure"), EAutomationExpectedErrorFlags::Contains, 1);
+        Test->AddExpectedErrorPlain(TEXT("FAILED: A client failed to prepare the current dungeon generation."), EAutomationExpectedErrorFlags::Contains, 1);
+        Test->AddExpectedErrorPlain(TEXT("Dungeon unavailable; player start blocked | A client failed to prepare the current dungeon generation."), EAutomationExpectedErrorFlags::Contains, 1);
+    }
+    if (Kind == EHBDungeonNetworkTest::PlanFailure)
+    {
+        Test->AddExpectedErrorPlain(TEXT("FAILED: Use 2-24 floor-1 main rooms"), EAutomationExpectedErrorFlags::Contains, 1);
+        Test->AddExpectedErrorPlain(TEXT("Dungeon unavailable; player start blocked | Use 2-24 floor-1 main rooms"), EAutomationExpectedErrorFlags::Contains, 1);
+    }
     const auto Fixture = MakeShared<FHBReplicationFixture>();
     auto* Settings = GetMutableDefault<ULevelEditorPlaySettings>();
     Settings->GetPlayNetMode(Fixture->Mode);
@@ -596,7 +788,7 @@ static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, EHBDungeonNetwork
             Driver.DriverClassNameFallback = Driver.DriverClassName;
         }
     ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(Map));
-    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, Fixture]()
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, Fixture, Kind]()
     {
         for (const FWorldContext& Context : GEngine->GetWorldContexts())
         {
@@ -605,18 +797,46 @@ static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, EHBDungeonNetwork
             if (!WorldSettings->DefaultGameMode || !WorldSettings->DefaultGameMode->IsChildOf(AHeavenBreachGameMode::StaticClass())
                 || !FindDungeon(Context.World())) { Test->AddError(TEXT("Network fixture requires its dungeon and gameplay GameMode.")); return true; }
             Fixture->bConfigured = true;
+            if (Kind == EHBDungeonNetworkTest::PlanFailure)
+            {
+                auto* Dungeon = FindDungeon(Context.World());
+                Fixture->ModifiedEditorDungeon = Dungeon;
+                Fixture->SavedFloor1MainRooms = Dungeon->DungeonRules.Floor1MainRooms;
+                Dungeon->DungeonRules.Floor1MainRooms = 0;
+            }
             break;
         }
         return true;
     }));
     ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
-    if (Kind == EHBDungeonNetworkTest::Geometry)
+    if (Kind == EHBDungeonNetworkTest::PlanFailure)
+        FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForPlanFailure>(Test, Fixture));
+    else if (Kind == EHBDungeonNetworkTest::Lifecycle)
+        FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonLifecycle>(Test, Fixture));
+    else if (Kind == EHBDungeonNetworkTest::Geometry)
         FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonGeometry>(Test, Fixture));
     else if (Kind == EHBDungeonNetworkTest::Activation)
         FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonActivation>(Test, Fixture));
     else
         FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonReplication>(Test, Fixture));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+    const auto EndPlayWaitStarted = MakeShared<double>(0.);
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, Fixture, EndPlayWaitStarted]()
+    {
+        // FEndPlayMapCommand requests shutdown for the next frame. Wait for the
+        // PIE contexts to disappear before checking EndPlay and restoring settings.
+        if (*EndPlayWaitStarted == 0.) *EndPlayWaitStarted = FPlatformTime::Seconds();
+        for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            if (Context.WorldType == EWorldType::PIE && Context.World())
+            {
+                if (FPlatformTime::Seconds() - *EndPlayWaitStarted < 30.) return false;
+                Test->AddError(TEXT("Timed out waiting for PIE world shutdown."));
+                return true;
+            }
+        for (const auto& Actor : Fixture->EndPlayActors)
+            Test->TestTrue(TEXT("Ending PIE invokes EndPlay for both runtimes and GameMode"), !Actor.IsValid() || !Actor->HasActorBegunPlay());
+        return true;
+    }));
     ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Fixture]() { Fixture->Restore(); return true; }));
     return true;
 }
@@ -632,4 +852,12 @@ bool FHBDungeonListenActivationTest::RunTest(const FString&) { return QueueDunge
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenGeometryTest, "HeavenBreach.PCGModule.Network.ListenWallsAndPortals",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FHBDungeonListenGeometryTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, EHBDungeonNetworkTest::Geometry); }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenLifecycleTest, "HeavenBreach.PCGModule.Network.ListenGenerationLifecycle",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBDungeonListenLifecycleTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, EHBDungeonNetworkTest::Lifecycle); }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenPlanFailureTest, "HeavenBreach.PCGModule.Network.ListenPlanFailureCleanup",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBDungeonListenPlanFailureTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, EHBDungeonNetworkTest::PlanFailure); }
 #endif
