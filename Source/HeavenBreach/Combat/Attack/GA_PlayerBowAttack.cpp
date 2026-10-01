@@ -11,6 +11,8 @@
 #include "Core/Tag/State/HB_StateTag.h"
 #include "EquipmentComponent.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Player/HBWeaponPresentation.h"
+#include "Camera/CameraComponent.h"
 #include "TimerManager.h"
 
 UGA_PlayerBowAttack::UGA_PlayerBowAttack()
@@ -87,10 +89,22 @@ void UGA_PlayerBowAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		}
 	}
 
-	if (DrawMontage)
+	// 몽타주는 활마다 다를 수 있어 외형 표에서 먼저 찾는다.
+	const FHBWeaponPresentation* Presentation = Player ? Player->GetWeaponPresentation() : nullptr;
+	ActiveDrawMontage = ResolveMontage(Presentation ? Presentation->DrawMontage : nullptr, DrawMontage);
+	ActiveReleaseMontage = ResolveMontage(Presentation ? Presentation->ReleaseMontage : nullptr, ReleaseMontage);
+	ActiveCancelMontage = ResolveMontage(Presentation ? Presentation->CancelMontage : nullptr, CancelMontage);
+
+	// 활 AnimBP 의 팔·시위 IK 와 장전 화살이 이 값을 본다. 다른 클라는 복제로 받는다.
+	if (Player)
+	{
+		Player->SetBowDrawing(true);
+	}
+
+	if (ActiveDrawMontage)
 	{
 		// 당기기는 떼기를 기다리는 동안만 재생한다. 끝 콜백은 받지 않는다(떼기가 끝을 정한다).
-		UAbilityTask_PlayMontageAndWait* DrawTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Draw"), DrawMontage);
+		UAbilityTask_PlayMontageAndWait* DrawTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Draw"), ActiveDrawMontage);
 		DrawTask->ReadyForActivation();
 	}
 
@@ -122,9 +136,15 @@ void UGA_PlayerBowAttack::OnReleased(const float TimeHeld)
 	UE_LOG(LogTemp, Warning, TEXT("[Bow] 뗌  Auth=%d  TimeHeld=%.2f  Fire=%d  Speed=%.0f  Coef=%.2f"),
 		Info && Info->IsNetAuthority() ? 1 : 0, TimeHeld, Shot.bFire ? 1 : 0, Shot.Speed, Shot.DamageCoef);
 
+	// 놓는 순간 당김 자세(IK·장전 화살)를 푼다. 발사 몽타주가 복귀를 맡는다.
+	if (AHBPlayerCharacter* Player = Info ? Cast<AHBPlayerCharacter>(Info->AvatarActor.Get()) : nullptr)
+	{
+		Player->SetBowDrawing(false);
+	}
+
 	if (!Shot.bFire)
 	{
-		PlayFinishAndEnd(CancelMontage);
+		PlayFinishAndEnd(ActiveCancelMontage);
 		return;
 	}
 
@@ -134,7 +154,7 @@ void UGA_PlayerBowAttack::OnReleased(const float TimeHeld)
 		SpawnArrow(Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()), Shot.Speed, Shot.DamageCoef);
 	}
 
-	PlayFinishAndEnd(ReleaseMontage);
+	PlayFinishAndEnd(ActiveReleaseMontage);
 }
 
 void UGA_PlayerBowAttack::SpawnArrow(AHBPlayerCharacter* Player, const float Speed, const float DamageCoef)
@@ -146,12 +166,19 @@ void UGA_PlayerBowAttack::SpawnArrow(AHBPlayerCharacter* Player, const float Spe
 		return;
 	}
 
-	// 서버의 시선 = 폰 눈 위치 + 컨트롤 회전. 데디 서버에선 카메라 컴포넌트 위치를 믿지 않는다.
-	FVector EyeLocation;
-	FRotator EyeRotation;
-	Player->GetActorEyesViewPoint(EyeLocation, EyeRotation);
+	// 화면 중앙(카메라)에서 조준점으로. 서버도 몸 포즈를 매 틱 갱신하므로(AlwaysTickPoseAndRefreshBones)
+	// 머리 뼈에 붙은 카메라 위치를 그대로 쓸 수 있다. 눈 높이(캡슐 기준)를 쓰면 화면과 어긋난다.
+	const UCameraComponent* Camera = Player->GetFirstPersonCamera();
+	const FVector CameraLocation = Camera ? Camera->GetComponentLocation() : Player->GetPawnViewLocation();
+	const FVector AimPoint = Player->ComputeAimPoint(AimTraceDistance);
+	const FVector AimDirection = (AimPoint - CameraLocation).GetSafeNormal();
+	if (AimDirection.IsNearlyZero())
+	{
+		return;
+	}
+	const FRotator EyeRotation = AimDirection.Rotation();
 
-	const FTransform SpawnTransform(EyeRotation, EyeLocation + EyeRotation.Vector() * SpawnForwardOffset);
+	const FTransform SpawnTransform(EyeRotation, CameraLocation + AimDirection * SpawnForwardOffset);
 
 	AHBPlayerArrow* Arrow = World->SpawnActorDeferred<AHBPlayerArrow>(ArrowClass, SpawnTransform, Player, Player, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
 	if (!Arrow)
@@ -214,16 +241,27 @@ void UGA_PlayerBowAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, co
 
 	RemoveAttackSlow(ActorInfo);
 
+	// 끊겨서 끝난 경우(경직·사망 등)에도 당김 자세를 푼다.
+	if (AHBPlayerCharacter* Player = ActorInfo ? Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
+	{
+		Player->SetBowDrawing(false);
+	}
+
 	// 당기기 몽타주가 남아 있으면 끊는다(취소로 끝난 경우).
-	if (DrawMontage && ActorInfo)
+	if (ActiveDrawMontage && ActorInfo)
 	{
 		if (UAnimInstance* Anim = ActorInfo->GetAnimInstance())
 		{
-			Anim->Montage_Stop(0.2f, DrawMontage);
+			Anim->Montage_Stop(0.2f, ActiveDrawMontage);
 		}
 	}
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+UAnimMontage* UGA_PlayerBowAttack::ResolveMontage(UAnimMontage* FromPresentation, UAnimMontage* Fallback) const
+{
+	return FromPresentation ? FromPresentation : Fallback;
 }
 
 void UGA_PlayerBowAttack::RemoveAttackSlow(const FGameplayAbilityActorInfo* ActorInfo)

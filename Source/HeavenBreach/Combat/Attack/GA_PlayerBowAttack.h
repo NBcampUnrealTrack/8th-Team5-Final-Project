@@ -41,7 +41,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Bow")
 	TSubclassOf<AHBPlayerArrow> ArrowClass;
 
-	/** 당기기. Draw → Draw_Idle 루프 섹션으로 만든다. 비어 있어도 동작한다 */
+	/**
+	 * 당기기. 마지막 포즈에서 멈추게(auto blend-out 끔) 만든다. 비어 있어도 동작한다.
+	 * 무기 외형 표(DT_WeaponPresentation)에 몽타주가 있으면 그쪽이 우선이다. 여기 값은 폴백.
+	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Bow|Montage")
 	TObjectPtr<UAnimMontage> DrawMontage;
 
@@ -53,7 +56,7 @@ protected:
 	TObjectPtr<UAnimMontage> CancelMontage;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Bow|Draw", meta = (ClampMin = "0.0", Units = "s"))
-	float MinDrawTime = 0.3f;
+	float MinDrawTime = 0.5f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Bow|Draw", meta = (ClampMin = "0.0", Units = "s"))
 	float MaxDrawTime = 1.0f;
@@ -74,9 +77,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Bow|Draw", meta = (ClampMin = "0.0", Units = "s"))
 	float ReleaseRecoveryTime = 0.3f;
 
-	/** 시선에서 이만큼 앞에 화살을 만든다. 내 캡슐과 겹치지 않게 */
+	/** 카메라에서 이만큼 앞에 화살을 만든다. 내 캡슐과 겹치지 않게 */
 	UPROPERTY(EditDefaultsOnly, Category = "Bow", meta = (ClampMin = "0.0", Units = "cm"))
 	float SpawnForwardOffset = 50.f;
+
+	/** 조준점을 찾는 트레이스 거리. 아무것도 안 맞으면 이 거리의 점을 향한다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Bow", meta = (ClampMin = "100.0", Units = "cm"))
+	float AimTraceDistance = 10000.f;
 
 	/** 당기는 동안 이동 감속 GE. 검 평타와 같은 것을 꽂는다 */
 	UPROPERTY(EditDefaultsOnly, Category = "Bow")
@@ -92,6 +99,19 @@ private:
 	void EndSelf(bool bWasCancelled);
 
 	void RemoveAttackSlow(const FGameplayAbilityActorInfo* ActorInfo);
+
+	/** 외형 표의 몽타주가 있으면 그것, 없으면 이 GA 의 값 */
+	UAnimMontage* ResolveMontage(UAnimMontage* FromPresentation, UAnimMontage* Fallback) const;
+
+	/** 이번 발동에 쓰는 몽타주. 발동할 때 외형 표에서 정한다 */
+	UPROPERTY()
+	TObjectPtr<UAnimMontage> ActiveDrawMontage;
+
+	UPROPERTY()
+	TObjectPtr<UAnimMontage> ActiveReleaseMontage;
+
+	UPROPERTY()
+	TObjectPtr<UAnimMontage> ActiveCancelMontage;
 
 	FActiveGameplayEffectHandle SlowHandle;
 
