@@ -46,7 +46,12 @@ protected:
 	// 공중(점프·낙하)과 착지 직후에 위 세기에 한 번 더 곱하는 값. 점프 애니의 머리 출렁임이 커서 따로 줄인다.
 	// 1 이면 공중에서도 평소와 같다.
 	UPROPERTY(EditDefaultsOnly, Category = "Camera|Motion|Air", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float AirMotionScale = 0.3f;
+	float AirMotionScale = 0.f;
+
+	// 공중·착지 직후에 쓰는 StabilizeSpeed. 작을수록 더 느린 출렁임까지 걸러낸다.
+	// 점프 애니의 머리 출렁임은 0.2초보다 느려서 평소 값(6)으로는 남는다. 2.5 면 대략 0.4초보다 빠른 움직임을 줄인다.
+	UPROPERTY(EditDefaultsOnly, Category = "Camera|Motion|Air", meta = (ClampMin = "0.1"))
+	float AirStabilizeSpeed = 2.5f;
 
 	// 착지하고 나서 이 시간 동안은 공중과 같이 줄인다. 착지 충격 애니가 이 구간에 있다.
 	UPROPERTY(EditDefaultsOnly, Category = "Camera|Motion|Air", meta = (ClampMin = "0.0", Units = "s"))

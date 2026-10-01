@@ -124,7 +124,9 @@ void UHBCameraMotionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 	}
 
 	// 프레임률과 상관없이 같은 빠르기로 따라가도록 지수 감쇠를 쓴다.
-	const float Follow = 1.f - FMath::Exp(-StabilizeSpeed * DeltaTime);
+	// 공중일수록 더 느리게 따라가 큰 출렁임까지 걸러낸다.
+	const float Speed = FMath::Lerp(StabilizeSpeed, AirStabilizeSpeed, AirBlend);
+	const float Follow = 1.f - FMath::Exp(-Speed * DeltaTime);
 	SmoothedLocalLocation = FMath::Lerp(SmoothedLocalLocation, LocalLocation, Follow);
 	SmoothedAimDelta = FQuat::Slerp(SmoothedAimDelta, AimDelta, Follow);
 
