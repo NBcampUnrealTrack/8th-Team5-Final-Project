@@ -43,6 +43,19 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Camera|Motion", meta = (ClampMin = "0.1"))
 	float StabilizeSpeed = 6.f;
 
+	// 공중(점프·낙하)과 착지 직후에 위 세기에 한 번 더 곱하는 값. 점프 애니의 머리 출렁임이 커서 따로 줄인다.
+	// 1 이면 공중에서도 평소와 같다.
+	UPROPERTY(EditDefaultsOnly, Category = "Camera|Motion|Air", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AirMotionScale = 0.3f;
+
+	// 착지하고 나서 이 시간 동안은 공중과 같이 줄인다. 착지 충격 애니가 이 구간에 있다.
+	UPROPERTY(EditDefaultsOnly, Category = "Camera|Motion|Air", meta = (ClampMin = "0.0", Units = "s"))
+	float LandingSettleTime = 0.4f;
+
+	// 공중 세기로 들어가고 나오는 빠르기. 갑자기 바뀌면 화면이 툭 튄다.
+	UPROPERTY(EditDefaultsOnly, Category = "Camera|Motion|Air", meta = (ClampMin = "0.1"))
+	float AirBlendSpeed = 8.f;
+
 private:
 	UPROPERTY()
 	TObjectPtr<UCameraComponent> Camera;
@@ -57,4 +70,13 @@ private:
 
 	// 지난 프레임에 덮어썼는지. 1 로 돌아오면 원래 상대 위치로 되돌려 둔다.
 	bool bOverriding = false;
+
+	// 공중 세기가 얼마나 걸려 있나. 0 = 평소, 1 = AirMotionScale 그대로.
+	float AirBlend = 0.f;
+
+	// 마지막으로 공중에 있던 월드 시간. 착지 직후 구간 판단용.
+	double LastAirborneTime = -1000.0;
+
+	// 이번 프레임의 공중 보정 배율(1 ~ AirMotionScale). AirBlend 를 갱신하고 돌려준다.
+	float UpdateAirScale(const APawn* Pawn, float DeltaTime);
 };

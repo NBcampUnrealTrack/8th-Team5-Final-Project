@@ -3,6 +3,7 @@
 #include "Camera/CameraComponent.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PawnMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "UI/Settings/HBSettingsSubsystem.h"
 
@@ -48,6 +49,34 @@ float UHBCameraMotionComponent::GetEffectiveMotionScale() const
 	return FMath::Clamp(MotionScale * PlayerScale, 0.f, 1.f);
 }
 
+float UHBCameraMotionComponent::UpdateAirScale(const APawn* Pawn, const float DeltaTime)
+{
+	const UWorld* World = GetWorld();
+	const UPawnMovementComponent* Movement = Pawn ? Pawn->GetMovementComponent() : nullptr;
+	if (!World || !Movement)
+	{
+		return 1.f;
+	}
+
+	const double Now = World->GetTimeSeconds();
+	if (Movement->IsFalling())
+	{
+		LastAirborneTime = Now;
+	}
+
+	// 공중이거나 착지한 지 얼마 안 됐으면 줄인다.
+	const bool bWantAir = (Now - LastAirborneTime) <= LandingSettleTime;
+	AirBlend = FMath::FInterpTo(AirBlend, bWantAir ? 1.f : 0.f, DeltaTime, AirBlendSpeed);
+
+	// 끝없이 0 에 가까워지기만 하면 "세기 1" 판정에 안 걸려 계속 덮어쓴다. 충분히 작으면 0 으로 끊는다.
+	if (!bWantAir && AirBlend < 0.001f)
+	{
+		AirBlend = 0.f;
+	}
+
+	return FMath::Lerp(1.f, AirMotionScale, AirBlend);
+}
+
 void UHBCameraMotionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -60,7 +89,8 @@ void UHBCameraMotionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 		return;
 	}
 
-	const float Scale = GetEffectiveMotionScale();
+	// 평소 세기(개발자 값 × 설정 메뉴)에 공중·착지 보정을 곱한다. 설정을 안 건드려도 점프 때는 줄어든다.
+	const float Scale = GetEffectiveMotionScale() * UpdateAirScale(Pawn, DeltaTime);
 
 	// 세기 1 은 머리에 그대로 붙은 원래 상태다. 덮어쓰던 게 있으면 원래 상대 위치로 돌려놓는다.
 	if (Scale >= 1.f - KINDA_SMALL_NUMBER)
