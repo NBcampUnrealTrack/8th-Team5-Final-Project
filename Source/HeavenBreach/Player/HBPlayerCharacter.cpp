@@ -531,7 +531,13 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 	bool bGuarded = false;
 
 	float BlockMultiplier = 1.f;
-	if (InstigatorActor)
+
+	// 가드 불가 공격은 막기 · 패링 판정을 건너뛴다. 방어태세였어도 그냥 맞은 것으로 치고, 방패도 안 닳는다.
+	if (HasAttackTag(InstigatorActor, StateTag::TAG_State_Attacking_Unblockable))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Guard] 가드 불가 공격 | Instigator=%s"), *GetNameSafe(InstigatorActor));
+	}
+	else if (InstigatorActor)
 	{
 		const bool bInParryWindow = ASC->HasMatchingGameplayTag(StateTag::TAG_State_ParryWindow);
 		const bool bInGuardStance = ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking);
@@ -667,6 +673,31 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 			ApplyStaggerTo(InstigatorActor);
 		}
 	}
+
+	// 경직을 거는 공격에 막지 못하고 맞았으면 내가 경직된다 (GA_PlayerStagger).
+	// 막았거나 패링했으면 없다. 가드 불가 공격은 위에서 막기가 안 켜져서 여기로 온다.
+	// 슈퍼아머 · 사망 · 이미 경직 중이면 GA_PlayerStagger 가 스스로 막힌다.
+	if (!bGuarded)
+	{
+		if (HasAttackTag(InstigatorActor, StateTag::TAG_State_Attacking_Stagger))
+		{
+			ApplyStaggerTo(this);
+		}
+	}
+}
+
+bool AHBPlayerCharacter::HasAttackTag(const AActor* Attacker, const FGameplayTag& Tag) const
+{
+	if (!Attacker)
+	{
+		return false;
+	}
+	const UAbilitySystemComponent* AttackerASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Attacker);
+	if (!AttackerASC)
+	{
+		return false;
+	}
+	return AttackerASC->HasMatchingGameplayTag(Tag);
 }
 
 void AHBPlayerCharacter::PlayHitCue(
@@ -717,7 +748,7 @@ void AHBPlayerCharacter::ApplyStaggerTo(AActor* Target) const
 
 	// 실패하면 대부분 원인이 셋 중 하나다.
 	// 상대에게 Ability.HitReact GA 가 없거나, 슈퍼아머 중이거나, 이미 경직 중이다.
-	UE_LOG(LogTemp, Warning, TEXT("[Parry] 경직 시도 | Target=%s Activated=%d"),
+	UE_LOG(LogTemp, Warning, TEXT("[Stagger] 경직 시도 | Target=%s Activated=%d"),
 		*GetNameSafe(Target), bActivated ? 1 : 0);
 }
 
