@@ -2,11 +2,17 @@
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "PCGModule/HBDungeonRuntime.h"
+#include "PCGModule/HBDungeonModuleDefinition.h"
 #include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBChestSpawnSubsystem.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "AI/EnemyCharacterBase.h"
+#include "AI/GAS/EnemyAbilitySystemComponent.h"
+#include "Components/StateTreeAIComponent.h"
+#include "Player/HBPlayerCharacter.h"
+#include "Player/PlayerState/HB_PlayerState.h"
+#include "Player/Job/HBStartingLoadout.h"
 #include "Loot/BoxActor.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
@@ -27,6 +33,26 @@ namespace
         if (World)
             for (TActorIterator<AHBDungeonRuntime> It(World); It; ++It) return *It;
         return nullptr;
+    }
+
+    bool SupplyFixtureLoadouts(FAutomationTestBase* Test, AHeavenBreachGameMode* Mode)
+    {
+        // Direct PIE bypasses the lobby. Supply its validated default loadout
+        // through existing APIs before either gameplay pawn is spawned.
+        const auto* Defaults = Mode->DefaultPawnClass
+            ? Cast<AHBPlayerCharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
+        if (!Defaults || !Defaults->GetJobData())
+        { Test->AddError(TEXT("Network fixture needs a default gameplay job.")); return false; }
+        for (FConstPlayerControllerIterator It = Mode->GetWorld()->GetPlayerControllerIterator(); It; ++It)
+        {
+            auto* State = It->IsValid() ? It->Get()->GetPlayerState<AHB_PlayerState>() : nullptr;
+            FHBStartingLoadout Loadout;
+            FText Error;
+            if (!State || !MakeDefaultStartingLoadout(Defaults->GetJobData(), Loadout, Error)
+                || !State->TrySetStartingLoadout(Loadout, Error))
+            { Test->AddError(FString::Printf(TEXT("Network fixture loadout failed: %s"), *Error.ToString())); return false; }
+        }
+        return true;
     }
 
     struct FHBReplicationFixture
@@ -140,6 +166,17 @@ namespace
                 Test->TestFalse(TEXT("Fixture pauses match start to isolate room replication"), Mode->IsMatchInProgress());
                 for (TActorIterator<AEnemyCharacterBase> It(Server); It; ++It) ServerActors.Add(*It);
                 for (TActorIterator<ABoxActor> It(Server); It; ++It) ServerActors.Add(*It);
+                Test->TestFalse(TEXT("Room preparation alone does not activate dungeon AI"), HostDungeon->AreEncountersActive());
+                FString ActivationError;
+                Test->TestFalse(TEXT("Client runtime cannot activate server encounters"), ClientDungeon->ActivateEncounters(ActivationError));
+                for (TActorIterator<AEnemyCharacterBase> It(Server); It; ++It)
+                    Test->TestNull(TEXT("Pending replicated enemy has no server AI controller"), It->GetController());
+                // Movement/death/loot checks belong to gameplay, after deferred
+                // possession has initialized the existing enemy implementation.
+                if (!SupplyFixtureLoadouts(Test, Mode)) return true;
+                Mode->StartMatch();
+                Test->TestTrue(TEXT("Replication state changes are exercised after AI activation"), HostDungeon->AreEncountersActive());
+                if (!HostDungeon->IsReady()) { Test->AddError(HostDungeon->Status); return true; }
                 PhaseStarted = FPlatformTime::Seconds();
             }
             if (RoomIndex >= HostDungeon->Rooms.Num())
@@ -164,7 +201,13 @@ namespace
             {
                 // Floors can be far beyond normal net culling distance. Move the
                 // viewer to each room rather than changing production relevancy.
-                RemotePlayer->SetViewTarget(RoomActors.Last());
+                AActor* ViewTarget = nullptr;
+                for (AActor* Actor : HostLevel->Actors)
+                    if (IsValid(Actor) && Actor->IsA<AHBDungeonModuleDefinition>()) { ViewTarget = Actor; break; }
+                if (!ViewTarget) { Test->AddError(TEXT("Replication fixture room has no stable camera target.")); return true; }
+                // Use a room actor already loaded on both peers. A newly spawned
+                // enemy may itself still be waiting for distance-based relevancy.
+                RemotePlayer->SetViewTarget(ViewTarget);
                 bFocused = true;
                 PhaseStarted = FPlatformTime::Seconds();
                 return false;
@@ -254,17 +297,130 @@ namespace
             return false;
         }
     };
+
+    class FHBWaitForDungeonActivation : public IAutomationLatentCommand
+    {
+        FAutomationTestBase* Test;
+        TSharedRef<FHBReplicationFixture> Fixture;
+        double Started = FPlatformTime::Seconds();
+        bool bReleased = false;
+        TWeakObjectPtr<APlayerController> HeldClient;
+
+    public:
+        FHBWaitForDungeonActivation(FAutomationTestBase* InTest, TSharedRef<FHBReplicationFixture> InFixture)
+            : Test(InTest), Fixture(InFixture) {}
+
+        virtual bool Update() override
+        {
+            if (!Fixture->bConfigured) return true;
+            if (FPlatformTime::Seconds() - Started > 90.)
+            { Test->AddError(TEXT("Listen dungeon activation timed out.")); return true; }
+            UWorld* Server = nullptr;
+            UWorld* Client = nullptr;
+            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            {
+                if (Context.WorldType != EWorldType::PIE || !Context.World()) continue;
+                if (Context.World()->GetNetMode() == NM_ListenServer) Server = Context.World();
+                if (Context.World()->GetNetMode() == NM_Client) Client = Context.World();
+            }
+            auto* Mode = Server ? Server->GetAuthGameMode<AHeavenBreachGameMode>() : nullptr;
+            if (Mode)
+                FindFProperty<FBoolProperty>(Mode->GetClass(), TEXT("bAutoStartMatch"))->SetPropertyValue_InContainer(Mode, false);
+            if (!Server || !Client || !Mode) return false;
+            if (!bReleased && !HeldClient.IsValid())
+                if (APlayerController* Player = Client->GetFirstPlayerController())
+                {
+                    // Hold the real loading-report RPC while local room streaming
+                    // continues. No player-controller implementation is changed.
+                    Player->SetActorTickEnabled(false);
+                    HeldClient = Player;
+                }
+            auto* HostDungeon = FindDungeon(Server);
+            auto* ClientDungeon = FindDungeon(Client);
+            if (!HostDungeon || !ClientDungeon) return false;
+            if (HostDungeon->State == EHBDungeonRuntimeState::Failed || ClientDungeon->State == EHBDungeonRuntimeState::Failed)
+            {
+                Test->AddError(FString::Printf(TEXT("Activation fixture preparation failed: host=%s client=%s"),
+                    *HostDungeon->Status, *ClientDungeon->Status));
+                return true;
+            }
+            if (!HostDungeon->IsReady() || !ClientDungeon->IsReady() || !HeldClient.IsValid()) return false;
+            APlayerController* Remote = nullptr;
+            for (FConstPlayerControllerIterator It = Server->GetPlayerControllerIterator(); It; ++It)
+                if (It->IsValid() && !It->Get()->IsLocalController()) Remote = It->Get();
+            if (!Remote) return false;
+            FString Error;
+            if (!bReleased)
+            {
+                Test->TestFalse(TEXT("Ready client has not sent its held loading report"), Mode->IsPlayerDungeonLoaded(Remote));
+                Mode->StartMatch();
+                Test->TestFalse(TEXT("Manual match start waits for the real client acknowledgement"), Mode->IsMatchInProgress());
+                Test->TestFalse(TEXT("AI activation cannot bypass missing client acknowledgement"), HostDungeon->ActivateEncounters(Error));
+                int32 Pending = 0;
+                for (TActorIterator<AEnemyCharacterBase> It(Server); It; ++It)
+                {
+                    ++Pending;
+                    Test->TestNull(TEXT("No AI controller exists before all players are loaded"), It->GetController());
+                }
+                Test->TestTrue(TEXT("Real pending enemies were prepared"), Pending > 0);
+                HeldClient->SetActorTickEnabled(true);
+                bReleased = true;
+                Started = FPlatformTime::Seconds();
+                return false;
+            }
+            if (!Mode->AreDungeonPlayersLoaded()) return false;
+            if (!SupplyFixtureLoadouts(Test, Mode)) return true;
+            Test->TestFalse(TEXT("Acknowledgement alone does not activate enemies before match start"), HostDungeon->AreEncountersActive());
+            Test->TestFalse(TEXT("Runtime activation requires an active match"), HostDungeon->ActivateEncounters(Error));
+            Mode->StartMatch();
+            Test->TestTrue(TEXT("Acknowledged players can start the match"), Mode->IsMatchInProgress());
+            Test->TestTrue(TEXT("GameMode activates encounters when gameplay starts"), HostDungeon->AreEncountersActive());
+            if (!HostDungeon->IsReady()) { Test->AddError(HostDungeon->Status); return true; }
+            for (FConstPlayerControllerIterator It = Server->GetPlayerControllerIterator(); It; ++It)
+                if (It->IsValid() && It->Get()->PlayerState && !It->Get()->PlayerState->IsOnlyASpectator())
+                    Test->TestNotNull(TEXT("Gameplay players have spawned before AI activation completes"), It->Get()->GetPawn().Get());
+            TArray<TWeakObjectPtr<AController>> Controllers;
+            auto* Encounters = Server->GetSubsystem<UHBEncounterSubsystem>();
+            int32 Active = 0;
+            for (TActorIterator<AEnemyCharacterBase> It(Server); It; ++It)
+            {
+                ++Active;
+                AController* Controller = It->GetController();
+                Test->TestNotNull(TEXT("Activated server enemy has an AI controller"), Controller);
+                if (!Controller) continue;
+                Controllers.Add(Controller);
+                auto* Tree = Controller->FindComponentByClass<UStateTreeAIComponent>();
+                Test->TestTrue(TEXT("Existing enemy StateTree runs after activation"), Tree && Tree->IsRunning());
+                Test->TestTrue(TEXT("Enemy ASC initializes at deferred possession"), It->GetEnemyASC() && It->GetEnemyASC()->GetAvatarActor() == *It);
+            }
+            for (const auto& Room : HostDungeon->Rooms)
+            {
+                ULevel* Level = HostDungeon->GetLoadedRoomLevel(Room.Id);
+                if (UHBEncounterSubsystem::HasEncounter(Level))
+                    Test->TestTrue(TEXT("All prepared rooms are marked active for this generation"),
+                        Encounters->IsActivatedFor(HostDungeon->GetGenerationId(), Room.Id, Level));
+            }
+            Test->TestTrue(TEXT("Repeated dungeon activation is idempotent"), HostDungeon->ActivateEncounters(Error));
+            int32 Repeated = 0;
+            for (TActorIterator<AEnemyCharacterBase> It(Server); It; ++It)
+            {
+                ++Repeated;
+                Test->TestTrue(TEXT("Repeated activation preserves each existing controller"), Controllers.Contains(It->GetController()));
+            }
+            Test->TestEqual(TEXT("Repeated activation does not spawn more enemies"), Repeated, Active);
+            Test->AddInfo(FString::Printf(TEXT("Listen activation verified %d enemies after real client acknowledgement and player spawning."), Active));
+            return true;
+        }
+    };
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenReplicationTest, "HeavenBreach.PCGModule.Network.ListenRoomReplication",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FHBDungeonListenReplicationTest::RunTest(const FString&)
+static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, bool bActivationTest)
 {
     const FString Map = TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay");
-    if (!FPackageName::DoesPackageExist(Map)) { AddError(TEXT("Dungeon network fixture map is missing.")); return false; }
-    AddExpectedErrorPlain(TEXT("Null input trigger detected in mapping to input action 'IA_Interact'"), EAutomationExpectedErrorFlags::Contains, 0);
-    AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
-    AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
+    if (!FPackageName::DoesPackageExist(Map)) { Test->AddError(TEXT("Dungeon network fixture map is missing.")); return false; }
+    Test->AddExpectedErrorPlain(TEXT("Null input trigger detected in mapping to input action 'IA_Interact'"), EAutomationExpectedErrorFlags::Contains, 0);
+    Test->AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
+    Test->AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
     const auto Fixture = MakeShared<FHBReplicationFixture>();
     auto* Settings = GetMutableDefault<ULevelEditorPlaySettings>();
     Settings->GetPlayNetMode(Fixture->Mode);
@@ -283,23 +439,34 @@ bool FHBDungeonListenReplicationTest::RunTest(const FString&)
             Driver.DriverClassNameFallback = Driver.DriverClassName;
         }
     ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(Map));
-    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, Fixture]()
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, Fixture]()
     {
         for (const FWorldContext& Context : GEngine->GetWorldContexts())
         {
             if (Context.WorldType != EWorldType::Editor || !Context.World()) continue;
             auto* WorldSettings = Context.World()->GetWorldSettings();
             if (!WorldSettings->DefaultGameMode || !WorldSettings->DefaultGameMode->IsChildOf(AHeavenBreachGameMode::StaticClass())
-                || !FindDungeon(Context.World())) { AddError(TEXT("Network fixture requires its dungeon and gameplay GameMode.")); return true; }
+                || !FindDungeon(Context.World())) { Test->AddError(TEXT("Network fixture requires its dungeon and gameplay GameMode.")); return true; }
             Fixture->bConfigured = true;
             break;
         }
         return true;
     }));
     ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
-    ADD_LATENT_AUTOMATION_COMMAND(FHBWaitForDungeonReplication(this, Fixture));
+    if (bActivationTest)
+        FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonActivation>(Test, Fixture));
+    else
+        FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonReplication>(Test, Fixture));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
     ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Fixture]() { Fixture->Restore(); return true; }));
     return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenReplicationTest, "HeavenBreach.PCGModule.Network.ListenRoomReplication",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBDungeonListenReplicationTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, false); }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenActivationTest, "HeavenBreach.PCGModule.Network.ListenEncounterActivation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBDungeonListenActivationTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, true); }
 #endif

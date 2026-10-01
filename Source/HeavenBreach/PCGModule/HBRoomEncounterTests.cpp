@@ -317,7 +317,7 @@ public:
 		Test->TestFalse(TEXT("Cleanup clears generation state"), Subsystem->IsPreparedFor(1, 7, Definition->GetLevel()));
 		for (AEnemyCharacterBase* Enemy : Spawned)
 			Test->TestTrue(TEXT("Cleanup destroys each spawned monster"), !IsValid(Enemy) || Enemy->IsActorBeingDestroyed());
-		if (!Subsystem->StartEncounter(2, 12345, 7, Definition->GetLevel(), RoomBounds, Entries, Error))
+		if (!Subsystem->StartEncounter(2, 12345, 7, Definition->GetLevel(), RoomBounds, Entries, Error, true))
 			Test->AddError(FString::Printf(TEXT("TestMG restart after cleanup failed: %s"), *Error));
 		else
         {
@@ -326,6 +326,23 @@ public:
                 Subsystem->IsPreparedFor(2, 7, Definition->GetLevel()));
             Test->TestEqual(TEXT("Restart produces the same seeded count"),
                 Subsystem->GetAliveCount(2, 7, Definition->GetLevel()), Spawned.Num());
+            Test->TestFalse(TEXT("Deferred generation is prepared without activating AI"),
+                Subsystem->IsActivatedFor(2, 7, Definition->GetLevel()));
+            Test->TestTrue(TEXT("Repeated preparation reuses pending enemies without activating them"),
+                Subsystem->StartEncounter(2, 12345, 7, Definition->GetLevel(), RoomBounds, Entries, Error));
+            Test->TestFalse(TEXT("Default immediate mode cannot override a prepared deferred encounter"),
+                Subsystem->IsActivatedFor(2, 7, Definition->GetLevel()));
+            Test->TestFalse(TEXT("Old generation cannot activate new room actors"), Subsystem->ActivateGeneration(1, Error));
+            for (TActorIterator<AEnemyCharacterBase> It(World); It; ++It)
+                if (It->GetLevel() == Definition->GetLevel() && !It->IsActorBeingDestroyed())
+                    Test->TestNull(TEXT("Deferred enemies have no controller before activation"), It->GetController());
+            Test->TestTrue(TEXT("Current prepared generation can activate"), Subsystem->ActivateGeneration(2, Error));
+            Test->TestTrue(TEXT("Current encounter is active after possession"),
+                Subsystem->IsActivatedFor(2, 7, Definition->GetLevel()));
+            Test->TestTrue(TEXT("Repeated generation activation succeeds without restarting AI"), Subsystem->ActivateGeneration(2, Error));
+            for (TActorIterator<AEnemyCharacterBase> It(World); It; ++It)
+                if (It->GetLevel() == Definition->GetLevel() && !It->IsActorBeingDestroyed())
+                    Test->TestNotNull(TEXT("Activated deferred enemies have controllers"), It->GetController());
         }
 		Subsystem->ClearGeneration(2);
 		return true;

@@ -64,6 +64,8 @@ public:
     bool CanPlanGeneration() const;
     bool ApplyServerLayout(int32 InGenerationId, int32 InSeed, const TArray<FHBPrototypeRoom>& InRooms);
     int32 GetGenerationId() const { return GenerationId; }
+    bool ActivateEncounters(FString& Error);
+    bool AreEncountersActive() const { return bEncountersActive; }
     FSimpleMulticastDelegate OnLayoutPlanned;
     void Fail(const FString& Reason);
 private:
@@ -79,6 +81,7 @@ private:
     bool IsEncounterNavigationReady() const;
     void MarkReady();
     void ClearGenerated();
+    bool bEncountersActive = false;
     HBConnectorLayout::FSettings ActiveSettings;
     FHBDungeonGenerationRules ActiveRules;
     UPROPERTY(Transient) TArray<TObjectPtr<ULevelStreamingDynamic>> Streams;

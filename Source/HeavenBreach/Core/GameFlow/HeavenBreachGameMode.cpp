@@ -434,6 +434,15 @@ void AHeavenBreachGameMode::HandleMatchHasStarted()
 	Super::HandleMatchHasStarted();
 	
 	if (auto* Dungeon = GetDungeonGenerator(); Dungeon && !Dungeon->IsReady()) return;
+	if (auto* Dungeon = GetDungeonGenerator())
+	{
+		FString Error;
+		if (!Dungeon->ActivateEncounters(Error))
+		{
+			Dungeon->Fail(FString::Printf(TEXT("Dungeon encounter activation failed: %s"), *Error));
+			return;
+		}
+	}
 	InitializeActivePlayers();
 	StartMatchTimer();
 }

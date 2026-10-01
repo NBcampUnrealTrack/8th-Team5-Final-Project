@@ -414,7 +414,7 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
                         Entries.Add(Connector->GetComponentLocation());
             }
         if (bHasEncounter && (!EncounterSubsystem->StartEncounter(
-            GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error)
+            GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error, true)
             || !EncounterSubsystem->IsPreparedFor(GenerationId, Room.Id, Level)))
         {
             if (Error.IsEmpty()) Error = TEXT("Encounter did not register a prepared room.");
@@ -432,6 +432,30 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
     }
     return true;
 }
+bool AHBDungeonRuntime::ActivateEncounters(FString& Error)
+{
+    Error.Reset();
+    const auto* Mode = GetWorld() ? GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>() : nullptr;
+    if (!CanPlanGeneration() || !IsReady() || !Mode || !Mode->IsMatchInProgress() || !Mode->AreDungeonPlayersLoaded())
+    { Error = TEXT("Dungeon encounter activation requires a ready server dungeon and a started match with every player loaded."); return false; }
+    if (bEncountersActive) return true;
+    auto* Encounters = GetWorld()->GetSubsystem<UHBEncounterSubsystem>();
+    if (!Encounters) { Error = TEXT("Encounter subsystem is unavailable for activation."); return false; }
+    bool bHasEncounters = false;
+    for (const auto& Room : Rooms)
+    {
+        ULevel* Level = GetLoadedRoomLevel(Room.Id);
+        if (!IsValid(Level)) { Error = TEXT("Encounter activation requires every dungeon room to remain loaded."); return false; }
+        if (!UHBEncounterSubsystem::HasEncounter(Level)) continue;
+        bHasEncounters = true;
+        if (!Encounters->IsPreparedFor(GenerationId, Room.Id, Level))
+        { Error = TEXT("An encounter room is not prepared for the current dungeon generation."); return false; }
+    }
+    if (bHasEncounters && !Encounters->ActivateGeneration(GenerationId, Error)) return false;
+    bEncountersActive = true;
+    return true;
+}
+
 void AHBDungeonRuntime::MarkReady()
 {
     State = EHBDungeonRuntimeState::Ready;
@@ -483,6 +507,7 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
 }
 void AHBDungeonRuntime::ClearGenerated()
 {
+    bEncountersActive = false;
 	if (UWorld* World = GetWorld(); World && World->GetNetMode() != NM_Client)
 	{
 		if (UHBEncounterSubsystem* EncounterSubsystem = World->GetSubsystem<UHBEncounterSubsystem>())
