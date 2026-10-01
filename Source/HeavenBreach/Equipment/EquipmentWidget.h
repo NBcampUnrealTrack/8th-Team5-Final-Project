@@ -7,7 +7,7 @@
 
 class UEquipmentComponent;
 class UInventoryComponent;
-class UEquipmentSlotWidget; // ���� ���� ���� ���� ����
+class UEquipmentSlotWidget;
 class UInventoryWidget;
 
 UCLASS()
@@ -33,10 +33,6 @@ protected:
 	UFUNCTION()
 	void HandleEquipmentChanged();
 
-	// -------------------------------------------------------------
-	// WBP �������� ���� ������� 1:1�� ��Ī�Ǵ� BindWidget ����
-	// (WBP�� ���� ����(Hierarchy) �̸��� �侾 �ϳ� Ʋ���� �ʰ� �Ȱ��ƾ� �մϴ�)
-	// -------------------------------------------------------------
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UEquipmentSlotWidget> Slot_Helmet;
 
@@ -57,7 +53,6 @@ protected:
 
 private:
 
-	// C++���� Enum ���� Ÿ������ ���� ������ ������ ã�� ��ȸ�ϱ� ���� TMap
 	UPROPERTY()
 	TMap<EEquipSlotType, TObjectPtr<UEquipmentSlotWidget>> SlotMap;
 

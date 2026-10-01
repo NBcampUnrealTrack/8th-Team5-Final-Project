@@ -6,6 +6,8 @@
 #include "HBPlayerController.generated.h"
 
 class UCommonActivatableWidget;
+class AHeavenBreachGameState;
+class AHBDungeonRuntime;
 class UHB_ContainerScreen;
 class UHB_HUDLayer;
 class UHB_UILayout;
@@ -14,6 +16,7 @@ class UInputAction;
 class UInputMappingContext;
 class UInventoryUIComponent;
 class UHB_SkillAugment;
+class UHB_SpectateWidget;
 class UUserWidget;
 struct FInputActionValue;
 
@@ -24,6 +27,8 @@ class HEAVENBREACH_API AHBPlayerController : public APlayerController
 
 public:
 	AHBPlayerController();
+    UFUNCTION(Server, Reliable)
+    void ServerReportDungeonLoaded(AHeavenBreachGameState* Source, int32 GenerationId, bool bSucceeded);
 
 	UFUNCTION(BlueprintCallable, Category = "Player|Inventory")
 	void RequestCloseInventory();
@@ -52,7 +57,47 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	bool IsContainerOpen() const { return ContainerScreen != nullptr; }
 
+	// 서버 전용. 빙의를 푼 뒤 부른다. 살아 있는 팀원 시점으로 넘어간다.
+	void StartSpectatingTeammates();
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
+	// 접속이 끊기면 Logout 보다 먼저 불려 폰을 지운다. 살아 있던 사람은 여기서 시체로 남긴다.
+	virtual void PawnLeavingGame() override;
+
+	UPROPERTY(ReplicatedUsing = OnRep_SpectatingTeammates)
+	bool bSpectatingTeammates = false;
+
+	UFUNCTION()
+	void OnRep_SpectatingTeammates();
+
+	// 지금 보고 있는 팀원. 시점을 RPC(ClientSetViewTarget)로만 보내면 클라에서 Pawn=null 복제가
+	// 뒤따라 와 엔진이 시점을 컨트롤러로 되돌린다(APlayerController::SetPawn → AutoManageActiveCameraTarget).
+	// 복제 변수의 OnRep 은 엔진의 OnRep_Pawn 보다 뒤에 불리므로 마지막에 이 값이 이긴다.
+	UPROPERTY(ReplicatedUsing = OnRep_SpectateTarget)
+	TObjectPtr<APawn> SpectateTarget;
+
+	UFUNCTION()
+	void OnRep_SpectateTarget();
+
+	// 서버. 관전 대상을 바꾸고 서버 쪽 시점도 맞춘다.
+	void SetSpectateTarget(APawn* NewTarget);
+
+	UFUNCTION(Server, Reliable)
+	void ServerSpectateNext();
+
+	// 서버. Current 다음 생존 팀원 폰. 없으면 nullptr.
+	APawn* FindNextSpectateTarget(const AActor* Current) const;
+
+	// 서버. 보던 대상이 죽거나 사라지면 다음 사람으로.
+	void CheckSpectateTarget();
+
+	FTimerHandle SpectateCheckTimer;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHB_SpectateWidget> SpectateWidget;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	TObjectPtr<UInputMappingContext> PlayerMappingContext;
 
@@ -143,9 +188,6 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UHB_ContainerScreen> ContainerScreen;
 
-	// 상자 창이 열리고 닫힐 때 캐릭터의 뒤지는 동작을 켜고 끈다.
-	void SetPawnInteracting(bool bInteracting);
-
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override;
@@ -208,6 +250,9 @@ protected:
 	bool TryShowPostMatchResultWidget();
 
 private:
+    void ReportLocalDungeonState();
+    TWeakObjectPtr<AHBDungeonRuntime> ReportedDungeon;
+    int32 ReportedDungeonGeneration = 0;
 	void HandleMove(const FInputActionValue& Value);
 	void HandleLook(const FInputActionValue& Value);
 	void StartJump();
@@ -215,6 +260,7 @@ private:
 	void StartCrouch();
 	void StopCrouch();
 	void Attack();
+	void StopAttack();
 	void Block();
 	void StopBlock();
 	void ToggleInventory();

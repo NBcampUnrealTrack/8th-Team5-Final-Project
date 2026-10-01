@@ -9,7 +9,6 @@ class UStaticMeshComponent;
 class USphereComponent;
 class USkeletalMeshComponent;
 
-// �� ������ �ν��Ͻ��� ��� DataTable���� �ڱ� �����͸� �о�� �ϴ���
 UENUM(BlueprintType)
 enum class EItemSourceTable : uint8
 {
@@ -18,9 +17,6 @@ enum class EItemSourceTable : uint8
 	Shield
 };
 
-// �ʵ忡 ���̴� ��� ������(���/�Ҹ�ǰ/��� ��)�� ���� ���̽� Ŭ����.
-// DT_Item / DT_Weapon / DT_Shield �� �ϳ����� �ڱ� �����͸� �о�� �޽��� �����ϰ�,
-// ǥ�� ����(�̸�/���/�ǸŰ�/�׸���ũ��/������)�� � ���̺� ����̵� ������ �ʵ�� ĳ���صд�.
 UCLASS()
 class HEAVENBREACH_API AItemBase : public AActor, public IInteractableInterface
 {
@@ -29,7 +25,6 @@ class HEAVENBREACH_API AItemBase : public AActor, public IInteractableInterface
 public:
 	AItemBase();
 
-	// ----- �����Ϳ��� ���� -----
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_ItemID, Category = "Item")
 	FName ItemID;
 
@@ -42,21 +37,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_ItemID, Category = "Item")
 	UDataTable* ShieldDataTable;
 
-	// ----- ������Ʈ -----
-	// �ݸ��� + ���� �ùķ��̼��� ����ϴ� ��Ʈ. ���� �޽��� ����ƽ�̸� �̰� �� �ð������ε� ���̴� �޽���,
-	// ���̷�Ż�̸� ������ �� ���̴�(Visibility false) �浹 ���� ��ü�� �ȴ�.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item")
 	UStaticMeshComponent* MeshComponent;
 
-	// ���� ������ ���̷�Ż �޽��� ���(����/���� ��) ǥ�� ����. �ݸ���/������ ���� ���� �ʰ� MeshComponent�� ����ٴϱ⸸ �Ѵ�.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item")
 	USkeletalMeshComponent* SkeletalMeshComponent;
 
-	// �÷��̾ ������ ���� �� ��ȣ�ۿ�(�ݱ�) ������
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item")
 	USphereComponent* InteractionSphere;
 
-	// ----- DataTable���� �о�� ĳ���ϴ� ǥ�ÿ� ���� (� ���̺� ����̵� �����ϰ� ä����) -----
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item|Cached")
 	FString DisplayName;
 
@@ -81,9 +70,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
 	int32 StackCount = 1;
 
-	// ���ã���� �������� ������ ��(�ʵ忡 ����߷��� ��) ���ã�� ���¸� ���� �ʵ���,
-	// ��ӵ� ���� ���Ϳ��� ���� �Բ� ��� �ٴѴ�. TryPickUp���� �ٽ� �κ��丮��
-	// ���� �� �� ���� �� FItemInstance�� �״�� �����Ѵ�.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item")
 	bool bIsFavorite = false;
 
@@ -100,9 +86,6 @@ public:
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Item")
 	FItemEngraving Engraving;
 
-	// ----- �Լ� -----
-	// ItemID / SourceTable �������� �ش� DataTable���� ���� �о�� ĳ�� �ʵ带 ä���,
-	// EquipMeshPath(����/����) �Ǵ� WorldMeshPath(����)�� �ε��ؼ� MeshComponent/SkeletalMeshComponent�� �����Ѵ�.
 	UFUNCTION(BlueprintCallable, Category = "Item")
 	void InitializeFromDataTable();
 
@@ -127,17 +110,10 @@ public:
 	float PickupBlockDuration = 1.0f;
 
 private:
-	/** MeshComponent(�ݸ��� ��ü)�� Ʈ�������� �ٲ� ������ ȣ��� - ������ ��������
-	 * ������ ���ȿ��� �Ҹ���, ��ü�� ����(�����ϸ�) �� �̻� �� �ҷ��� Tick���� �ξ� �δ�. */
 	void OnMeshTransformUpdated(USceneComponent* UpdatedComponent, EUpdateTransformFlags UpdateTransformFlags, ETeleportType Teleport);
 
-	// ���� ĳ���� ���뿡�� �߶� ���̷�Ż �޽� ������ ��Ʈ��(������Ʈ ����)�� ���� ������Ʈ��
-    // �߽��� �ٸ� �� �־, InitializeFromDataTable���� ����� ���� �������� �����صд�.
-    // OnMeshTransformUpdated�� ������ ������ ������ ��ġ�� ������ ���ߴµ�, �� ���� ����
-    // �ݿ������� ������ ���� ƽ���� �������� �ʱ�ȭ�Ǿ������.
 	FVector SkeletalMeshLocalOffset = FVector::ZeroVector;
 
-	// �������ڸ��� ���� ���� �ٷ� �ٽ� �ݴ� ��츦 ���� ���� ��ٿ� üũ ����
 	bool TryPickUp(AActor* Picker);
 
 	float SpawnTime = 0.f;

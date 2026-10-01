@@ -37,6 +37,10 @@ bool UHBChestPlacementComponent::Validate(TArray<FString>& OutErrors) const
 			if (Option.ChestClass && Classes.Contains(Option.ChestClass.Get()))
 				OutErrors.Add(Label + TEXT(" contains the same box class more than once."));
 			if (Option.ChestClass) Classes.Add(Option.ChestClass.Get());
+			const ABoxActor* Defaults = Option.ChestClass ? Option.ChestClass->GetDefaultObject<ABoxActor>() : nullptr;
+			if (Defaults && (!Defaults->GetIsReplicated() || Defaults->bOnlyRelevantToOwner))
+				OutErrors.Add(FString::Printf(TEXT("%s box %s must replicate to other players; owner-only relevancy is unsupported for room spawns."),
+					*Label, *Option.ChestClass->GetPathName()));
 			if (Option.Weight > 0) TotalWeight += Option.Weight;
 		}
 		if (TotalWeight > MAX_int32) OutErrors.Add(Label + TEXT(" total chest weight exceeds int32 range."));

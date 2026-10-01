@@ -169,17 +169,35 @@ void UInteractionComponent::EndHold()
 	HoldDuration = 0.0f;
 	HoldStartTime = 0.0f;
 
-	// 다 뒤져서 상자 창이 열린 경우에도 포커스가 풀리며 여기로 온다. 그때는 동작을 이어간다.
-	// 창이 안 열린 채 여기 왔다면 중간에 놓았거나 멀어진 것이다.
-	if (!IsInputOwnedByMenu())
+	// 뒤지는 동작은 누르고 있는 동안만이다. 손을 뗐든, 멀어졌든, 다 뒤져서 상자 창이 열렸든 여기서 끈다.
+	if (UHBInteractAnimComponent* InteractAnim = GetOwner()->FindComponentByClass<UHBInteractAnimComponent>())
 	{
-		if (UHBInteractAnimComponent* InteractAnim = GetOwner()->FindComponentByClass<UHBInteractAnimComponent>())
-		{
-			InteractAnim->SetInteracting(false);
-		}
+		InteractAnim->SetInteracting(false);
 	}
 
 	Server_EndHold();
+}
+
+void UInteractionComponent::AbortHold()
+{
+	if (GetOwnerRole() == ROLE_Authority)
+	{
+		CancelHoldOnServer();
+	}
+
+	if (HeldTarget == nullptr)
+	{
+		return;
+	}
+
+	HeldTarget = nullptr;
+	HoldDuration = 0.0f;
+	HoldStartTime = 0.0f;
+
+	if (UHBInteractAnimComponent* InteractAnim = GetOwner()->FindComponentByClass<UHBInteractAnimComponent>())
+	{
+		InteractAnim->SetInteracting(false);
+	}
 }
 
 float UInteractionComponent::GetHoldProgress() const

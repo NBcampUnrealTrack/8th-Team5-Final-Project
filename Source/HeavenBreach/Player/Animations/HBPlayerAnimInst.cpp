@@ -3,6 +3,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Player/HBWeaponPresentation.h"
 
 void UHBPlayerAnimInst::NativeInitializeAnimation()
 {
@@ -51,5 +52,10 @@ void UHBPlayerAnimInst::NativeUpdateAnimation(float DeltaSeconds)
 			const FRotator ActorRotation = OwnerInst->GetActorRotation();
 			Direction = FRotator::NormalizeAxis(VelocityRotation.Yaw - ActorRotation.Yaw);
 		}
+
+		bBowDrawing = OwnerInst->IsBowDrawing();
+		WeaponSkeletalMesh = OwnerInst->GetWeaponSkeletalMesh();
+		const FHBWeaponPresentation* Presentation = OwnerInst->GetWeaponPresentation();
+		StringIKOffset = Presentation ? Presentation->StringIKOffset : 0.f;
 	}
 }

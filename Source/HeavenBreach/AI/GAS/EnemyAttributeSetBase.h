@@ -8,7 +8,6 @@
 #include "EnemyAttributeSetBase.generated.h"
 
 
-// getter, setter, initter�ڵ����� �������
 #define ATTRIBUTE_ACCESSORS(ClassName, PropertyName) \
 GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ClassName, PropertyName) \
 GAMEPLAYATTRIBUTE_VALUE_GETTER(PropertyName) \
@@ -34,26 +33,13 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	// ====== vv ȣ�� ���� ��
 
-	// ������ ���� ����
-	// false : �߸��Ȱŷ� ���� �����(���͸�, �������°�����)
 	virtual bool PreGameplayEffectExecute(struct FGameplayEffectModCallbackData& Data) override;
 
-	// ���� �ٲ�� �� ȣ��
-	// ü���� maxHP�� �������ϰ� ������...
-	// ü���� 0 �̺v�� ���������ʰ� ���� ��...
-	// �̵� �ӵ��� �ʹ� ���������ʰ�...
 	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
 
-	// ���� �ٲ� �� ȣ��
-	// �ǰ� �￴���ϱ� UIü�¹� �����϶�...
-	// �ǰ� �￳���� ���带 ����ض�...
-	// Ư�� ������ �������ϱ� ĳ���� ������ �ٲ��...
 	virtual void PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue) override;
 
-	// ������ �����ϰ� �� ��
-	// �׾���? ����ġ ����? 
 	virtual void PostGameplayEffectExecute(const struct FGameplayEffectModCallbackData& Data) override;
 
 	// ====== ^^
@@ -78,7 +64,6 @@ protected:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Attribute")
 	FGameplayAttributeData AttackSpeedRate;
 
-	// ���̵�����
 	UFUNCTION()
 	void OnRep_Health(const FGameplayAttributeData& OldValue);
 
