@@ -22,6 +22,7 @@
 #include "UI/HB_ContainerScreen.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "UI/Skill/HB_SkillAugment.h"
+#include "Player/HBInteractAnimComponent.h"
 #include "Core/GameFlow/HBMatchResultSubsystem.h"
 #include "Blueprint/UserWidget.h"
 #include "UI/Settings/HBSettingsSubsystem.h"
@@ -48,7 +49,10 @@ void AHBPlayerController::BeginPlay()
 
 	if (PlayerCameraManager)
 	{
-		PlayerCameraManager->ViewPitchMax = 60.0f;
+		// 카메라가 머리 뼈에 붙어 있어, 에임오프셋(ABP 의 AimPitchMin/Max, AO_ComboWarrior_Pitch)이
+		// 따라갈 수 있는 범위를 넘으면 조준과 화면이 어긋난다. 두 값을 같이 맞춘다.
+		PlayerCameraManager->ViewPitchMin = -70.0f;
+		PlayerCameraManager->ViewPitchMax = 45.0f;
 	}
 
 	if (UEnhancedInputLocalPlayerSubsystem* InputSubsystem =
@@ -159,6 +163,17 @@ void AHBPlayerController::ClientPlayHitEffect_Implementation(float NewHP, float 
 	HUDLayer->PlayHitEffect();
 }
 
+void AHBPlayerController::SetPawnInteracting(bool bInteracting)
+{
+	if (const APawn* ControlledPawn = GetPawn())
+	{
+		if (UHBInteractAnimComponent* InteractAnim = ControlledPawn->FindComponentByClass<UHBInteractAnimComponent>())
+		{
+			InteractAnim->SetInteracting(bInteracting);
+		}
+	}
+}
+
 void AHBPlayerController::OpenContainer(UInventoryComponent* InContainer)
 {
 	if (InContainer == nullptr || ContainerScreenClass == nullptr)
@@ -188,11 +203,16 @@ void AHBPlayerController::OpenContainer(UInventoryComponent* InContainer)
 
 	if (ContainerScreen != nullptr)
 	{
+		// 상자·시체를 뒤지는 동작. 길게 누르기로 이미 켜져 있으면 그대로 이어진다.
+		// 길게 누르지 않는 대상(이미 뒤진 상자, 시체)은 여기서 처음 켜진다.
+		SetPawnInteracting(true);
+
 		// ESC / Tab 처럼 위젯이 스스로 닫히는 경로가 있으므로, 참조를 여기서 정리한다.
 		// 이걸 놓치면 이미 닫힌 화면을 열려 있다고 오판한다
 		ContainerScreen->OnDeactivated().AddWeakLambda(this, [this]()
 		{
 			ContainerScreen = nullptr;
+			SetPawnInteracting(false);
 		});
 	}
 }

@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
 #include "Input/CommonUIActionRouterBase.h"
+#include "Player/HBInteractAnimComponent.h"
 
 UInteractionComponent::UInteractionComponent()
 {
@@ -148,6 +149,12 @@ void UInteractionComponent::BeginHold()
 	HoldDuration = HoldSeconds;
 	HoldStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 
+	// 뒤지기 시작하는 동작. 끄는 건 EndHold(취소) 또는 상자 창이 닫힐 때(컨트롤러)다.
+	if (UHBInteractAnimComponent* InteractAnim = GetOwner()->FindComponentByClass<UHBInteractAnimComponent>())
+	{
+		InteractAnim->SetInteracting(true);
+	}
+
 	Server_BeginHold(FocusedInteractable);
 }
 
@@ -161,6 +168,16 @@ void UInteractionComponent::EndHold()
 	HeldTarget = nullptr;
 	HoldDuration = 0.0f;
 	HoldStartTime = 0.0f;
+
+	// 다 뒤져서 상자 창이 열린 경우에도 포커스가 풀리며 여기로 온다. 그때는 동작을 이어간다.
+	// 창이 안 열린 채 여기 왔다면 중간에 놓았거나 멀어진 것이다.
+	if (!IsInputOwnedByMenu())
+	{
+		if (UHBInteractAnimComponent* InteractAnim = GetOwner()->FindComponentByClass<UHBInteractAnimComponent>())
+		{
+			InteractAnim->SetInteracting(false);
+		}
+	}
 
 	Server_EndHold();
 }

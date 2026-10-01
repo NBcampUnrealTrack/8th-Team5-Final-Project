@@ -33,13 +33,21 @@ namespace
 
 		for (int32 i = 0; i < Rows.Num() && i < Names.Num(); ++i)
 		{
-			if (Rows[i])
+			if (!Rows[i])
 			{
-				FLootCandidate Candidate;
-				Candidate.Table = Table;
-				Candidate.RowName = Names[i];
-				Out.FindOrAdd(Rows[i]->Grade).Add(Candidate);
+				continue;
 			}
+
+			// 에셋 미완성 등으로 드랍 안 시킬 행은 여기서 상자 후보 풀에서 제외된다.
+			if (!Rows[i]->bDroppable)
+			{
+				continue;
+			}
+
+			FLootCandidate Candidate;
+			Candidate.Table = Table;
+			Candidate.RowName = Names[i];
+			Out.FindOrAdd(Rows[i]->Grade).Add(Candidate);
 		}
 	}
 }
@@ -234,6 +242,7 @@ void ABoxActor::GenerateLoot()
 		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 아이템 소스 테이블 없음(Item/Weapon/Shield): %s"), *GetName());
 		return;
 	}
+
 
 	TArray<TPair<EItemGrade, float>> Weights;
 	float TotalWeight = 0.0f;

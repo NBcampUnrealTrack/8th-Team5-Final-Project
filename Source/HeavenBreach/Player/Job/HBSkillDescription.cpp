@@ -119,8 +119,8 @@ namespace
 			UHB_PlayerAttributeSet::GetPlayer_LowHealthAttackBonusAttribute(), EValueKind::ModRatio);
 		AddAttribute(Table, TEXT("LowHealthThreshold"),
 			UHB_PlayerAttributeSet::GetPlayer_LowHealthAttackThresholdAttribute(), EValueKind::ModRatio);
-		AddAttribute(Table, TEXT("BasicAttackMana"),
-			UHB_PlayerAttributeSet::GetPlayer_BasicAttackManaCostMultiplierAttribute(), EValueKind::ModRatio);
+		AddAttribute(Table, TEXT("SprintMana"),
+			UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute(), EValueKind::ModRatio);
 
 		// ---- GA 애셋의 칸에서 읽는 것 ----
 		AddField(Table, TEXT("Duration"), EAbilityField::BuffDuration, EValueKind::Seconds);

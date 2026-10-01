@@ -23,13 +23,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInventoryItemActivated, FGuid, InstanceId);
 
 /**
- * ÀÎº¥Åä¸® È­¸é.
+ * ï¿½Îºï¿½ï¿½ä¸® È­ï¿½ï¿½.
  *
- * UI.Layer.Menu ½ºÅÃ¿¡ push µÇ¾î µ¿ÀÛÇÑ´Ù. È°¼º »óÅÂ¿¡¼­ Menu ÀÔ·Â ¸ğµå¸¦
- * ¼±¾ğÇÏ¹Ç·Î PlayerController°¡ ÀÌµ¿/°ø°İ ÀÔ·ÂÀ» µû·Î ¸·À» ÇÊ¿ä°¡ ¾ø´Ù.
+ * UI.Layer.Menu ï¿½ï¿½ï¿½Ã¿ï¿½ push ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½. È°ï¿½ï¿½ ï¿½ï¿½ï¿½Â¿ï¿½ï¿½ï¿½ Menu ï¿½Ô·ï¿½ ï¿½ï¿½å¸¦
+ * ï¿½ï¿½ï¿½ï¿½ï¿½Ï¹Ç·ï¿½ PlayerControllerï¿½ï¿½ ï¿½Ìµï¿½/ï¿½ï¿½ï¿½ï¿½ ï¿½Ô·ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ê¿ä°¡ ï¿½ï¿½ï¿½ï¿½.
  *
- * »óÀÚ/»óÁ¡ UI ¾È¿¡ ÀÚ½Ä À§Á¬À¸·Î µé¾î°¡´Â °æ¿ìµµ ÀÖ´Âµ¥, ±×¶§´Â È°¼ºÈ­µÇÁö
- * ¾ÊÀ¸¹Ç·Î ÀÔ·Â ¸ğµå³ª Back Ã³¸®¿¡ °ü¿©ÇÏÁö ¾Ê´Â´Ù.
+ * ï¿½ï¿½ï¿½ï¿½/ï¿½ï¿½ï¿½ï¿½ UI ï¿½È¿ï¿½ ï¿½Ú½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½î°¡ï¿½ï¿½ ï¿½ï¿½ìµµ ï¿½Ö´Âµï¿½, ï¿½×¶ï¿½ï¿½ï¿½ È°ï¿½ï¿½È­ï¿½ï¿½ï¿½ï¿½
+ * ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ ï¿½Ô·ï¿½ ï¿½ï¿½å³ª Back Ã³ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½.
  */
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UHB_ActivatableWidget
@@ -60,6 +60,8 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	UInventoryComponent* GetBoundInventory() const { return BoundInventory; }
+
+	bool ShouldSuppressDropOnCancel() const { return bSuppressDropOnCancel; }
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool BP_ScreenToCell(const FVector2D& InScreenPosition, FIntPoint& OutCell) const { return ScreenToCell(InScreenPosition, OutCell); }
@@ -93,6 +95,7 @@ protected:
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+	virtual void NativeOnFocusLost(const FFocusEvent& InFocusEvent) override;
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
@@ -160,6 +163,8 @@ private:
 	bool HandleDoubleClick(FIntPoint InCell);
 	bool HandleQuickSlotRegister(int32 InSlotIndex);
 	void RefocusAfterDrop();
+	void TryReclaimFocus();
+	bool ShouldReclaimFocus() const;
 	void SetHoveredCell(FIntPoint InCell);
 	void ClearHoveredCell();
 	bool UpdatePlacementPreview(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation);
@@ -185,10 +190,12 @@ private:
 	FIntPoint PressedCell = FIntPoint::ZeroValue;
 	FVector2D PressedLocalPosition = FVector2D::ZeroVector;
 	bool bPressedWithCtrl = false;
-	// ¿ìÅ¬¸¯ÀÌ ½ÇÁ¦·Î À¯È¿ÇÑ ¾ÆÀÌÅÛ Ä­¿¡¼­ ½ÃÀÛµÆ´ÂÁö ÃßÀû. ÀÌ°Ô ¾øÀ¸¸é ÀÎº¥Åä¸® ¹Ù±ùÀÌ³ª
-	// ºó Ä­¿¡¼­ ¿ìÅ¬¸¯ÇØµµ ÀÌÀü¿¡ ´­·¶´ø PressedCell/bPressedWithCtrl °ªÀÌ ±×´ë·Î ³²¾ÆÀÖ¾î¼­,
-	// Ctrl ¾øÀÌ ¾Æ¹«µ¥³ª ¿ìÅ¬¸¯ÇØµµ ¿¹Àü ¾ÆÀÌÅÛÀÇ ÄÁÅØ½ºÆ® ¸Ş´º°¡ ´Ù½Ã ¶ß´Â ¹ö±×°¡ ÀÖ¾úÀ½.
+	// ï¿½ï¿½Å¬ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¿ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ä­ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ÛµÆ´ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½. ï¿½Ì°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Îºï¿½ï¿½ä¸® ï¿½Ù±ï¿½ï¿½Ì³ï¿½
+	// ï¿½ï¿½ Ä­ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å¬ï¿½ï¿½ï¿½Øµï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ PressedCell/bPressedWithCtrl ï¿½ï¿½ï¿½ï¿½ ï¿½×´ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ö¾î¼­,
+	// Ctrl ï¿½ï¿½ï¿½ï¿½ ï¿½Æ¹ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å¬ï¿½ï¿½ï¿½Øµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø½ï¿½Æ® ï¿½Ş´ï¿½ï¿½ï¿½ ï¿½Ù½ï¿½ ï¿½ß´ï¿½ ï¿½ï¿½ï¿½×°ï¿½ ï¿½Ö¾ï¿½ï¿½ï¿½.
 	bool bHasValidPress = false;
+
+	bool bSuppressDropOnCancel = false;
 
 	void ShowSplitPopupForDrop(FGuid InInstanceId, FIntPoint InTargetCell, FVector2D InScreenPosition);
 
@@ -214,13 +221,14 @@ private:
 	UPROPERTY()
 	TObjectPtr<UItemInfoPopupWidget> HoverInfoPopup;
 
-	// °°Àº ¾ÆÀÌÅÛ À§¿¡¼­ ¸¶¿ì½º¸¸ ¿òÁ÷ÀÌ´Â ¸Å Æ½¸¶´Ù ÆË¾÷À» ´Ù½Ã ¸¸µéÁö ¾Ê±â À§ÇÑ ÃßÀû¿ë.
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ì½ºï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ì´ï¿½ ï¿½ï¿½ Æ½ï¿½ï¿½ï¿½ï¿½ ï¿½Ë¾ï¿½ï¿½ï¿½ ï¿½Ù½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½.
 	FGuid HoveredItemInstanceId;
 
 	void UpdateHoverInfoPopup(FIntPoint InCell);
 	void ClearHoverInfoPopup();
 
-	FString BuildStatTextForItem(const FItemInstance& InItem) const;
+	// BuildStatTextForItemì€ EquipmentSlotWidgetê³¼ ê³µìœ í•˜ê¸° ìœ„í•´ InventoryTypes.h/.cppì˜
+	// ê³µìš© í•¨ìˆ˜ë¡œ ì˜®ê²¼ë‹¤ (ì´ì „ì—” ì—¬ê¸° private ë©¤ë²„ì˜€ìŒ).
 
 	UPROPERTY()
 	TObjectPtr<UUserWidget> ParentContainerWidget;
@@ -234,6 +242,6 @@ private:
 	FIntPoint HoveredCell = FIntPoint(-1, -1);
 	TObjectPtr<UShopComponent> LinkedShop;
 
-	// µå·¡±× ÁßÀÎ OperationÀ» Àâ¾ÆµÖ¼­ TÅ° ÀÔ·ÂÀÌ µé¾î¿ÔÀ» ¶§ ¹Ù·Î È¸Àü½ÃÅ³ ¼ö ÀÖ°Ô ÇÑ´Ù.
+	// ï¿½å·¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Operationï¿½ï¿½ ï¿½ï¿½ÆµÖ¼ï¿½ TÅ° ï¿½Ô·ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½Ù·ï¿½ È¸ï¿½ï¿½ï¿½ï¿½Å³ ï¿½ï¿½ ï¿½Ö°ï¿½ ï¿½Ñ´ï¿½.
 	TWeakObjectPtr<UInventoryDragDropOperation> ActiveDragOperation;
 };

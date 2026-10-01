@@ -12,6 +12,8 @@
 #include "Item/ItemEffectRules.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Components/CapsuleComponent.h"
+#include "Core/Tag/Cue/HB_CueTag.h"
 #include "AbilitySystemGlobals.h"
 #include "HBPlayerPassiveGABase.h"
 
@@ -208,6 +210,14 @@ void UHBPlayerActiveGABase::ApplyCost(const FGameplayAbilitySpecHandle Handle, c
 
 	// 활성화 예측 키로 붙기 때문에 클라 마나 바가 즉시 줄어든다.
 	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, Spec);
+
+	// 재생 지연을 다시 건다. 빼먹으면 쓰자마자 차오르기 시작해서
+	// 마나를 안 쓴 것처럼 보인다. 기본공격/달리기/방어와 같은 규칙이다.
+	// (AHBPlayerCharacter::NotifyManaActivity 호출부의 주석 참조)
+	if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
+	{
+		Player->NotifyManaActivity();
+	}
 }
 
 void UHBPlayerActiveGABase::ApplyAdditionalCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
@@ -270,6 +280,10 @@ void UHBPlayerActiveGABase::ActivateAbility(const FGameplayAbilitySpecHandle Han
 	ApplySelfBuff(ActorInfo);
 	ApplyDuringAbilityEffect(ActorInfo);
 
+	// CommitAbility 를 통과한 뒤에만 연출을 낸다. 마나가 모자라 튕긴 발동에서
+	// 이펙트만 터지면 쓴 줄 알고 또 누른다.
+	ExecuteActivationCue(ActorInfo);
+
 	// 몽타주 없는 스킬도 있다. 즉발 버프 같은 것.
 	// 비용과 쿨타임과 버프는 CommitAbility로 이미 적용되었다.
 	// 여기서 안 끝내면 몽타주가 null 이라 델리게이트가 하나도 안 오고
@@ -311,6 +325,53 @@ void UHBPlayerActiveGABase::ActivateAbility(const FGameplayAbilitySpecHandle Han
 }
 
 // ---------------- 자기 버프 ----------------
+
+void UHBPlayerActiveGABase::ExecuteActivationCue(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!ActivationCueTag.IsValid())
+	{
+		return;
+	}
+
+	AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
+	if (!Player)
+	{
+		return;
+	}
+
+	FVector CueLocation = Player->GetActorLocation();
+	if (bActivationCueAtFeet)
+	{
+		// 액터 위치는 캡슐 중심이다. 그대로 쓰면 바닥에 퍼지는 연출이 공중에 뜬다.
+		if (const UCapsuleComponent* Capsule = Player->GetCapsuleComponent())
+		{
+			CueLocation.Z -= Capsule->GetScaledCapsuleHalfHeight();
+		}
+	}
+
+	FGameplayCueParameters CueParams;
+	CueParams.Location = CueLocation;
+
+	// Normal 은 "법선" 이라는 이름과 달리 여기서는 스폰 회전의 재료다.
+	// 엔진의 FGameplayCueNotify_PlacementInfo::FindSpawnTransform 이
+	// Normal.Rotation() 을 그대로 스폰 회전으로 쓴다.
+	// 그리고 FVector::Rotation() 은 "그 벡터가 로컬 +X 가 되는 회전" 을 준다.
+	//
+	// 그래서 UpVector 를 넣으면 안 된다. Pitch 90 이 나와 로컬 +Z 가 옆을 보고,
+	// 바닥에 퍼져야 할 링이 벽처럼 선다.
+	// 캐릭터 정면을 넣으면 Pitch 0 이라 로컬 +Z 가 월드 위쪽과 맞는다.
+	// 타격 큐(HitCuePlay)가 ImpactNormal 을 넣는 것도 같은 이유다.
+	// 그쪽은 로컬 +X 가 벽에서 튀어나오는 방향이 되어야 한다.
+	CueParams.Normal = Player->GetActorForwardVector();
+	CueParams.Instigator = Player;
+	CueParams.EffectCauser = Player;
+
+	// HitCuePlay 와 달리 서버 검사를 하지 않는다.
+	// ExecuteGameplayCue 가 안에서 갈라준다. 서버면 멀티캐스트하고, 예측 중인
+	// 클라면 자기 화면에서만 미리 재생한다. 멀티캐스트는 그 클라를 건너뛰므로
+	// 두 번 터지지 않는다. 자기가 누른 스킬이라 서버 왕복을 기다리면 늦다.
+	K2_ExecuteGameplayCueWithParams(ActivationCueTag, CueParams);
+}
 
 void UHBPlayerActiveGABase::ApplySelfBuff(const FGameplayAbilityActorInfo* ActorInfo)
 {

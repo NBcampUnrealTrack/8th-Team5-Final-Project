@@ -12,6 +12,7 @@ class UInventoryComponent;
 class UAbilitySystemComponent;
 struct FItemOption;
 struct FItemEffect;
+struct FWeaponData;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEquipmentChanged);
 
@@ -43,9 +44,6 @@ public:
 
 	bool CanEquip(const FItemInstance& InItem, EEquipSlotType InSlot) const;
 
-	// 지금 주무기로 활/지팡이(양손무기)가 장착되어 있어서 보조 장비 슬롯을 아예 쓸 수 없는
-	// 상태인지. UI가 보조 슬롯에 잠금 오버레이(자물쇠 아이콘 등)를 켤지 판단하는 용도 -
-	// CanEquip과 같은 조건(IsShieldIncompatibleWeaponType)을 그대로 재사용한다.
 	UFUNCTION(BlueprintPure, Category = "Equipment")
 	bool IsSecondarySlotLockedByWeapon() const;
 
@@ -54,6 +52,8 @@ public:
 	bool UnequipToInventory(EEquipSlotType InSlot, UInventoryComponent* InTarget);
 
 	bool UnequipToInventoryAt(EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition);
+
+	bool ClearSlot(EEquipSlotType InSlot);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -118,6 +118,13 @@ private:
 
 	// 부서지지 않은 주무기의 FWeaponData::AttackPower.
 	float SumWeaponAttackPower() const;
+
+	// 부서지지 않은 주무기의 공격 속도 배율. 무기가 없거나 부서졌으면 1(영향 없음).
+	float GetWeaponAttackSpeedRate() const;
+
+	// 공격에 쓸 수 있는 주무기의 행. 없거나 부서졌으면 nullptr.
+	// 무기 기초 스탯이 둘이 되어서 "부서지면 0" 규칙을 한 곳에 모았다.
+	const FWeaponData* FindUsableWeaponRow() const;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Slots)
 	TArray<FItemInstance> Slots;

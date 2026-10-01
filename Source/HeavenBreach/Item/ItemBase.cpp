@@ -77,6 +77,7 @@ void AItemBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 	DOREPLIFETIME(AItemBase, StackCount);
 	DOREPLIFETIME(AItemBase, bIsFavorite);
 	DOREPLIFETIME(AItemBase, CurrentDurability);
+	DOREPLIFETIME(AItemBase, Engraving);
 }
 
 void AItemBase::OnRep_ItemID()
@@ -295,6 +296,9 @@ bool AItemBase::TryPickUp(AActor* Picker)
 	NewItem.StackCount = FMath::Max(1, StackCount);
 	NewItem.bIsFavorite = bIsFavorite;
 	NewItem.CurrentDurability = CurrentDurability;
+	// 버릴 때 실어 둔 각인을 되살린다.
+	// 레벨에 미리 놓인 아이템은 비어 있어서(bEngraved false) 아래 TryAddItem 입구에서 새로 굴린다.
+	NewItem.Engraving = Engraving;
 	int32 Remainder = 0;
 	const bool bAdded = Inventory->TryAddItem(NewItem, Remainder);
 	if (bAdded && Remainder == 0)

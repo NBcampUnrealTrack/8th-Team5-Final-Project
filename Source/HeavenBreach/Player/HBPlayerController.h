@@ -147,6 +147,9 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UHB_ContainerScreen> ContainerScreen;
 
+	// 상자 창이 열리고 닫힐 때 캐릭터의 뒤지는 동작을 켜고 끈다.
+	void SetPawnInteracting(bool bInteracting);
+
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override;

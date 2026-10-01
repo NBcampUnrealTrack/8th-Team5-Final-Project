@@ -6,9 +6,15 @@
 #include "Item/Item.h"
 #include "HBPlayerController.h"
 #include "Inventory/InventoryComponent.h"
+#include "Engine/DataTable.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
+#include "Combat/Attack/GA_PlayerAttackRE.h"
+#include "Player/HBPotionDrinkComponent.h"
+#include "Player/HBInteractAnimComponent.h"
+#include "Player/HBCameraMotionComponent.h"
+#include "Player/HBFootstepComponent.h"
 #include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Block/GA_PlayerParry.h"
 #include "Combat/Damage/HBDamageCalculation.h"
@@ -19,7 +25,6 @@
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
-#include "Core/Tag/Job/HB_JobTag.h"
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
 #include "Core/Tag/Archer/HB_ArcherTag.h"
 #include "Core/Tag/Mage/HB_MageTag.h"
@@ -46,41 +51,8 @@
 #include "Combat/Ability/HBPlayerActiveGABase.h"
 #include "Combat/Ability/HBPlayerPassiveGABase.h"
 #include "Combat/Ability/HBPlayerSkillGABase.h"
+#include "Combat/Ability/HBCommonAugmentSet.h"
 
-namespace
-{
-	// GetSkillCooldownRemaining로직 변경으로 필요없어짐
-	// 이제 skillid가 곧 태그임
-	//FGameplayTag GetSkillCooldownTag(const FName SkillId)
-	//{
-	//	if (SkillId == TEXT("Warrior.ChargeSlash")) return WarriorTag::TAG_Cooldown_ChargeSlash;
-	//	if (SkillId == TEXT("Warrior.CombatRoll")) return WarriorTag::TAG_Cooldown_CombatRoll;
-	//	if (SkillId == TEXT("Warrior.Execute")) return WarriorTag::TAG_Cooldown_Execute;
-	//	if (SkillId == TEXT("Warrior.BattleCry")) return WarriorTag::TAG_Cooldown_BattleCry;
-	//	if (SkillId == TEXT("Warrior.ChainPull")) return WarriorTag::TAG_Cooldown_ChainPull;
-	//	if (SkillId == TEXT("Warrior.BloodThirst")) return WarriorTag::TAG_Cooldown_BloodThirst;
-	//	if (SkillId == TEXT("Archer.EvasiveShot")) return ArcherTag::TAG_Cooldown_EvasiveShot;
-	//	if (SkillId == TEXT("Archer.SwiftMovement")) return ArcherTag::TAG_Cooldown_SwiftMovement;
-	//	if (SkillId == TEXT("Archer.PiercingArrow")) return ArcherTag::TAG_Cooldown_PiercingArrow;
-	//	if (SkillId == TEXT("Archer.BindingTrap")) return ArcherTag::TAG_Cooldown_BindingTrap;
-	//	if (SkillId == TEXT("Archer.MultiShot")) return ArcherTag::TAG_Cooldown_MultiShot;
-	//	if (SkillId == TEXT("Archer.TrackingMark")) return ArcherTag::TAG_Cooldown_TrackingMark;
-	//	if (SkillId == TEXT("Archer.ExplosiveArrow")) return ArcherTag::TAG_Cooldown_ExplosiveArrow;
-	//	if (SkillId == TEXT("Archer.RapidFire")) return ArcherTag::TAG_Cooldown_RapidFire;
-	//	if (SkillId == TEXT("Archer.SmokeArrow")) return ArcherTag::TAG_Cooldown_SmokeArrow;
-	//	if (SkillId == TEXT("Mage.MagicBolt")) return MageTag::TAG_Cooldown_MagicBolt;
-	//	if (SkillId == TEXT("Mage.Teleport")) return MageTag::TAG_Cooldown_Teleport;
-	//	if (SkillId == TEXT("Mage.Fireball")) return MageTag::TAG_Cooldown_Fireball;
-	//	if (SkillId == TEXT("Mage.IceLance")) return MageTag::TAG_Cooldown_IceLance;
-	//	if (SkillId == TEXT("Mage.ChainLightning")) return MageTag::TAG_Cooldown_ChainLightning;
-	//	if (SkillId == TEXT("Mage.IceWall")) return MageTag::TAG_Cooldown_IceWall;
-	//	if (SkillId == TEXT("Mage.FireZone")) return MageTag::TAG_Cooldown_FireZone;
-	//	if (SkillId == TEXT("Mage.MagicShield")) return MageTag::TAG_Cooldown_MagicShield;
-	//	if (SkillId == TEXT("Mage.GravityField")) return MageTag::TAG_Cooldown_GravityField;
-	//	if (SkillId == TEXT("Mage.ManaExplosion")) return MageTag::TAG_Cooldown_ManaExplosion;
-	//	return FGameplayTag();
-	//}
-}
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
@@ -96,10 +68,16 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
+	// head 뼈에 위치·회전 모두 붙인다. 공격·포션·상호작용 애니메이션의 머리 움직임이 그대로 화면이 된다.
+	// 값은 기문 님 1인칭 테스트(BP_Test_ComboWarrior 등)와 같다.
+	//
+	// 조준 방향으로 덮지 않는다(bUsePawnControlRotation=false). 위아래 시야는 ABP 에임오프셋이
+	// 조준 각도만큼 머리를 숙이고 들어서 만든다. 그래서 에임오프셋 범위와 컨트롤러의
+	// ViewPitchMin/Max 가 어긋나면 조준과 화면이 틀어진다.
 	FirstPersonCamera->SetupAttachment(GetMesh(), FirstPersonCameraSocketName);
-	FirstPersonCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
-	FirstPersonCamera->SetAbsolute(false, true, true);
-	FirstPersonCamera->bUsePawnControlRotation = true;
+	FirstPersonCamera->SetRelativeLocationAndRotation(FVector(-14.f, 7.7f, 0.69f), FRotator(0.f, 90.f, -90.f));
+	FirstPersonCamera->SetAbsolute(false, false, false);
+	FirstPersonCamera->bUsePawnControlRotation = false;
 
 
 #pragma region EquipmentVisual
@@ -141,6 +119,10 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 #pragma endregion
 
 	MeleeTraceComp = CreateDefaultSubobject<UMeleeTraceComponent>(TEXT("MeleeTraceComp"));
+	PotionDrinkComp = CreateDefaultSubobject<UHBPotionDrinkComponent>(TEXT("PotionDrinkComp"));
+	InteractAnimComp = CreateDefaultSubobject<UHBInteractAnimComponent>(TEXT("InteractAnimComp"));
+	CameraMotionComp = CreateDefaultSubobject<UHBCameraMotionComponent>(TEXT("CameraMotionComp"));
+	FootstepComp = CreateDefaultSubobject<UHBFootstepComponent>(TEXT("FootstepComp"));
 
 	// 구 방어(BP_GA_PlayerBlock)가 쓰던 몽타주를 그대로 가져왔다. 임시다.
 	GuardMontage = TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(
@@ -158,8 +140,11 @@ void AHBPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	SetUnderwearVisible(bUnderwearVisible);
-	
+
 	BindToPlayerStateComponents();
+
+	// 서버와 모든 클라가 같은 값을 가져야 이동 예측이 어긋나지 않는다. 역할을 가리지 않는다.
+	ApplyMovementInertia(GetCharacterMovement());
 
 	if (HasAuthority() && GetWorld())
 	{
@@ -257,66 +242,47 @@ void AHBPlayerCharacter::MoveRight(const float Value)
 
 void AHBPlayerCharacter::Attack()
 {
-	//if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
-	//{
-	//	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead)
-	//		|| ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
-	//	{
-	//		return;
-	//	}
-	//
-	//	if (bDrawBasicAttackDebug && GetWorld())
-	//	{
-	//		float DebugRange = GetAttackRange();
-	//		float DebugRadius = 50.f;
-	//		FColor DebugColor = FColor::Red;
-	//		if (JobData && JobData->JobId == TEXT("Archer"))
-	//		{
-	//			DebugRange = 1800.f;
-	//			DebugRadius = 35.f;
-	//			DebugColor = FColor::Green;
-	//		}
-	//		else if (JobData && JobData->JobId == TEXT("Mage"))
-	//		{
-	//			DebugRange = 1500.f;
-	//			DebugRadius = 55.f;
-	//			DebugColor = FColor::Blue;
-	//		}
-	//
-	//		const FVector DebugStart = GetPawnViewLocation();
-	//		const FVector DebugEnd = DebugStart + GetBaseAimRotation().Vector() * DebugRange;
-	//		DrawDebugLine(GetWorld(), DebugStart, DebugEnd, DebugColor, false, BasicAttackDebugDuration, 0, 3.f);
-	//		DrawDebugSphere(GetWorld(), DebugEnd, DebugRadius, 12, DebugColor, false, BasicAttackDebugDuration, 0, 2.f);
-	//	}
-	//
-	//	if (JobData && JobData->JobId == TEXT("Archer"))
-	//	{
-	//		ASC->TryActivateAbilityByClass(UGA_ArcherBasicAttack::StaticClass());
-	//		return;
-	//	}
-	//	if (JobData && JobData->JobId == TEXT("Mage"))
-	//	{
-	//		ASC->TryActivateAbilityByClass(UGA_MageBasicAttack::StaticClass());
-	//		return;
-	//	}
-	//	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(StateTag::TAG_State_Attacking));
-	//}
 
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
 	if (!ASC) 
 		return;
 
-	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead) || ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking)) 
+	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead) || ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
 		return;
 
+	// 공격 중이면 새로 발동하지 않고 콤보 입력으로 넘긴다.
+	// 어차피 State.Attacking 이 발동을 막으므로, 평타가 아닌 스킬 중이면 그냥 버려진다.
+	if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Attacking))
+	{
+		if (UGA_PlayerAttackRE* CurrentAttack = UGA_PlayerAttackRE::FindActive(ASC))
+		{
+			CurrentAttack->QueueComboInput();
+		}
+		return;
+	}
+
+	// 일반공격은 마나를 쓰지 않는다. 마나는 달리기·방어·스킬에만 쓴다.
+	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
+	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag));
+}
+
+FGameplayTag AHBPlayerCharacter::GetImpactCueTag() const
+{
 	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
 
-	// 달리기/방어와 같은 규칙. 마나가 부족하면 몽타주도 안 나간다.
-	// 비용 출처는 일반공격이다. 전투 호흡이 이걸 보고 마나를 깎는다.
-	if (!HasEnoughMana(ModifyManaCost(AbilityTag::TAG_Ability_BasicAttack, AttackManaCost)))
-		return;
+	if (WeaponTag == ItemTag::TAG_Weapon_Sword)
+	{
+		return CueTag::TAG_GameplayCue_Hit_Slash;
+	}
+	if (WeaponTag == ItemTag::TAG_Weapon_Bow)
+	{
+		return CueTag::TAG_GameplayCue_Hit_Pierce;
+	}
 
-	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag));
+	// 지팡이와 맨손은 둔타로 친다. 지팡이 마법은 별도 어빌리티가 자기 큐를 쏜다.
+	// 단검(DT_Weapon 의 DAG_*)은 Weapon.Dagger 태그가 등록돼 있지 않아
+	// GetEquippedWeaponTag 가 Weapon.Unarmed 를 돌려주므로 여기로 온다.
+	return CueTag::TAG_GameplayCue_Hit_Blunt;
 }
 
 FGameplayTag AHBPlayerCharacter::GetEquippedWeaponTag() const
@@ -499,13 +465,16 @@ void AHBPlayerCharacter::BindToPlayerStateComponents()
 	}
 
 	Inv->OnItemUsed.AddUniqueDynamic(this, &AHBPlayerCharacter::HandleItemUsed);
+	if (PotionDrinkComp)
+	{
+		PotionDrinkComp->BindInventory(Inv);
+	}
 	Equip->OnEquipmentChanged.AddUniqueDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
 	bPlayerStateComponentsBound = true;
 
 	RefreshEquippedVisuals();
 	BP_OnPlayerStateReady();
 }
-
 
 
 bool AHBPlayerCharacter::CanBeDamaged_Implementation(AActor* InstigatorActor) const
@@ -1148,22 +1117,10 @@ float AHBPlayerCharacter::ModifyManaCost(FGameplayTag SourceTag, float Cost) con
 
 	// 연산 순서는 이 한 곳에만 있다. 정액 먼저, 정률 나중.
 	// 반대로 하면 기본값이 작은 스킬에서 정액의 비중이 폭발한다.
-	float Final = (Cost + Flat) * Multiplier;
+	const float Final = (Cost + Flat) * Multiplier;
 
-	// 전투 호흡: 일반공격 마나만 줄인다. 스킬과 달리기, 방어에는 걸리지 않는다.
-	//
-	// 작동방식: 일반공격 경로가 Ability.BasicAttack 을 넘기고 여기서 그것만 본다.
-	// 스킬은 빈 태그를, 달리기도 빈 태그를, 방어는 State.Blocking 을 넘긴다.
-	//
-	// 전에는 "넘어온 태그가 지금 든 무기 태그와 같은가" 로 판별했다.
-	// 무기를 바꾸면 판단이 흔들리고, 읽는 사람이 의도를 알 수 없었다.
-	//
-	// 쳐낼 조건: 방어에만 걸리는 마나 감소가 생기면 여기에 State.Blocking 분기를 더한다.
-	if (SourceTag == AbilityTag::TAG_Ability_BasicAttack)
-	{
-		Final *= ASC->GetNumericAttribute(
-			UHB_PlayerAttributeSet::GetPlayer_BasicAttackManaCostMultiplierAttribute());
-	}
+	// 달리기만의 보정(전투 호흡)은 여기 두지 않고 GetSprintManaCostPerSecond 에서 곱한다.
+	// 달리기는 비용 출처 태그가 없어(빈 태그) 여기서는 스킬과 구별할 수 없다.
 
 	// 마나소비는 최소0 이 정상이다
 	return FMath::Max(0.f, Final);
@@ -1211,25 +1168,45 @@ bool AHBPlayerCharacter::FindAugmentInfo(FGameplayTag AugmentTag, FHBSkillAugmen
 	{
 		return false;
 	}
-	if (!JobData)
+
+	if (JobData)
 	{
-		return false;
+		if (FindAugmentInCatalog(JobData->GetActiveSkillCatalog(), AugmentTag, Out))
+		{
+			return true;
+		}
+		if (FindAugmentInCatalog(JobData->GetPassiveSkillCatalog(), AugmentTag, Out))
+		{
+			return true;
+		}
+
+		// 궁극기 증강은 기획에서 폐기됐지만 조회는 해 둔다.
+		// 나중에 생겼을 때 "왜 안 뜨지" 로 시간을 버리지 않기 위해서다.
+		TArray<FHBJobSkillData> UltimateOnly;
+		UltimateOnly.Add(JobData->UltimateSkill);
+		if (FindAugmentInCatalog(UltimateOnly, AugmentTag, Out))
+		{
+			return true;
+		}
 	}
 
-	if (FindAugmentInCatalog(JobData->GetActiveSkillCatalog(), AugmentTag, Out))
+	// 공통 강화는 어느 스킬 것도 아니라 직업 카탈로그에 없다. 여기서 못 찾으면
+	// 최대 체력 증가 같은 걸 골라도 보유 목록 UI 에 안 뜨고, 다시 그릴 때마다
+	// "카탈로그에서 못 찾았다" 경고만 쌓인다. 그래서 공통 세트까지 본다.
+	//
+	// JobData 가 없어도 여기까지 온다. 공통 강화 조회는 직업과 무관하기 때문이다.
+	if (HB_PlayerState)
 	{
-		return true;
+		if (const UHBCommonAugmentSet* CommonSet = HB_PlayerState->GetCommonAugmentSet())
+		{
+			if (const FHBSkillAugment* Found = CommonSet->FindAugment(AugmentTag))
+			{
+				Out = *Found;
+				return true;
+			}
+		}
 	}
-	if (FindAugmentInCatalog(JobData->GetPassiveSkillCatalog(), AugmentTag, Out))
-	{
-		return true;
-	}
-
-	// 궁극기 증강은 기획에서 폐기됐지만 조회는 해 둔다.
-	// 나중에 생겼을 때 "왜 안 뜨지" 로 시간을 버리지 않기 위해서다.
-	TArray<FHBJobSkillData> UltimateOnly;
-	UltimateOnly.Add(JobData->UltimateSkill);
-	return FindAugmentInCatalog(UltimateOnly, AugmentTag, Out);
+	return false;
 }
 
 bool AHBPlayerCharacter::FindAugmentInCatalog(
@@ -1278,7 +1255,7 @@ TArray<FHBSkillAugment> AHBPlayerCharacter::GetTakenAugmentInfos() const
 			// 애셋에서 증강을 지웠는데 태그가 남은 경우다. 조용히 넘기면
 			// UI 에 빈 칸이 생기고 원인을 못 찾는다.
 			UE_LOG(LogTemp, Warning,
-				TEXT("[Augment] 보유 태그 '%s' 를 직업 카탈로그에서 못 찾았다."),
+				TEXT("[Augment] 보유 태그 '%s' 를 직업 카탈로그에서도 공통 세트에서도 못 찾았다."),
 				*Tag.GetTagName().ToString());
 			continue;
 		}
@@ -1465,17 +1442,9 @@ void AHBPlayerCharacter::ResetCombatInstinct()
 
 float AHBPlayerCharacter::GetAttackRange() const
 {
-	if (GetEquipment())
-	{
-		FItemInstance WeaponItem;
-		if (GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
-		{
-			if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("GetAttackRange")))
-			{
-				return WeaponData->AttackRange;
-			}
-		}
-	}
+	// 무기 행의 사거리 칸을 지워서 캐릭터 값 하나만 남았다.
+	// 부르는 곳: 옛 공격 GA(GA_PlayerAttack, 테스트 맵 BP_HB_Warrior) · 전사 액티브(부여 안 됨).
+	// 쳐낼 조건: 두 곳이 정리되면 이 함수와 BaseAttackRange 도 지운다.
 	return BaseAttackRange;
 }
 
@@ -1725,18 +1694,17 @@ void AHBPlayerCharacter::InitializeJob(UAbilitySystemComponent* AbilitySystem)
 	// 직업이 정해진 뒤에만 완료로 기록한다. 실패를 완료로 남기지 않는다.
 	bJobInitialized = true;
 
-	AbilitySystem->RemoveLooseGameplayTag(JobTag::TAG_Job_Warrior);
-	AbilitySystem->RemoveLooseGameplayTag(JobTag::TAG_Job_Archer);
-	AbilitySystem->RemoveLooseGameplayTag(JobTag::TAG_Job_Mage);
-	if (JobData->JobId == TEXT("Warrior")) AbilitySystem->AddLooseGameplayTag(JobTag::TAG_Job_Warrior);
-	else if (JobData->JobId == TEXT("Archer"))
+	// Job.* 태그를 붙이지 않는다. 기획 21장에서 직업 개념이 사라졌고,
+	// 그 태그를 읽는 코드도 애셋도 없어서 붙기만 하던 값이었다.
+	//
+	// 아래 JobId 분기는 남겨 둔다. 궁수·마법사 전용 기본공격 GA 를 아직
+	// 여기서 주고 있어서, 공통 목록으로 통합될 때 함께 정리해야 한다.
+	if (JobData->JobId == TEXT("Archer"))
 	{
-		AbilitySystem->AddLooseGameplayTag(JobTag::TAG_Job_Archer);
 		GrantAbilityIfMissing(AbilitySystem, UGA_ArcherBasicAttack::StaticClass());
 	}
 	else if (JobData->JobId == TEXT("Mage"))
 	{
-		AbilitySystem->AddLooseGameplayTag(JobTag::TAG_Job_Mage);
 		GrantAbilityIfMissing(AbilitySystem, UGA_MageBasicAttack::StaticClass());
 	}
 
@@ -1953,7 +1921,18 @@ bool AHBPlayerCharacter::CanSprint() const
 	}
 
 	// 마나가 없으면 달릴 수 없다. 달리는 동안 계속 소모하기 때문이다.
-	return ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) > 0.f;
+	// 전투 호흡으로 소모가 0 이면 마나와 상관없이 달린다.
+	return GetSprintManaCostPerSecond() <= 0.f
+		|| ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) > 0.f;
+}
+
+float AHBPlayerCharacter::GetSprintManaCostPerSecond() const
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	const float SprintMultiplier = ASC
+		? FMath::Max(0.f, ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute()))
+		: 1.f;
+	return ModifyManaCost(FGameplayTag(), SprintManaCostPerSecond) * SprintMultiplier;
 }
 
 void AHBPlayerCharacter::StartSprint()
@@ -2026,14 +2005,16 @@ void AHBPlayerCharacter::UpdateManaResource()
 	}
 
 	const bool bBlocking = ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking);
-	const bool bUsingContinuousMana = bIsSprinting || bBlocking;
 	const float CurrentMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
 
-	if (bUsingContinuousMana)
+	// 실제로 깎이는 게 있을 때만 "마나를 쓰는 중" 이다.
+	// 전투 호흡으로 달리기가 공짜면, 달리는 동안에도 회복되고 마나 0 에서 멈추지도 않는다.
+	const float CostPerSecond = (bIsSprinting ? GetSprintManaCostPerSecond() : 0.f)
+								+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond) : 0.f);
+
+	if (CostPerSecond > 0.f)
 	{
 		NotifyManaActivity();
-		const float CostPerSecond = (bIsSprinting ? ModifyManaCost(FGameplayTag(), SprintManaCostPerSecond) : 0.f) 
-									+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond) : 0.f);
 		const float ManaCost = FMath::Min(CurrentMana, CostPerSecond * ManaResourceTickInterval);
 		if (ManaCost > 0.f)
 		{
@@ -2054,7 +2035,7 @@ void AHBPlayerCharacter::UpdateManaResource()
 
 	const float MaxMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute());
 
-	// (기본 회복 + 옵션+) × (1.0 + 옵션%). 쿨다운과 같은 모양이다. 장비의 스태미나 회복 옵션이 여기로 온다.
+	// (기본 회복 + 옵션+) × (1.0 + 옵션%). 쿨다운과 같은 모양이다. 장비의 마나 회복 옵션이 여기로 온다.
 	// 0 에서 자르는 이유: - 옵션이 쌓여도 "회복" 이 마나를 깎아서는 안 된다.
 	const float RegenFlat = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenFlatAttribute());
 	const float RegenMultiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenMultiplierAttribute());
@@ -2178,7 +2159,27 @@ void AHBPlayerCharacter::RefreshMovementSpeed()
 		// 0 에서 자르는 이유: - 옵션이 쌓여도 뒤로 걷게 되면 안 된다.
 		Movement->MaxWalkSpeed = FMath::Max(0.f, (BaseSpeed + GASFlat) * GASMultiplier);
 		Movement->MaxWalkSpeedCrouched = FMath::Max(0.f, (CrouchSpeed + GASFlat) * GASMultiplier);
+
+		ApplyMovementInertia(Movement);
 	}
+}
+
+void AHBPlayerCharacter::ApplyMovementInertia(UCharacterMovementComponent* Movement) const
+{
+	if (!Movement)
+	{
+		return;
+	}
+
+	const float Weight = FMath::Max(0.1f, MovementWeight);
+	Movement->MaxAcceleration = InertiaAcceleration / Weight;
+	Movement->BrakingDecelerationWalking = InertiaBrakingDeceleration / Weight;
+	Movement->GroundFriction = InertiaGroundFriction / Weight;
+
+	// 제동 마찰을 지면 마찰과 따로 둔다. 같이 쓰면 방향 전환을 부드럽게 하려고
+	// 지면 마찰을 낮출 때 멈춤까지 같이 길어진다.
+	Movement->bUseSeparateBrakingFriction = true;
+	Movement->BrakingFriction = InertiaBrakingFriction / Weight;
 }
 
 void AHBPlayerCharacter::RefreshMovementSpeedFromAttributes()
@@ -2633,6 +2634,113 @@ UEquipmentComponent* AHBPlayerCharacter::GetEquipment() const
 {
 	const AHB_PlayerState* PS = GetPlayerState<AHB_PlayerState>();
 	return PS ? PS->GetEquipment() : nullptr;
+}
+
+// ================ 디버그 ================
+
+void AHBPlayerCharacter::ServerDebugEquip_Implementation(FName RowName)
+{
+	DebugEquip(RowName);
+}
+
+void AHBPlayerCharacter::DebugEquip(FName RowName)
+{
+	// 아이템 생성과 장착은 서버가 해야 한다. 클라 콘솔에서 쳤으면 넘긴다.
+	if (!HasAuthority())
+	{
+		ServerDebugEquip(RowName);
+		return;
+	}
+
+	if (RowName.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] 행 이름이 비었다. 예) DebugEquip WPN_001"));
+		return;
+	}
+
+	UInventoryComponent* Inventory = GetInventory();
+	UEquipmentComponent* Equipment = GetEquipment();
+	if (!Inventory || !Equipment)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] 인벤토리/장비 컴포넌트가 없다"));
+		return;
+	}
+
+	// 테이블 경로를 코드에 박는다. BP 기본값에 칸을 만들면 팀 공용 애셋에
+	// 변경이 남는데, 디버그 편의 때문에 그럴 이유가 없다.
+	// 경로가 바뀌면 아래 로그로 드러난다.
+	static const TCHAR* TablePaths[] = {
+		TEXT("/Game/Items/DataTables/DT_Weapon"),
+		TEXT("/Game/Items/DataTables/DT_Shield"),
+	};
+
+	UDataTable* FoundTable = nullptr;
+	for (const TCHAR* Path : TablePaths)
+	{
+		UDataTable* Table = LoadObject<UDataTable>(nullptr, Path);
+		if (!Table)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] 테이블을 못 찾았다: %s"), Path);
+			continue;
+		}
+		if (Table->GetRowMap().Contains(RowName))
+		{
+			FoundTable = Table;
+			break;
+		}
+	}
+
+	if (!FoundTable)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[DebugEquip] '%s' 를 DT_Weapon/DT_Shield 어디에서도 못 찾았다"),
+			*RowName.ToString());
+		return;
+	}
+
+	FItemInstance NewItem;
+	NewItem.ItemRow.DataTable = FoundTable;
+	NewItem.ItemRow.RowName = RowName;
+	NewItem.InstanceId = FGuid::NewGuid();
+	NewItem.StackCount = 1;
+
+	int32 Remainder = 0;
+	if (!Inventory->TryAddItem(NewItem, Remainder))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[DebugEquip] 인벤토리에 못 넣었다. 자리가 없다 (남은 수량 %d)"), Remainder);
+		return;
+	}
+
+	// 슬롯은 아이템이 정한다. CanEquip 이 행 데이터의 EquipSlotType 과 대조한다.
+	for (int32 SlotIndex = static_cast<int32>(EEquipSlotType::PrimaryWeapon);
+		SlotIndex < static_cast<int32>(EEquipSlotType::MAX);
+		++SlotIndex)
+	{
+		const EEquipSlotType Slot = static_cast<EEquipSlotType>(SlotIndex);
+		if (!Equipment->CanEquip(NewItem, Slot))
+		{
+			continue;
+		}
+
+		if (Equipment->EquipFromInventory(Inventory, NewItem.InstanceId, Slot))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] %s 장착 완료. 슬롯=%s 무기태그=%s"),
+				*RowName.ToString(),
+				*StaticEnum<EEquipSlotType>()->GetNameStringByValue(SlotIndex),
+				*GetEquippedWeaponTag().ToString());
+			return;
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("[DebugEquip] %s 장착 실패. 슬롯=%s"),
+			*RowName.ToString(),
+			*StaticEnum<EEquipSlotType>()->GetNameStringByValue(SlotIndex));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[DebugEquip] '%s' 는 장착 가능한 슬롯이 없다. 인벤토리에는 들어갔다"),
+		*RowName.ToString());
 }
 
 UQuickSlotComponent* AHBPlayerCharacter::GetQuickSlot() const

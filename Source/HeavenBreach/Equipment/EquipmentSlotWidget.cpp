@@ -8,12 +8,17 @@
 #include "InventoryComponent.h"
 #include "InventoryDragDropOperation.h"
 #include "Blueprint/WidgetTree.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Item/ItemInfoPopupWidget.h"
+#include "Item/ItemStatBinding.h"
+#include "InventoryWidget.h"
 
-void UEquipmentSlotWidget::InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory)
+void UEquipmentSlotWidget::InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory, UInventoryWidget* InOwningInventoryWidget)
 {
 	SlotType = InSlotType;
 	BoundEquipment = InEquipment;
 	BoundInventory = InInventory;
+	OwningInventoryWidget = InOwningInventoryWidget;
 }
 
 FReply UEquipmentSlotWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
@@ -66,9 +71,25 @@ FReply UEquipmentSlotWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, 
 	return FReply::Unhandled();
 }
 
+FReply UEquipmentSlotWidget::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	UpdateHoverInfoPopup();
+	return Super::NativeOnMouseMove(InGeometry, InMouseEvent);
+}
+
+void UEquipmentSlotWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
+{
+	ClearHoverInfoPopup();
+	Super::NativeOnMouseLeave(InMouseEvent);
+}
+
 void UEquipmentSlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation)
 {
 	Super::NativeOnDragDetected(InGeometry, InMouseEvent, OutOperation);
+
+	// 드래그를 시작하면(아이템을 집어드는 순간) 호버 툴팁은 치워야 한다 - 안 그러면
+	// 드래그 중에도 예전 위치에 붙박여서 남아있는다.
+	ClearHoverInfoPopup();
 
 	if (BoundEquipment == nullptr) return;
 
@@ -123,6 +144,33 @@ bool UEquipmentSlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
 	}
 
 	return false;
+}
+
+void UEquipmentSlotWidget::NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
+{
+	const bool bSuppressed = OwningInventoryWidget != nullptr && OwningInventoryWidget->ShouldSuppressDropOnCancel();
+
+	if (!bSuppressed)
+	{
+		if (const UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation))
+		{
+			if (Operation->SourceEquipment == BoundEquipment
+				&& Operation->SourceSlot == SlotType
+				&& BoundEquipment != nullptr
+				&& BoundInventory != nullptr)
+			{
+				BoundInventory->Server_DropEquippedItem(BoundEquipment, SlotType);
+			}
+		}
+	}
+
+	Super::NativeOnDragCancelled(InDragDropEvent, InOperation);
+}
+
+void UEquipmentSlotWidget::NativeDestruct()
+{
+	ClearHoverInfoPopup();
+	Super::NativeDestruct();
 }
 
 void UEquipmentSlotWidget::NativePreConstruct()
@@ -326,4 +374,84 @@ void UEquipmentSlotWidget::UpdateLockedOverlay(bool bHasItem)
 	{
 		Image_LockedIcon->SetVisibility(bLocked ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
+}
+
+void UEquipmentSlotWidget::UpdateHoverInfoPopup()
+{
+	// InventoryWidget::UpdateHoverInfoPopup과 같은 패턴 - 그리드 셀 대신 이 슬롯 하나만 본다.
+	if (BoundEquipment == nullptr || ItemInfoPopupClass == nullptr)
+	{
+		return;
+	}
+
+	FItemInstance EquippedItem;
+	if (!BoundEquipment->GetItemInSlot(SlotType, EquippedItem))
+	{
+		ClearHoverInfoPopup();
+		return;
+	}
+
+	// 같은 아이템 위에서 계속 움직이는 중이면 다시 만들지 않고 위치만 따라가게 한다.
+	if (HoverInfoPopup != nullptr && HoveredItemInstanceId == EquippedItem.InstanceId)
+	{
+		const FVector2D InfoViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this) + FVector2D(16.f, 16.f);
+		HoverInfoPopup->SetPositionInViewport(InfoViewportPosition, false);
+		return;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(EquippedItem.ItemRow, ViewData))
+	{
+		ClearHoverInfoPopup();
+		return;
+	}
+
+	if (HoverInfoPopup != nullptr)
+	{
+		HoverInfoPopup->RemoveFromParent();
+		HoverInfoPopup = nullptr;
+	}
+
+	HoverInfoPopup = CreateWidget<UItemInfoPopupWidget>(GetOwningPlayer(), ItemInfoPopupClass);
+	if (HoverInfoPopup == nullptr)
+	{
+		HoveredItemInstanceId = FGuid();
+		return;
+	}
+
+	UTexture2D* IconTexture = LoadItemIcon(ViewData.IconPath);
+
+	const FString StatText = BuildStatTextForItem(EquippedItem);
+	const FString EquipSlotLabel = GetEquipSlotDisplayName(ViewData.EquipSlotType);
+
+	// InventoryWidget::UpdateHoverInfoPopup과 동일 - 옛 BenefitDescription / RiskDescription 문자열은
+	// 더 안 읽는다. 옵션 배열에서 문장을 만든다. 각인도 같은 함수가 붙인다.
+	const FString BenefitLines = BuildBenefitLinesForItem(EquippedItem, ViewData);
+	const FString RiskLines = BuildRiskLinesForItem(EquippedItem, ViewData);
+
+	HoverInfoPopup->SetupInfo(ViewData.DisplayName, ViewData.Grade, ViewData.Description,
+		BenefitLines, RiskLines,
+		ViewData.SellValue, IconTexture, StatText, /*bInCompact=*/false,
+		EquipSlotLabel, EquippedItem.CurrentDurability, GetMaxDurabilityForGrade(ViewData.Grade));
+
+	HoverInfoPopup->AddToViewport(100);
+	// InventoryWidget 쪽과 동일한 이유 - 포커스를 가져가면 안 되고(마우스 이동만으로
+	// 키/드래그 입력이 끊김), HitTestInvisible이라야 마우스 이벤트가 팝업을 뚫고
+	// 슬롯 자체로 그대로 전달된다.
+	HoverInfoPopup->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+	const FVector2D InfoViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this) + FVector2D(16.f, 16.f);
+	HoverInfoPopup->SetPositionInViewport(InfoViewportPosition, false);
+
+	HoveredItemInstanceId = EquippedItem.InstanceId;
+}
+
+void UEquipmentSlotWidget::ClearHoverInfoPopup()
+{
+	if (HoverInfoPopup != nullptr)
+	{
+		HoverInfoPopup->RemoveFromParent();
+		HoverInfoPopup = nullptr;
+	}
+	HoveredItemInstanceId = FGuid();
 }

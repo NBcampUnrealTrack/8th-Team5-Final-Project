@@ -7,7 +7,8 @@
 
 class UEquipmentComponent;
 class UInventoryComponent;
-class UEquipmentSlotWidget; // °³º° ½½·Ô À§Á¬ Àü¹æ ¼±¾ð
+class UEquipmentSlotWidget; // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+class UInventoryWidget;
 
 UCLASS()
 class HEAVENBREACH_API UEquipmentWidget : public UUserWidget
@@ -17,10 +18,12 @@ class HEAVENBREACH_API UEquipmentWidget : public UUserWidget
 public:
 
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
-	void BindToEquipment(UEquipmentComponent* InEquipment, UInventoryComponent* InInventory);
+	void BindToEquipment(UEquipmentComponent* InEquipment, UInventoryComponent* InInventory, UInventoryWidget* InOwningInventoryWidget = nullptr);
 
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void RefreshSlots();
+
+	UEquipmentSlotWidget* GetHoveredSlotWidget() const;
 
 protected:
 
@@ -31,8 +34,8 @@ protected:
 	void HandleEquipmentChanged();
 
 	// -------------------------------------------------------------
-	// WBP ¿¡µðÅÍÀÇ ½½·Ô À§Á¬µé°ú 1:1·Î ¸ÅÄªµÇ´Â BindWidget ¼±¾ð
-	// (WBPÀÇ °èÃþ ±¸Á¶(Hierarchy) ÀÌ¸§°ú Åä¾¾ ÇÏ³ª Æ²¸®Áö ¾Ê°í ¶È°°¾Æ¾ß ÇÕ´Ï´Ù)
+	// WBP ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 1:1ï¿½ï¿½ ï¿½ï¿½Äªï¿½Ç´ï¿½ BindWidget ï¿½ï¿½ï¿½ï¿½
+	// (WBPï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(Hierarchy) ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½ä¾¾ ï¿½Ï³ï¿½ Æ²ï¿½ï¿½ï¿½ï¿½ ï¿½Ê°ï¿½ ï¿½È°ï¿½ï¿½Æ¾ï¿½ ï¿½Õ´Ï´ï¿½)
 	// -------------------------------------------------------------
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UEquipmentSlotWidget> Slot_Helmet;
@@ -54,7 +57,7 @@ protected:
 
 private:
 
-	// C++¿¡¼­ Enum ½½·Ô Å¸ÀÔÀ¸·Î ½½·Ô À§Á¬À» ºü¸£°Ô Ã£¾Æ ¼øÈ¸ÇÏ±â À§ÇÑ TMap
+	// C++ï¿½ï¿½ï¿½ï¿½ Enum ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ã£ï¿½ï¿½ ï¿½ï¿½È¸ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ TMap
 	UPROPERTY()
 	TMap<EEquipSlotType, TObjectPtr<UEquipmentSlotWidget>> SlotMap;
 
@@ -63,6 +66,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
+
+	UPROPERTY()
+	TObjectPtr<UInventoryWidget> OwningInventoryWidget;
 
 	void EnsureSlotMapInitialized();
 };

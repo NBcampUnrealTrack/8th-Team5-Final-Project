@@ -15,7 +15,9 @@ class UImage;
 class UTextBlock;
 class UProgressBar;
 class UEquipmentComponent;
-class UInventoryComponent;	
+class UInventoryComponent;
+class UItemInfoPopupWidget;
+class UInventoryWidget;
 
 UCLASS()
 class HEAVENBREACH_API UEquipmentSlotWidget : public UUserWidget
@@ -47,17 +49,31 @@ public:
 	UPROPERTY()
 	TObjectPtr<UInventoryComponent> BoundInventory;
 
-	void InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory);
+	UPROPERTY()
+	TObjectPtr<UInventoryWidget> OwningInventoryWidget;
+
+	// 장착 슬롯에 마우스를 올렸을 때 띄울 아이템 정보 팝업 클래스. InventoryWidget의
+	// ItemInfoPopupClass와 동일하게, 이 슬롯이 속한 WBP(예: WBP_EquipmentSlot)의
+	// Class Defaults에서 WBP_ItemInfoPopup으로 지정해줘야 실제로 뜬다 - 비워두면
+	// UpdateHoverInfoPopup이 아무 것도 하지 않고 조용히 빠져나간다.
+	UPROPERTY(EditDefaultsOnly, Category = "Item Info")
+	TSubclassOf<UItemInfoPopupWidget> ItemInfoPopupClass;
+
+	void InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory, UInventoryWidget* InOwningInventoryWidget = nullptr);
 	void UpdateSlot(bool bHasItem, const FString& DisplayName, UTexture2D* IconTexture);
-	
+
 protected:
 
 	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
 	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+	virtual void NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 	virtual void NativePreConstruct() override;
+	virtual void NativeDestruct() override;
 
 private:
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -106,4 +122,14 @@ private:
 	void UpdateDurabilityBar(bool bHasItem);
 	void UpdateGradeBackground(bool bHasItem);
 	void UpdateLockedOverlay(bool bHasItem);
+
+	// 인벤토리 그리드 칸의 UpdateHoverInfoPopup(InventoryWidget)과 동일한 패턴 -
+	// 슬롯이 하나뿐이라 셀 좌표 변환은 필요 없고, 지금 슬롯에 낀 아이템만 보면 된다.
+	UPROPERTY()
+	TObjectPtr<UItemInfoPopupWidget> HoverInfoPopup;
+
+	FGuid HoveredItemInstanceId;
+
+	void UpdateHoverInfoPopup();
+	void ClearHoverInfoPopup();
 };
