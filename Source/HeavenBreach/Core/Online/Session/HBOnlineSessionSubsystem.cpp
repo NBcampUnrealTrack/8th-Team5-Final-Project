@@ -51,6 +51,16 @@ namespace HBOnline
 			Result.Session.SessionSettings.bAllowJoinInProgress && Result.Session.NumOpenPublicConnections > 0 &&
 			Result.Session.OwningUserId.IsValid() && *Result.Session.OwningUserId != *LocalUser;
 	}
+
+	bool IsLocallyOwnedListenLobby(const FNamedOnlineSession* Session, const TSharedPtr<const FUniqueNetId>& LocalUser)
+	{
+		// Steam OSS sets OwningUserId when creating the lobby, but UE 5.7
+		// leaves FNamedOnlineSession::bHosting at its default false value.
+		return Session && Session->SessionInfo.IsValid() && Session->SessionInfo->IsValid() &&
+			LocalUser.IsValid() && LocalUser->IsValid() &&
+			Session->OwningUserId.IsValid() && Session->OwningUserId->IsValid() &&
+			*Session->OwningUserId == *LocalUser && IsListenLobbySettings(Session->SessionSettings);
+	}
 }
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -111,6 +121,44 @@ bool FHBListenLobbyFilterTest::RunTest(const FString& Parameters)
 	Candidate = Valid; Candidate.Session.SessionInfo.Reset();
 	Rejected(TEXT("Invalid session info is rejected"), Candidate);
 	TestFalse(TEXT("Missing local identity is rejected"), HBOnline::IsJoinableListenLobby(Valid, nullptr));
+	return true;
+}
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBListenLobbyOwnershipTest, "HeavenBreach.Online.ListenLobbyOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBListenLobbyOwnershipTest::RunTest(const FString&)
+{
+	const TSharedPtr<const FUniqueNetId> LocalUser = FUniqueNetIdString::Create(TEXT("local"), FName(TEXT("TEST")));
+	FOnlineSessionSettings Settings;
+	Settings.bUsesPresence = true;
+	Settings.bUseLobbiesIfAvailable = true;
+	Settings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	FNamedOnlineSession Session(HBOnline::PartyLobbySessionName, Settings);
+	Session.SessionInfo = MakeShared<HBOnlineTests::FSessionInfo>();
+	Session.OwningUserId = LocalUser;
+	TestFalse(TEXT("Steam fixture retains the default bHosting value"), Session.bHosting);
+	TestTrue(TEXT("Actual owner can host with Steam's unset bHosting flag"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.bHosting = true;
+	Session.OwningUserId = FUniqueNetIdString::Create(TEXT("remote"), FName(TEXT("TEST")));
+	TestFalse(TEXT("bHosting cannot authorize a foreign owner"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.OwningUserId = LocalUser;
+	TestFalse(TEXT("Missing local identity cannot own the lobby"), HBOnline::IsLocallyOwnedListenLobby(&Session, nullptr));
+	TestFalse(TEXT("Missing session cannot authorize travel"), HBOnline::IsLocallyOwnedListenLobby(nullptr, LocalUser));
+	Session.OwningUserId.Reset();
+	TestFalse(TEXT("Missing owner is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.OwningUserId = LocalUser;
+	Session.SessionSettings.bIsDedicated = true;
+	TestFalse(TEXT("Owned dedicated session is not a listen lobby"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.SessionSettings.bIsDedicated = false;
+	Session.SessionSettings.Set(HBOnline::ProjectKey, FString(TEXT("OtherGame")), EOnlineDataAdvertisementType::ViaOnlineService);
+	TestFalse(TEXT("Owned session from another project is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.SessionSettings = Settings;
+	Session.SessionInfo.Reset();
+	TestFalse(TEXT("Session without valid provider info is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
 	return true;
 }
 #endif
@@ -296,8 +344,15 @@ bool UHBOnlineSessionSubsystem::RequestServerMatchTravel(TSoftObjectPtr<UWorld> 
 		SetServerTravelState(EHBServerTravelState::Failed, TEXT("Destination must be an existing map different from the lobby"));
 		return false;
 	}
-	FNamedOnlineSession* Session = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) : nullptr;
-	if (!Session || !Session->bHosting || !HBOnline::IsListenLobbySettings(Session->SessionSettings))
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	const IOnlineIdentityPtr Identity = OSS ? OSS->GetIdentityInterface() : nullptr;
+	const ULocalPlayer* LocalPlayer = GetGameInstance()->GetFirstGamePlayer();
+	const int32 LocalUser = LocalPlayer ? LocalPlayer->GetControllerId() : INDEX_NONE;
+	const TSharedPtr<const FUniqueNetId> UserId = LocalUser >= 0 && Identity.IsValid() &&
+		Identity->GetLoginStatus(LocalUser) == ELoginStatus::LoggedIn ? Identity->GetUniquePlayerId(LocalUser) : nullptr;
+	const FNamedOnlineSession* Session = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) : nullptr;
+	if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) || !SessionInterface.IsValid() ||
+		OSS->GetSessionInterface() != SessionInterface || !HBOnline::IsLocallyOwnedListenLobby(Session, UserId))
 	{
 		SetServerTravelState(EHBServerTravelState::Failed, TEXT("No locally hosted Steam lobby session"));
 		return false;
