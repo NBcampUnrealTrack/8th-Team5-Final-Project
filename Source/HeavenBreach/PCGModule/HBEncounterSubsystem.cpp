@@ -4,6 +4,7 @@
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "AI/EnemyCharacterBase.h"
 #include "AI/GAS/EnemyAbilitySystemComponent.h"
+#include "AIController.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -167,19 +168,42 @@ bool UHBEncounterSubsystem::HasEncounter(const ULevel* RoomLevel)
 	return false;
 }
 
+bool UHBEncounterSubsystem::CanManageRoomSpawns() const
+{
+	const UWorld* World = GetWorld();
+	return World && World->IsGameWorld() && World->GetNetMode() != NM_Client;
+}
+
 bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
-	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError)
+	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError, bool bDeferActivation)
 {
 	OutError.Reset();
 	UWorld* World = GetWorld();
-	if (!World || World->GetNetMode() == NM_Client)
+	if (!CanManageRoomSpawns())
 	{
 		OutError = TEXT("Only the server world may select or spawn encounters.");
+		return false;
+	}
+	if (GenerationId <= 0 || RoomId < 0)
+	{
+		OutError = TEXT("Encounter requires a positive generation ID and nonnegative room ID.");
 		return false;
 	}
 	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || EntryLocations.IsEmpty())
 	{
 		OutError = TEXT("Encounter needs its loaded room level, valid bounds and an entry location.");
+		return false;
+	}
+	for (const FRoomState& State : RoomStates)
+	{
+		if (State.GenerationId == GenerationId && State.DungeonSeed != DungeonSeed)
+		{
+			OutError = TEXT("An encounter generation cannot change its dungeon seed.");
+			return false;
+		}
+		if (State.Level.Get() != RoomLevel && !(State.GenerationId == GenerationId && State.RoomId == RoomId)) continue;
+		if (State.Level.Get() == RoomLevel && State.GenerationId == GenerationId && State.RoomId == RoomId && State.bPrepared) return true;
+		OutError = TEXT("Encounter room identity conflicts with an existing generation or level; clear it before restarting.");
 		return false;
 	}
 	AHBEncounterSetupActor* Setup = nullptr;
@@ -204,17 +228,12 @@ bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed
 		OutError = TEXT("Encounter Setup has no authority or settings component.");
 		return false;
 	}
-	for (const FRoomState& State : RoomStates)
-	{
-		if (State.Level.Get() != RoomLevel) continue;
-		if (State.GenerationId == GenerationId && State.RoomId == RoomId && State.bPrepared) return true;
-		OutError = TEXT("Room encounter belongs to another generation; clear it before restarting.");
-		return false;
-	}
 	FRoomState& State = RoomStates.AddDefaulted_GetRef();
 	State.Level = RoomLevel;
 	State.GenerationId = GenerationId;
 	State.RoomId = RoomId;
+	State.DungeonSeed = DungeonSeed;
+	State.bDeferActivation = bDeferActivation;
 	TArray<FHBEncounterSpawnChoice> Placed;
 	const bool bSucceeded = HBEncounterSelection::SelectAndPlace(*Setup->Encounter, Points, DungeonSeed, RoomId,
 		[&](const FHBEncounterSpawnChoice& Choice, FString& Reason)
@@ -236,6 +255,7 @@ bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed
 		return false;
 	}
 	State.bPrepared = true;
+	State.bActivated = !bDeferActivation;
 	UE_LOG(LogHBEncounterSubsystem, Display, TEXT("Room %d encounter ready: %d enemies, seed %d."),
 		RoomId, State.SpawnedEnemies.Num(), DungeonSeed);
 	return true;
@@ -243,14 +263,75 @@ bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed
 
 bool UHBEncounterSubsystem::IsPreparedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const
 {
+	if (!CanManageRoomSpawns() || !IsValid(RoomLevel) || GenerationId <= 0 || RoomId < 0) return false;
 	for (const FRoomState& State : RoomStates)
 		if (State.GenerationId == GenerationId && State.RoomId == RoomId
 			&& State.Level.Get() == RoomLevel && State.bPrepared) return true;
 	return false;
 }
 
+bool UHBEncounterSubsystem::IsActivatedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const
+{
+	if (!IsPreparedFor(GenerationId, RoomId, RoomLevel)) return false;
+	for (const FRoomState& State : RoomStates)
+		if (State.GenerationId == GenerationId && State.RoomId == RoomId && State.Level.Get() == RoomLevel)
+			return State.bActivated;
+	return false;
+}
+
+bool UHBEncounterSubsystem::ActivateGeneration(int32 GenerationId, FString& OutError)
+{
+	OutError.Reset();
+	if (!CanManageRoomSpawns() || GenerationId <= 0)
+	{
+		OutError = TEXT("Encounter activation requires the server and a positive generation ID.");
+		return false;
+	}
+	bool bFound = false;
+	// Validate the entire generation before giving any pending enemy a controller.
+	for (const FRoomState& State : RoomStates)
+	{
+		if (State.GenerationId != GenerationId) continue;
+		bFound = true;
+		if (!State.bPrepared || !State.Level.IsValid())
+		{ OutError = TEXT("Encounter activation requires every room to be prepared and loaded."); return false; }
+		if (State.bActivated) continue;
+		for (const auto& EnemyPtr : State.SpawnedEnemies)
+		{
+			auto* Enemy = EnemyPtr.Get();
+			if (!IsValid(Enemy) || Enemy->IsActorBeingDestroyed() || Enemy->GetLevel() != State.Level.Get())
+			{ OutError = TEXT("A pending encounter enemy is missing or no longer belongs to its room."); return false; }
+			if (Enemy->IsDead()) continue;
+			if (Enemy->GetController() || !Enemy->AIControllerClass || !Enemy->GetEnemyASC())
+			{ OutError = TEXT("A pending enemy must have an AI controller class and ASC, without early possession."); return false; }
+		}
+	}
+	if (!bFound) { OutError = TEXT("No prepared encounters belong to this generation."); return false; }
+	for (FRoomState& State : RoomStates)
+	{
+		if (State.GenerationId != GenerationId || State.bActivated) continue;
+		for (const auto& EnemyPtr : State.SpawnedEnemies)
+		{
+			auto* Enemy = EnemyPtr.Get();
+			if (Enemy->IsDead()) continue;
+			Enemy->SpawnDefaultController();
+			if (!IsValid(Enemy) || Enemy->IsActorBeingDestroyed() || !Cast<AAIController>(Enemy->GetController())
+				|| !Enemy->GetEnemyASC() || Enemy->GetEnemyASC()->GetAvatarActor() != Enemy)
+			{
+				OutError = FString::Printf(TEXT("Room %d enemy %s could not initialize its AI controller and ASC."),
+					State.RoomId, *GetNameSafe(Enemy));
+				return false;
+			}
+			Enemy->ForceNetUpdate();
+		}
+		State.bActivated = true;
+	}
+	return true;
+}
+
 int32 UHBEncounterSubsystem::GetAliveCount(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const
 {
+	if (!CanManageRoomSpawns() || !IsValid(RoomLevel) || GenerationId <= 0 || RoomId < 0) return 0;
 	for (const FRoomState& State : RoomStates)
 		if (State.GenerationId == GenerationId && State.RoomId == RoomId && State.Level.Get() == RoomLevel)
 			return State.AliveCount;
@@ -266,7 +347,7 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 	UWorld* World = GetWorld();
 	const auto* Defaults = Choice.EnemyClass ? Choice.EnemyClass->GetDefaultObject<AEnemyCharacterBase>() : nullptr;
 	const UCapsuleComponent* Capsule = Defaults ? Defaults->GetCapsuleComponent() : nullptr;
-	if (!World || !Choice.Point || !Capsule || Choice.Point->GetLevel() != &RoomLevel)
+	if (!CanManageRoomSpawns() || !IsValid(Choice.Point) || !Capsule || Choice.Point->GetLevel() != &RoomLevel)
 	{
 		OutReason = TEXT("Missing world, room-owned point or enemy capsule.");
 		return false;
@@ -366,16 +447,40 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 	Params.Owner = &Setup;
 	Params.OverrideLevel = &RoomLevel;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
+	Params.bDeferConstruction = State.bDeferActivation;
 	OutEnemy = World->SpawnActor<AEnemyCharacterBase>(Choice.EnemyClass, SpawnLocation, Choice.Point->GetActorRotation(), Params);
 	if (!IsValid(OutEnemy))
 	{
 		OutReason = TEXT("SpawnActor was rejected by collision handling.");
 		return false;
 	}
-	if (!OutEnemy->GetController()) OutEnemy->SpawnDefaultController();
-	if (!OutEnemy->GetController() || !OutEnemy->GetEnemyASC() || OutEnemy->IsDead())
+	if (State.bDeferActivation)
 	{
-		OutReason = TEXT("Spawned enemy has no AI controller, ASC or living state.");
+		// Disable auto-possession before PostInitializeComponents/BeginPlay. Pausing
+		// after ordinary spawning would already have executed OnPossess and AI tasks.
+		const EAutoPossessAI PreviousAutoPossess = OutEnemy->AutoPossessAI;
+		OutEnemy->AutoPossessAI = EAutoPossessAI::Disabled;
+		OutEnemy->FinishSpawning(FTransform(Choice.Point->GetActorRotation(), SpawnLocation));
+		OutEnemy->AutoPossessAI = PreviousAutoPossess;
+	}
+	if (!IsValid(OutEnemy) || OutEnemy->IsActorBeingDestroyed())
+	{ OutReason = TEXT("Enemy was destroyed while completing its spawn."); OutEnemy = nullptr; return false; }
+	if (!OutEnemy->GetIsReplicated() || !OutEnemy->IsReplicatingMovement() || OutEnemy->bOnlyRelevantToOwner
+		|| OutEnemy->GetLevel() != &RoomLevel)
+	{
+		OutReason = FString::Printf(TEXT("Spawned enemy %s must replicate actor/movement to other players and belong to its source room level."),
+			*GetNameSafe(Choice.EnemyClass.Get()));
+		OutEnemy->Destroy();
+		OutEnemy = nullptr;
+		return false;
+	}
+	if (!State.bDeferActivation && !OutEnemy->GetController()) OutEnemy->SpawnDefaultController();
+	if (!OutEnemy->GetEnemyASC() || OutEnemy->IsDead() || !OutEnemy->AIControllerClass
+		|| (State.bDeferActivation ? OutEnemy->GetController() != nullptr : !Cast<AAIController>(OutEnemy->GetController())))
+	{
+		OutReason = State.bDeferActivation
+			? TEXT("Pending enemy needs an AI controller class, ASC and living state; Blueprint must not possess it before match start.")
+			: TEXT("Spawned enemy has no AI controller, ASC or living state.");
 		OutEnemy->Destroy();
 		OutEnemy = nullptr;
 		return false;
@@ -385,7 +490,7 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 
 void UHBEncounterSubsystem::HandleEnemyDied(AEnemyCharacterBase* Enemy)
 {
-	if (!GetWorld() || GetWorld()->GetNetMode() == NM_Client) return;
+	if (!CanManageRoomSpawns()) return;
 	for (FRoomState& State : RoomStates)
 		if (State.SpawnedEnemies.Contains(Enemy) && !State.CountedDeaths.Contains(Enemy))
 		{
@@ -397,6 +502,7 @@ void UHBEncounterSubsystem::HandleEnemyDied(AEnemyCharacterBase* Enemy)
 
 void UHBEncounterSubsystem::ClearRoom(FRoomState& State)
 {
+	if (!CanManageRoomSpawns()) return;
 	for (const TWeakObjectPtr<AEnemyCharacterBase>& EnemyPtr : State.SpawnedEnemies)
 		if (AEnemyCharacterBase* Enemy = EnemyPtr.Get())
 		{
@@ -407,11 +513,12 @@ void UHBEncounterSubsystem::ClearRoom(FRoomState& State)
 	State.CountedDeaths.Reset();
 	State.AliveCount = 0;
 	State.bPrepared = false;
+	State.bActivated = false;
 }
 
 void UHBEncounterSubsystem::ClearGeneration(int32 GenerationId)
 {
-	if (!GetWorld() || GetWorld()->GetNetMode() == NM_Client) return;
+	if (!CanManageRoomSpawns() || GenerationId <= 0) return;
 	for (int32 Index = RoomStates.Num() - 1; Index >= 0; --Index)
 		if (RoomStates[Index].GenerationId == GenerationId)
 		{

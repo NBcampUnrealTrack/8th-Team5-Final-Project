@@ -34,9 +34,12 @@ class HEAVENBREACH_API UHBEncounterSubsystem : public UWorldSubsystem
 	GENERATED_BODY()
 public:
 	static bool HasEncounter(const ULevel* RoomLevel);
+	/** Dungeon preparation defers possession so AI cannot run before match start. */
 	bool StartEncounter(int32 GenerationId, int32 DungeonSeed, int32 RoomId, ULevel* RoomLevel,
-		const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError);
+		const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError, bool bDeferActivation = false);
+	bool ActivateGeneration(int32 GenerationId, FString& OutError);
 	bool IsPreparedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
+	bool IsActivatedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
 	int32 GetAliveCount(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
 	void ClearGeneration(int32 GenerationId);
 	virtual void Deinitialize() override;
@@ -47,12 +50,16 @@ private:
 		TWeakObjectPtr<ULevel> Level;
 		int32 GenerationId = INDEX_NONE;
 		int32 RoomId = INDEX_NONE;
+		int32 DungeonSeed = 0;
 		int32 AliveCount = 0;
 		bool bPrepared = false;
+		bool bDeferActivation = false;
+		bool bActivated = false;
 		TArray<TWeakObjectPtr<AEnemyCharacterBase>> SpawnedEnemies;
 		TSet<TWeakObjectPtr<AEnemyCharacterBase>> CountedDeaths;
 	};
 
+	bool CanManageRoomSpawns() const;
 	bool TrySpawn(const FHBEncounterSpawnChoice& Choice, const UHBEncounterComponent& Config,
 		AHBEncounterSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
 		const TArray<FVector>& EntryLocations, const FRoomState& State,

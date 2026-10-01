@@ -37,9 +37,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Slot Style")
 	FVector2D EmptyIconScale = FVector2D(0.8f, 0.8f);
 
-	// �κ��丮 �׸����� CellSize�� �ݵ�� ���� ������ ����� �Ѵ�. ���â����
-	// �巡�׸� ������ �� �������� ���� �׸��� ĭ ũ��(����/���� ĭ �� �� CellSize)��
-	// �巡�� ���־��� ����� ���� �ʿ��ϴ�.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment")
 	float CellSize = 70.0f;
 
@@ -85,18 +82,12 @@ private:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> ProgressBar_Durability;
 
-	// ������ ������ �ļ� �ÿ��� ���̴� �ؽ�Ʈ. UMG���� ������ ������ ������ �� �� ?
-	// ���ε��� ���ֵܵ� �����ϴ�(��Ī�Ǵ� ���� ������ nullptr).
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> Text_Broken;
 
-	// �ļ� �� ������ �ڿ� �򸮴� ������ ���� ���. UMG�� ���� �̸��� Image��
-	// �߰��ϸ� �ڵ� ���ε��ȴ�(��� ���� �� ��).
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> Image_BrokenBG;
 
-	// ������ ������ ����� ������ �����ִ� ���. Overlay���� Image_BrokenBG����
-	// �Ʒ�(����)�� �־�� �Ѵ�. UMG�� ���� �̸��� Image�� �߰��ϸ� �ڵ� ���ε��ȴ�.
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> Image_GradeBG;
 

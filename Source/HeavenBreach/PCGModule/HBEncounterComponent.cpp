@@ -37,6 +37,12 @@ bool UHBEncounterComponent::Validate(TArray<FString>& OutErrors) const
 			if (Option.EnemyClass && Classes.Contains(Option.EnemyClass.Get()))
 				OutErrors.Add(Label + TEXT(" contains the same enemy class more than once."));
 			if (Option.EnemyClass) Classes.Add(Option.EnemyClass.Get());
+			const AEnemyCharacterBase* Defaults = Option.EnemyClass
+				? Option.EnemyClass->GetDefaultObject<AEnemyCharacterBase>() : nullptr;
+			if (Defaults && (!Defaults->GetIsReplicated() || !Defaults->IsReplicatingMovement()
+				|| Defaults->bOnlyRelevantToOwner))
+				OutErrors.Add(FString::Printf(TEXT("%s enemy %s must replicate its actor and movement to other players; owner-only relevancy is unsupported for room spawns."),
+					*Label, *Option.EnemyClass->GetPathName()));
 			if (Option.Weight > 0) TotalWeight += Option.Weight;
 		}
 		if (TotalWeight > MAX_int32) OutErrors.Add(Label + TEXT(" total monster weight exceeds int32 range."));

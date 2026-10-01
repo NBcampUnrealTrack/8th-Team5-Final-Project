@@ -4,6 +4,46 @@
 #include "Core/GameFlow/HeavenBreachGameState.h"
 
 #include "Net/UnrealNetwork.h"
+#include "PCGModule/HBDungeonRuntimeValidation.h"
+#include "PCGModule/HBDungeonDoorSeal.h"
+
+bool AHeavenBreachGameState::PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms,
+        TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& SealExtent)
+{
+    if (!HasAuthority() || GetNetMode() == NM_Client || GenerationId <= DungeonSnapshot.GenerationId) return false;
+    FString Error;
+    if (!HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error)
+        || !AHBDungeonDoorSeal::ValidateSettings(SealClass, SealExtent, Error)) return false;
+    DungeonSnapshot.State = EHBDungeonSnapshotState::Active;
+    DungeonSnapshot.FailureReason.Reset();
+    DungeonSnapshot.GenerationId = GenerationId;
+    DungeonSnapshot.Seed = Seed;
+    DungeonSnapshot.Rooms = Rooms;
+    DungeonSnapshot.DoorSealClass = SealClass.Get();
+    DungeonSnapshot.DoorSealExtent = SealExtent;
+    ForceNetUpdate();
+    OnDungeonSnapshotChanged.Broadcast();
+    return true;
+}
+
+bool AHeavenBreachGameState::InvalidateDungeonLayout(int32 GenerationId, const FString& FailureReason)
+{
+    if (!HasAuthority() || GetNetMode() == NM_Client || GenerationId <= 0 || GenerationId < DungeonSnapshot.GenerationId) return false;
+    if (GenerationId == DungeonSnapshot.GenerationId && DungeonSnapshot.State != EHBDungeonSnapshotState::Active) return true;
+    DungeonSnapshot = FHBDungeonSnapshot();
+    DungeonSnapshot.GenerationId = GenerationId;
+    DungeonSnapshot.State = FailureReason.IsEmpty() ? EHBDungeonSnapshotState::Cleared : EHBDungeonSnapshotState::Failed;
+    DungeonSnapshot.FailureReason = FailureReason.Left(1024);
+    ForceNetUpdate();
+    OnDungeonSnapshotChanged.Broadcast();
+    return true;
+}
+
+void AHeavenBreachGameState::OnRep_DungeonSnapshot()
+{
+    OnDungeonSnapshotChanged.Broadcast();
+}
+
 
 void AHeavenBreachGameState::SetMatchEndServerTime(double InEndServerTime)
 {
@@ -30,6 +70,7 @@ void AHeavenBreachGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AHeavenBreachGameState, MatchEndServerTime);
+    DOREPLIFETIME(AHeavenBreachGameState, DungeonSnapshot);
 }
 
 void AHeavenBreachGameState::OnRep_MatchState()

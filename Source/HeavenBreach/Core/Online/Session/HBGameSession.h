@@ -6,19 +6,13 @@
 #include "GameFramework/GameSession.h"
 #include "HBGameSession.generated.h"
 
-/**
- * 
- */
+/** Retains GameMode/BP class references; OSS sessions are owned by HBOnlineSessionSubsystem. */
 UCLASS()
 class HEAVENBREACH_API AHBGameSession : public AGameSession
 {
 	GENERATED_BODY()
-	
+
 public:
 	virtual void RegisterServer() override;
-	
-private:
-	void HandleCreateSessionComplete(FName InSessionName, bool bWasSuccessful);
-	
-	FDelegateHandle CreateSessionCompleteDelegateHandle;
+	virtual FString ApproveLogin(const FString& Options) override;
 };

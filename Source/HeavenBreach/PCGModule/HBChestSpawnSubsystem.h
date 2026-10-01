@@ -46,10 +46,12 @@ private:
 		TWeakObjectPtr<ULevel> Level;
 		int32 GenerationId = INDEX_NONE;
 		int32 RoomId = INDEX_NONE;
+		int32 DungeonSeed = 0;
 		bool bPrepared = false;
 		TArray<TWeakObjectPtr<ABoxActor>> SpawnedChests;
 	};
 
+	bool CanManageRoomSpawns() const;
 	bool TrySpawn(const FHBChestSpawnChoice& Choice, const UHBChestPlacementComponent& Config,
 		AHBChestSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
 		const TArray<FVector>& EntryLocations, const FRoomState& State,
