@@ -47,12 +47,14 @@ private:
 		TWeakObjectPtr<ULevel> Level;
 		int32 GenerationId = INDEX_NONE;
 		int32 RoomId = INDEX_NONE;
+		int32 DungeonSeed = 0;
 		int32 AliveCount = 0;
 		bool bPrepared = false;
 		TArray<TWeakObjectPtr<AEnemyCharacterBase>> SpawnedEnemies;
 		TSet<TWeakObjectPtr<AEnemyCharacterBase>> CountedDeaths;
 	};
 
+	bool CanManageRoomSpawns() const;
 	bool TrySpawn(const FHBEncounterSpawnChoice& Choice, const UHBEncounterComponent& Config,
 		AHBEncounterSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
 		const TArray<FVector>& EntryLocations, const FRoomState& State,

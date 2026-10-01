@@ -388,7 +388,8 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
         if (!Streams.IsValidIndex(Room.Id) || !IsValid(Streams[Room.Id]))
         { Error = FString::Printf(TEXT("Missing streamed room %d for encounter preparation."), Room.Id); return false; }
         ULevel* Level = Streams[Room.Id]->GetLoadedLevel();
-        if (!Level) { Error = FString::Printf(TEXT("Room %d was unloaded before encounter preparation."), Room.Id); return false; }
+        if (!Level || !Streams[Room.Id]->IsLevelVisible())
+        { Error = FString::Printf(TEXT("Room %d is not loaded and visible for spawn preparation."), Room.Id); return false; }
         AHBDungeonModuleDefinition* Definition = nullptr;
         for (AActor* Actor : Level->Actors)
             if (auto* Candidate = Cast<AHBDungeonModuleDefinition>(Actor)) { Definition = Candidate; break; }
@@ -412,15 +413,19 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
                     if (Room.UsedConnectorIds.Contains(Connector->GetEffectiveConnectorId()))
                         Entries.Add(Connector->GetComponentLocation());
             }
-        if (bHasEncounter && !EncounterSubsystem->StartEncounter(
-            GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error))
+        if (bHasEncounter && (!EncounterSubsystem->StartEncounter(
+            GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error)
+            || !EncounterSubsystem->IsPreparedFor(GenerationId, Room.Id, Level)))
         {
+            if (Error.IsEmpty()) Error = TEXT("Encounter did not register a prepared room.");
             Error = FString::Printf(TEXT("Room %d encounter: %s"), Room.Id, *Error);
             return false;
         }
-        if (bHasChests && !ChestSubsystem->StartPlacement(
-            GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error))
+        if (bHasChests && (!ChestSubsystem->StartPlacement(
+            GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error)
+            || !ChestSubsystem->IsPreparedFor(GenerationId, Room.Id, Level)))
         {
+            if (Error.IsEmpty()) Error = TEXT("Chest placement did not register a prepared room.");
             Error = FString::Printf(TEXT("Room %d chest placement: %s"), Room.Id, *Error);
             return false;
         }

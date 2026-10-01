@@ -430,6 +430,22 @@ public:
 			for (const FHBChestPlacementGroup& Group : ChestSetup->Placement->Groups)
 			{ Minimum += Group.MinCount; Maximum += Group.MaxCount; }
 			const int32 Count = ChestSubsystem->GetSpawnedCount(Dungeon->GenerationId, Room.Id, Level);
+            const TArray<FVector> RetryEntries{Room.Bounds.GetCenter()};
+            FString RetryError;
+            Test->TestTrue(TEXT("Repeated chest preparation reuses the same room"),
+                ChestSubsystem->StartPlacement(Dungeon->GenerationId, Dungeon->ActiveSeed, Room.Id, Level, Room.Bounds, RetryEntries, RetryError));
+            Test->TestFalse(TEXT("Chest generation cannot change seed"),
+                ChestSubsystem->StartPlacement(Dungeon->GenerationId, Dungeon->ActiveSeed ^ 1, Room.Id, Level, Room.Bounds, RetryEntries, RetryError));
+            Test->TestFalse(TEXT("Same chest room cannot use another level instance"),
+                ChestSubsystem->StartPlacement(Dungeon->GenerationId, Dungeon->ActiveSeed, Room.Id, World->PersistentLevel, Room.Bounds, RetryEntries, RetryError));
+            Test->TestFalse(TEXT("A loaded chest room cannot join another generation before cleanup"),
+                ChestSubsystem->StartPlacement(Dungeon->GenerationId + 1, Dungeon->ActiveSeed, Room.Id, Level, Room.Bounds, RetryEntries, RetryError));
+            Test->TestFalse(TEXT("Zero chest generation is rejected"),
+                ChestSubsystem->StartPlacement(0, Dungeon->ActiveSeed, Room.Id, Level, Room.Bounds, RetryEntries, RetryError));
+            Test->TestFalse(TEXT("Negative chest room ID is rejected"),
+                ChestSubsystem->StartPlacement(Dungeon->GenerationId, Dungeon->ActiveSeed, INDEX_NONE, Level, Room.Bounds, RetryEntries, RetryError));
+            Test->TestEqual(TEXT("Repeated and rejected chest requests preserve the count"),
+                ChestSubsystem->GetSpawnedCount(Dungeon->GenerationId, Room.Id, Level), Count);
 			Test->TestTrue(TEXT("Spawned chest count respects the room settings"), Count >= Minimum && Count <= Maximum);
 			int32 RoomActorCount = 0;
 			for (TActorIterator<ABoxActor> It(World); It; ++It)
@@ -483,6 +499,33 @@ public:
 		if (FPlatformTime::Seconds() - ReadyAt < 0.5) return false;
 		Test->TestEqual(TEXT("Ready does not trigger a duplicate TestMG spawn"), TotalAlive, InitialAlive);
 		Test->TestEqual(TEXT("Ready does not trigger duplicate room chests"), TotalChests, InitialChests);
+        // Simulate a client world without advancing PIE: even locally authoritative
+        // actor copies must survive an attempted client-side generation cleanup.
+        TArray<TWeakObjectPtr<AActor>> ManagedActors;
+        for (TActorIterator<AEnemyCharacterBase> It(World); It; ++It) ManagedActors.Add(*It);
+        for (TActorIterator<ABoxActor> It(World); It; ++It) ManagedActors.Add(*It);
+        auto* PreviousDriver = World->GetNetDriver();
+        auto* ClientDriver = NewObject<UIpNetDriver>(World);
+        ClientDriver->SetWorld(World);
+        ClientDriver->ServerConnection = NewObject<UChildConnection>(ClientDriver);
+        World->SetNetDriver(ClientDriver);
+        EncounterSubsystem->ClearGeneration(Dungeon->GenerationId);
+        ChestSubsystem->ClearGeneration(Dungeon->GenerationId);
+        for (const auto& Actor : ManagedActors)
+            Test->TestTrue(TEXT("Client cleanup preserves server-managed actors"), Actor.IsValid() && !Actor->IsActorBeingDestroyed());
+        World->SetNetDriver(PreviousDriver);
+        ClientDriver->ServerConnection = nullptr;
+        ClientDriver->SetWorld(nullptr);
+        EncounterSubsystem->ClearGeneration(Dungeon->GenerationId + 1);
+        ChestSubsystem->ClearGeneration(Dungeon->GenerationId + 1);
+        for (const FHBPrototypeRoom& Room : Dungeon->Rooms)
+        {
+            ULevel* Level = Dungeon->GetLoadedRoomLevel(Room.Id);
+            if (UHBEncounterSubsystem::HasEncounter(Level)) Test->TestTrue(TEXT("Unrelated cleanup preserves encounter preparation"),
+                EncounterSubsystem->IsPreparedFor(Dungeon->GenerationId, Room.Id, Level));
+            if (UHBChestSpawnSubsystem::HasPlacement(Level)) Test->TestTrue(TEXT("Unrelated cleanup preserves chest preparation"),
+                ChestSubsystem->IsPreparedFor(Dungeon->GenerationId, Room.Id, Level));
+        }
 		return true;
 	}
 };

@@ -181,19 +181,42 @@ bool UHBChestSpawnSubsystem::HasPlacement(const ULevel* RoomLevel)
 	return false;
 }
 
+bool UHBChestSpawnSubsystem::CanManageRoomSpawns() const
+{
+	const UWorld* World = GetWorld();
+	return World && World->IsGameWorld() && World->GetNetMode() != NM_Client;
+}
+
 bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
 	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError)
 {
 	OutError.Reset();
 	UWorld* World = GetWorld();
-	if (!World || World->GetNetMode() == NM_Client)
+	if (!CanManageRoomSpawns())
 	{
 		OutError = TEXT("Only the server world may select or spawn room chests.");
+		return false;
+	}
+	if (GenerationId <= 0 || RoomId < 0)
+	{
+		OutError = TEXT("Chest placement requires a positive generation ID and nonnegative room ID.");
 		return false;
 	}
 	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || EntryLocations.IsEmpty())
 	{
 		OutError = TEXT("Chest placement needs its loaded room level, valid bounds and an entry location.");
+		return false;
+	}
+	for (const FRoomState& State : RoomStates)
+	{
+		if (State.GenerationId == GenerationId && State.DungeonSeed != DungeonSeed)
+		{
+			OutError = TEXT("A chest generation cannot change its dungeon seed.");
+			return false;
+		}
+		if (State.Level.Get() != RoomLevel && !(State.GenerationId == GenerationId && State.RoomId == RoomId)) continue;
+		if (State.Level.Get() == RoomLevel && State.GenerationId == GenerationId && State.RoomId == RoomId && State.bPrepared) return true;
+		OutError = TEXT("Chest room identity conflicts with an existing generation or level; clear it before restarting.");
 		return false;
 	}
 	AHBChestSetupActor* Setup = nullptr;
@@ -218,17 +241,11 @@ bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSee
 		OutError = TEXT("Chest Setup has no authority or settings component.");
 		return false;
 	}
-	for (const FRoomState& State : RoomStates)
-	{
-		if (State.Level.Get() != RoomLevel) continue;
-		if (State.GenerationId == GenerationId && State.RoomId == RoomId && State.bPrepared) return true;
-		OutError = TEXT("Room chests belong to another generation; clear them before restarting.");
-		return false;
-	}
 	FRoomState& State = RoomStates.AddDefaulted_GetRef();
 	State.Level = RoomLevel;
 	State.GenerationId = GenerationId;
 	State.RoomId = RoomId;
+	State.DungeonSeed = DungeonSeed;
 	TArray<FHBChestSpawnChoice> Placed;
 	const bool bSucceeded = HBChestSelection::SelectAndPlace(*Setup->Placement, Points, DungeonSeed, RoomId,
 		[&](const FHBChestSpawnChoice& Choice, FString& Reason)
@@ -256,6 +273,7 @@ bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSee
 
 bool UHBChestSpawnSubsystem::IsPreparedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const
 {
+	if (!CanManageRoomSpawns() || !IsValid(RoomLevel) || GenerationId <= 0 || RoomId < 0) return false;
 	for (const FRoomState& State : RoomStates)
 		if (State.GenerationId == GenerationId && State.RoomId == RoomId
 			&& State.Level.Get() == RoomLevel && State.bPrepared) return true;
@@ -264,6 +282,7 @@ bool UHBChestSpawnSubsystem::IsPreparedFor(int32 GenerationId, int32 RoomId, con
 
 int32 UHBChestSpawnSubsystem::GetSpawnedCount(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const
 {
+	if (!CanManageRoomSpawns() || !IsValid(RoomLevel) || GenerationId <= 0 || RoomId < 0) return 0;
 	for (const FRoomState& State : RoomStates)
 		if (State.GenerationId == GenerationId && State.RoomId == RoomId && State.Level.Get() == RoomLevel)
 		{
@@ -277,6 +296,7 @@ int32 UHBChestSpawnSubsystem::GetSpawnedCount(int32 GenerationId, int32 RoomId, 
 
 void UHBChestSpawnSubsystem::ClearRoom(FRoomState& State)
 {
+	if (!CanManageRoomSpawns()) return;
 	for (const TWeakObjectPtr<ABoxActor>& Chest : State.SpawnedChests)
 		if (IsValid(Chest.Get())) Chest->Destroy();
 	State.SpawnedChests.Reset();
@@ -285,6 +305,7 @@ void UHBChestSpawnSubsystem::ClearRoom(FRoomState& State)
 
 void UHBChestSpawnSubsystem::ClearGeneration(int32 GenerationId)
 {
+	if (!CanManageRoomSpawns() || GenerationId <= 0) return;
 	for (int32 Index = RoomStates.Num() - 1; Index >= 0; --Index)
 		if (RoomStates[Index].GenerationId == GenerationId)
 		{
@@ -307,7 +328,7 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 {
 	OutChest = nullptr;
 	UWorld* World = GetWorld();
-	if (!World || !IsValid(Choice.Point) || !Choice.ChestClass || Choice.Point->GetLevel() != &RoomLevel)
+	if (!CanManageRoomSpawns() || !IsValid(Choice.Point) || !Choice.ChestClass || Choice.Point->GetLevel() != &RoomLevel)
 	{
 		OutReason = TEXT("Missing world, room-owned point or box class.");
 		return false;
