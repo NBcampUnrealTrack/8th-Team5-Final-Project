@@ -17,7 +17,6 @@ struct FGameplayTag;
 struct FDataTableRowHandle;
 class ULootComponent;
 class AEnemyCharacterBase;
-class UAnimMontage;
 
 // 죽었다. 소환 명부처럼 남의 사망을 알아야 하는 쪽이 구독한다.
 //
@@ -102,12 +101,6 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	void BecomeDead();
-
-	// 피격 몽타주를 이 화면에서 튼다. 보이기만 한다 — 공격 · 이동 · AI 는 끊지 않는다.
-	// 진짜 경직(공격이 끊김)은 같은 몽타주를 피격 GA(Ability.HitReact)가 틀 때다. 패링만 부른다.
-	// 타격 큐(GCN_HitImpact)가 모든 화면에서 부른다.
-	// 몽타주가 상체 슬롯이어야 공격이 안 끊겨 보인다. DefaultSlot 이면 전신으로 덮인다 (공격 자체는 계속된다).
-	void PlayHit() const;
 
 	// getter
 	const UEnemyArchetypeData* GetArchetypeData() const { return ArchetypeData; }
@@ -204,10 +197,6 @@ protected:
 
 	// 죽인대상에게 보상
 	void GiveExpToKiller();
-
-	// DA 의 어빌리티 목록에서 피격 GA 의 몽타주를 찾는다.
-	// 왜 ASC 가 아니라 DA 인가: ASC 의 어빌리티 목록은 서버에만 있다. DA 는 애셋이라 클라도 읽는다.
-	UAnimMontage* FindHitMontage() const;
 
 public:	
 	// Called every frame
