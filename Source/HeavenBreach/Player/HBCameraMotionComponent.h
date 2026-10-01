@@ -44,6 +44,7 @@ protected:
 	float StabilizeSpeed = 6.f;
 
 	// 공중(점프·낙하)과 착지 직후에 위 세기에 한 번 더 곱하는 값. 점프 애니의 머리 출렁임이 커서 따로 줄인다.
+	// 회전에만 건다. 위치는 머리를 따라간다(위치를 늦추면 머리 메시 안쪽이 화면에 보인다).
 	// 1 이면 공중에서도 평소와 같다.
 	UPROPERTY(EditDefaultsOnly, Category = "Camera|Motion|Air", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float AirMotionScale = 0.f;

@@ -89,11 +89,13 @@ void UHBCameraMotionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 		return;
 	}
 
-	// 평소 세기(개발자 값 × 설정 메뉴)에 공중·착지 보정을 곱한다. 설정을 안 건드려도 점프 때는 줄어든다.
-	const float Scale = GetEffectiveMotionScale() * UpdateAirScale(Pawn, DeltaTime);
+	// 평소 세기(개발자 값 × 설정 메뉴)는 위치·회전 둘 다에 건다.
+	// 공중·착지 보정은 회전에만 곱한다. 위치까지 늦추면 카메라가 머리에서 벗어나 머리·몸 메시 안쪽이 보인다.
+	const float LocationScale = GetEffectiveMotionScale();
+	const float RotationScale = LocationScale * UpdateAirScale(Pawn, DeltaTime);
 
 	// 세기 1 은 머리에 그대로 붙은 원래 상태다. 덮어쓰던 게 있으면 원래 상대 위치로 돌려놓는다.
-	if (Scale >= 1.f - KINDA_SMALL_NUMBER)
+	if (LocationScale >= 1.f - KINDA_SMALL_NUMBER && RotationScale >= 1.f - KINDA_SMALL_NUMBER)
 	{
 		if (bOverriding)
 		{
@@ -124,15 +126,16 @@ void UHBCameraMotionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 	}
 
 	// 프레임률과 상관없이 같은 빠르기로 따라가도록 지수 감쇠를 쓴다.
-	// 공중일수록 더 느리게 따라가 큰 출렁임까지 걸러낸다.
-	const float Speed = FMath::Lerp(StabilizeSpeed, AirStabilizeSpeed, AirBlend);
-	const float Follow = 1.f - FMath::Exp(-Speed * DeltaTime);
-	SmoothedLocalLocation = FMath::Lerp(SmoothedLocalLocation, LocalLocation, Follow);
-	SmoothedAimDelta = FQuat::Slerp(SmoothedAimDelta, AimDelta, Follow);
+	// 회전은 공중일수록 더 느리게 따라가 큰 출렁임까지 걸러낸다. 위치는 평소 빠르기 그대로.
+	const float LocationFollow = 1.f - FMath::Exp(-StabilizeSpeed * DeltaTime);
+	const float RotationSpeed = FMath::Lerp(StabilizeSpeed, AirStabilizeSpeed, AirBlend);
+	const float RotationFollow = 1.f - FMath::Exp(-RotationSpeed * DeltaTime);
+	SmoothedLocalLocation = FMath::Lerp(SmoothedLocalLocation, LocalLocation, LocationFollow);
+	SmoothedAimDelta = FQuat::Slerp(SmoothedAimDelta, AimDelta, RotationFollow);
 
 	// 세기만큼 원래 흔들림을 섞는다. 0 이면 부드러운 값만, 1 이면 머리 그대로.
-	const FVector FinalLocal = FMath::Lerp(SmoothedLocalLocation, LocalLocation, Scale);
-	const FQuat FinalDelta = FQuat::Slerp(SmoothedAimDelta, AimDelta, Scale);
+	const FVector FinalLocal = FMath::Lerp(SmoothedLocalLocation, LocalLocation, LocationScale);
+	const FQuat FinalDelta = FQuat::Slerp(SmoothedAimDelta, AimDelta, RotationScale);
 
 	Camera->SetWorldLocationAndRotation(ActorTransform.TransformPosition(FinalLocal), AimQuat * FinalDelta);
 	bOverriding = true;
