@@ -51,7 +51,8 @@ enum class EHBLobbyOperationState : uint8
 	OpeningHostMap,
 	CleaningUpHost,
 	ConnectingToLobby,
-	CleaningUpJoin
+	CleaningUpJoin,
+	Leaving
 };
 
 /** Snapshot of the latest search. SessionId remains the selection key across refreshes. */
@@ -61,10 +62,22 @@ struct FHBLobbySearchEntry
 	GENERATED_BODY()
 	UPROPERTY(BlueprintReadOnly) FString SessionId;
 	UPROPERTY(BlueprintReadOnly) FString HostName;
+	UPROPERTY(BlueprintReadOnly) FString RoomName;
+	UPROPERTY(BlueprintReadOnly) bool bPasswordProtected = false;
+	UPROPERTY(BlueprintReadOnly) int32 CurrentPlayers = 0;
 	UPROPERTY(BlueprintReadOnly) FString MapPackage;
 	UPROPERTY(BlueprintReadOnly) int32 MaxPlayers = 0;
 	UPROPERTY(BlueprintReadOnly) int32 OpenSlots = 0;
 	UPROPERTY(BlueprintReadOnly) int32 PingInMs = 0;
+};
+
+USTRUCT(BlueprintType)
+struct FHBSteamFriendEntry
+{
+	GENERATED_BODY()
+	UPROPERTY(BlueprintReadOnly) FString UserId;
+	UPROPERTY(BlueprintReadOnly) FString DisplayName;
+	UPROPERTY(BlueprintReadOnly) bool bCanInvite = false;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
@@ -92,6 +105,21 @@ class HEAVENBREACH_API UHBOnlineSessionSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	bool RequestHostRoom(const FString& Name, const FString& Password, TSoftObjectPtr<UWorld> LobbyMap);
+	bool RequestJoinRoom(const FString& SessionId, const FString& Password);
+	bool RefreshSteamFriends();
+	TArray<FHBSteamFriendEntry> GetSteamFriends() const { return SteamFriends; }
+	bool IsReadingFriends() const { return bReadingFriends; }
+	bool InviteSteamFriend(const FString& UserId);
+	bool GetPendingInvite(FHBLobbySearchEntry& Entry) const;
+	bool AcceptPendingInvite(const FString& Password);
+	void DeclinePendingInvite();
+	void SetLobbyReturnMap(const FString& Package) { LobbyReturnMap = Package; }
+	bool RequestLeaveToMenu(const FString& Notice = FString());
+	FString ConsumeMenuNotice();
+	FString GetHostedRoomName() const { return HostedRoomName; }
+	FString CheckLobbyPassword(const FString& Options) const;
+	void PublishGamePresence(const FString& State);
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
@@ -151,13 +179,14 @@ public:
 			LobbyOperationState == EHBLobbyOperationState::OpeningHostMap ||
 			LobbyOperationState == EHBLobbyOperationState::CleaningUpHost ||
 			LobbyOperationState == EHBLobbyOperationState::ConnectingToLobby ||
-			LobbyOperationState == EHBLobbyOperationState::CleaningUpJoin;
+			LobbyOperationState == EHBLobbyOperationState::CleaningUpJoin ||
+			LobbyOperationState == EHBLobbyOperationState::Leaving;
 	}
 
 	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
 	FString GetLastLobbyOperationError() const
 	{
-		return LastLobbyOperationError;
+		return AuxiliaryError.IsEmpty() ? LastLobbyOperationError : AuxiliaryError;
 	}
 
 	UPROPERTY(BlueprintAssignable, Category = "Online|Lobby")
@@ -189,6 +218,27 @@ public:
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
 
 private:
+	bool RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password);
+	bool JoinLobbyResult(const FOnlineSessionSearchResult& Result, const FString& Password);
+	void InitializeMultiplayerLobby();
+	void DeinitializeMultiplayerLobby();
+	void HandleSteamInvite(bool bSuccess, int32 LocalUser, FUniqueNetIdPtr UserId, const FOnlineSessionSearchResult& Result);
+	bool ReturnToMenu(float DeltaSeconds);
+	FString HostedRoomName;
+	FString HostedPasswordProof;
+	FString HostedPasswordSalt;
+	FString PendingJoinProof;
+	FString ConnectedLobbyMap;
+	FString LobbyReturnMap;
+	FString MenuNotice;
+	bool bReturnAfterLeave = false;
+	bool bReadingFriends = false;
+	FString AuxiliaryError;
+	TArray<FHBSteamFriendEntry> SteamFriends;
+	TSharedPtr<FOnlineSessionSearchResult> PendingInvite;
+	FDelegateHandle InviteAcceptedHandle;
+	FDelegateHandle LobbySeamlessTravelHandle;
+	FTSTicker::FDelegateHandle ReturnMenuTickerHandle;
 	friend class FHBServerTravelGuardsTest;
 	void HandleTravelSessionUpdated(FName SessionName, bool bSuccess);
 	void FailServerTravel(const FString& Error);

@@ -38,35 +38,24 @@ AHBLobbyGameMode::AHBLobbyGameMode()
 		));
 }
 
+void AHBLobbyGameMode::PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
+{
+    Super::PreLogin(Options, Address, UniqueId, ErrorMessage);
+    // PreLogin only runs for network guests, so the local host never has to
+    // send its own password through the startup URL.
+    if (ErrorMessage.IsEmpty())
+        if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+            ErrorMessage = Sessions->CheckLobbyPassword(Options);
+}
+
 void AHBLobbyGameMode::EvaluateCanStartMatch()
 {
-	AHBLobbyGameState* LobbyGameState = GetGameState<AHBLobbyGameState>();
-	
-	if (!IsValid(LobbyGameState))
-	{
-		return;
-	}
-	
-	const int32 PlayerCount = LobbyGameState->PlayerArray.Num();
-	
-	if (PlayerCount < RequiredReadyPlayerCount)
-	{
-		LobbyGameState->SetCanStartMatch(false);
-		return;
-	}
-	
-	for (APlayerState* PlayerState : LobbyGameState->PlayerArray)
-	{
-		AHBLobbyPlayerState* LobbyPlayerState = Cast<AHBLobbyPlayerState>(PlayerState);
-		
-		if (!IsValid(LobbyPlayerState) || !LobbyPlayerState->IsReady())
-		{
-			LobbyGameState->SetCanStartMatch(false);
-			return;
-		}
-	}
-	
-	LobbyGameState->SetCanStartMatch(true);
+    auto* State = GetGameState<AHBLobbyGameState>();
+    if (!State || !HasAuthority()) return;
+    auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+    const bool bReady = GetNetMode() == NM_ListenServer && State->AreGuestsReady(RequiredReadyPlayerCount)
+        && Sessions && !Sessions->IsLobbyOperationInProgress() && !Sessions->IsMatchAdmissionClosed();
+    State->SetCanStartMatch(bReady);
 }
 
 void AHBLobbyGameMode::HandleReadyStateChanged()
@@ -82,41 +71,14 @@ void AHBLobbyGameMode::HandleReadyStateChanged()
 	EvaluateCanStartMatch();
 }
 
-void AHBLobbyGameMode::ConfirmStart(
-	AHBLobbyPlayerState* RequestingPlayerState)
+void AHBLobbyGameMode::ConfirmStart(AHBLobbyPlayerState* RequestingPlayerState)
 {
-	if (!HasAuthority() || !IsValid(RequestingPlayerState))
-	{
-		return;
-	}
-
-	EvaluateCanStartMatch();
-
-	const AHBLobbyGameState* LobbyGameState =
-		GetGameState<AHBLobbyGameState>();
-
-	if (!IsValid(LobbyGameState) ||
-		!LobbyGameState->CanStartMatch() ||
-		!LobbyGameState->PlayerArray.Contains(RequestingPlayerState))
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Lobby | Start confirmation rejected: ready roster is incomplete")
-			);
-		return;
-	}
-
-	RequestingPlayerState->SetStartConfirmed(true);
-
-	UE_LOG(
-		LogTemp,
-		Log,
-		TEXT("Lobby | Player confirmed match start: %s"),
-		*RequestingPlayerState->GetPlayerName()
-		);
-
-	TryStartGame();
+    if (!HasAuthority()) return;
+    EvaluateCanStartMatch();
+    auto* State = GetGameState<AHBLobbyGameState>();
+    if (!State || !State->CanStartMatch() || !RequestingPlayerState || State->HostPlayerState != RequestingPlayerState) return;
+    RequestingPlayerState->SetStartConfirmed(true);
+    TryStartGame();
 }
 
 void AHBLobbyGameMode::TryStartGame()
@@ -139,7 +101,7 @@ void AHBLobbyGameMode::TryStartGame()
 	}
 
 	FString ConfiguredGameplayMap;
-	const bool bHasConfiguredGameplayMap = GConfig != nullptr &&
+	const bool bHasConfiguredGameplayMap = bUseConfiguredGameplayMap && GConfig != nullptr &&
 		GConfig->GetString(
 			HBLobbyFlow::ConfigSection,
 			HBLobbyFlow::GameplayMapKey,
@@ -212,6 +174,12 @@ void AHBLobbyGameMode::PostLogin(APlayerController* NewPlayer)
 		return;
 	}
 
+    if (auto* State = GetGameState<AHBLobbyGameState>(); State && NewPlayer && NewPlayer->IsLocalController())
+    {
+        State->HostPlayerState = NewPlayer->GetPlayerState<AHBLobbyPlayerState>();
+        if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>()) State->RoomName = Sessions->GetHostedRoomName();
+        State->ForceNetUpdate();
+    }
 	InitializeLobbyLoadout(NewPlayer);
 
 	// A newly connected player changes the group that is approving the match.
@@ -313,27 +281,7 @@ void AHBLobbyGameMode::ResetStartConfirmations()
 
 bool AHBLobbyGameMode::AreAllPlayersReadyAndConfirmed() const
 {
-	const AHBLobbyGameState* LobbyGameState =
-		GetGameState<AHBLobbyGameState>();
-
-	if (!IsValid(LobbyGameState) ||
-		LobbyGameState->PlayerArray.Num() < RequiredReadyPlayerCount)
-	{
-		return false;
-	}
-
-	for (const APlayerState* PlayerState : LobbyGameState->PlayerArray)
-	{
-		const AHBLobbyPlayerState* LobbyPlayerState =
-			Cast<AHBLobbyPlayerState>(PlayerState);
-
-		if (!IsValid(LobbyPlayerState) ||
-			!LobbyPlayerState->IsReady() ||
-			!LobbyPlayerState->IsStartConfirmed())
-		{
-			return false;
-		}
-	}
-
-	return true;
+    const auto* State = GetGameState<AHBLobbyGameState>();
+    return State && State->CanStartMatch() && IsValid(State->HostPlayerState)
+        && State->HostPlayerState->IsStartConfirmed();
 }

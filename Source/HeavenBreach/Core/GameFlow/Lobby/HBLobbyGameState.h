@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameState.h"
 #include "HBLobbyGameState.generated.h"
+class AHBLobbyPlayerState;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOnCanStartMatchChanged,
@@ -20,6 +21,11 @@ class HEAVENBREACH_API AHBLobbyGameState : public AGameState
 	GENERATED_BODY()
 	
 public:
+	UPROPERTY(Replicated, BlueprintReadOnly, Category="Lobby")
+	TObjectPtr<AHBLobbyPlayerState> HostPlayerState;
+	UPROPERTY(Replicated, BlueprintReadOnly, Category="Lobby")
+	FString RoomName;
+	bool AreGuestsReady(int32 MinimumPlayers) const;
 	bool CanStartMatch() const {return bCanStartMatch;}
 	
 	void SetCanStartMatch(bool bNewCanStartMatch);
