@@ -255,6 +255,12 @@ void AHBPlayerController::SetupInputComponent()
 		{
 			EnhancedInputComponent->BindAction(
 				AttackAction, ETriggerEvent::Started, this, &AHBPlayerController::Attack);
+
+			// 활은 떼는 순간 쏜다. 근접 평타는 떼기를 쓰지 않는다.
+			EnhancedInputComponent->BindAction(
+				AttackAction, ETriggerEvent::Completed, this, &AHBPlayerController::StopAttack);
+			EnhancedInputComponent->BindAction(
+				AttackAction, ETriggerEvent::Canceled, this, &AHBPlayerController::StopAttack);
 		}
 
 		if (BlockAction)
@@ -610,6 +616,14 @@ void AHBPlayerController::Attack()
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Attack();
+	}
+}
+
+void AHBPlayerController::StopAttack()
+{
+	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->StopAttack();
 	}
 }
 

@@ -11,9 +11,13 @@
 #include "Camera/CameraComponent.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
 #include "Combat/Attack/GA_PlayerAttackRE.h"
+#include "Combat/Attack/GA_PlayerBowAttack.h"
 #include "Player/HBPotionDrinkComponent.h"
 #include "Player/HBInteractAnimComponent.h"
 #include "Player/HBCameraMotionComponent.h"
+#include "Player/HBWeaponPresentation.h"
+#include "Player/HBJumpFeel.h"
+#include "Player/HBFootstepComponent.h"
 #include "Player/HBFootstepComponent.h"
 #include "Player/HBPlayerCorpseInventory.h"
 #include "Combat/Block/GA_GuardStance.h"
@@ -57,7 +61,9 @@
 
 AHBPlayerCharacter::AHBPlayerCharacter()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// 점프 감각(공중 중력·착지 회복)에만 쓴다. 평소에는 꺼 두고 공중에 뜰 때 켠다.
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = true;
@@ -86,6 +92,12 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	WeaponMeshComp->SetupAttachment(GetMesh(),WeaponSocketName);
 	WeaponMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	WeaponMeshComp->ComponentTags.Add(TEXT("Weapon"));
+	
+	// 소켓은 외형 행이 정한다(활: BowSocket). 장비가 바뀔 때 다시 붙인다.
+	WeaponSkeletalMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponSkeletalMeshComp"));
+	WeaponSkeletalMeshComp->SetupAttachment(GetMesh());
+	WeaponSkeletalMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponSkeletalMeshComp->SetVisibility(false);
 	
 	ShieldMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShieldMeshComp"));
 	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
@@ -141,12 +153,33 @@ UAnimMontage* AHBPlayerCharacter::GetGuardMontage() const
 void AHBPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 시위 AnimBP 가 몸의 손 위치·커브를 읽으므로 몸 포즈가 먼저 평가돼야 한다.
+	if (WeaponSkeletalMeshComp)
+	{
+		WeaponSkeletalMeshComp->AddTickPrerequisiteComponent(GetMesh());
+	}
+
+	// 장전 화살은 보이기만 하는 것이라 머신마다 로컬로 만든다. 데디 서버는 볼 사람이 없어 만들지 않는다.
+	if (HeldArrowActorClass && GetNetMode() != NM_DedicatedServer && GetWorld())
+	{
+		FActorSpawnParameters Params;
+		Params.Owner = this;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		HeldArrowActor = GetWorld()->SpawnActor<AActor>(HeldArrowActorClass, GetActorTransform(), Params);
+	}
 	SetUnderwearVisible(bUnderwearVisible);
 
 	BindToPlayerStateComponents();
 
 	// 서버와 모든 클라가 같은 값을 가져야 이동 예측이 어긋나지 않는다. 역할을 가리지 않는다.
 	ApplyMovementInertia(GetCharacterMovement());
+
+	if (const UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		BaseJumpZVelocity = Movement->JumpZVelocity;
+		BaseGravityScale = Movement->GravityScale;
+	}
 
 	if (HasAuthority() && GetWorld())
 	{
@@ -192,6 +225,12 @@ void AHBPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		ItemEffectRules::Clear(this, ItemEffectRuntime);
 	}
 
+	if (HeldArrowActor)
+	{
+		HeldArrowActor->Destroy();
+		HeldArrowActor = nullptr;
+	}
+
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -218,6 +257,7 @@ void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
 	DOREPLIFETIME(ThisClass,bIsSprinting);
+	DOREPLIFETIME_CONDITION(ThisClass, bDrawingBow, COND_SkipOwner);
 	DOREPLIFETIME(ThisClass,MovementSpeedMultiplier);
 	DOREPLIFETIME(ThisClass,SelectedSkillQId);
 	DOREPLIFETIME(ThisClass,SelectedSkillEId);
@@ -266,14 +306,41 @@ void AHBPlayerCharacter::Attack()
 
 	// 일반공격은 마나를 쓰지 않는다. 마나는 달리기·방어·스킬에만 쓴다.
 	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
-	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag));
+	if (!ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(WeaponTag)))
+	{
+		// 이 무기 태그(AssetTags)를 가진 평타 GA 가 DefaultAbilities 에 없거나, 막는 태그가 붙어 있을 때.
+		UE_LOG(LogTemp, Warning, TEXT("[Attack] 평타 발동 실패  WeaponTag=%s"), *WeaponTag.ToString());
+	}
+}
+
+void AHBPlayerCharacter::StopAttack()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	UGA_PlayerBowAttack* Bow = UGA_PlayerBowAttack::FindActive(ASC);
+	if (!Bow)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 공격 키 뗌 → 떼기 전달"));
+
+	FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromHandle(Bow->GetCurrentAbilitySpecHandle());
+	if (!Spec)
+	{
+		return;
+	}
+
+	// ASC::AbilityLocalInputReleased 와 같은 일을 한다. 이 프로젝트는 InputID 바인딩을 안 써서 직접 부른다.
+	// InvokeReplicatedEvent 가 클라에서는 서버로 보내 서버의 WaitInputRelease 도 끝낸다.
+	ASC->AbilitySpecInputReleased(*Spec);
+	ASC->InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, Spec->Handle, Bow->GetCurrentActivationInfo().GetActivationPredictionKey());
 }
 
 FGameplayTag AHBPlayerCharacter::GetImpactCueTag() const
 {
 	const FGameplayTag WeaponTag = GetEquippedWeaponTag();
 
-	if (WeaponTag == ItemTag::TAG_Weapon_Sword)
+	if (WeaponTag == ItemTag::TAG_Weapon_Sword || WeaponTag == ItemTag::TAG_Weapon_Dagger)
 	{
 		return CueTag::TAG_GameplayCue_Hit_Slash;
 	}
@@ -283,8 +350,6 @@ FGameplayTag AHBPlayerCharacter::GetImpactCueTag() const
 	}
 
 	// 지팡이와 맨손은 둔타로 친다. 지팡이 마법은 별도 어빌리티가 자기 큐를 쏜다.
-	// 단검(DT_Weapon 의 DAG_*)은 Weapon.Dagger 태그가 등록돼 있지 않아
-	// GetEquippedWeaponTag 가 Weapon.Unarmed 를 돌려주므로 여기로 온다.
 	return CueTag::TAG_GameplayCue_Hit_Blunt;
 }
 
@@ -1820,6 +1885,8 @@ void AHBPlayerCharacter::ApplyJobAppearance()
 	if (JobData->AnimInstanceClass)
 	{
 		GetMesh()->SetAnimInstanceClass(JobData->AnimInstanceClass);
+		// 무기를 내려놓으면 돌아갈 AnimBP 도 직업 것으로.
+		BaseAnimClass = JobData->AnimInstanceClass;
 	}
 	SetUnderwearVisible(bUnderwearVisible);
 	RefreshEquippedVisuals();
@@ -2191,12 +2258,122 @@ void AHBPlayerCharacter::RefreshMovementSpeed()
 		const float BaseSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
 
 		// 진짜 속도(장비 이동속도 +)를 먼저 더하고 배율을 곱한다. 쿨다운 공식과 같은 순서다.
+		// 착지 직후 잠깐 느려졌다 회복한다(높이 떨어질수록 더). 회복 중에는 Tick 이 매 프레임 다시 부른다.
+		const float LandingScale = GetWorld()
+			? HBJumpFeel::LandingSpeedScale(LastLandImpact, LandMaxSlow, GetWorld()->GetTimeSeconds() - LastLandedTime, LandSlowDuration)
+			: 1.f;
+
 		// 0 에서 자르는 이유: - 옵션이 쌓여도 뒤로 걷게 되면 안 된다.
-		Movement->MaxWalkSpeed = FMath::Max(0.f, (BaseSpeed + GASFlat) * GASMultiplier);
-		Movement->MaxWalkSpeedCrouched = FMath::Max(0.f, (CrouchSpeed + GASFlat) * GASMultiplier);
+		Movement->MaxWalkSpeed = FMath::Max(0.f, (BaseSpeed + GASFlat) * GASMultiplier * LandingScale);
+		Movement->MaxWalkSpeedCrouched = FMath::Max(0.f, (CrouchSpeed + GASFlat) * GASMultiplier * LandingScale);
 
 		ApplyMovementInertia(Movement);
 	}
+}
+
+void AHBPlayerCharacter::Tick(const float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	UpdateJumpFeel();
+
+	// 착지 감속이 회복되는 동안은 속도를 매 프레임 다시 계산한다.
+	const bool bRecovering = GetWorld() && (GetWorld()->GetTimeSeconds() - LastLandedTime) <= LandSlowDuration;
+	if (bRecovering || LastLandImpact > 0.f)
+	{
+		RefreshMovementSpeed();
+		if (!bRecovering)
+		{
+			LastLandImpact = 0.f;
+		}
+	}
+
+	if (!NeedsJumpFeelTick())
+	{
+		UpdateJumpFeel();
+		SetActorTickEnabled(false);
+	}
+}
+
+bool AHBPlayerCharacter::NeedsJumpFeelTick() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (Movement && Movement->IsFalling())
+	{
+		return true;
+	}
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+	const double SinceLanded = World->GetTimeSeconds() - LastLandedTime;
+	return SinceLanded <= FMath::Max(LandSlowDuration, RejumpWindow) || LastLandImpact > 0.f;
+}
+
+void AHBPlayerCharacter::UpdateJumpFeel()
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const UWorld* World = GetWorld();
+	if (!Movement || !World)
+	{
+		return;
+	}
+
+	// 내려올 때만 중력을 키운다. 같은 속도 값으로 서버와 소유 클라가 같은 결과를 낸다.
+	const bool bDescending = Movement->IsFalling() && Movement->Velocity.Z <= 0.f;
+	Movement->GravityScale = BaseGravityScale * (bDescending ? FallGravityScale : 1.f);
+
+	// 착지 직후 다시 뛰면 낮게. 점프가 실행되는 순간 이 값이 쓰인다.
+	const float SinceLanded = static_cast<float>(World->GetTimeSeconds() - LastLandedTime);
+	Movement->JumpZVelocity = BaseJumpZVelocity * HBJumpFeel::JumpHeightScale(SinceLanded, RejumpWindow, RejumpHeightScale);
+}
+
+void AHBPlayerCharacter::OnMovementModeChanged(const EMovementMode PrevMovementMode, const uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PrevMovementMode, PreviousCustomMode);
+
+	if (GetCharacterMovement() && GetCharacterMovement()->IsFalling())
+	{
+		SetActorTickEnabled(true);
+	}
+}
+
+void AHBPlayerCharacter::Landed(const FHitResult& Hit)
+{
+	// 부모가 속도를 정리하기 전에 착지 직전 하강 속도를 읽는다.
+	const float DownSpeed = GetCharacterMovement() ? -GetCharacterMovement()->Velocity.Z : 0.f;
+
+	Super::Landed(Hit);
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	LastLandedTime = World->GetTimeSeconds();
+	LastLandImpact = HBJumpFeel::LandingImpact(DownSpeed, LandSoftSpeed, LandHardSpeed);
+
+	RefreshMovementSpeed();
+	UpdateJumpFeel();
+	SetActorTickEnabled(true);
+
+	// 화면 눌림은 본인 화면에만.
+	if (IsLocallyControlled() && CameraMotionComp)
+	{
+		CameraMotionComp->NotifyLanded(LastLandImpact);
+	}
+
+	// 착지 소리. 사운드 에셋이 없으면 아무 소리도 안 난다.
+	if (FootstepComp && GetNetMode() != NM_DedicatedServer)
+	{
+		FootstepComp->PlayFootstep(LastLandImpact > 0.5f);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Jump] 착지 %s  하강속도=%.0f  충격=%.2f  속도배율 시작=%.2f"),
+		*GetName(), DownSpeed, LastLandImpact,
+		HBJumpFeel::LandingSpeedScale(LastLandImpact, LandMaxSlow, 0.f, LandSlowDuration));
 }
 
 void AHBPlayerCharacter::ApplyMovementInertia(UCharacterMovementComponent* Movement) const
@@ -2226,6 +2403,7 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 {
 	if (bEnableEquipmentVisualTest)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[WeaponVisual] %s 장비 외형 테스트 모드라 실제 장비를 안 그림 (bEnableEquipmentVisualTest)"), *GetName());
 		ApplyTemporaryEquipmentVisualTest();
 		return;
 	}
@@ -2249,19 +2427,105 @@ void AHBPlayerCharacter::RefreshWeaponVisual()
 	}
 	
 	FItemInstance WeaponItem;
+	const FWeaponData* WeaponData = nullptr;
 	if (GetVisualItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
 	{
-		if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("RefreshWeaponVisual")))
-		{
-			if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*WeaponData->EquipMeshPath))
-			{
-				WeaponMeshComp->SetStaticMesh(WeaponMesh);
-				return;
-			}
-		}
+		WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("RefreshWeaponVisual"));
 	}
-	
-	WeaponMeshComp->SetStaticMesh(nullptr);
+
+	// 외형 행: 아이템 행 이름(BOW_001) → 무기 종류(Bow) 순서로 찾는다.
+	CachedWeaponPresentation = WeaponData
+		? HBWeaponPresentation::Find(WeaponPresentationTable, WeaponItem.ItemRow.RowName, WeaponData->WeaponType)
+		: nullptr;
+
+	USkeletalMesh* SkeletalWeapon = CachedWeaponPresentation ? CachedWeaponPresentation->SkeletalMesh.LoadSynchronous() : nullptr;
+	if (SkeletalWeapon && WeaponSkeletalMeshComp)
+	{
+		// 시위가 움직이는 무기. 스태틱 표시는 비운다.
+		WeaponSkeletalMeshComp->SetSkeletalMeshAsset(SkeletalWeapon);
+		WeaponSkeletalMeshComp->SetAnimInstanceClass(CachedWeaponPresentation->SkeletalMeshAnimClass);
+		WeaponSkeletalMeshComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, CachedWeaponPresentation->AttachSocket);
+		WeaponSkeletalMeshComp->SetVisibility(true);
+		WeaponMeshComp->SetStaticMesh(nullptr);
+	}
+	else
+	{
+		if (WeaponSkeletalMeshComp)
+		{
+			WeaponSkeletalMeshComp->SetVisibility(false);
+			WeaponSkeletalMeshComp->SetSkeletalMeshAsset(nullptr);
+		}
+
+		UStaticMesh* WeaponMesh = WeaponData ? LoadObject<UStaticMesh>(nullptr, *WeaponData->EquipMeshPath) : nullptr;
+		WeaponMeshComp->SetStaticMesh(WeaponMesh);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[WeaponVisual] %s Role=%d  Item=%s Type=%s  Table=%s Presentation=%d  Skeletal=%s(Visible=%d Socket=%s)  Static=%s"),
+		*GetName(), static_cast<int32>(GetLocalRole()),
+		*WeaponItem.ItemRow.RowName.ToString(), WeaponData ? *WeaponData->WeaponType : TEXT("-"),
+		*GetNameSafe(WeaponPresentationTable), CachedWeaponPresentation ? 1 : 0,
+		*GetNameSafe(SkeletalWeapon), WeaponSkeletalMeshComp && WeaponSkeletalMeshComp->IsVisible() ? 1 : 0,
+		WeaponSkeletalMeshComp ? *WeaponSkeletalMeshComp->GetAttachSocketName().ToString() : TEXT("-"),
+		*GetNameSafe(WeaponMeshComp->GetStaticMesh()));
+
+	RefreshCharacterAnimClass();
+}
+
+void AHBPlayerCharacter::RefreshCharacterAnimClass()
+{
+	USkeletalMeshComponent* Body = GetMesh();
+	if (!Body)
+	{
+		return;
+	}
+
+	// 처음 한 번, 무기로 바꾸기 전의 AnimBP 를 기억한다(BP 기본값 또는 직업 데이터가 정한 것).
+	if (!BaseAnimClass)
+	{
+		BaseAnimClass = Body->GetAnimClass();
+	}
+
+	TSubclassOf<UAnimInstance> Wanted = BaseAnimClass;
+	if (CachedWeaponPresentation && CachedWeaponPresentation->CharacterAnimClass)
+	{
+		Wanted = CachedWeaponPresentation->CharacterAnimClass;
+	}
+
+	// 같으면 안 바꾼다. 바꾸면 애님 인스턴스가 새로 만들어져 진행 중인 몽타주가 끊긴다.
+	if (Wanted && Body->GetAnimClass() != Wanted)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[WeaponVisual] AnimBP 교체 %s → %s"), *GetNameSafe(Body->GetAnimClass()), *GetNameSafe(Wanted));
+		Body->SetAnimInstanceClass(Wanted);
+	}
+}
+
+void AHBPlayerCharacter::SetBowDrawing(const bool bDrawing)
+{
+	bDrawingBow = bDrawing;
+}
+
+UStaticMesh* AHBPlayerCharacter::GetHeldArrowMesh() const
+{
+	return CachedWeaponPresentation ? CachedWeaponPresentation->HeldArrowMesh.LoadSynchronous() : nullptr;
+}
+
+FVector AHBPlayerCharacter::ComputeAimPoint(const float MaxDistance) const
+{
+	const FVector Start = FirstPersonCamera ? FirstPersonCamera->GetComponentLocation() : GetPawnViewLocation();
+	const FVector End = Start + GetBaseAimRotation().Vector() * MaxDistance;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HBAimPoint), false, this);
+	if (HeldArrowActor)
+	{
+		Params.AddIgnoredActor(HeldArrowActor);
+	}
+
+	FHitResult Hit;
+	if (GetWorld() && GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		return Hit.ImpactPoint;
+	}
+	return End;
 }
 
 void AHBPlayerCharacter::RefreshShieldVisual()
