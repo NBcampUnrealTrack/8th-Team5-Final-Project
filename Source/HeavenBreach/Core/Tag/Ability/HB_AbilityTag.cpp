@@ -10,6 +10,7 @@ namespace AbilityTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Cooldown_Block,"Cooldown.Block")
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Ability_Death, "Ability.Death", "사망 어빌리티");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Ability_HitReact, "Ability.HitReact", " 피격 어빌리티");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Ability_Hit, "Ability.Hit", "일반 피격 — 모션만. 공격을 끊는 경직은 Ability.HitReact");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Ability_Parry, "Ability.Parry", "패링 어빌리티 식별. 패링 BP 가 AssetTag 로 갖는다");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Ability_BasicAttack, "Ability.BasicAttack", "비용 요청의 출처가 일반공격");
 

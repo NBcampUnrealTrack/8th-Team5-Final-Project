@@ -1026,6 +1026,7 @@ bool UInventoryComponent::SpawnDroppedItemActor(const FItemInstance& InItem)
 	// 드롭 시점에 내구도도 같이 챙겨서 스폰될 월드 액터(AItemBase)에 실어 보낸다.
 	const float DroppedDurability = InItem.CurrentDurability;
 	// 각인도 같은 이유로 실어 보낸다. 안 실으면 주울 때 입구에서 새로 굴려진다
+
 	// — 버렸다 줍기로 각인을 다시 뽑을 수 있게 된다. 장착 칸에서 바로 버릴 때(DropEquippedItem)도 이 함수를 탄다.
 	const FItemEngraving DroppedEngraving = InItem.Engraving;
 

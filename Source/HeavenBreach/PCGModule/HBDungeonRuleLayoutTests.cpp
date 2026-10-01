@@ -46,6 +46,9 @@ namespace
 				MakeModule(TEXT("FinalRoom"), EHBPrototypeRoomRole::Boss, EHBAllowedFloor::Floor2),
 				MakeModule(TEXT("UserChosenHall"), EHBPrototypeRoomRole::Unassigned, EHBAllowedFloor::Floor2)};
 			Modules[6].Kind = EHBDungeonModuleKind::Corridor;
+			for (auto& C : Modules[5].Connectors) C.Role = EHBDungeonConnectorRole::BossEntrance;
+			Modules[6].Connectors[0].Role = EHBDungeonConnectorRole::DungeonSide;
+			Modules[6].Connectors[2].Role = EHBDungeonConnectorRole::BossSide;
 			Modules[3].Portals.Add({TEXT("Out"), FTransform::Identity, FVector(10), FTransform(FVector(30, 0, 0))});
 			Modules[4].Portals.Add({TEXT("In"), FTransform::Identity, FVector(10), FTransform(FVector(30, 0, 0))});
 			Rules.Floor1ExitMap = Modules[3].Map; Rules.Floor1ExitPortalId = TEXT("Out");
@@ -63,6 +66,40 @@ namespace
 			+ R.ParentPortalId.ToString() + R.EntryPortalId.ToString();
 		return S;
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBConnectorRolesTest, "HeavenBreach.PCGModule.Rules.ConnectorRoles",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBConnectorRolesTest::RunTest(const FString&)
+{
+    using R = EHBDungeonConnectorRole;
+    const bool Expected[4][4] = {{true,false,false,true},{false,false,true,false},{false,true,false,false},{true,false,false,false}};
+    for (int32 A = 0; A < 4; ++A)
+        for (int32 B = 0; B < 4; ++B)
+            TestEqual(TEXT("Exact symmetric role allow-list"), HBConnectorRolesMatch(static_cast<R>(A), static_cast<R>(B)), Expected[A][B]);
+    TestFalse(TEXT("Unknown roles rejected"), HBConnectorRolesMatch(static_cast<R>(255), R::None));
+    FCatalog C;
+    TArray<FHBPrototypeRoom> Rooms;
+    FString Error;
+    if (!TestTrue(TEXT("Directed boss corridor generates"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error)))
+    { AddError(Error); return false; }
+    for (const auto& Room : Rooms)
+    {
+        if (Room.bCorridor) TestEqual(TEXT("Dungeon enters Dungeon Side"), Room.EntryConnectorId, FName(TEXT("Door0")));
+        if (Room.Role == EHBPrototypeRoomRole::Boss) TestEqual(TEXT("Boss follows Boss Side"), Room.ParentConnectorId, FName(TEXT("Door2")));
+    }
+    // Existing geometry stays aligned: changing only the roles must invalidate the result.
+    Swap(C.Modules[6].Connectors[0].Role, C.Modules[6].Connectors[2].Role);
+    TestFalse(TEXT("Reversed role assignment rejects existing plan"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+    TestFalse(TEXT("Physical validator also rejects incompatible roles"), HBConnectorLayout::Validate(C.Modules, Rooms, Error));
+    C.Modules[6].Connectors[0].Role = R::None;
+    TestFalse(TEXT("Missing Boss Side fails before search"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+    TestTrue(TEXT("Missing role diagnostic"), Error.Contains(TEXT("Boss Side")));
+    C = FCatalog();
+    for (auto& Door : C.Modules[5].Connectors) Door.Role = R::None;
+    TestFalse(TEXT("Boss needs explicit entrance"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+    TestTrue(TEXT("Missing entrance diagnostic"), Error.Contains(TEXT("Boss Entrance")));
+    return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBPortalSelectionTest, "HeavenBreach.PCGModule.Rules.PortalSelection",
