@@ -22,10 +22,13 @@
 #include "UI/HB_ContainerScreen.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "UI/Skill/HB_SkillAugment.h"
-#include "Player/HBInteractAnimComponent.h"
 #include "Core/GameFlow/HBMatchResultSubsystem.h"
 #include "Blueprint/UserWidget.h"
 #include "UI/Settings/HBSettingsSubsystem.h"
+#include "Net/UnrealNetwork.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
+#include "UI/HUD/HB_SpectateWidget.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -163,17 +166,6 @@ void AHBPlayerController::ClientPlayHitEffect_Implementation(float NewHP, float 
 	HUDLayer->PlayHitEffect();
 }
 
-void AHBPlayerController::SetPawnInteracting(bool bInteracting)
-{
-	if (const APawn* ControlledPawn = GetPawn())
-	{
-		if (UHBInteractAnimComponent* InteractAnim = ControlledPawn->FindComponentByClass<UHBInteractAnimComponent>())
-		{
-			InteractAnim->SetInteracting(bInteracting);
-		}
-	}
-}
-
 void AHBPlayerController::OpenContainer(UInventoryComponent* InContainer)
 {
 	if (InContainer == nullptr || ContainerScreenClass == nullptr)
@@ -203,16 +195,12 @@ void AHBPlayerController::OpenContainer(UInventoryComponent* InContainer)
 
 	if (ContainerScreen != nullptr)
 	{
-		// 상자·시체를 뒤지는 동작. 길게 누르기로 이미 켜져 있으면 그대로 이어진다.
-		// 길게 누르지 않는 대상(이미 뒤진 상자, 시체)은 여기서 처음 켜진다.
-		SetPawnInteracting(true);
-
 		// ESC / Tab 처럼 위젯이 스스로 닫히는 경로가 있으므로, 참조를 여기서 정리한다.
 		// 이걸 놓치면 이미 닫힌 화면을 열려 있다고 오판한다
+		// 뒤지는 동작은 F 를 누르고 있는 동안만 재생한다(InteractionComponent 가 켜고 끈다). 창은 관여하지 않는다.
 		ContainerScreen->OnDeactivated().AddWeakLambda(this, [this]()
 		{
 			ContainerScreen = nullptr;
-			SetPawnInteracting(false);
 		});
 	}
 }
@@ -613,6 +601,12 @@ void AHBPlayerController::StopCrouch()
 
 void AHBPlayerController::Attack()
 {
+	if (bSpectatingTeammates)
+	{
+		ServerSpectateNext();
+		return;
+	}
+
 	if (AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->Attack();
@@ -783,4 +777,147 @@ void AHBPlayerController::ToggleSkillAugment()
 				SkillAugmentScreen = nullptr;
 			});
 	}
+}
+
+void AHBPlayerController::StartSpectatingTeammates()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	bSpectatingTeammates = true;
+	// 빙의가 바뀔 때 카메라를 컨트롤러로 되돌리지 않게 한다.
+	bAutoManageActiveCameraTarget = false;
+	// 폰 없는 클라는 카메라 위치를 안 보내 관련성 기준이 시체에 머문다. 서버가 뷰타깃으로 직접 계산한다.
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->bUseClientSideCameraUpdates = false;
+	}
+
+	SetSpectateTarget(FindNextSpectateTarget(nullptr));
+
+	GetWorldTimerManager().SetTimer(SpectateCheckTimer, this, &AHBPlayerController::CheckSpectateTarget, 0.5f, true);
+	OnRep_SpectatingTeammates();
+	ForceNetUpdate();
+}
+
+void AHBPlayerController::PawnLeavingGame()
+{
+	if (HasAuthority())
+	{
+		AHeavenBreachGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>() : nullptr;
+		// 시체로 남겼으면 Super 가 폰(=시체)을 지우지 않게 여기서 끝낸다.
+		if (GameMode && GameMode->HandleAlivePlayerLeaving(this))
+		{
+			return;
+		}
+	}
+
+	Super::PawnLeavingGame();
+}
+
+void AHBPlayerController::ServerSpectateNext_Implementation()
+{
+	if (!bSpectatingTeammates)
+	{
+		return;
+	}
+
+	APawn* Target = FindNextSpectateTarget(SpectateTarget);
+	SetSpectateTarget(Target);
+}
+
+APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current) const
+{
+	const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr;
+	if (!GameState)
+	{
+		return nullptr;
+	}
+
+	TArray<APawn*> Alive;
+	for (const APlayerState* PS : GameState->PlayerArray)
+	{
+		AHBPlayerCharacter* Teammate = PS ? Cast<AHBPlayerCharacter>(PS->GetPawn()) : nullptr;
+		// 탈출한 폰은 숨겨진 채 남아 있어 건너뛴다.
+		if (Teammate && !Teammate->IsCorpse() && !Teammate->IsHidden() && PS != PlayerState)
+		{
+			Alive.Add(Teammate);
+		}
+	}
+
+	if (Alive.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	const int32 CurrentIndex = Alive.IndexOfByKey(Current);
+	return Alive[(CurrentIndex + 1) % Alive.Num()];
+}
+
+void AHBPlayerController::CheckSpectateTarget()
+{
+	const AHBPlayerCharacter* Current = Cast<AHBPlayerCharacter>(SpectateTarget);
+	if (Current && !Current->IsCorpse() && !Current->IsHidden())
+	{
+		return;
+	}
+
+	// 생존자가 없으면 지금 화면을 그대로 둔다. 매치가 끝나면 GameMode 가 결과 맵으로 보낸다.
+	SetSpectateTarget(FindNextSpectateTarget(SpectateTarget));
+}
+
+void AHBPlayerController::SetSpectateTarget(APawn* NewTarget)
+{
+	if (!HasAuthority() || NewTarget == nullptr)
+	{
+		return;
+	}
+
+	SpectateTarget = NewTarget;
+	SetViewTargetWithBlend(NewTarget, 0.f);
+	ForceNetUpdate();
+}
+
+void AHBPlayerController::OnRep_SpectateTarget()
+{
+	if (SpectateTarget == nullptr)
+	{
+		return;
+	}
+
+	bAutoManageActiveCameraTarget = false;
+	SetViewTarget(SpectateTarget);
+}
+
+void AHBPlayerController::OnRep_SpectatingTeammates()
+{
+	if (!bSpectatingTeammates)
+	{
+		return;
+	}
+
+	// 서버에서 바꾼 플래그는 복제되지 않으므로, 클라도 폰이 없어질 때 카메라를 컨트롤러로 되돌리지 않게 직접 끈다.
+	bAutoManageActiveCameraTarget = false;
+
+	if (!IsLocalController() || SpectateWidget)
+	{
+		return;
+	}
+
+	CloseContainer();
+
+	SpectateWidget = CreateWidget<UHB_SpectateWidget>(this, UHB_SpectateWidget::StaticClass());
+	if (SpectateWidget)
+	{
+		SpectateWidget->AddToViewport();
+	}
+}
+
+void AHBPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME_CONDITION(AHBPlayerController, bSpectatingTeammates, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(AHBPlayerController, SpectateTarget, COND_OwnerOnly);
 }

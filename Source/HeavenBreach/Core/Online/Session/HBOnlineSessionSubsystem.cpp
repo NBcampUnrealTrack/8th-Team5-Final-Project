@@ -16,6 +16,8 @@
 #include "UObject/UObjectGlobals.h"
 #include "GameFramework/PlayerController.h"
 #include "Interfaces/OnlineIdentityInterface.h"
+#include "Core/Online/Session/HBLobbyProtocol.h"
+#include "Core/GameFlow/Lobby/HBLobbyPlayerController.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #endif
@@ -50,6 +52,16 @@ namespace HBOnline
 			IsListenLobbySettings(Result.Session.SessionSettings) &&
 			Result.Session.SessionSettings.bAllowJoinInProgress && Result.Session.NumOpenPublicConnections > 0 &&
 			Result.Session.OwningUserId.IsValid() && *Result.Session.OwningUserId != *LocalUser;
+	}
+
+	bool IsLocallyOwnedListenLobby(const FNamedOnlineSession* Session, const TSharedPtr<const FUniqueNetId>& LocalUser)
+	{
+		// Steam OSS sets OwningUserId when creating the lobby, but UE 5.7
+		// leaves FNamedOnlineSession::bHosting at its default false value.
+		return Session && Session->SessionInfo.IsValid() && Session->SessionInfo->IsValid() &&
+			LocalUser.IsValid() && LocalUser->IsValid() &&
+			Session->OwningUserId.IsValid() && Session->OwningUserId->IsValid() &&
+			*Session->OwningUserId == *LocalUser && IsListenLobbySettings(Session->SessionSettings);
 	}
 }
 
@@ -116,6 +128,44 @@ bool FHBListenLobbyFilterTest::RunTest(const FString& Parameters)
 #endif
 
 #if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBListenLobbyOwnershipTest, "HeavenBreach.Online.ListenLobbyOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBListenLobbyOwnershipTest::RunTest(const FString&)
+{
+	const TSharedPtr<const FUniqueNetId> LocalUser = FUniqueNetIdString::Create(TEXT("local"), FName(TEXT("TEST")));
+	FOnlineSessionSettings Settings;
+	Settings.bUsesPresence = true;
+	Settings.bUseLobbiesIfAvailable = true;
+	Settings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	FNamedOnlineSession Session(HBOnline::PartyLobbySessionName, Settings);
+	Session.SessionInfo = MakeShared<HBOnlineTests::FSessionInfo>();
+	Session.OwningUserId = LocalUser;
+	TestFalse(TEXT("Steam fixture retains the default bHosting value"), Session.bHosting);
+	TestTrue(TEXT("Actual owner can host with Steam's unset bHosting flag"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.bHosting = true;
+	Session.OwningUserId = FUniqueNetIdString::Create(TEXT("remote"), FName(TEXT("TEST")));
+	TestFalse(TEXT("bHosting cannot authorize a foreign owner"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.OwningUserId = LocalUser;
+	TestFalse(TEXT("Missing local identity cannot own the lobby"), HBOnline::IsLocallyOwnedListenLobby(&Session, nullptr));
+	TestFalse(TEXT("Missing session cannot authorize travel"), HBOnline::IsLocallyOwnedListenLobby(nullptr, LocalUser));
+	Session.OwningUserId.Reset();
+	TestFalse(TEXT("Missing owner is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.OwningUserId = LocalUser;
+	Session.SessionSettings.bIsDedicated = true;
+	TestFalse(TEXT("Owned dedicated session is not a listen lobby"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.SessionSettings.bIsDedicated = false;
+	Session.SessionSettings.Set(HBOnline::ProjectKey, FString(TEXT("OtherGame")), EOnlineDataAdvertisementType::ViaOnlineService);
+	TestFalse(TEXT("Owned session from another project is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.SessionSettings = Settings;
+	Session.SessionInfo.Reset();
+	TestFalse(TEXT("Session without valid provider info is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	return true;
+}
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBRetiredDedicatedAPIsTest, "HeavenBreach.Online.RetiredDedicatedAPIs",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -171,6 +221,8 @@ bool FHBServerTravelGuardsTest::RunTest(const FString& Parameters)
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	LocalMapDepartureDelegateHandle = FCoreUObjectDelegates::PreLoadMapWithContext.AddUObject(
+		this, &UHBOnlineSessionSubsystem::HandleLocalMapDeparture);
 	LobbyMapLoadedDelegateHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
 		this, &UHBOnlineSessionSubsystem::HandleLobbyMapLoaded);
 
@@ -222,10 +274,12 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		Log,
 		TEXT("Online | SessionInterface is initialized")
 		);
+	InitializeMultiplayerLobby();
 }
 
 void UHBOnlineSessionSubsystem::Deinitialize()
 {
+	DeinitializeMultiplayerLobby();
 	FTSTicker::GetCoreTicker().RemoveTicker(ServerTravelTickerHandle);
 	ServerTravelTickerHandle.Reset();
 	if (SessionInterface.IsValid()) SessionInterface->ClearOnUpdateSessionCompleteDelegate_Handle(TravelSessionUpdateHandle);
@@ -238,6 +292,8 @@ void UHBOnlineSessionSubsystem::Deinitialize()
 	FTSTicker::GetCoreTicker().RemoveTicker(HostCleanupTickerHandle);
 	HostCleanupTickerHandle.Reset();
 	HostCleanupWorld.Reset();
+	FCoreUObjectDelegates::PreLoadMapWithContext.Remove(LocalMapDepartureDelegateHandle);
+	LocalMapDepartureDelegateHandle.Reset();
 	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(LobbyMapLoadedDelegateHandle);
 	LobbyMapLoadedDelegateHandle.Reset();
 	if (GEngine)
@@ -273,6 +329,10 @@ void UHBOnlineSessionSubsystem::SetServerTravelState(EHBServerTravelState State,
 {
 	ServerTravelState = State;
 	ServerTravelError = Error;
+	if (State == EHBServerTravelState::ClosingLobby || State == EHBServerTravelState::Traveling || State == EHBServerTravelState::RestoringLobby)
+		PublishGamePresence(TEXT("Busy"));
+	else if (State == EHBServerTravelState::Failed && !bMatchAdmissionClosed && GetWorld() && GetWorld()->GetNetMode() == NM_ListenServer)
+		PublishGamePresence(TEXT("Lobby"));
 	UE_LOG(LogTemp, Log, TEXT("Online | ServerTravel | State: %d | %s"), static_cast<int32>(State), *Error);
 }
 
@@ -296,8 +356,15 @@ bool UHBOnlineSessionSubsystem::RequestServerMatchTravel(TSoftObjectPtr<UWorld> 
 		SetServerTravelState(EHBServerTravelState::Failed, TEXT("Destination must be an existing map different from the lobby"));
 		return false;
 	}
-	FNamedOnlineSession* Session = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) : nullptr;
-	if (!Session || !Session->bHosting || !HBOnline::IsListenLobbySettings(Session->SessionSettings))
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	const IOnlineIdentityPtr Identity = OSS ? OSS->GetIdentityInterface() : nullptr;
+	const ULocalPlayer* LocalPlayer = GetGameInstance()->GetFirstGamePlayer();
+	const int32 LocalUser = LocalPlayer ? LocalPlayer->GetControllerId() : INDEX_NONE;
+	const TSharedPtr<const FUniqueNetId> UserId = LocalUser >= 0 && Identity.IsValid() &&
+		Identity->GetLoginStatus(LocalUser) == ELoginStatus::LoggedIn ? Identity->GetUniquePlayerId(LocalUser) : nullptr;
+	const FNamedOnlineSession* Session = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) : nullptr;
+	if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) || !SessionInterface.IsValid() ||
+		OSS->GetSessionInterface() != SessionInterface || !HBOnline::IsLocallyOwnedListenLobby(Session, UserId))
 	{
 		SetServerTravelState(EHBServerTravelState::Failed, TEXT("No locally hosted Steam lobby session"));
 		return false;
@@ -381,6 +448,7 @@ bool UHBOnlineSessionSubsystem::ObserveServerTravel(float DeltaSeconds)
 		}
 		PreTravelSettings.Reset();
 		SetServerTravelState(EHBServerTravelState::Complete);
+		PublishGamePresence(TEXT("Match"));
 		return false;
 	}
 	return true;
@@ -415,6 +483,11 @@ bool UHBOnlineSessionSubsystem::RetryLobbyAdmissionRecovery()
 
 bool UHBOnlineSessionSubsystem::RequestHostLobby(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap)
 {
+	return RequestHostLobbyInternal(MaxPlayers, LobbyMap, TEXT("HeavenBreach"), FString());
+}
+
+bool UHBOnlineSessionSubsystem::RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password)
+{
 	// Reject overlapping operations without changing the active operation's state.
 	if (IsLobbyOperationInProgress() ||
 		LeaveLobbyCompleteDelegateHandle.IsValid())
@@ -427,9 +500,9 @@ bool UHBOnlineSessionSubsystem::RequestHostLobby(int32 MaxPlayers, TSoftObjectPt
 	{
 		return FailLobbyOperation(TEXT("Host requires a standalone game world; leave the current connection first"));
 	}
-	if (MaxPlayers < 1 || MaxPlayers > 250)
+	if (MaxPlayers < 1 || MaxPlayers > 4)
 	{
-		return FailLobbyOperation(TEXT("Host player count must be between 1 and 250, including the host"));
+		return FailLobbyOperation(TEXT("Host player count must be between 1 and 4, including the host"));
 	}
 	const FString MapPackage = LobbyMap.ToSoftObjectPath().GetLongPackageName();
 	FString MapFilename;
@@ -477,6 +550,12 @@ bool UHBOnlineSessionSubsystem::RequestHostLobby(int32 MaxPlayers, TSoftObjectPt
 	Settings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineDataAdvertisementType::ViaOnlineService);
 	Settings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
 	Settings.Set(FName(TEXT("HB_MAP")), MapPackage, EOnlineDataAdvertisementType::ViaOnlineService);
+	HostedRoomName = Name.TrimStartAndEnd();
+	HostedPasswordSalt = Password.IsEmpty() ? FString() : FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	HostedPasswordProof = HBLobbyProtocol::PasswordProof(Password, HostedPasswordSalt);
+	Settings.Set(FName(TEXT("HB_ROOM")), HostedRoomName, EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_LOCKED")), FString(Password.IsEmpty() ? TEXT("0") : TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_SALT")), HostedPasswordSalt, EOnlineDataAdvertisementType::ViaOnlineService);
 
 	bJoinFirstLobbyAfterFind = false;
 	PendingHostMap = MapPackage;
@@ -522,6 +601,14 @@ void UHBOnlineSessionSubsystem::HandleHostSessionCreated(FName SessionName, bool
 
 void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 {
+	if (!bJoinRequestActive && LobbyOperationState == EHBLobbyOperationState::InLobby && LoadedWorld
+		&& LoadedWorld->GetGameInstance() == GetGameInstance() && LoadedWorld->GetNetMode() == NM_Client)
+	{
+		const bool bInLobby = UWorld::RemovePIEPrefix(LoadedWorld->GetOutermost()->GetName()) == ConnectedLobbyMap;
+		bMatchAdmissionClosed = !bInLobby;
+		PublishGamePresence(bInLobby ? TEXT("Lobby") : TEXT("Match"));
+		return;
+	}
 	if (bJoinRequestActive && LobbyOperationState == EHBLobbyOperationState::ConnectingToLobby &&
 		LoadedWorld && LoadedWorld->GetGameInstance() == GetGameInstance())
 	{
@@ -533,8 +620,11 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 			return;
 		}
 		bJoinRequestActive = false;
+		ConnectedLobbyMap = UWorld::RemovePIEPrefix(LoadedWorld->GetOutermost()->GetName());
+		PendingJoinProof.Reset();
 		UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Connected to Steam listen host"));
 		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+		PublishGamePresence(TEXT("Lobby"));
 		return;
 	}
 	if (!bHostRequestActive || LobbyOperationState != EHBLobbyOperationState::OpeningHostMap ||
@@ -551,6 +641,10 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 	bHostRequestActive = false;
 	PendingHostMap.Reset();
 	SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+	PublishGamePresence(TEXT("Lobby"));
+	// PostLogin ran while host creation was still busy. Reevaluate now so a
+	// lone host can start without waiting for another player or Ready change.
+	if (auto* Lobby = LoadedWorld->GetAuthGameMode<AHBLobbyGameMode>()) Lobby->EvaluateCanStartMatch();
 }
 
 void UHBOnlineSessionSubsystem::HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error)
@@ -619,6 +713,7 @@ void UHBOnlineSessionSubsystem::HandleHostCleanupComplete(FName SessionName, boo
 	HostFailureReason.Reset();
 	if (!bWasSuccessful) Error += TEXT("; session cleanup failed. Leave the existing session before retrying.");
 	FailLobbyOperation(Error);
+	if (!LobbyReturnMap.IsEmpty() && bWasSuccessful) RequestLeaveToMenu(Error);
 }
 
 bool UHBOnlineSessionSubsystem::RequestCreateLobby(int32 MaxPlayers)
@@ -705,9 +800,15 @@ TArray<FHBLobbySearchEntry> UHBOnlineSessionSubsystem::GetLobbySearchResults() c
 		FHBLobbySearchEntry Entry;
 		Entry.SessionId = Result.GetSessionIdStr();
 		Entry.HostName = Result.Session.OwningUserName;
+		Result.Session.SessionSettings.Get(FName(TEXT("HB_ROOM")), Entry.RoomName);
+		if (Entry.RoomName.IsEmpty()) Entry.RoomName = Entry.HostName;
+		FString Locked;
+		Result.Session.SessionSettings.Get(FName(TEXT("HB_LOCKED")), Locked);
+		Entry.bPasswordProtected = Locked == TEXT("1");
 		Result.Session.SessionSettings.Get(FName(TEXT("HB_MAP")), Entry.MapPackage);
 		Entry.MaxPlayers = Result.Session.SessionSettings.NumPublicConnections;
 		Entry.OpenSlots = Result.Session.NumOpenPublicConnections;
+		Entry.CurrentPlayers = FMath::Clamp(Entry.MaxPlayers - Entry.OpenSlots, 0, Entry.MaxPlayers);
 		Entry.PingInMs = Result.PingInMs;
 		Entries.Add(MoveTemp(Entry));
 	}
@@ -734,10 +835,25 @@ bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 		!LobbySearch->SearchResults.IsValidIndex(InSearchResultIndex))
 		return FailLobbyOperation(TEXT("Join requires a valid result from a completed lobby search"));
 	const FOnlineSessionSearchResult Result = LobbySearch->SearchResults[InSearchResultIndex];
+	return JoinLobbyResult(Result, FString());
+}
+
+bool UHBOnlineSessionSubsystem::JoinLobbyResult(const FOnlineSessionSearchResult& Result, const FString& Password)
+{
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return false;
+	int32 LocalUser;
+	if (!ValidateLobbyClient(LocalUser)) return false;
 	const IOnlineIdentityPtr Identity = IOnlineSubsystem::Get()->GetIdentityInterface();
 	const TSharedPtr<const FUniqueNetId> UserId = Identity->GetUniquePlayerId(LocalUser);
+	if (Result.Session.NumOpenPublicConnections <= 0) return FailLobbyOperation(TEXT("HB_ROOM_FULL"));
 	if (!HBOnline::IsJoinableListenLobby(Result, UserId))
 		return FailLobbyOperation(TEXT("Selected lobby is full, incompatible, self-owned, or not a HeavenBreach listen lobby"));
+	FString Locked, Salt;
+	Result.Session.SessionSettings.Get(FName(TEXT("HB_LOCKED")), Locked);
+	Result.Session.SessionSettings.Get(FName(TEXT("HB_SALT")), Salt);
+	if (Locked == TEXT("1") && (Password.IsEmpty() || Salt.IsEmpty()))
+		return FailLobbyOperation(TEXT("HB_PASSWORD_REQUIRED"));
+	PendingJoinProof = Locked == TEXT("1") ? HBLobbyProtocol::PasswordProof(Password, Salt) : FString();
 	bJoinRequestActive = true;
 	JoinFailureReason.Reset();
 	bJoinFirstLobbyAfterFind = false;
@@ -793,6 +909,7 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 
 	LeaveLobbyCompleteDelegateHandle =
 		SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(LeaveCompleteDelegate);
+	SetLobbyOperationState(EHBLobbyOperationState::Leaving);
 
 	const bool bRequestStarted =
 		SessionInterface->DestroySession(SessionToDestroy);
@@ -802,6 +919,8 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(LeaveLobbyCompleteDelegateHandle);
 
 		LeaveLobbyCompleteDelegateHandle.Reset();
+		FailLobbyOperation(TEXT("Could not leave Steam lobby"));
+		bReturnAfterLeave = false;
 
 		UE_LOG(
 			LogTemp,
@@ -866,6 +985,7 @@ void UHBOnlineSessionSubsystem::SetLobbyOperationState(
 	EHBLobbyOperationState NewState,
 	const FString& ErrorMessage)
 {
+	AuxiliaryError.Reset();
 	const FString ResolvedErrorMessage =
 		NewState == EHBLobbyOperationState::Failed
 			? ErrorMessage
@@ -997,6 +1117,7 @@ bool UHBOnlineSessionSubsystem::TravelToJoinedLobby(FName InSessionName)
 	SetLobbyOperationState(EHBLobbyOperationState::ConnectingToLobby);
 	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Connecting through Steam-resolved session"));
 	// Do not parse Steam endpoints as Host:Port or change any UI/input state here.
+	if (!PendingJoinProof.IsEmpty()) ConnectString += TEXT("?HBProof=") + PendingJoinProof;
 	PlayerController->ClientTravel(ConnectString, TRAVEL_Absolute);
 	return true;
 }
@@ -1036,10 +1157,50 @@ void UHBOnlineSessionSubsystem::HandleJoinCleanupComplete(FName SessionName, boo
 		LobbyOperationState != EHBLobbyOperationState::CleaningUpJoin) return;
 	bJoinRequestActive = false;
 	FString Error = JoinFailureReason;
+	PendingJoinProof.Reset();
+	ConnectedLobbyMap.Reset();
 	JoinFailureReason.Reset();
 	LobbySearch.Reset();
 	if (!bWasSuccessful) Error += TEXT("; session cleanup failed. Leave the existing session before retrying.");
 	FailLobbyOperation(Error);
+	if (!LobbyReturnMap.IsEmpty() && bWasSuccessful) RequestLeaveToMenu(Error);
+}
+
+void UHBOnlineSessionSubsystem::HandleLocalMapDeparture(const FWorldContext& WorldContext, const FString& MapName)
+{
+	// A local LoadMap leaves the connection; seamless/network travel retains it.
+	// Observe the departure without changing its destination or result UI reason.
+	UWorld* SourceWorld = WorldContext.World();
+	if (WorldContext.OwningGameInstance != GetGameInstance() || WorldContext.PendingNetGame ||
+		!SourceWorld || (SourceWorld->GetNetMode() != NM_ListenServer && SourceWorld->GetNetMode() != NM_Client) ||
+		LobbyOperationState != EHBLobbyOperationState::InLobby || IsServerTravelInProgress() || bReturnAfterLeave)
+		return;
+	if (!SessionInterface.IsValid())
+	{
+		FailLobbyOperation(TEXT("Cannot clean up Steam lobby on local map departure: session interface unavailable"));
+		return;
+	}
+	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Local map departure to %s; leaving this player's Steam lobby"), *MapName);
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName)) LeaveLobby();
+	else ResetLobbyAfterLeave();
+}
+
+void UHBOnlineSessionSubsystem::ResetLobbyAfterLeave()
+{
+	bMatchAdmissionClosed = false;
+	HostedPasswordProof.Reset();
+	HostedPasswordSalt.Reset();
+	HostedRoomName.Reset();
+	PendingJoinProof.Reset();
+	ConnectedLobbyMap.Reset();
+	PreTravelSettings.Reset();
+	TravelSourceMap.Reset();
+	TravelDestinationMap.Reset();
+	SetServerTravelState(EHBServerTravelState::Idle);
+	LobbySearch.Reset();
+	bJoinFirstLobbyAfterFind = false;
+	SetLobbyOperationState(EHBLobbyOperationState::Idle);
+	PublishGamePresence(TEXT("Menu"));
 }
 
 void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bool bWasSuccessful)
@@ -1054,15 +1215,9 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 
 	if (bWasSuccessful)
 	{
-		bMatchAdmissionClosed = false;
-		PreTravelSettings.Reset();
-		TravelSourceMap.Reset();
-		TravelDestinationMap.Reset();
-		SetServerTravelState(EHBServerTravelState::Idle);
-		LobbySearch.Reset();
-		bJoinFirstLobbyAfterFind = false;
-
-		SetLobbyOperationState(EHBLobbyOperationState::Idle);
+		ResetLobbyAfterLeave();
+		if (bReturnAfterLeave && !ReturnMenuTickerHandle.IsValid())
+			ReturnMenuTickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::ReturnToMenu));
 
 		UE_LOG(
 			LogTemp,
@@ -1077,6 +1232,7 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 			TEXT("Leave failed: %s"),
 			*InSessionName.ToString()
 			));
+		bReturnAfterLeave = false;
 
 		UE_LOG(
 			LogTemp,
@@ -1095,6 +1251,7 @@ void UHBOnlineSessionSubsystem::HandleNetworkFailure(
 	const FString& InErrorString)
 {
 	(void)InNetDriver;
+	if (bReturnAfterLeave) return;
 
 	if (InWorld != nullptr && InWorld->GetGameInstance() != GetGameInstance())
 	{
@@ -1122,7 +1279,8 @@ void UHBOnlineSessionSubsystem::HandleNetworkFailure(
 
 	if (InWorld && LobbyOperationState == EHBLobbyOperationState::InLobby)
 	{
-		// Recovery/return-map policy belongs to the later session-exit step.
+		// The test flow configures a return map; legacy callers keep their own exit policy.
 		FailLobbyOperation(FString::Printf(TEXT("Listen session network failure: %s"), *InErrorString));
+		if (!LobbyReturnMap.IsEmpty()) RequestLeaveToMenu(TEXT("호스트 연결이 종료되었습니다."));
 	}
 }

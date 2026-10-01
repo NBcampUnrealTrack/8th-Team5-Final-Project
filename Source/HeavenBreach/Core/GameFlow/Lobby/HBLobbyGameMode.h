@@ -18,6 +18,7 @@ class HEAVENBREACH_API AHBLobbyGameMode : public AGameMode
 	
 public:
 	AHBLobbyGameMode();
+	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
 	
 	void EvaluateCanStartMatch();
 	void HandleReadyStateChanged();
@@ -57,6 +58,7 @@ protected:
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|Travel")
 	TSoftObjectPtr<UWorld> GameplayMap;
+	bool bUseConfiguredGameplayMap = true;
 
 	/**
 	 * 이 로비에서 고를 수 있는 직업들. BP_HBLobbyGameMode 에서 채운다.
