@@ -12,6 +12,11 @@ namespace AbilityTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_Death);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_HitReact);
 
+	// 일반 피격. 목 슬롯 몽타주만 튼다 — 공격 · 이동을 끊지 않는다. 적의 ApplyMeleeHit 이 매 타격 부른다.
+	// 공격을 끊는 경직은 Ability.HitReact (패링만).
+	// 왜 Ability.HitReact 의 자식이 아닌가: 자식이면 HitReact 로 발동할 때 이 GA 까지 같이 발동을 시도한다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_Hit);
+
 	// 패링 어빌리티 식별. 패링 BP 가 AssetTag 로 갖는다.
 	// TryParry 가 이 태그로 발동시키므로, 이 태그가 없는 BP 는 R 에 반응하지 않는다.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_Parry);
