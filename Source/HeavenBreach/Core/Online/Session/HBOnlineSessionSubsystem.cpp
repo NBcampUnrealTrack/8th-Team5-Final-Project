@@ -221,6 +221,8 @@ bool FHBServerTravelGuardsTest::RunTest(const FString& Parameters)
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	LocalMapDepartureDelegateHandle = FCoreUObjectDelegates::PreLoadMapWithContext.AddUObject(
+		this, &UHBOnlineSessionSubsystem::HandleLocalMapDeparture);
 	LobbyMapLoadedDelegateHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
 		this, &UHBOnlineSessionSubsystem::HandleLobbyMapLoaded);
 
@@ -290,6 +292,8 @@ void UHBOnlineSessionSubsystem::Deinitialize()
 	FTSTicker::GetCoreTicker().RemoveTicker(HostCleanupTickerHandle);
 	HostCleanupTickerHandle.Reset();
 	HostCleanupWorld.Reset();
+	FCoreUObjectDelegates::PreLoadMapWithContext.Remove(LocalMapDepartureDelegateHandle);
+	LocalMapDepartureDelegateHandle.Reset();
 	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(LobbyMapLoadedDelegateHandle);
 	LobbyMapLoadedDelegateHandle.Reset();
 	if (GEngine)
@@ -1162,6 +1166,43 @@ void UHBOnlineSessionSubsystem::HandleJoinCleanupComplete(FName SessionName, boo
 	if (!LobbyReturnMap.IsEmpty() && bWasSuccessful) RequestLeaveToMenu(Error);
 }
 
+void UHBOnlineSessionSubsystem::HandleLocalMapDeparture(const FWorldContext& WorldContext, const FString& MapName)
+{
+	// A local LoadMap leaves the connection; seamless/network travel retains it.
+	// Observe the departure without changing its destination or result UI reason.
+	UWorld* SourceWorld = WorldContext.World();
+	if (WorldContext.OwningGameInstance != GetGameInstance() || WorldContext.PendingNetGame ||
+		!SourceWorld || (SourceWorld->GetNetMode() != NM_ListenServer && SourceWorld->GetNetMode() != NM_Client) ||
+		LobbyOperationState != EHBLobbyOperationState::InLobby || IsServerTravelInProgress() || bReturnAfterLeave)
+		return;
+	if (!SessionInterface.IsValid())
+	{
+		FailLobbyOperation(TEXT("Cannot clean up Steam lobby on local map departure: session interface unavailable"));
+		return;
+	}
+	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Local map departure to %s; leaving this player's Steam lobby"), *MapName);
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName)) LeaveLobby();
+	else ResetLobbyAfterLeave();
+}
+
+void UHBOnlineSessionSubsystem::ResetLobbyAfterLeave()
+{
+	bMatchAdmissionClosed = false;
+	HostedPasswordProof.Reset();
+	HostedPasswordSalt.Reset();
+	HostedRoomName.Reset();
+	PendingJoinProof.Reset();
+	ConnectedLobbyMap.Reset();
+	PreTravelSettings.Reset();
+	TravelSourceMap.Reset();
+	TravelDestinationMap.Reset();
+	SetServerTravelState(EHBServerTravelState::Idle);
+	LobbySearch.Reset();
+	bJoinFirstLobbyAfterFind = false;
+	SetLobbyOperationState(EHBLobbyOperationState::Idle);
+	PublishGamePresence(TEXT("Menu"));
+}
+
 void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bool bWasSuccessful)
 {
 	if (InSessionName != HBOnline::PartyLobbySessionName || !LeaveLobbyCompleteDelegateHandle.IsValid()) return;
@@ -1174,21 +1215,7 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 
 	if (bWasSuccessful)
 	{
-		bMatchAdmissionClosed = false;
-		HostedPasswordProof.Reset();
-		HostedPasswordSalt.Reset();
-		HostedRoomName.Reset();
-		PendingJoinProof.Reset();
-		ConnectedLobbyMap.Reset();
-		PreTravelSettings.Reset();
-		TravelSourceMap.Reset();
-		TravelDestinationMap.Reset();
-		SetServerTravelState(EHBServerTravelState::Idle);
-		LobbySearch.Reset();
-		bJoinFirstLobbyAfterFind = false;
-
-		SetLobbyOperationState(EHBLobbyOperationState::Idle);
-		PublishGamePresence(TEXT("Menu"));
+		ResetLobbyAfterLeave();
 		if (bReturnAfterLeave && !ReturnMenuTickerHandle.IsValid())
 			ReturnMenuTickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::ReturnToMenu));
 

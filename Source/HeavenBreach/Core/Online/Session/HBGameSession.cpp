@@ -10,7 +10,10 @@ FString AHBGameSession::ApproveLogin(const FString& Options)
 		return TEXT("HB_ROOM_FULL");
 	const UGameInstance* Instance = GetGameInstance();
 	const UHBOnlineSessionSubsystem* Sessions = Instance ? Instance->GetSubsystem<UHBOnlineSessionSubsystem>() : nullptr;
-	if (Sessions && Sessions->IsMatchAdmissionClosed())
+	// Admission only applies to network servers. Absolute ClientTravel creates
+	// a local player in the standalone results map before Steam leave completes.
+	if (Sessions && Sessions->IsMatchAdmissionClosed() &&
+		(GetNetMode() == NM_ListenServer || GetNetMode() == NM_DedicatedServer))
 	{
 		return TEXT("Match admission is closed");
 	}

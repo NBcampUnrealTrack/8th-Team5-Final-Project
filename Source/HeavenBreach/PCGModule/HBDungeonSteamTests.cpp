@@ -6,6 +6,8 @@
 #include "PCGModule/HBChestSpawnSubsystem.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
+#include "Core/GameFlow/HBMatchResultSubsystem.h"
+#include "Blueprint/UserWidget.h"
 #include "Core/GameFlow/Lobby/HBLobbyGameMode.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Player/PlayerState/HB_PlayerState.h"
@@ -26,6 +28,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "UObject/UnrealType.h"
+#include "UObject/UObjectIterator.h"
 
 namespace
 {
@@ -41,6 +44,9 @@ namespace
         TArray<TWeakObjectPtr<AActor>> EndingActors;
         FHBStartingLoadout LobbyLoadout;
         FString SessionId;
+        EHBPostMatchReason EndReason = EHBPostMatchReason::None;
+        EHBPostMatchReason ObservedResultReason = EHBPostMatchReason::None;
+        FDelegateHandle ResultDepartureHandle;
     };
 
     // Explicitly opted-in, standalone -game test. It creates one real Steam
@@ -48,7 +54,7 @@ namespace
     // verify search, joining and replication across a real client connection.
     class FHBSteamHostTravel : public IAutomationLatentCommand
     {
-        enum class EPhase { Host, Travel, Prepare, Match };
+        enum class EPhase { Host, Travel, Prepare, Match, Result };
         FAutomationTestBase* Test;
         TSharedRef<FHBSteamHostFixture> Fixture;
         EPhase Phase = EPhase::Host;
@@ -83,6 +89,31 @@ namespace
             if (Sessions->GetLobbyOperationState() == EHBLobbyOperationState::Failed)
             {
                 Test->AddError(Sessions->GetLastLobbyOperationError());
+                return true;
+            }
+
+            if (Phase == EPhase::Result)
+            {
+                if (World->GetOutermost()->GetName() != TEXT("/Game/Levels/ExtractionResult") ||
+                    !World->HasBegunPlay() || Sessions->IsLobbyOperationInProgress())
+                    return Wait(TEXT("Post-match travel or automatic Steam cleanup did not complete."));
+                Test->TestEqual(TEXT("Existing result map loads as standalone"), World->GetNetMode(), NM_Standalone);
+                Test->TestNotNull(TEXT("Result map creates its local player without an admission fatal"), World->GetFirstPlayerController());
+                Test->TestEqual(TEXT("Result travel preserves the death/extraction/timeout reason"), Fixture->ObservedResultReason, Fixture->EndReason);
+                Test->TestNull(TEXT("Result travel automatically removes this player's Steam session"), Online->GetNamedSession(SteamTestSession));
+                Test->TestEqual(TEXT("Result travel resets the lobby operation"), Sessions->GetLobbyOperationState(), EHBLobbyOperationState::Idle);
+                Test->TestEqual(TEXT("Result travel resets the server travel operation"), Sessions->GetServerTravelState(), EHBServerTravelState::Idle);
+                Test->TestFalse(TEXT("Result travel clears persistent admission state"), Sessions->IsMatchAdmissionClosed());
+                Test->TestTrue(TEXT("Result travel releases the old Steam listen driver"), !Fixture->LobbyDriver.IsValid());
+                const FName ExpectedWidget(Fixture->EndReason == EHBPostMatchReason::Died ? TEXT("WBP_DeathResult_C") : TEXT("WBP_ExtractionResult_C"));
+                bool bResultWidgetVisible = false;
+                for (TObjectIterator<UUserWidget> It; It; ++It)
+                    if (It->GetWorld() == World && It->IsInViewport() && It->GetClass()->GetFName() == ExpectedWidget)
+                        bResultWidgetVisible = true;
+                Test->TestTrue(TEXT("Existing result UI for the end reason is displayed"), bResultWidgetVisible);
+                for (const auto& Actor : Fixture->EndingActors)
+                    Test->TestTrue(TEXT("Result travel ends the generated gameplay actors"), !Actor.IsValid() || !Actor->HasActorBegunPlay());
+                Test->AddInfo(FString::Printf(TEXT("Existing ExtractionResult travel verified with automatic Steam cleanup; reason=%d."), static_cast<int32>(Fixture->EndReason)));
                 return true;
             }
 
@@ -204,6 +235,8 @@ namespace
                 for (TActorIterator<AEnemyCharacterBase> It(World); It; ++It) Fixture->EndingActors.Add(*It);
                 for (TActorIterator<ABoxActor> It(World); It; ++It) Fixture->EndingActors.Add(*It);
                 Test->AddInfo(FString::Printf(TEXT("Steam dungeon ready: %d rooms, %d enemies, %d chests."), Runtime->Rooms.Num(), EnemyCount, ChestCount));
+                if (Fixture->EndReason == EHBPostMatchReason::MatchEnded)
+                    FindFProperty<FFloatProperty>(Mode->GetClass(), TEXT("MatchDurationSeconds"))->SetPropertyValue_InContainer(Mode, 2.f);
                 Mode->StartMatch();
                 Next(EPhase::Match);
                 return false;
@@ -212,6 +245,19 @@ namespace
             auto* Player = World->GetFirstPlayerController();
             if (!Mode->IsMatchInProgress() || !Runtime->AreEncountersActive() || !Player || !Player->GetPawn())
                 return Wait(TEXT("Steam host did not start gameplay after dungeon preparation."));
+            if (Fixture->EndReason != EHBPostMatchReason::None)
+            {
+                FString LoginError;
+                Mode->PreLogin(TEXT(""), TEXT("test-remote-player"), FUniqueNetIdRepl(OSS->GetIdentityInterface()->GetUniquePlayerId(0)), LoginError);
+                Test->TestEqual(TEXT("Active network match still rejects new admissions"), LoginError, FString(TEXT("Match admission is closed")));
+                if (Fixture->EndReason == EHBPostMatchReason::Died)
+                    Mode->NotifyPlayerDied(Player->PlayerState);
+                else if (Fixture->EndReason == EHBPostMatchReason::Extracted)
+                    Mode->NotifyPlayerExtracted(Player->PlayerState);
+                // MatchEnded uses the real two-second match timer, not EndMatch.
+                Next(EPhase::Result);
+                return false;
+            }
             Test->AddInfo(TEXT("Steam host match started with active encounters and a possessed player pawn. Remote Steam joining/replication remains unverified."));
             return true;
         }
@@ -233,7 +279,12 @@ namespace
         {
             // The verification command may itself wait several minutes.
             // Cleanup gets its own deadline when it actually starts running.
-            if (Started == 0.) Started = FPlatformTime::Seconds();
+            if (Started == 0.)
+            {
+                Started = FPlatformTime::Seconds();
+                FCoreUObjectDelegates::PreLoadMapWithContext.Remove(Fixture->ResultDepartureHandle);
+                Fixture->ResultDepartureHandle.Reset();
+            }
             if (FPlatformTime::Seconds() - Started > 180.)
             { Test->AddError(TEXT("Steam test cleanup timed out; inspect lobby/travel cleanup errors.")); return true; }
             auto* Instance = Fixture->Instance.Get();
@@ -299,6 +350,25 @@ bool FHBDungeonSteamHostTravelTest::RunTest(const FString&)
     AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
     const auto Fixture = MakeShared<FHBSteamHostFixture>();
     Fixture->Instance = Instance;
+    FString EndCase;
+    if (FParse::Value(FCommandLine::Get(), TEXT("HBTestPostMatch="), EndCase))
+    {
+        if (EndCase == TEXT("Died")) Fixture->EndReason = EHBPostMatchReason::Died;
+        else if (EndCase == TEXT("Extracted")) Fixture->EndReason = EHBPostMatchReason::Extracted;
+        else if (EndCase == TEXT("TimeExpired")) Fixture->EndReason = EHBPostMatchReason::MatchEnded;
+        else { AddError(TEXT("HBTestPostMatch must be Died, Extracted or TimeExpired.")); return false; }
+        // Existing result-map player initialization loses its job on absolute
+        // travel and falls back to the default loadout. Report outside scope.
+        AddExpectedErrorPlain(TEXT("[SkillLoadout] 전달된 시작 구성을 쓸 수 없다: 시작 구성의 직업이 적용 직업과 다릅니다."), EAutomationExpectedErrorFlags::Exact, 1);
+        AddWarning(TEXT("Existing ExtractionResult player loadout mismatch is outside session scope; player/UI assets are unchanged."));
+        Fixture->ResultDepartureHandle = FCoreUObjectDelegates::PreLoadMapWithContext.AddLambda(
+            [Fixture](const FWorldContext& Context, const FString& MapName)
+            {
+                if (Context.OwningGameInstance == Fixture->Instance.Get() && MapName == TEXT("/Game/Levels/ExtractionResult"))
+                    if (const auto* Result = Fixture->Instance->GetSubsystem<UHBMatchResultSubsystem>())
+                        Fixture->ObservedResultReason = Result->GetPostMatchReason();
+            });
+    }
     const bool bAccepted = Sessions->RequestHostLobby(2, TSoftObjectPtr<UWorld>(FSoftObjectPath(LobbyMap)));
     if (bAccepted)
         FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBSteamHostTravel>(this, Fixture));

@@ -9,6 +9,7 @@
 #include "HBOnlineSessionSubsystem.generated.h"
 
 class UNetDriver;
+struct FWorldContext;
 
 namespace ENetworkFailure
 {
@@ -262,6 +263,8 @@ private:
 	FString JoinFailureReason;
 	FTSTicker::FDelegateHandle JoinCleanupTickerHandle;
 	void HandleHostSessionCreated(FName SessionName, bool bWasSuccessful);
+	void HandleLocalMapDeparture(const FWorldContext& WorldContext, const FString& MapName);
+	void ResetLobbyAfterLeave();
 	void HandleLobbyMapLoaded(UWorld* LoadedWorld);
 	void HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error);
 	void FailHostRequest(const FString& Error);
@@ -273,6 +276,7 @@ private:
 	FDelegateHandle HostCreateDelegateHandle;
 	FDelegateHandle LobbyTravelFailureDelegateHandle;
 	FDelegateHandle LobbyMapLoadedDelegateHandle;
+	FDelegateHandle LocalMapDepartureDelegateHandle;
 	FTSTicker::FDelegateHandle HostCleanupTickerHandle;
 	TWeakObjectPtr<UWorld> HostCleanupWorld;
 
