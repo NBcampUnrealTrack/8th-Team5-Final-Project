@@ -477,12 +477,16 @@ private:
 	// GA 의 CDO 를 읽으므로 인스턴스가 없어도 되고, 그래서 static 이다.
 	static bool FindAugmentInCatalog(const TArray<FHBJobSkillData>& Catalog, FGameplayTag AugmentTag, FHBSkillAugment& Out);
 
-	// 패링에 당한 상대를 경직시킨다.
-	// 작동방식: 상대 ASC 에서 Ability.HitReact 를 발동시킨다.
+	// 대상을 경직시킨다. 두 곳에서 부른다 — 패링에 당한 상대, 그리고 State.Attacking.Stagger 공격에 맞은 나 자신.
+	// 작동방식: 대상 ASC 에서 Ability.HitReact 를 발동시킨다.
 	// 적은 BP_GA_HitReact 가, 플레이어는 GA_PlayerStagger 가 그 태그로 잡힌다.
 	// 슈퍼아머·사망 차단은 각 GA 의 ActivationBlockedTags 가 하므로 여기서 다시 보지 않는다.
 	// 쳐낼 조건: 경직의 세기를 패링마다 다르게 하려면 태그가 아니라 GE 를 직접 걸어야 한다.
 	void ApplyStaggerTo(AActor* Target) const;
+
+	// 공격한 쪽 ASC 에 이 공격 성질 태그(State.Attacking.*)가 붙어 있나. 공격자가 없으면 false.
+	// 발사체는 날아가는 동안 공격 GA 가 끝나 태그가 없을 수 있다 — 지금은 근접 · 잡기 · 빔용.
+	bool HasAttackTag(const AActor* Attacker, const FGameplayTag& Tag) const;
 
 	void ResetCombatInstinct();
 

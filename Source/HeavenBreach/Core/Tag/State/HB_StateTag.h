@@ -21,4 +21,16 @@ namespace StateTag
 	// 액티브 스킬 발동 중. UHBPlayerActiveGABase 가 발동하는 동안만 붙인다.
 	// 기본 공격과 스킬이 같은 근접 트레이스를 쓰기 때문에, 이 태그로 스킬 타격을 가른다.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_UsingSkill)
+
+	// ----- 공격 성질. 공격하는 쪽 ASC 에 붙는다 — 공격 GA 의 Activation Owned Tags 에 넣는다 -----
+	// 맞는 쪽(AHBPlayerCharacter::ApplyMeleeHit)이 맞는 순간 공격자 태그를 보고 판단한다.
+	// 타격 소리(GameplayCue.Hit.*)를 공격자 태그로 고르는 것과 같은 방식이다.
+	// State.Attacking 의 자식이라 "공격 중" 검사에도 잡힌다 — 실제로 공격 중이라 뜻이 맞다.
+	// Asset Tags 에 넣으면 ASC 에 안 붙어서 조용히 안 걸린다. 반드시 Activation Owned Tags 다.
+
+	// 그냥 맞으면 경직. 막거나 패링하면 없다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Attacking_Stagger)
+
+	// 막기 · 패링이 통하지 않는다. 방어태세여도 그냥 맞은 것으로 친다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Attacking_Unblockable)
 }

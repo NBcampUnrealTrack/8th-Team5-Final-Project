@@ -155,8 +155,13 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 	// 피격 반응
 	if (!AbilitySystemComp->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
 	{
-		// 사망이 아닌 상태라면 피격 어빌리티를 발동 시킨다.
-		AbilitySystemComp->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_HitReact));
+		// 일반 타격은 피격 모션만 준다 (Ability.Hit — 목 슬롯 몽타주. 공격 · 이동을 끊지 않는다).
+		// 공격을 끊는 진짜 경직(Ability.HitReact)은 패링만 준다 (AHBPlayerCharacter::ApplyStaggerTo).
+		// 왜: 플레이어 연계 공격이 빨라서, 매 타격 경직이면 적이 아무것도 못 한다.
+		// Ability.Hit GA 가 없는 적은 모션 없이 소리 · 이펙트만 난다.
+		//
+		// 쳐낼 조건: 특정 스킬이 경직을 줘야 하면 그 스킬에서 Ability.HitReact 를 따로 부른다.
+		AbilitySystemComp->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_Hit));
 
 		// 때린상대의 위치로 가기위한 위치를 감각관리컴포넌트에 건네준다.
 		if (InstigatorActor)

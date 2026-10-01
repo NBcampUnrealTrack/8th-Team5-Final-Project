@@ -8,8 +8,12 @@
 #include "PCGModule/HBDungeonModuleDefinition.h"
 #include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBEncounterSetupActor.h"
+#include "PCGModule/HBChestSpawnSubsystem.h"
+#include "PCGModule/HBChestSetupActor.h"
+#include "PCGModule/HBChestPlacementComponent.h"
 #include "PCGPrototype/HBPCGPreview.h"
 #include "AI/EnemyCharacterBase.h"
+#include "Loot/BoxActor.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "Player/Job/HBStartingLoadout.h"
@@ -185,6 +189,7 @@ class FHBWaitForTestMGRuntime : public IAutomationLatentCommand
 	double Started = FPlatformTime::Seconds();
 	double ReadyAt = 0;
 	int32 InitialAlive = INDEX_NONE;
+	int32 InitialChests = INDEX_NONE;
 
 public:
 	FHBWaitForTestMGRuntime(FAutomationTestBase* InTest, TSharedRef<FTestMGRuntimeFixtureState> InFixture)
@@ -242,9 +247,35 @@ public:
 
 		int32 RoomCount = 0;
 		int32 TotalAlive = 0;
+		int32 TotalChests = 0;
 		UHBEncounterSubsystem* EncounterSubsystem = World->GetSubsystem<UHBEncounterSubsystem>();
+		UHBChestSpawnSubsystem* ChestSubsystem = World->GetSubsystem<UHBChestSpawnSubsystem>();
 		Test->TestNotNull(TEXT("Gameplay world has an encounter subsystem"), EncounterSubsystem);
-		if (!EncounterSubsystem) return true;
+		Test->TestNotNull(TEXT("Gameplay world has a chest spawn subsystem"), ChestSubsystem);
+		if (!EncounterSubsystem || !ChestSubsystem) return true;
+		for (const FHBPrototypeRoom& Room : Dungeon->Rooms)
+		{
+			ULevel* Level = Dungeon->GetLoadedRoomLevel(Room.Id);
+			if (!Level || !UHBChestSpawnSubsystem::HasPlacement(Level)) continue;
+			AHBChestSetupActor* ChestSetup = nullptr;
+			for (AActor* Actor : Level->Actors)
+				if (auto* Candidate = Cast<AHBChestSetupActor>(Actor); IsValid(Candidate))
+				{ ChestSetup = Candidate; break; }
+			Test->TestNotNull(TEXT("Chest room has its setup actor"), ChestSetup);
+			if (!ChestSetup || !ChestSetup->Placement) continue;
+			Test->TestTrue(TEXT("Chest placement finishes before dungeon Ready"),
+				ChestSubsystem->IsPreparedFor(Dungeon->GenerationId, Room.Id, Level));
+			int32 Minimum = 0, Maximum = 0;
+			for (const FHBChestPlacementGroup& Group : ChestSetup->Placement->Groups)
+			{ Minimum += Group.MinCount; Maximum += Group.MaxCount; }
+			const int32 Count = ChestSubsystem->GetSpawnedCount(Dungeon->GenerationId, Room.Id, Level);
+			Test->TestTrue(TEXT("Spawned chest count respects the room settings"), Count >= Minimum && Count <= Maximum);
+			int32 RoomActorCount = 0;
+			for (TActorIterator<ABoxActor> It(World); It; ++It)
+				if (It->GetLevel() == Level && It->GetOwner() == ChestSetup) ++RoomActorCount;
+			Test->TestEqual(TEXT("Chest subsystem count matches its actors in this room"), Count, RoomActorCount);
+			TotalChests += Count;
+		}
 		for (const FHBPrototypeRoom& Room : Dungeon->Rooms)
 		{
 			if (Room.ModuleMap.ToSoftObjectPath().GetLongPackageName() != TestMGMapPath) continue;
@@ -286,9 +317,11 @@ public:
 			TotalAlive += EncounterSubsystem->GetAliveCount(Dungeon->GenerationId, Room.Id, Level);
 		}
 		Test->TestTrue(TEXT("Actual dungeon selected TestMG"), RoomCount > 0);
-		if (ReadyAt == 0.) { ReadyAt = FPlatformTime::Seconds(); InitialAlive = TotalAlive; return false; }
+		if (ReadyAt == 0.)
+		{ ReadyAt = FPlatformTime::Seconds(); InitialAlive = TotalAlive; InitialChests = TotalChests; return false; }
 		if (FPlatformTime::Seconds() - ReadyAt < 0.5) return false;
 		Test->TestEqual(TEXT("Ready does not trigger a duplicate TestMG spawn"), TotalAlive, InitialAlive);
+		Test->TestEqual(TEXT("Ready does not trigger duplicate room chests"), TotalChests, InitialChests);
 		return true;
 	}
 };

@@ -211,7 +211,7 @@ void UHBSettingsWidget::SelectTab(int32 Index)
 	const FText Descriptions[] = {
 		LOCTEXT("DisplayHelp", "화면과 그래픽 품질을 조절합니다.\n\n해상도·화면 모드 변경 후 15초 안에 유지 여부를 확인하세요. 확인하지 않으면 이전 설정으로 돌아갑니다."),
 		LOCTEXT("AudioHelp", "전체 음량과 배경음, 효과음의 크기를 조절합니다.\n\n배경음과 효과음에는 전체 음량이 함께 적용됩니다."),
-		LOCTEXT("ControlsHelp", "마우스 감도와 전투 화면 흔들림을 조절합니다.\n\n전투 화면 흔들림을 끄면 공격·피격 시의 카메라 흔들림이 비활성화됩니다.")
+		LOCTEXT("ControlsHelp", "마우스 감도와 카메라 움직임을 조절합니다.\n\n전투 화면 흔들림은 피격 시의 추가 카메라 효과를 켜거나 끕니다.\n\n카메라 움직임은 걷기와 공격 중 머리 움직임이 화면에 들어가는 정도입니다. 낮추면 흔들림이 줄어듭니다.")
 	};
 	Text_Description->SetText(Descriptions[Index]);
 	if (UScrollBox* DescriptionScroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("ScrollBox_Description")))) DescriptionScroll->ScrollToStart();
