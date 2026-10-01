@@ -391,6 +391,15 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 		OutReason = TEXT("SpawnActor was rejected by collision handling.");
 		return false;
 	}
+	if (!OutEnemy->GetIsReplicated() || !OutEnemy->IsReplicatingMovement() || OutEnemy->bOnlyRelevantToOwner
+		|| OutEnemy->GetLevel() != &RoomLevel)
+	{
+		OutReason = FString::Printf(TEXT("Spawned enemy %s must replicate actor/movement to other players and belong to its source room level."),
+			*GetNameSafe(Choice.EnemyClass.Get()));
+		OutEnemy->Destroy();
+		OutEnemy = nullptr;
+		return false;
+	}
 	if (!OutEnemy->GetController()) OutEnemy->SpawnDefaultController();
 	if (!OutEnemy->GetController() || !OutEnemy->GetEnemyASC() || OutEnemy->IsDead())
 	{

@@ -431,11 +431,12 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 			*GetNameSafe(Choice.ChestClass.Get()), *SpawnTransform.GetLocation().ToString(), Ground.Z);
 		return false;
 	}
-	if (OutChest->GetLevel() != &RoomLevel)
+	if (!OutChest->GetIsReplicated() || OutChest->bOnlyRelevantToOwner || OutChest->GetLevel() != &RoomLevel)
 	{
 		OutChest->Destroy();
 		OutChest = nullptr;
-		OutReason = TEXT("Spawned box did not belong to its source room level.");
+		OutReason = FString::Printf(TEXT("Spawned box %s must replicate to other players and belong to its source room level."),
+			*GetNameSafe(Choice.ChestClass.Get()));
 		return false;
 	}
 	return true;
