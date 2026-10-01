@@ -1,34 +1,33 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 
 #include "OnlineSubsystem.h"
 #include "OnlineSessionSettings.h"
 #include "Online/OnlineSessionNames.h"
 #include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/NetDriver.h"
+#include "Core/GameFlow/Lobby/HBLobbyGameMode.h"
+#include "Kismet/GameplayStatics.h"
+#include "Misc/PackageName.h"
+#include "UObject/UObjectGlobals.h"
 #include "GameFramework/PlayerController.h"
 #include "Interfaces/OnlineIdentityInterface.h"
-#include "Misc/CommandLine.h"
-#include "Misc/Parse.h"
-#include "TimerManager.h"
+#include "Core/Online/Session/HBLobbyProtocol.h"
+#include "Core/GameFlow/Lobby/HBLobbyPlayerController.h"
+#if WITH_DEV_AUTOMATION_TESTS
+#include "Misc/AutomationTest.h"
+#endif
 
 namespace HBOnline
 {
-	// PartyLobbySessionName is retained for compatibility with the old public
-	// API, while normal clients now join the VM-owned dedicated session below.
+	// Hosts and participants use the same local name for the Steam listen lobby.
 	const FName PartyLobbySessionName(TEXT("HBPartyLobbySession"));
-	const FName DedicatedServerSessionName(TEXT("HBDedicatedServerSession"));
 	const FName ProjectKey(TEXT("HB_PROJECT"));
 	const TCHAR* ProjectValue = TEXT("HeavenBreach");
-	
-	const FName MatchServerKey(TEXT("HB_MATCH_SERVER"));
-	const FName MatchReadyKey(TEXT("HB_MATCH_READY"));
-
-	const TCHAR* MatchServerCommandLineKey = TEXT("HBMatchServer=");
-	const TCHAR* LocalMatchServerAddress = TEXT("127.0.0.1:17777");
-	constexpr float MatchServerPollIntervalSeconds = 0.25f;
 
 	bool IsHeavenBreachSession(const FOnlineSessionSettings& Settings)
 	{
@@ -36,23 +35,210 @@ namespace HBOnline
 		return Settings.Get(ProjectKey, AdvertisedProject) &&
 			AdvertisedProject.Equals(ProjectValue, ESearchCase::CaseSensitive);
 	}
+
+	bool IsListenLobbySettings(const FOnlineSessionSettings& Settings)
+	{
+		FString LobbyMarker;
+		return IsHeavenBreachSession(Settings) &&
+			Settings.Get(FName(TEXT("HB_LOBBY")), LobbyMarker) && LobbyMarker == TEXT("1") &&
+			!Settings.bIsDedicated && !Settings.bIsLANMatch &&
+			Settings.bUsesPresence && Settings.bUseLobbiesIfAvailable &&
+			Settings.BuildUniqueId == GetBuildUniqueId();
+	}
+
+	bool IsJoinableListenLobby(const FOnlineSessionSearchResult& Result, const TSharedPtr<const FUniqueNetId>& LocalUser)
+	{
+		return LocalUser.IsValid() && LocalUser->IsValid() && Result.IsValid() &&
+			IsListenLobbySettings(Result.Session.SessionSettings) &&
+			Result.Session.SessionSettings.bAllowJoinInProgress && Result.Session.NumOpenPublicConnections > 0 &&
+			Result.Session.OwningUserId.IsValid() && *Result.Session.OwningUserId != *LocalUser;
+	}
+
+	bool IsLocallyOwnedListenLobby(const FNamedOnlineSession* Session, const TSharedPtr<const FUniqueNetId>& LocalUser)
+	{
+		// Steam OSS sets OwningUserId when creating the lobby, but UE 5.7
+		// leaves FNamedOnlineSession::bHosting at its default false value.
+		return Session && Session->SessionInfo.IsValid() && Session->SessionInfo->IsValid() &&
+			LocalUser.IsValid() && LocalUser->IsValid() &&
+			Session->OwningUserId.IsValid() && Session->OwningUserId->IsValid() &&
+			*Session->OwningUserId == *LocalUser && IsListenLobbySettings(Session->SessionSettings);
+	}
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+namespace HBOnlineTests
+{
+	class FSessionInfo final : public FOnlineSessionInfo
+	{
+		FUniqueNetIdStringRef Id = FUniqueNetIdString::Create(TEXT("test-lobby"), FName(TEXT("TEST")));
+	public:
+		virtual const uint8* GetBytes() const override { return Id->GetBytes(); }
+		virtual int32 GetSize() const override { return Id->GetSize(); }
+		virtual bool IsValid() const override { return true; }
+		virtual FString ToString() const override { return Id->ToString(); }
+		virtual FString ToDebugString() const override { return ToString(); }
+		virtual const FUniqueNetId& GetSessionId() const override { return *Id; }
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBListenLobbyFilterTest, "HeavenBreach.Online.ListenLobbyFilter",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBListenLobbyFilterTest::RunTest(const FString& Parameters)
+{
+	const TSharedPtr<const FUniqueNetId> LocalUser = FUniqueNetIdString::Create(TEXT("local"), FName(TEXT("TEST")));
+	FOnlineSessionSearchResult Valid;
+	Valid.Session.SessionInfo = MakeShared<HBOnlineTests::FSessionInfo>();
+	Valid.Session.OwningUserId = FUniqueNetIdString::Create(TEXT("host"), FName(TEXT("TEST")));
+	Valid.Session.NumOpenPublicConnections = 1;
+	Valid.Session.SessionSettings.bUsesPresence = true;
+	Valid.Session.SessionSettings.bUseLobbiesIfAvailable = true;
+	Valid.Session.SessionSettings.bAllowJoinInProgress = true;
+	Valid.Session.SessionSettings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineDataAdvertisementType::ViaOnlineService);
+	Valid.Session.SessionSettings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	TestTrue(TEXT("Compatible remote lobby with a free slot is accepted"), HBOnline::IsJoinableListenLobby(Valid, LocalUser));
+	auto Rejected = [&](const TCHAR* Reason, const FOnlineSessionSearchResult& Result)
+	{
+		TestFalse(Reason, HBOnline::IsJoinableListenLobby(Result, LocalUser));
+	};
+	auto Candidate = Valid;
+	Candidate.Session.SessionSettings.Set(HBOnline::ProjectKey, FString(TEXT("OtherGame")), EOnlineDataAdvertisementType::ViaOnlineService);
+	Rejected(TEXT("Other projects sharing AppId 480 are rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.SessionSettings.Remove(FName(TEXT("HB_LOBBY")));
+	Rejected(TEXT("Missing lobby marker is rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.SessionSettings.bIsDedicated = true;
+	Rejected(TEXT("Dedicated server is rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.SessionSettings.bIsLANMatch = true;
+	Rejected(TEXT("LAN result is rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.SessionSettings.bUseLobbiesIfAvailable = false;
+	Rejected(TEXT("Mismatched Steam lobby/presence flags are rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.SessionSettings.BuildUniqueId ^= 1;
+	Rejected(TEXT("Different build is rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.SessionSettings.bAllowJoinInProgress = false;
+	Rejected(TEXT("Closed lobby is rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.NumOpenPublicConnections = 0;
+	Rejected(TEXT("Full lobby is rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.OwningUserId = LocalUser;
+	Rejected(TEXT("Own lobby is rejected"), Candidate);
+	Candidate = Valid; Candidate.Session.SessionInfo.Reset();
+	Rejected(TEXT("Invalid session info is rejected"), Candidate);
+	TestFalse(TEXT("Missing local identity is rejected"), HBOnline::IsJoinableListenLobby(Valid, nullptr));
+	return true;
+}
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBListenLobbyOwnershipTest, "HeavenBreach.Online.ListenLobbyOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBListenLobbyOwnershipTest::RunTest(const FString&)
+{
+	const TSharedPtr<const FUniqueNetId> LocalUser = FUniqueNetIdString::Create(TEXT("local"), FName(TEXT("TEST")));
+	FOnlineSessionSettings Settings;
+	Settings.bUsesPresence = true;
+	Settings.bUseLobbiesIfAvailable = true;
+	Settings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	FNamedOnlineSession Session(HBOnline::PartyLobbySessionName, Settings);
+	Session.SessionInfo = MakeShared<HBOnlineTests::FSessionInfo>();
+	Session.OwningUserId = LocalUser;
+	TestFalse(TEXT("Steam fixture retains the default bHosting value"), Session.bHosting);
+	TestTrue(TEXT("Actual owner can host with Steam's unset bHosting flag"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.bHosting = true;
+	Session.OwningUserId = FUniqueNetIdString::Create(TEXT("remote"), FName(TEXT("TEST")));
+	TestFalse(TEXT("bHosting cannot authorize a foreign owner"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.OwningUserId = LocalUser;
+	TestFalse(TEXT("Missing local identity cannot own the lobby"), HBOnline::IsLocallyOwnedListenLobby(&Session, nullptr));
+	TestFalse(TEXT("Missing session cannot authorize travel"), HBOnline::IsLocallyOwnedListenLobby(nullptr, LocalUser));
+	Session.OwningUserId.Reset();
+	TestFalse(TEXT("Missing owner is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.OwningUserId = LocalUser;
+	Session.SessionSettings.bIsDedicated = true;
+	TestFalse(TEXT("Owned dedicated session is not a listen lobby"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.SessionSettings.bIsDedicated = false;
+	Session.SessionSettings.Set(HBOnline::ProjectKey, FString(TEXT("OtherGame")), EOnlineDataAdvertisementType::ViaOnlineService);
+	TestFalse(TEXT("Owned session from another project is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	Session.SessionSettings = Settings;
+	Session.SessionInfo.Reset();
+	TestFalse(TEXT("Session without valid provider info is rejected"), HBOnline::IsLocallyOwnedListenLobby(&Session, LocalUser));
+	return true;
+}
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBRetiredDedicatedAPIsTest, "HeavenBreach.Online.RetiredDedicatedAPIs",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBRetiredDedicatedAPIsTest::RunTest(const FString& Parameters)
+{
+	// No world or OSS is initialized: retired calls must reject without touching either.
+	UGameInstance* Instance = NewObject<UGameInstance>();
+	UHBOnlineSessionSubsystem* Sessions = NewObject<UHBOnlineSessionSubsystem>(Instance);
+	TestFalse(TEXT("Cannot publish a dedicated endpoint"), Sessions->PublishMatchServer(TEXT("127.0.0.1:17777")));
+	TestFalse(TEXT("Cannot start via explicit dedicated endpoint"), Sessions->StartMatchAsLobbyOwner(TEXT("127.0.0.1:17777")));
+	TestFalse(TEXT("Cannot start via legacy Blueprint API"), Sessions->RequestStartMatch());
+	Sessions->ConnectToMatchServer(TEXT("127.0.0.1:17777"));
+	Sessions->ConnectToPublishMatchServer();
+	TestEqual(TEXT("Legacy failure is reported"), Sessions->GetMatchStartState(), EHBMatchStartState::Failed);
+	TestFalse(TEXT("Legacy pipeline cannot remain busy"), Sessions->IsMatchStartInProgress());
+	TestTrue(TEXT("Legacy error points to Lobby GameMode"), Sessions->GetLastMatchStartError().Contains(TEXT("Lobby GameMode")));
+	TestEqual(TEXT("Legacy match calls do not change lobby operation state"), Sessions->GetLobbyOperationState(), EHBLobbyOperationState::Idle);
+	AddExpectedError(TEXT("CreateLobby is retired."), EAutomationExpectedErrorFlags::Contains, 2);
+	TestFalse(TEXT("Mapless C++ creation is rejected"), Sessions->CreateLobby(4));
+	TestFalse(TEXT("Mapless Blueprint creation is rejected"), Sessions->RequestCreateLobby(4));
+	TestTrue(TEXT("Mapless creation explains replacement API"), Sessions->GetLastLobbyOperationError().Contains(TEXT("RequestHostLobby")));
+	return true;
+}
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBServerTravelGuardsTest, "HeavenBreach.Online.ServerTravelGuards",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBServerTravelGuardsTest::RunTest(const FString& Parameters)
+{
+	UGameInstance* Instance = NewObject<UGameInstance>();
+	UHBOnlineSessionSubsystem* Sessions = NewObject<UHBOnlineSessionSubsystem>(Instance);
+	TestFalse(TEXT("No server world cannot start travel"), Sessions->RequestServerMatchTravel(nullptr));
+	TestEqual(TEXT("Invalid request records failure"), Sessions->GetServerTravelState(), EHBServerTravelState::Failed);
+	TestFalse(TEXT("Preflight failure does not close admission"), Sessions->IsMatchAdmissionClosed());
+	for (EHBServerTravelState State : { EHBServerTravelState::ClosingLobby, EHBServerTravelState::Traveling, EHBServerTravelState::RestoringLobby })
+	{
+		Sessions->ServerTravelState = State;
+		TestTrue(TEXT("Transition blocks overlapping lobby operations"), Sessions->IsLobbyOperationInProgress());
+		TestFalse(TEXT("Duplicate travel is rejected"), Sessions->RequestServerMatchTravel(nullptr));
+		TestEqual(TEXT("Duplicate request preserves current transition"), Sessions->GetServerTravelState(), State);
+	}
+	Sessions->ServerTravelState = EHBServerTravelState::Failed;
+	Sessions->bMatchAdmissionClosed = true;
+	TestFalse(TEXT("Failed transition cannot retry before restoring admission"), Sessions->RequestServerMatchTravel(nullptr));
+	TestFalse(TEXT("Recovery cannot run outside its source lobby"), Sessions->RetryLobbyAdmissionRecovery());
+	TestTrue(TEXT("Unsafe recovery keeps admission closed"), Sessions->IsMatchAdmissionClosed());
+	return true;
+}
+#endif
 
 void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	LocalMapDepartureDelegateHandle = FCoreUObjectDelegates::PreLoadMapWithContext.AddUObject(
+		this, &UHBOnlineSessionSubsystem::HandleLocalMapDeparture);
+	LobbyMapLoadedDelegateHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
+		this, &UHBOnlineSessionSubsystem::HandleLobbyMapLoaded);
 
 	if (GEngine != nullptr)
 	{
+		LobbyTravelFailureDelegateHandle = GEngine->OnTravelFailure().AddUObject(
+			this, &UHBOnlineSessionSubsystem::HandleLobbyTravelFailure);
 		NetworkFailureDelegateHandle =
 			GEngine->OnNetworkFailure().AddUObject(
 				this,
 				&UHBOnlineSessionSubsystem::HandleNetworkFailure
 				);
 	}
-	
+
 	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
-	
+
 	if (OnlineSubsystem == nullptr)
 	{
 		UE_LOG(
@@ -60,17 +246,17 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 			Error,
 			TEXT("Online | OnlineSubsystem is not Available")
 			);
-		
+
 		return;
 	}
-	
+
 	UE_LOG(
 		LogTemp,
 		Log,
 		TEXT("Online | Subsystem: %s"),
 		*OnlineSubsystem->GetSubsystemName().ToString()
 		);
-	
+
 	SessionInterface = OnlineSubsystem->GetSessionInterface();
 	if (!SessionInterface.IsValid())
 	{
@@ -79,27 +265,53 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 			Error,
 			TEXT("Online | SessionInterface is not Available")
 			);
-		
+
 		return;
 	}
-	
-	SessionSettingsUpdatedDelegateHandle = 
-		SessionInterface->AddOnSessionSettingsUpdatedDelegate_Handle(
-			FOnSessionSettingsUpdatedDelegate::CreateUObject(
-				this,
-				&UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated)
-				);
-	
+
 	UE_LOG(
 		LogTemp,
 		Log,
 		TEXT("Online | SessionInterface is initialized")
 		);
+	InitializeMultiplayerLobby();
 }
 
 void UHBOnlineSessionSubsystem::Deinitialize()
 {
-	StopMatchServerPolling();
+	DeinitializeMultiplayerLobby();
+	FTSTicker::GetCoreTicker().RemoveTicker(ServerTravelTickerHandle);
+	ServerTravelTickerHandle.Reset();
+	if (SessionInterface.IsValid()) SessionInterface->ClearOnUpdateSessionCompleteDelegate_Handle(TravelSessionUpdateHandle);
+	TravelSessionUpdateHandle.Reset();
+	bHostRequestActive = false;
+	bJoinRequestActive = false;
+	FTSTicker::GetCoreTicker().RemoveTicker(JoinCleanupTickerHandle);
+	JoinCleanupTickerHandle.Reset();
+	PendingHostMap.Reset();
+	FTSTicker::GetCoreTicker().RemoveTicker(HostCleanupTickerHandle);
+	HostCleanupTickerHandle.Reset();
+	HostCleanupWorld.Reset();
+	FCoreUObjectDelegates::PreLoadMapWithContext.Remove(LocalMapDepartureDelegateHandle);
+	LocalMapDepartureDelegateHandle.Reset();
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(LobbyMapLoadedDelegateHandle);
+	LobbyMapLoadedDelegateHandle.Reset();
+	if (GEngine)
+	{
+		GEngine->OnTravelFailure().Remove(LobbyTravelFailureDelegateHandle);
+	}
+	LobbyTravelFailureDelegateHandle.Reset();
+	if (SessionInterface.IsValid())
+	{
+		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(HostCreateDelegateHandle);
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
+		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinLobbyCompleteDelegateHandle);
+		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(LeaveLobbyCompleteDelegateHandle);
+	}
+	LeaveLobbyCompleteDelegateHandle.Reset();
+	FindLobbiesCompleteDelegateHandle.Reset();
+	JoinLobbyCompleteDelegateHandle.Reset();
+	HostCreateDelegateHandle.Reset();
 
 	if (GEngine != nullptr && NetworkFailureDelegateHandle.IsValid())
 	{
@@ -108,334 +320,575 @@ void UHBOnlineSessionSubsystem::Deinitialize()
 
 	NetworkFailureDelegateHandle.Reset();
 
-	if (SessionInterface.IsValid() && SessionSettingsUpdatedDelegateHandle.IsValid())
-	{
-		SessionInterface->ClearOnSessionSettingsUpdatedDelegate_Handle(
-			SessionSettingsUpdatedDelegateHandle
-			);
-	}
-	
-	SessionSettingsUpdatedDelegateHandle.Reset();
-	
 	SessionInterface.Reset();
-	
+
 	Super::Deinitialize();
+}
+
+void UHBOnlineSessionSubsystem::SetServerTravelState(EHBServerTravelState State, const FString& Error)
+{
+	ServerTravelState = State;
+	ServerTravelError = Error;
+	if (State == EHBServerTravelState::ClosingLobby || State == EHBServerTravelState::Traveling || State == EHBServerTravelState::RestoringLobby)
+		PublishGamePresence(TEXT("Busy"));
+	else if (State == EHBServerTravelState::Failed && !bMatchAdmissionClosed && GetWorld() && GetWorld()->GetNetMode() == NM_ListenServer)
+		PublishGamePresence(TEXT("Lobby"));
+	UE_LOG(LogTemp, Log, TEXT("Online | ServerTravel | State: %d | %s"), static_cast<int32>(State), *Error);
+}
+
+bool UHBOnlineSessionSubsystem::RequestServerMatchTravel(TSoftObjectPtr<UWorld> Destination)
+{
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid() || bMatchAdmissionClosed) return false;
+	UWorld* World = GetWorld();
+	AHBLobbyGameMode* Mode = World ? World->GetAuthGameMode<AHBLobbyGameMode>() : nullptr;
+	if (!Mode || World->GetNetMode() != NM_ListenServer || !Mode->bUseSeamlessTravel ||
+		World->IsInSeamlessTravel() || !World->NextURL.IsEmpty())
+	{
+		SetServerTravelState(EHBServerTravelState::Failed, TEXT("Match travel requires an idle seamless listen lobby"));
+		return false;
+	}
+	const FString Target = Destination.ToSoftObjectPath().GetLongPackageName();
+	FString Filename;
+	const FString Source = UWorld::RemovePIEPrefix(World->GetOutermost()->GetName());
+	if (Destination.IsNull() || !FPackageName::IsValidLongPackageName(Target) || Target == Source ||
+		!FPackageName::DoesPackageExist(Target, &Filename) || !Filename.EndsWith(FPackageName::GetMapPackageExtension()))
+	{
+		SetServerTravelState(EHBServerTravelState::Failed, TEXT("Destination must be an existing map different from the lobby"));
+		return false;
+	}
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	const IOnlineIdentityPtr Identity = OSS ? OSS->GetIdentityInterface() : nullptr;
+	const ULocalPlayer* LocalPlayer = GetGameInstance()->GetFirstGamePlayer();
+	const int32 LocalUser = LocalPlayer ? LocalPlayer->GetControllerId() : INDEX_NONE;
+	const TSharedPtr<const FUniqueNetId> UserId = LocalUser >= 0 && Identity.IsValid() &&
+		Identity->GetLoginStatus(LocalUser) == ELoginStatus::LoggedIn ? Identity->GetUniquePlayerId(LocalUser) : nullptr;
+	const FNamedOnlineSession* Session = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) : nullptr;
+	if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) || !SessionInterface.IsValid() ||
+		OSS->GetSessionInterface() != SessionInterface || !HBOnline::IsLocallyOwnedListenLobby(Session, UserId))
+	{
+		SetServerTravelState(EHBServerTravelState::Failed, TEXT("No locally hosted Steam lobby session"));
+		return false;
+	}
+	PreTravelSettings = MakeShared<FOnlineSessionSettings>(Session->SessionSettings);
+	TravelSourceMap = Source;
+	TravelDestinationMap = Target;
+	bMatchAdmissionClosed = true; // Immediate server gate while Steam metadata updates asynchronously.
+	FOnlineSessionSettings Closed = *PreTravelSettings;
+	Closed.bAllowJoinInProgress = false;
+	Closed.bAllowJoinViaPresence = false;
+	Closed.bAllowJoinViaPresenceFriendsOnly = false;
+	Closed.bAllowInvites = false;
+	Closed.Set(FName(TEXT("HB_MAP")), Target, EOnlineDataAdvertisementType::ViaOnlineService);
+	TravelSessionUpdateHandle = SessionInterface->AddOnUpdateSessionCompleteDelegate_Handle(
+		FOnUpdateSessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleTravelSessionUpdated));
+	SetServerTravelState(EHBServerTravelState::ClosingLobby);
+	if (!SessionInterface->UpdateSession(HBOnline::PartyLobbySessionName, Closed, true))
+	{
+		if (TravelSessionUpdateHandle.IsValid()) HandleTravelSessionUpdated(HBOnline::PartyLobbySessionName, false);
+		return false;
+	}
+	return true;
+}
+
+void UHBOnlineSessionSubsystem::HandleTravelSessionUpdated(FName SessionName, bool bSuccess)
+{
+	if (SessionName != HBOnline::PartyLobbySessionName || !TravelSessionUpdateHandle.IsValid()) return;
+	SessionInterface->ClearOnUpdateSessionCompleteDelegate_Handle(TravelSessionUpdateHandle);
+	TravelSessionUpdateHandle.Reset();
+	if (ServerTravelState == EHBServerTravelState::RestoringLobby)
+	{
+		if (bSuccess)
+		{
+			bMatchAdmissionClosed = false;
+			PreTravelSettings.Reset();
+		}
+		SetServerTravelState(EHBServerTravelState::Failed, bSuccess ? ServerTravelError :
+			ServerTravelError + TEXT("; lobby admission restore failed; retry recovery or leave the session"));
+		return;
+	}
+	if (ServerTravelState != EHBServerTravelState::ClosingLobby) return;
+	if (!bSuccess)
+	{
+		FailServerTravel(TEXT("Could not close Steam lobby admission"));
+		return;
+	}
+	UWorld* World = GetWorld();
+	if (!World || World->GetNetMode() != NM_ListenServer || World->IsInSeamlessTravel() ||
+		!World->NextURL.IsEmpty() || UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) != TravelSourceMap)
+	{
+		FailServerTravel(TEXT("Lobby world changed before travel could start"));
+		return;
+	}
+	SetServerTravelState(EHBServerTravelState::Traveling);
+	ServerTravelDeadline = FPlatformTime::Seconds() + 120.0;
+	// Observe from GameInstance lifetime: seamless travel destroys the lobby GameMode.
+	ServerTravelTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::ObserveServerTravel), 0.1f);
+	if (!World->ServerTravel(TravelDestinationMap, true)) FailServerTravel(TEXT("ServerTravel rejected the destination"));
+}
+
+bool UHBOnlineSessionSubsystem::ObserveServerTravel(float DeltaSeconds)
+{
+	if (ServerTravelState != EHBServerTravelState::Traveling) return false;
+	if (FPlatformTime::Seconds() > ServerTravelDeadline)
+	{
+		ServerTravelTickerHandle.Reset();
+		FailServerTravel(TEXT("Server travel exceeded 120 seconds; admission remains closed unless the source lobby can be restored"));
+		return false;
+	}
+	UWorld* World = GetWorld();
+	if (World && !World->IsInSeamlessTravel() && World->NextURL.IsEmpty() && World->HasBegunPlay() &&
+		UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) == TravelDestinationMap)
+	{
+		ServerTravelTickerHandle.Reset();
+		if (World->GetNetMode() != NM_ListenServer)
+		{
+			FailServerTravel(TEXT("Destination did not retain the listen server"));
+			return false;
+		}
+		PreTravelSettings.Reset();
+		SetServerTravelState(EHBServerTravelState::Complete);
+		PublishGamePresence(TEXT("Match"));
+		return false;
+	}
+	return true;
+}
+
+void UHBOnlineSessionSubsystem::FailServerTravel(const FString& Error)
+{
+	FTSTicker::GetCoreTicker().RemoveTicker(ServerTravelTickerHandle);
+	ServerTravelTickerHandle.Reset();
+	SetServerTravelState(EHBServerTravelState::Failed, Error);
+	// Do not reopen admission in a transition/game world after a partial travel.
+	RetryLobbyAdmissionRecovery();
+}
+
+bool UHBOnlineSessionSubsystem::RetryLobbyAdmissionRecovery()
+{
+	UWorld* World = GetWorld();
+	if (ServerTravelState != EHBServerTravelState::Failed || TravelSessionUpdateHandle.IsValid() ||
+		!PreTravelSettings.IsValid() || !SessionInterface.IsValid() || !World ||
+		World->GetNetMode() != NM_ListenServer || World->IsInSeamlessTravel() || !World->NextURL.IsEmpty() ||
+		UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) != TravelSourceMap) return false;
+	TravelSessionUpdateHandle = SessionInterface->AddOnUpdateSessionCompleteDelegate_Handle(
+		FOnUpdateSessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleTravelSessionUpdated));
+	SetServerTravelState(EHBServerTravelState::RestoringLobby, ServerTravelError);
+	if (!SessionInterface->UpdateSession(HBOnline::PartyLobbySessionName, *PreTravelSettings, true))
+	{
+		if (TravelSessionUpdateHandle.IsValid()) HandleTravelSessionUpdated(HBOnline::PartyLobbySessionName, false);
+		return false;
+	}
+	return true;
+}
+
+bool UHBOnlineSessionSubsystem::RequestHostLobby(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap)
+{
+	return RequestHostLobbyInternal(MaxPlayers, LobbyMap, TEXT("HeavenBreach"), FString());
+}
+
+bool UHBOnlineSessionSubsystem::RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password)
+{
+	// Reject overlapping operations without changing the active operation's state.
+	if (IsLobbyOperationInProgress() ||
+		LeaveLobbyCompleteDelegateHandle.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Online | Host | Request ignored: another operation is pending"));
+		return false;
+	}
+	UWorld* World = GetWorld();
+	if (!World || !World->IsGameWorld() || World->GetNetMode() != NM_Standalone)
+	{
+		return FailLobbyOperation(TEXT("Host requires a standalone game world; leave the current connection first"));
+	}
+	if (MaxPlayers < 1 || MaxPlayers > 4)
+	{
+		return FailLobbyOperation(TEXT("Host player count must be between 1 and 4, including the host"));
+	}
+	const FString MapPackage = LobbyMap.ToSoftObjectPath().GetLongPackageName();
+	FString MapFilename;
+	if (LobbyMap.IsNull() || !FPackageName::IsValidLongPackageName(MapPackage) ||
+		!FPackageName::DoesPackageExist(MapPackage, &MapFilename) ||
+		!MapFilename.EndsWith(FPackageName::GetMapPackageExtension()))
+	{
+		return FailLobbyOperation(TEXT("Host requires an existing saved map asset"));
+	}
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) ||
+		!SessionInterface.IsValid() || OSS->GetSessionInterface() != SessionInterface)
+	{
+		return FailLobbyOperation(TEXT("Host requires the initialized Steam online subsystem"));
+	}
+	const ULocalPlayer* LocalPlayer = GetGameInstance()->GetFirstGamePlayer();
+	const IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
+	const int32 LocalUser = LocalPlayer ? LocalPlayer->GetControllerId() : INDEX_NONE;
+	if (LocalUser < 0 || !Identity.IsValid() || Identity->GetLoginStatus(LocalUser) != ELoginStatus::LoggedIn)
+	{
+		return FailLobbyOperation(TEXT("Host requires a local player logged into Steam"));
+	}
+	const TSharedPtr<const FUniqueNetId> UserId = Identity->GetUniquePlayerId(LocalUser);
+	if (!UserId.IsValid() || !UserId->IsValid())
+	{
+		return FailLobbyOperation(TEXT("Host failed: Steam user ID unavailable"));
+	}
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) ||
+		SessionInterface->GetNamedSession(NAME_GameSession))
+	{
+		return FailLobbyOperation(TEXT("Host rejected: an existing session must be left before creating another"));
+	}
+
+	FOnlineSessionSettings Settings;
+	Settings.NumPublicConnections = MaxPlayers;
+	Settings.NumPrivateConnections = 0;
+	Settings.bIsLANMatch = false;
+	Settings.bIsDedicated = false;
+	Settings.bShouldAdvertise = true;
+	Settings.bAllowJoinInProgress = true;
+	Settings.bUsesPresence = true;
+	Settings.bUseLobbiesIfAvailable = true;
+	Settings.bAllowJoinViaPresence = true;
+	Settings.bAllowInvites = true;
+	Settings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_MAP")), MapPackage, EOnlineDataAdvertisementType::ViaOnlineService);
+	HostedRoomName = Name.TrimStartAndEnd();
+	HostedPasswordSalt = Password.IsEmpty() ? FString() : FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	HostedPasswordProof = HBLobbyProtocol::PasswordProof(Password, HostedPasswordSalt);
+	Settings.Set(FName(TEXT("HB_ROOM")), HostedRoomName, EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_LOCKED")), FString(Password.IsEmpty() ? TEXT("0") : TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(FName(TEXT("HB_SALT")), HostedPasswordSalt, EOnlineDataAdvertisementType::ViaOnlineService);
+
+	bJoinFirstLobbyAfterFind = false;
+	PendingHostMap = MapPackage;
+	HostFailureReason.Reset();
+	bHostRequestActive = true;
+	HostCreateDelegateHandle = SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(
+		FOnCreateSessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleHostSessionCreated));
+	SetLobbyOperationState(EHBLobbyOperationState::Creating);
+	UE_LOG(LogTemp, Log, TEXT("Online | Host | Creating Steam lobby | Players: %d | Map: %s"), MaxPlayers, *MapPackage);
+	if (!SessionInterface->CreateSession(*UserId, HBOnline::PartyLobbySessionName, Settings))
+	{
+		// Some providers invoke the completion delegate synchronously on failure.
+		if (HostCreateDelegateHandle.IsValid())
+		{
+			SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(HostCreateDelegateHandle);
+			HostCreateDelegateHandle.Reset();
+			FailHostRequest(TEXT("Steam lobby creation request could not start"));
+		}
+		return false;
+	}
+	return true;
+}
+
+void UHBOnlineSessionSubsystem::HandleHostSessionCreated(FName SessionName, bool bWasSuccessful)
+{
+	if (!bHostRequestActive || SessionName != HBOnline::PartyLobbySessionName || !HostCreateDelegateHandle.IsValid()) return;
+	SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(HostCreateDelegateHandle);
+	HostCreateDelegateHandle.Reset();
+	if (!bWasSuccessful)
+	{
+		FailHostRequest(TEXT("Steam lobby creation failed"));
+		return;
+	}
+	if (!GetWorld() || GetWorld()->GetNetMode() != NM_Standalone || PendingHostMap.IsEmpty())
+	{
+		FailHostRequest(TEXT("Host world changed before Steam lobby creation completed"));
+		return;
+	}
+	SetLobbyOperationState(EHBLobbyOperationState::OpeningHostMap);
+	UE_LOG(LogTemp, Log, TEXT("Online | Host | Opening %s?listen"), *PendingHostMap);
+	UGameplayStatics::OpenLevel(GetWorld(), FName(*PendingHostMap), true, TEXT("listen"));
+}
+
+void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
+{
+	if (!bJoinRequestActive && LobbyOperationState == EHBLobbyOperationState::InLobby && LoadedWorld
+		&& LoadedWorld->GetGameInstance() == GetGameInstance() && LoadedWorld->GetNetMode() == NM_Client)
+	{
+		const bool bInLobby = UWorld::RemovePIEPrefix(LoadedWorld->GetOutermost()->GetName()) == ConnectedLobbyMap;
+		bMatchAdmissionClosed = !bInLobby;
+		PublishGamePresence(bInLobby ? TEXT("Lobby") : TEXT("Match"));
+		return;
+	}
+	if (bJoinRequestActive && LobbyOperationState == EHBLobbyOperationState::ConnectingToLobby &&
+		LoadedWorld && LoadedWorld->GetGameInstance() == GetGameInstance())
+	{
+		const UNetDriver* JoinDriver = LoadedWorld->GetNetDriver();
+		if (LoadedWorld->GetNetMode() != NM_Client || !JoinDriver ||
+			JoinDriver->GetClass()->GetPathName() != TEXT("/Script/SteamSockets.SteamSocketsNetDriver"))
+		{
+			FailJoinRequest(TEXT("Joined map did not establish a SteamSockets client connection"));
+			return;
+		}
+		bJoinRequestActive = false;
+		ConnectedLobbyMap = UWorld::RemovePIEPrefix(LoadedWorld->GetOutermost()->GetName());
+		PendingJoinProof.Reset();
+		UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Connected to Steam listen host"));
+		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+		PublishGamePresence(TEXT("Lobby"));
+		return;
+	}
+	if (!bHostRequestActive || LobbyOperationState != EHBLobbyOperationState::OpeningHostMap ||
+		!LoadedWorld || LoadedWorld->GetGameInstance() != GetGameInstance()) return;
+	const UNetDriver* Driver = LoadedWorld->GetNetDriver();
+	if (UWorld::RemovePIEPrefix(LoadedWorld->GetOutermost()->GetName()) != PendingHostMap ||
+		LoadedWorld->GetNetMode() != NM_ListenServer || !Driver ||
+		Driver->GetClass()->GetPathName() != TEXT("/Script/SteamSockets.SteamSocketsNetDriver"))
+	{
+		FailHostRequest(TEXT("Host map did not open with an active SteamSockets listen driver"));
+		return;
+	}
+	UE_LOG(LogTemp, Log, TEXT("Online | Host | Ready | Map: %s | Driver: %s"), *PendingHostMap, *Driver->GetClass()->GetName());
+	bHostRequestActive = false;
+	PendingHostMap.Reset();
+	SetLobbyOperationState(EHBLobbyOperationState::InLobby);
+	PublishGamePresence(TEXT("Lobby"));
+	// PostLogin ran while host creation was still busy. Reevaluate now so a
+	// lone host can start without waiting for another player or Ready change.
+	if (auto* Lobby = LoadedWorld->GetAuthGameMode<AHBLobbyGameMode>()) Lobby->EvaluateCanStartMatch();
+}
+
+void UHBOnlineSessionSubsystem::HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error)
+{
+	if (ServerTravelState == EHBServerTravelState::Traveling && World && World->GetGameInstance() == GetGameInstance())
+	{
+		FailServerTravel(FString::Printf(TEXT("Server travel failed (%d): %s"), static_cast<int32>(FailureType), *Error));
+		return;
+	}
+	if (bJoinRequestActive && LobbyOperationState == EHBLobbyOperationState::ConnectingToLobby &&
+		World && World->GetGameInstance() == GetGameInstance())
+	{
+		FailJoinRequest(FString::Printf(TEXT("Lobby travel failed (%d): %s"), static_cast<int32>(FailureType), *Error));
+		return;
+	}
+	if (bHostRequestActive && LobbyOperationState == EHBLobbyOperationState::OpeningHostMap &&
+		World && World->GetGameInstance() == GetGameInstance())
+	{
+		FailHostRequest(FString::Printf(TEXT("Host travel failed (%d): %s"), static_cast<int32>(FailureType), *Error));
+	}
+}
+
+void UHBOnlineSessionSubsystem::FailHostRequest(const FString& Error)
+{
+	if (!bHostRequestActive || LobbyOperationState == EHBLobbyOperationState::CleaningUpHost) return;
+	HostFailureReason = Error;
+	PendingHostMap.Reset();
+	HostCleanupWorld = GetWorld();
+	SetLobbyOperationState(EHBLobbyOperationState::CleaningUpHost);
+	UE_LOG(LogTemp, Warning, TEXT("Online | Host | Rolling back: %s"), *Error);
+	// A listen-failure delegate runs inside UWorld::Listen, which still accesses
+	// its driver after broadcasting. Defer destruction until that stack unwinds.
+	HostCleanupTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::BeginHostCleanup));
+}
+
+bool UHBOnlineSessionSubsystem::BeginHostCleanup(float DeltaSeconds)
+{
+	HostCleanupTickerHandle.Reset();
+	if (!bHostRequestActive) return false;
+	// Close a partially initialized listen driver without choosing a UI/return map.
+	if (UWorld* FailedWorld = HostCleanupWorld.Get(); GEngine && FailedWorld && FailedWorld->GetNetDriver())
+	{
+		GEngine->ShutdownWorldNetDriver(FailedWorld);
+	}
+	HostCleanupWorld.Reset();
+	if (!SessionInterface.IsValid() || !SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName))
+	{
+		HandleHostCleanupComplete(HBOnline::PartyLobbySessionName, true);
+		return false;
+	}
+	if (!SessionInterface->DestroySession(HBOnline::PartyLobbySessionName,
+		FOnDestroySessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleHostCleanupComplete)))
+	{
+		if (bHostRequestActive) HandleHostCleanupComplete(HBOnline::PartyLobbySessionName, false);
+	}
+	return false;
+}
+
+void UHBOnlineSessionSubsystem::HandleHostCleanupComplete(FName SessionName, bool bWasSuccessful)
+{
+	if (!bHostRequestActive || SessionName != HBOnline::PartyLobbySessionName ||
+		LobbyOperationState != EHBLobbyOperationState::CleaningUpHost) return;
+	bHostRequestActive = false;
+	FString Error = HostFailureReason;
+	HostFailureReason.Reset();
+	if (!bWasSuccessful) Error += TEXT("; session cleanup failed. Leave the existing session before retrying.");
+	FailLobbyOperation(Error);
+	if (!LobbyReturnMap.IsEmpty() && bWasSuccessful) RequestLeaveToMenu(Error);
 }
 
 bool UHBOnlineSessionSubsystem::RequestCreateLobby(int32 MaxPlayers)
 {
-	if (IsLobbyOperationInProgress())
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | Create ignored: Operation already in progress")
-			);
-
-		return false;
-	}
-
-	if (SessionInterface.IsValid() &&
-		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
-	{
-		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
-		return true;
-	}
-
 	return CreateLobby(MaxPlayers);
 }
 
 bool UHBOnlineSessionSubsystem::RequestFindAndJoinLobby()
 {
-	if (IsLobbyOperationInProgress())
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | Find and join ignored: Operation already in progress")
-			);
-
-		return false;
-	}
-
-	if (SessionInterface.IsValid() &&
-		SessionInterface->GetNamedSession(HBOnline::DedicatedServerSessionName) != nullptr)
-	{
-		// A successful named session can survive a return to the title. Reuse its
-		// Steam-resolved address instead of creating a client-hosted lobby.
-		return TravelToJoinedDedicatedServer(
-			HBOnline::DedicatedServerSessionName
-			);
-	}
-
-	bJoinFirstLobbyAfterFind = true;
-	return FindLobbies();
+	return FindLobbiesInternal(true);
 }
 
 bool UHBOnlineSessionSubsystem::CreateLobby(int32 MaxPlayers)
 {
-	if (!SessionInterface.IsValid())
-	{
-		return FailLobbyOperation(TEXT("Create failed: SessionInterface invalid"));
-	}
+	// Preserve old C++/Blueprint callers without creating an unhosted Steam lobby.
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return false;
+	return FailLobbyOperation(TEXT("CreateLobby is retired. Use RequestHostLobby(MaxPlayers, LobbyMap) with an explicit map."));
+}
 
-	if (IsLobbyOperationInProgress())
-	{
-		return false;
-	}
-
-	if (MaxPlayers < 1)
-	{
-		return FailLobbyOperation(TEXT("Create failed: MaxPlayers must be positive"));
-	}
-
-	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) != nullptr)
-	{
-		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
-		return true;
-	}
-
-	bJoinFirstLobbyAfterFind = false;
-	SetLobbyOperationState(EHBLobbyOperationState::Creating);
-	
-	PendingMatchServerAddress.Reset();
-	bConnectAfterLobbyUpdate = false;
-	bMatchTravelRequested = false;
-	SetMatchStartState(EHBMatchStartState::Idle);
-	
-	LobbySettings = MakeShared<FOnlineSessionSettings>();
-	
-	LobbySettings->NumPublicConnections = MaxPlayers;
-	LobbySettings->NumPrivateConnections = 0;
-	
-	LobbySettings->bIsLANMatch = false;
-	LobbySettings->bShouldAdvertise = true;
-	LobbySettings->bAllowJoinInProgress = true;
-	
-	LobbySettings->bUsesPresence = true;
-	LobbySettings->bAllowJoinViaPresence = true;
-	LobbySettings->bAllowInvites = true;
-	
-	LobbySettings->bUseLobbiesIfAvailable = true;
-	
-	LobbySettings->Set(
-		FName(TEXT("HB_LOBBY")),
-		FString(TEXT("1")),
-		EOnlineDataAdvertisementType::ViaOnlineServiceAndPing
-		);
-	
-	LobbySettings->Set(
-		HBOnline::MatchReadyKey,
-		false,
-		EOnlineDataAdvertisementType::ViaOnlineService
-		);
-	
-	LobbySettings->Set(
-		HBOnline::MatchServerKey,
-		FString(),
-		EOnlineDataAdvertisementType::ViaOnlineService
-		);
-	
-	const FOnCreateSessionCompleteDelegate Delegate = 
-		FOnCreateSessionCompleteDelegate::CreateUObject(
-			this,
-			&UHBOnlineSessionSubsystem::HandleCreateLobbyComplete
-			);
-	
-	CreateLobbyCompleteDelegateHandle = 
-		SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(Delegate);
-	
-	const bool bRequestStarted = 
-		SessionInterface->CreateSession(
-			0,
-			HBOnline::PartyLobbySessionName,
-			*LobbySettings
-			);
-	
-	if (!bRequestStarted)
-	{
-		SessionInterface
-		->ClearOnCreateSessionCompleteDelegate_Handle(CreateLobbyCompleteDelegateHandle);
-		
-		CreateLobbyCompleteDelegateHandle.Reset();
-		
-		return FailLobbyOperation(TEXT("CreateLobby request failed to start"));
-	}
-	
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Lobby | CreateLobby requested")
-		);
-
+bool UHBOnlineSessionSubsystem::ValidateLobbyClient(int32& OutLocalUser)
+{
+	OutLocalUser = INDEX_NONE;
+	if (!GetWorld() || !GetWorld()->IsGameWorld() || GetWorld()->GetNetMode() != NM_Standalone)
+		return FailLobbyOperation(TEXT("Lobby search/join requires a disconnected standalone game world"));
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) || !SessionInterface.IsValid() ||
+		OSS->GetSessionInterface() != SessionInterface)
+		return FailLobbyOperation(TEXT("Lobby search/join requires Steam"));
+	const ULocalPlayer* Player = GetGameInstance()->GetFirstGamePlayer();
+	const IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
+	OutLocalUser = Player ? Player->GetControllerId() : INDEX_NONE;
+	if (OutLocalUser < 0 || !Identity.IsValid() || Identity->GetLoginStatus(OutLocalUser) != ELoginStatus::LoggedIn)
+		return FailLobbyOperation(TEXT("Lobby search/join requires a local player logged into Steam"));
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName) ||
+		SessionInterface->GetNamedSession(NAME_GameSession))
+		return FailLobbyOperation(TEXT("Leave the existing session before searching or joining another lobby"));
 	return true;
 }
 
 bool UHBOnlineSessionSubsystem::FindLobbies()
 {
-	if (!SessionInterface.IsValid())
-	{
-		return FailLobbyOperation(TEXT("Find failed: SessionInterface invalid"));
-	}
+	return FindLobbiesInternal(false);
+}
 
-	if (LobbyOperationState == EHBLobbyOperationState::Creating ||
-		LobbyOperationState == EHBLobbyOperationState::Joining)
-	{
-		return false;
-	}
-
-	SetLobbyOperationState(EHBLobbyOperationState::Finding);
-
+bool UHBOnlineSessionSubsystem::FindLobbiesInternal(bool bJoinFirstResult)
+{
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return false;
+	bJoinFirstLobbyAfterFind = false;
+	LobbySearch.Reset();
+	int32 LocalUser;
+	if (!ValidateLobbyClient(LocalUser)) return false;
 	LobbySearch = MakeShared<FOnlineSessionSearch>();
-
 	LobbySearch->MaxSearchResults = 50;
 	LobbySearch->bIsLanQuery = false;
-
-	// The VM is the only host. Exclude peer-hosted Steam lobbies so every
-	// physical player follows exactly the same client path.
-	LobbySearch->QuerySettings.Set(
-		SEARCH_DEDICATED_ONLY,
-		true,
-		EOnlineComparisonOp::Equals
-	);
-	
-	
-	// Keep the search hint, but validate returned metadata locally as Steam's
-	// dedicated-server search does not reliably apply custom query settings.
-	LobbySearch->QuerySettings.Set(
-		HBOnline::ProjectKey,
-		FString(HBOnline::ProjectValue),
-		EOnlineComparisonOp::Equals
-	);
-	
-	FindLobbiesCompleteDelegateHandle =
-		SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(
-			FOnFindSessionsCompleteDelegate::CreateUObject(
-				this,
-				&UHBOnlineSessionSubsystem::HandleFindLobbiesComplete
-			)
-		);
-
-	const bool bStarted =
-		SessionInterface->FindSessions(
-			0,
-			LobbySearch.ToSharedRef()
-		);
-
-	if (!bStarted)
+	LobbySearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+	LobbySearch->QuerySettings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineComparisonOp::Equals);
+	LobbySearch->QuerySettings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineComparisonOp::Equals);
+	bJoinFirstLobbyAfterFind = bJoinFirstResult;
+	FindLobbiesCompleteDelegateHandle = SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(
+		FOnFindSessionsCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleFindLobbiesComplete));
+	SetLobbyOperationState(EHBLobbyOperationState::Finding);
+	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Searching Steam listen lobbies"));
+	if (!SessionInterface->FindSessions(LocalUser, LobbySearch.ToSharedRef()))
 	{
-		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
-
-		LobbySearch.Reset();
-
-		return FailLobbyOperation(TEXT("FindLobbies request failed to start"));
+		if (FindLobbiesCompleteDelegateHandle.IsValid())
+		{
+			SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
+			FindLobbiesCompleteDelegateHandle.Reset();
+			bJoinFirstLobbyAfterFind = false;
+			LobbySearch.Reset();
+			FailLobbyOperation(TEXT("Steam lobby search could not start"));
+		}
+		return false;
 	}
-
-	UE_LOG(LogTemp, 
-		Warning,
-		TEXT("Online | Lobby | FindLobbies requested")
-		);
-
 	return true;
 }
 
+TArray<FHBLobbySearchEntry> UHBOnlineSessionSubsystem::GetLobbySearchResults() const
+{
+	TArray<FHBLobbySearchEntry> Entries;
+	if (!LobbySearch.IsValid() || LobbySearch->SearchState != EOnlineAsyncTaskState::Done) return Entries;
+	for (const FOnlineSessionSearchResult& Result : LobbySearch->SearchResults)
+	{
+		FHBLobbySearchEntry Entry;
+		Entry.SessionId = Result.GetSessionIdStr();
+		Entry.HostName = Result.Session.OwningUserName;
+		Result.Session.SessionSettings.Get(FName(TEXT("HB_ROOM")), Entry.RoomName);
+		if (Entry.RoomName.IsEmpty()) Entry.RoomName = Entry.HostName;
+		FString Locked;
+		Result.Session.SessionSettings.Get(FName(TEXT("HB_LOCKED")), Locked);
+		Entry.bPasswordProtected = Locked == TEXT("1");
+		Result.Session.SessionSettings.Get(FName(TEXT("HB_MAP")), Entry.MapPackage);
+		Entry.MaxPlayers = Result.Session.SessionSettings.NumPublicConnections;
+		Entry.OpenSlots = Result.Session.NumOpenPublicConnections;
+		Entry.CurrentPlayers = FMath::Clamp(Entry.MaxPlayers - Entry.OpenSlots, 0, Entry.MaxPlayers);
+		Entry.PingInMs = Result.PingInMs;
+		Entries.Add(MoveTemp(Entry));
+	}
+	return Entries;
+}
 
+bool UHBOnlineSessionSubsystem::RequestJoinLobby(const FString& SessionId)
+{
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return false;
+	if (SessionId.IsEmpty() || !LobbySearch.IsValid() || LobbySearch->SearchState != EOnlineAsyncTaskState::Done)
+		return FailLobbyOperation(TEXT("Join requires a completed lobby search and a session ID"));
+	const int32 Index = LobbySearch->SearchResults.IndexOfByPredicate(
+		[&SessionId](const FOnlineSessionSearchResult& Result) { return Result.GetSessionIdStr() == SessionId; });
+	if (Index == INDEX_NONE) return FailLobbyOperation(TEXT("Selected lobby is no longer in the latest search results"));
+	return JoinLobby(Index);
+}
 
 bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 {
-	if (!SessionInterface.IsValid())
-	{
-		return FailLobbyOperation(TEXT("Join failed: SessionInterface invalid"));
-	}
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return false;
+	int32 LocalUser;
+	if (!ValidateLobbyClient(LocalUser)) return false;
+	if (!LobbySearch.IsValid() || LobbySearch->SearchState != EOnlineAsyncTaskState::Done ||
+		!LobbySearch->SearchResults.IsValidIndex(InSearchResultIndex))
+		return FailLobbyOperation(TEXT("Join requires a valid result from a completed lobby search"));
+	const FOnlineSessionSearchResult Result = LobbySearch->SearchResults[InSearchResultIndex];
+	return JoinLobbyResult(Result, FString());
+}
 
-	if (LobbyOperationState == EHBLobbyOperationState::Creating ||
-		LobbyOperationState == EHBLobbyOperationState::Joining)
+bool UHBOnlineSessionSubsystem::JoinLobbyResult(const FOnlineSessionSearchResult& Result, const FString& Password)
+{
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return false;
+	int32 LocalUser;
+	if (!ValidateLobbyClient(LocalUser)) return false;
+	const IOnlineIdentityPtr Identity = IOnlineSubsystem::Get()->GetIdentityInterface();
+	const TSharedPtr<const FUniqueNetId> UserId = Identity->GetUniquePlayerId(LocalUser);
+	if (Result.Session.NumOpenPublicConnections <= 0) return FailLobbyOperation(TEXT("HB_ROOM_FULL"));
+	if (!HBOnline::IsJoinableListenLobby(Result, UserId))
+		return FailLobbyOperation(TEXT("Selected lobby is full, incompatible, self-owned, or not a HeavenBreach listen lobby"));
+	FString Locked, Salt;
+	Result.Session.SessionSettings.Get(FName(TEXT("HB_LOCKED")), Locked);
+	Result.Session.SessionSettings.Get(FName(TEXT("HB_SALT")), Salt);
+	if (Locked == TEXT("1") && (Password.IsEmpty() || Salt.IsEmpty()))
+		return FailLobbyOperation(TEXT("HB_PASSWORD_REQUIRED"));
+	PendingJoinProof = Locked == TEXT("1") ? HBLobbyProtocol::PasswordProof(Password, Salt) : FString();
+	bJoinRequestActive = true;
+	JoinFailureReason.Reset();
+	bJoinFirstLobbyAfterFind = false;
+	JoinLobbyCompleteDelegateHandle = SessionInterface->AddOnJoinSessionCompleteDelegate_Handle(
+		FOnJoinSessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleJoinLobbyComplete));
+	SetLobbyOperationState(EHBLobbyOperationState::Joining);
+	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Joining session %s"), *Result.GetSessionIdStr());
+	if (!SessionInterface->JoinSession(LocalUser, HBOnline::PartyLobbySessionName, Result))
 	{
+		if (JoinLobbyCompleteDelegateHandle.IsValid())
+		{
+			SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinLobbyCompleteDelegateHandle);
+			JoinLobbyCompleteDelegateHandle.Reset();
+			FailJoinRequest(TEXT("Steam lobby join request could not start"));
+		}
 		return false;
 	}
-
-	if (!LobbySearch.IsValid())
-	{
-		return FailLobbyOperation(TEXT("Join failed: LobbySearch invalid"));
-	}
-
-	if (!LobbySearch->SearchResults.IsValidIndex(InSearchResultIndex))
-	{
-		return FailLobbyOperation(FString::Printf(
-			TEXT("Join failed: Invalid result index %d"),
-			InSearchResultIndex
-			));
-	}
-
-	if (!HBOnline::IsHeavenBreachSession(
-		LobbySearch->SearchResults[InSearchResultIndex].Session.SessionSettings))
-	{
-		return FailLobbyOperation(
-			TEXT("Join rejected: Missing or mismatched HB_PROJECT marker"));
-	}
-
-	if (SessionInterface->GetNamedSession(HBOnline::DedicatedServerSessionName) != nullptr)
-	{
-		return TravelToJoinedDedicatedServer(
-			HBOnline::DedicatedServerSessionName
-			);
-	}
-
-	SetLobbyOperationState(EHBLobbyOperationState::Joining);
-
-	const FOnJoinSessionCompleteDelegate JoinCompleteDelegate =
-		FOnJoinSessionCompleteDelegate::CreateUObject(
-			this,
-			&UHBOnlineSessionSubsystem::HandleJoinLobbyComplete
-		);
-
-	JoinLobbyCompleteDelegateHandle =
-		SessionInterface->AddOnJoinSessionCompleteDelegate_Handle(JoinCompleteDelegate);
-
-	const bool bRequestStarted =
-		SessionInterface->JoinSession(
-			0,
-			HBOnline::DedicatedServerSessionName,
-			LobbySearch->SearchResults[InSearchResultIndex]
-			);
-
-	if (!bRequestStarted)
-	{
-		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinLobbyCompleteDelegateHandle);
-
-		JoinLobbyCompleteDelegateHandle.Reset();
-
-		return FailLobbyOperation(TEXT("JoinLobby request failed to start"));
-	}
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Lobby | JoinLobby requested | Index: %d"),
-		InSearchResultIndex
-	);
-
 	return true;
 }
 
 void UHBOnlineSessionSubsystem::LeaveLobby()
 {
+	// Creation/travel owns its rollback; do not race a second DestroySession.
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return;
 	if (!SessionInterface.IsValid())
 	{
 		UE_LOG(LogTemp,
 			Warning,
 			TEXT("Online | Lobby | Leave failed : SessionInterface invalid")
 			);
-		
+
 		return;
 	}
-	
-	// Prefer the new VM session, but retain the legacy lobby fallback so this
-	// API does not strand sessions created by older callers.
-	const FName SessionToDestroy =
-		SessionInterface->GetNamedSession(HBOnline::DedicatedServerSessionName) != nullptr
-			? HBOnline::DedicatedServerSessionName
-			: HBOnline::PartyLobbySessionName;
+
+	const FName SessionToDestroy = HBOnline::PartyLobbySessionName;
 
 	if (SessionInterface->GetNamedSession(SessionToDestroy) == nullptr)
 	{
@@ -444,37 +897,40 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 			Warning,
 			TEXT("Online | Lobby | Leave failed : GameSession does not exist")
 			);
-		
+
 		return;
 	}
-	
+
 	const FOnDestroySessionCompleteDelegate LeaveCompleteDelegate =
 		FOnDestroySessionCompleteDelegate::CreateUObject(
 			this,
 			&UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete
 			);
-	
-	LeaveLobbyCompleteDelegateHandle = 
+
+	LeaveLobbyCompleteDelegateHandle =
 		SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(LeaveCompleteDelegate);
-	
-	const bool bRequestStarted = 
+	SetLobbyOperationState(EHBLobbyOperationState::Leaving);
+
+	const bool bRequestStarted =
 		SessionInterface->DestroySession(SessionToDestroy);
-	
+
 	if (!bRequestStarted)
 	{
 		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(LeaveLobbyCompleteDelegateHandle);
-		
+
 		LeaveLobbyCompleteDelegateHandle.Reset();
-		
+		FailLobbyOperation(TEXT("Could not leave Steam lobby"));
+		bReturnAfterLeave = false;
+
 		UE_LOG(
 			LogTemp,
 			Warning,
 			TEXT("Online | Lobby | LeaveLobby request failed")
 			);
-		
+
 		return;
 	}
-	
+
 	UE_LOG(
 		LogTemp,
 		Warning,
@@ -484,248 +940,22 @@ void UHBOnlineSessionSubsystem::LeaveLobby()
 
 void UHBOnlineSessionSubsystem::ConnectToMatchServer(const FString& ServerAddress)
 {
-	FString NormalizedServerAddress;
-	FString ValidationError;
-
-	if (!ValidateMatchServerAddress(
-		ServerAddress,
-		NormalizedServerAddress,
-		ValidationError))
-	{
-		FailMatchStart(FString::Printf(
-			TEXT("Connect failed: %s | Address: %s"),
-			*ValidationError,
-			*ServerAddress
-			));
-		
-		return;
-	}
-	
-	UWorld* World = GetWorld();
-	if (World == nullptr)
-	{
-		FailMatchStart(TEXT("Connect failed: World unavailable"));
-		
-		return;
-	}
-	
-	APlayerController* PlayerController = World->GetFirstPlayerController();
-	if (PlayerController == nullptr || !PlayerController->IsLocalController())
-	{
-		FailMatchStart(TEXT("Connect failed: Local PlayerController unavailable"));
-		
-		return;
-	}
-
-	StopMatchServerPolling();
-	bMatchTravelRequested = true;
-	SetMatchStartState(EHBMatchStartState::Traveling);
-	
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Match | Connecting to Dedicated Server: %s"),
-		*NormalizedServerAddress
-		);
-
-	// Lobby UIOnly mode sets the persistent GameViewportClient to ignore game input.
-	// Restore native game input before travel; CommonUI's Game config does not clear that flag.
-	PlayerController->SetInputMode(FInputModeGameOnly());
-	PlayerController->SetShowMouseCursor(false);
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Match | Gameplay input restored before travel")
-		);
-	
-	PlayerController->ClientTravel(
-		NormalizedServerAddress,
-		ETravelType::TRAVEL_Absolute
-		);
+	RejectLegacyMatchRequest();
 }
 
 void UHBOnlineSessionSubsystem::ConnectToPublishMatchServer()
 {
-	if (bConnectAfterLobbyUpdate || bMatchTravelRequested)
-	{
-		return;
-	}
-
-	if (!SessionInterface.IsValid())
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Connect published failed: SessionInterface invalid")
-		);
-
-		return;
-	}
-
-	FNamedOnlineSession* LobbySession =
-		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
-
-	if (LobbySession == nullptr)
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Connect published failed: Party Lobby does not exist")
-		);
-
-		return;
-	}
-
-	bool bMatchReady = false;
-
-	if (!LobbySession->SessionSettings.Get(
-			HBOnline::MatchReadyKey,
-			bMatchReady))
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Match | Connect published failed: MatchReady not found")
-		);
-
-		return;
-	}
-
-	if (!bMatchReady)
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Match | Connect published failed: Match is not ready")
-		);
-
-		return;
-	}
-
-	FString ServerAddress;
-
-	if (!LobbySession->SessionSettings.Get(
-			HBOnline::MatchServerKey,
-			ServerAddress))
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Connect published failed: MatchServer not found")
-		);
-
-		return;
-	}
-
-	if (ServerAddress.IsEmpty())
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Connect published failed: MatchServer is empty")
-		);
-
-		return;
-	}
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Match | Published server found: %s"),
-		*ServerAddress
-	);
-
-	bMatchTravelRequested = true;
-	StopMatchServerPolling();
-	ConnectToMatchServer(ServerAddress);
+	RejectLegacyMatchRequest();
 }
 
 bool UHBOnlineSessionSubsystem::RequestStartMatch()
 {
-	return StartMatchAsLobbyOwner(FString());
+	return RejectLegacyMatchRequest();
 }
 
 bool UHBOnlineSessionSubsystem::StartMatchAsLobbyOwner(const FString& ServerAddress)
 {
-	if (IsMatchStartInProgress() ||
-		bConnectAfterLobbyUpdate ||
-		bMatchTravelRequested)
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Match | Start ignored: Match travel already requested")
-			);
-
-		return false;
-	}
-
-	if (!SessionInterface.IsValid())
-	{
-		return FailMatchStart(TEXT("Start failed: SessionInterface invalid"));
-	}
-
-	FString ResolvedServerAddress;
-
-	if (!ResolveMatchServerAddress(ServerAddress, ResolvedServerAddress))
-	{
-		return FailMatchStart(
-			TEXT("Start failed: Match server address unavailable")
-			);
-	}
-
-	FNamedOnlineSession* LobbySession =
-		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
-
-	if (LobbySession == nullptr || !LobbySession->OwningUserId.IsValid())
-	{
-		return FailMatchStart(
-			TEXT("Start failed: Party Lobby or Owner unavailable")
-			);
-	}
-
-	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
-
-	if (OnlineSubsystem == nullptr)
-	{
-		return FailMatchStart(TEXT("Start failed: OnlineSubsystem unavailable"));
-	}
-
-	IOnlineIdentityPtr IdentityInterface = OnlineSubsystem->GetIdentityInterface();
-
-	if (!IdentityInterface.IsValid())
-	{
-		return FailMatchStart(TEXT("Start failed: IdentityInterface unavailable"));
-	}
-
-	const TSharedPtr<const FUniqueNetId> LocalUserId =
-		IdentityInterface->GetUniquePlayerId(0);
-
-	if (!LocalUserId.IsValid())
-	{
-		return FailMatchStart(TEXT("Start failed: Local User ID unavailable"));
-	}
-
-	if (*LocalUserId != *LobbySession->OwningUserId)
-	{
-		return FailMatchStart(
-			TEXT("Start rejected: Local user is not Lobby Owner")
-			);
-	}
-
-	SetMatchStartState(EHBMatchStartState::Publishing);
-	PendingMatchServerAddress = ResolvedServerAddress;
-	bConnectAfterLobbyUpdate = true;
-
-	if (!PublishMatchServer(ResolvedServerAddress))
-	{
-		return FailMatchStart(
-			TEXT("Start failed: Match server publish request failed")
-			);
-	}
-
-	return true;
+	return RejectLegacyMatchRequest();
 }
 
 bool UHBOnlineSessionSubsystem::FailLobbyOperation(const FString& ErrorMessage)
@@ -755,6 +985,7 @@ void UHBOnlineSessionSubsystem::SetLobbyOperationState(
 	EHBLobbyOperationState NewState,
 	const FString& ErrorMessage)
 {
+	AuxiliaryError.Reset();
 	const FString ResolvedErrorMessage =
 		NewState == EHBLobbyOperationState::Failed
 			? ErrorMessage
@@ -775,29 +1006,13 @@ void UHBOnlineSessionSubsystem::SetLobbyOperationState(
 		);
 }
 
-bool UHBOnlineSessionSubsystem::FailMatchStart(const FString& ErrorMessage)
+bool UHBOnlineSessionSubsystem::RejectLegacyMatchRequest()
 {
-	StopMatchServerPolling();
-	PendingMatchServerAddress.Reset();
-	bConnectAfterLobbyUpdate = false;
-	bMatchTravelRequested = false;
-
-	const FString ResolvedErrorMessage = ErrorMessage.IsEmpty()
-		? TEXT("Unknown match start error")
-		: ErrorMessage;
-
-	UE_LOG(
-		LogTemp,
-		Error,
-		TEXT("Online | Match | Failed: %s"),
-		*ResolvedErrorMessage
-		);
-
-	SetMatchStartState(
-		EHBMatchStartState::Failed,
-		ResolvedErrorMessage
-		);
-
+	// These reflected types/events are kept for asset compatibility only.
+	// Lobby GameMode owns match start; this subsystem never publishes a server address.
+	const FString Error = TEXT("Dedicated match-server APIs are retired. Start the listen match through Lobby GameMode readiness/confirmation.");
+	UE_LOG(LogTemp, Warning, TEXT("Online | Legacy API | %s"), *Error);
+	SetMatchStartState(EHBMatchStartState::Failed, Error);
 	return false;
 }
 
@@ -827,406 +1042,183 @@ void UHBOnlineSessionSubsystem::SetMatchStartState(
 
 bool UHBOnlineSessionSubsystem::PublishMatchServer(const FString& ServerAddress)
 {
-	if (!SessionInterface.IsValid())
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Publish failed: SessionInterface invalid")
-        );
-
-        return false;
-    }
-
-	FString NormalizedServerAddress;
-	FString ValidationError;
-
-	if (!ValidateMatchServerAddress(
-		ServerAddress,
-		NormalizedServerAddress,
-		ValidationError))
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Publish failed: %s | Address: %s"),
-			*ValidationError,
-			*ServerAddress
-        );
-
-        return false;
-    }
-
-    FNamedOnlineSession* LobbySession =
-        SessionInterface->GetNamedSession(
-            HBOnline::PartyLobbySessionName
-        );
-
-    if (LobbySession == nullptr)
-    {
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Publish failed: Party Lobby does not exist")
-        );
-
-        return false;
-    }
-
-    FOnlineSessionSettings UpdatedSettings =
-        LobbySession->SessionSettings;
-
-    UpdatedSettings.Set(
-        HBOnline::MatchServerKey,
-        NormalizedServerAddress,
-        EOnlineDataAdvertisementType::ViaOnlineService
-    );
-
-    UpdatedSettings.Set(
-        HBOnline::MatchReadyKey,
-        true,
-        EOnlineDataAdvertisementType::ViaOnlineService
-    );
-
-    const FOnUpdateSessionCompleteDelegate UpdateCompleteDelegate =
-        FOnUpdateSessionCompleteDelegate::CreateUObject(
-            this,
-            &UHBOnlineSessionSubsystem::HandleUpdateLobbyComplete
-        );
-
-    UpdateLobbyCompleteDelegateHandle =
-        SessionInterface->AddOnUpdateSessionCompleteDelegate_Handle(
-            UpdateCompleteDelegate
-        );
-
-    const bool bRequestStarted =
-        SessionInterface->UpdateSession(
-            HBOnline::PartyLobbySessionName,
-            UpdatedSettings,
-            true
-        );
-
-    if (!bRequestStarted)
-    {
-        SessionInterface
-            ->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateLobbyCompleteDelegateHandle);
-
-        UpdateLobbyCompleteDelegateHandle.Reset();
-
-        UE_LOG(
-            LogTemp,
-            Error,
-            TEXT("Online | Match | Publish request failed")
-        );
-
-        return false;
-    }
-
-    UE_LOG(
-        LogTemp,
-        Warning,
-        TEXT("Online | Match | Publish requested | Server: %s"),
-		*NormalizedServerAddress
-    );
-
-    return true;
-}
-
-void UHBOnlineSessionSubsystem::HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful)
-{
-	if (SessionInterface.IsValid() && CreateLobbyCompleteDelegateHandle.IsValid())
-	{
-		SessionInterface
-		->ClearOnCreateSessionCompleteDelegate_Handle(CreateLobbyCompleteDelegateHandle);
-	}
-	
-	CreateLobbyCompleteDelegateHandle.Reset();
-	if (bWasSuccessful)
-	{
-		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
-
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | Created: %s"),
-			*InSessionName.ToString()
-			);
-	}
-	else
-	{
-		FailLobbyOperation(FString::Printf(
-			TEXT("Create failed: %s"),
-			*InSessionName.ToString()
-			));
-	}
+	return RejectLegacyMatchRequest();
 }
 
 void UHBOnlineSessionSubsystem::HandleFindLobbiesComplete(bool bWasSuccessful)
 {
-	if (SessionInterface.IsValid())
-	{
-		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
-	}
-
+	if (!FindLobbiesCompleteDelegateHandle.IsValid() || LobbyOperationState != EHBLobbyOperationState::Finding) return;
+	SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindLobbiesCompleteDelegateHandle);
 	FindLobbiesCompleteDelegateHandle.Reset();
-
-	if (!bWasSuccessful || !LobbySearch.IsValid())
-	{
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(
-				-1,
-				20.0f,
-				FColor::Red,
-				TEXT("Find Lobby FAILED")
-			);
-		}
-
-		FailLobbyOperation(TEXT("FindLobbies failed"));
-
-		return;
-	}
-
-	const int32 UnfilteredResultCount = LobbySearch->SearchResults.Num();
-	LobbySearch->SearchResults.RemoveAll(
-		[](const FOnlineSessionSearchResult& SearchResult)
-		{
-			return !HBOnline::IsHeavenBreachSession(SearchResult.Session.SessionSettings);
-		});
-	UE_LOG(LogTemp, Log,
-		TEXT("Online | Lobby | Project filter | Total: %d | HeavenBreach: %d | Excluded: %d"),
-		UnfilteredResultCount, LobbySearch->SearchResults.Num(),
-		UnfilteredResultCount - LobbySearch->SearchResults.Num());
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Lobby | Find complete | Results: %d"),
-		LobbySearch->SearchResults.Num()
-	);
-	
-	const int32 ResultCount = LobbySearch->SearchResults.Num();
-
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(
-			-1,
-			20.0f,
-			FColor::Yellow,
-			FString::Printf(
-				TEXT("Find Complete | Results: %d"),
-				ResultCount
-			)
-		);
-	}
-
-	for (int32 Index = 0; Index < LobbySearch->SearchResults.Num(); ++Index)
-	{
-		const FOnlineSessionSearchResult& Result = LobbySearch->SearchResults[Index];
-
-		const FString OwnerName =
-			Result.Session.OwningUserName;
-
-		const FString Message = FString::Printf(
-			TEXT("[%d] Owner: %s"),
-			Index,
-			*OwnerName
-		);
-
-		UE_LOG(LogTemp, Warning,
-			TEXT("Online | Lobby | %s"),
-			*Message
-		);
-
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(
-				-1,
-				20.0f,
-				FColor::Yellow,
-				Message
-			);
-		}
-
-		
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Online | Lobby | Found [%d] | Owner: %s | SessionId: %s | Ping: %d | OpenSlots: %d"),
-			Index,
-			*Result.Session.OwningUserName,
-			*Result.GetSessionIdStr(),
-			Result.PingInMs,
-			Result.Session.NumOpenPublicConnections
-		);
-	}
-
-	const bool bShouldJoinFirstLobby = bJoinFirstLobbyAfterFind;
+	const bool bAutoJoin = bJoinFirstLobbyAfterFind;
 	bJoinFirstLobbyAfterFind = false;
-
-	if (!bShouldJoinFirstLobby)
+	if (!bWasSuccessful || !LobbySearch.IsValid() || LobbySearch->SearchState != EOnlineAsyncTaskState::Done)
 	{
-		SetLobbyOperationState(EHBLobbyOperationState::Idle);
+		LobbySearch.Reset();
+		FailLobbyOperation(TEXT("Steam lobby search failed"));
 		return;
 	}
-
-	if (LobbySearch->SearchResults.IsEmpty())
+	const ULocalPlayer* Player = GetGameInstance()->GetFirstGamePlayer();
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	const IOnlineIdentityPtr Identity = OSS ? OSS->GetIdentityInterface() : nullptr;
+	const TSharedPtr<const FUniqueNetId> UserId = Player && Identity.IsValid()
+		? Identity->GetUniquePlayerId(Player->GetControllerId()) : nullptr;
+	LobbySearch->SearchResults.RemoveAll([&UserId](const FOnlineSessionSearchResult& Result)
 	{
-		FailLobbyOperation(TEXT("No matching HeavenBreach Steam dedicated server found"));
+		return !HBOnline::IsJoinableListenLobby(Result, UserId);
+	});
+	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Search complete | Joinable: %d"), LobbySearch->SearchResults.Num());
+	if (bAutoJoin && LobbySearch->SearchResults.IsEmpty())
+	{
+		FailLobbyOperation(TEXT("No joinable HeavenBreach Steam lobby found"));
 		return;
 	}
-
-	JoinLobby(0);
+	if (bAutoJoin)
+	{
+		// Release the search state without broadcasting an intermediate Idle event:
+		// listeners must not start a competing operation before the auto-join.
+		LobbyOperationState = EHBLobbyOperationState::Idle;
+		JoinLobby(0);
+		return;
+	}
+	SetLobbyOperationState(EHBLobbyOperationState::Idle);
 }
 
-void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(
-	FName InSessionName,
-	EOnJoinSessionCompleteResult::Type InResult)
+void UHBOnlineSessionSubsystem::HandleJoinLobbyComplete(FName InSessionName, EOnJoinSessionCompleteResult::Type InResult)
 {
-	if (SessionInterface.IsValid() && JoinLobbyCompleteDelegateHandle.IsValid())
-	{
-		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(
-			JoinLobbyCompleteDelegateHandle
-		);
-	}
-
+	if (!bJoinRequestActive || InSessionName != HBOnline::PartyLobbySessionName || !JoinLobbyCompleteDelegateHandle.IsValid()) return;
+	SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinLobbyCompleteDelegateHandle);
 	JoinLobbyCompleteDelegateHandle.Reset();
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Lobby | Join complete | Session: %s | Result: %d"),
-		*InSessionName.ToString(),
-		static_cast<int32>(InResult)
-	);
-
-	const bool bSuccess =
-		InResult == EOnJoinSessionCompleteResult::Success;
-
-	if (bSuccess)
+	if (InResult != EOnJoinSessionCompleteResult::Success)
 	{
-		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
-
-		// Steam owns endpoint resolution. This avoids trusting a hardcoded VM IP
-		// and supports whichever transport SteamNetDriver selected.
-		if (!TravelToJoinedDedicatedServer(InSessionName))
-		{
-			return;
-		}
+		FailJoinRequest(FString::Printf(TEXT("Steam lobby join failed: %s"), LexToString(InResult)));
+		return;
 	}
-	else
-	{
-		FailLobbyOperation(FString::Printf(
-			TEXT("Join failed | Result: %d"),
-			static_cast<int32>(InResult)
-			));
-	}
-
-	if (GEngine)
-	{
-		const FString Message = bSuccess
-			? FString::Printf(
-				TEXT("JOIN SUCCESS | %s"),
-				*InSessionName.ToString()
-			)
-			: FString::Printf(
-				TEXT("JOIN FAILED | Result: %d"),
-				static_cast<int32>(InResult)
-			);
-
-		GEngine->AddOnScreenDebugMessage(
-			-1,
-			20.0f,
-			bSuccess ? FColor::Green : FColor::Red,
-			Message
-		);
-	}
+	TravelToJoinedLobby(InSessionName);
 }
 
-bool UHBOnlineSessionSubsystem::TravelToJoinedDedicatedServer(
-	FName InSessionName)
+bool UHBOnlineSessionSubsystem::TravelToJoinedLobby(FName InSessionName)
 {
+	const FNamedOnlineSession* Session = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(InSessionName) : nullptr;
+	FString ConnectString;
+	if (!Session || !HBOnline::IsListenLobbySettings(Session->SessionSettings) ||
+		!SessionInterface->GetResolvedConnectString(InSessionName, ConnectString) || ConnectString.IsEmpty())
+	{
+		FailJoinRequest(TEXT("Steam could not resolve the joined listen lobby address"));
+		return false;
+	}
+	const ULocalPlayer* LocalPlayer = GetGameInstance()->GetFirstGamePlayer();
+	APlayerController* PlayerController = LocalPlayer ? LocalPlayer->GetPlayerController(GetWorld()) : nullptr;
+	if (!PlayerController || !PlayerController->IsLocalController() || !GetWorld() || GetWorld()->GetNetMode() != NM_Standalone)
+	{
+		FailJoinRequest(TEXT("Local player/world unavailable for lobby travel"));
+		return false;
+	}
+	SetLobbyOperationState(EHBLobbyOperationState::ConnectingToLobby);
+	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Connecting through Steam-resolved session"));
+	// Do not parse Steam endpoints as Host:Port or change any UI/input state here.
+	if (!PendingJoinProof.IsEmpty()) ConnectString += TEXT("?HBProof=") + PendingJoinProof;
+	PlayerController->ClientTravel(ConnectString, TRAVEL_Absolute);
+	return true;
+}
+
+void UHBOnlineSessionSubsystem::FailJoinRequest(const FString& Error)
+{
+	if (!bJoinRequestActive || LobbyOperationState == EHBLobbyOperationState::CleaningUpJoin) return;
+	JoinFailureReason = Error;
+	SetLobbyOperationState(EHBLobbyOperationState::CleaningUpJoin);
+	UE_LOG(LogTemp, Warning, TEXT("Online | Lobby | Cleaning up failed join: %s"), *Error);
+	// The engine owns pending connections/travel failure recovery. Only remove
+	// our OSS membership, after the provider/engine failure callback unwinds.
+	JoinCleanupTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::BeginJoinCleanup));
+}
+
+bool UHBOnlineSessionSubsystem::BeginJoinCleanup(float DeltaSeconds)
+{
+	JoinCleanupTickerHandle.Reset();
+	if (!bJoinRequestActive) return false;
+	if (!SessionInterface.IsValid() || !SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName))
+	{
+		HandleJoinCleanupComplete(HBOnline::PartyLobbySessionName, true);
+		return false;
+	}
+	if (!SessionInterface->DestroySession(HBOnline::PartyLobbySessionName,
+		FOnDestroySessionCompleteDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::HandleJoinCleanupComplete)))
+	{
+		if (bJoinRequestActive) HandleJoinCleanupComplete(HBOnline::PartyLobbySessionName, false);
+	}
+	return false;
+}
+
+void UHBOnlineSessionSubsystem::HandleJoinCleanupComplete(FName SessionName, bool bWasSuccessful)
+{
+	if (!bJoinRequestActive || SessionName != HBOnline::PartyLobbySessionName ||
+		LobbyOperationState != EHBLobbyOperationState::CleaningUpJoin) return;
+	bJoinRequestActive = false;
+	FString Error = JoinFailureReason;
+	PendingJoinProof.Reset();
+	ConnectedLobbyMap.Reset();
+	JoinFailureReason.Reset();
+	LobbySearch.Reset();
+	if (!bWasSuccessful) Error += TEXT("; session cleanup failed. Leave the existing session before retrying.");
+	FailLobbyOperation(Error);
+	if (!LobbyReturnMap.IsEmpty() && bWasSuccessful) RequestLeaveToMenu(Error);
+}
+
+void UHBOnlineSessionSubsystem::HandleLocalMapDeparture(const FWorldContext& WorldContext, const FString& MapName)
+{
+	// A local LoadMap leaves the connection; seamless/network travel retains it.
+	// Observe the departure without changing its destination or result UI reason.
+	UWorld* SourceWorld = WorldContext.World();
+	if (WorldContext.OwningGameInstance != GetGameInstance() || WorldContext.PendingNetGame ||
+		!SourceWorld || (SourceWorld->GetNetMode() != NM_ListenServer && SourceWorld->GetNetMode() != NM_Client) ||
+		LobbyOperationState != EHBLobbyOperationState::InLobby || IsServerTravelInProgress() || bReturnAfterLeave)
+		return;
 	if (!SessionInterface.IsValid())
 	{
-		return FailLobbyOperation(
-			TEXT("Travel failed: SessionInterface invalid")
-			);
+		FailLobbyOperation(TEXT("Cannot clean up Steam lobby on local map departure: session interface unavailable"));
+		return;
 	}
+	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Local map departure to %s; leaving this player's Steam lobby"), *MapName);
+	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName)) LeaveLobby();
+	else ResetLobbyAfterLeave();
+}
 
-	FString ConnectString;
-	const FNamedOnlineSession* JoinedSession = SessionInterface->GetNamedSession(InSessionName);
-	if (JoinedSession == nullptr ||
-		!HBOnline::IsHeavenBreachSession(JoinedSession->SessionSettings))
-	{
-		return FailLobbyOperation(
-			TEXT("Travel rejected: Missing or mismatched HB_PROJECT marker"));
-	}
-
-	if (!SessionInterface->GetResolvedConnectString(
-		InSessionName,
-		ConnectString) || ConnectString.IsEmpty())
-	{
-		return FailLobbyOperation(FString::Printf(
-			TEXT("Travel failed: Steam could not resolve session %s"),
-			*InSessionName.ToString()
-			));
-	}
-
-	UWorld* World = GetWorld();
-	APlayerController* PlayerController = World != nullptr
-		? World->GetFirstPlayerController()
-		: nullptr;
-
-	if (!IsValid(PlayerController) || !PlayerController->IsLocalController())
-	{
-		return FailLobbyOperation(
-			TEXT("Travel failed: Local PlayerController unavailable")
-			);
-	}
-
-	// Title UI uses UI-only input. Clear that persistent viewport state before
-	// network travel so gameplay input works immediately in the server lobby.
-	PlayerController->SetInputMode(FInputModeGameOnly());
-	PlayerController->SetShowMouseCursor(false);
-	bMatchTravelRequested = true;
-	SetLobbyOperationState(EHBLobbyOperationState::InLobby);
-
-	UE_LOG(
-		LogTemp,
-		Log,
-		TEXT("Online | Dedicated Server | ClientTravel via resolved Steam session: %s"),
-		*InSessionName.ToString()
-		);
-
-	PlayerController->ClientTravel(
-		ConnectString,
-		ETravelType::TRAVEL_Absolute
-		);
-
-	return true;
+void UHBOnlineSessionSubsystem::ResetLobbyAfterLeave()
+{
+	bMatchAdmissionClosed = false;
+	HostedPasswordProof.Reset();
+	HostedPasswordSalt.Reset();
+	HostedRoomName.Reset();
+	PendingJoinProof.Reset();
+	ConnectedLobbyMap.Reset();
+	PreTravelSettings.Reset();
+	TravelSourceMap.Reset();
+	TravelDestinationMap.Reset();
+	SetServerTravelState(EHBServerTravelState::Idle);
+	LobbySearch.Reset();
+	bJoinFirstLobbyAfterFind = false;
+	SetLobbyOperationState(EHBLobbyOperationState::Idle);
+	PublishGamePresence(TEXT("Menu"));
 }
 
 void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bool bWasSuccessful)
 {
+	if (InSessionName != HBOnline::PartyLobbySessionName || !LeaveLobbyCompleteDelegateHandle.IsValid()) return;
 	if (SessionInterface.IsValid() && LeaveLobbyCompleteDelegateHandle.IsValid())
 	{
 		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(LeaveLobbyCompleteDelegateHandle);
 	}
-	
+
 	LeaveLobbyCompleteDelegateHandle.Reset();
-	
+
 	if (bWasSuccessful)
 	{
-		StopMatchServerPolling();
-		LobbySettings.Reset();
-		LobbySearch.Reset();
-		bJoinFirstLobbyAfterFind = false;
-		
-		PendingMatchServerAddress.Reset();
-		bConnectAfterLobbyUpdate = false;
-		bMatchTravelRequested = false;
-		SetLobbyOperationState(EHBLobbyOperationState::Idle);
-		
+		ResetLobbyAfterLeave();
+		if (bReturnAfterLeave && !ReturnMenuTickerHandle.IsValid())
+			ReturnMenuTickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UHBOnlineSessionSubsystem::ReturnToMenu));
+
 		UE_LOG(
 			LogTemp,
 			Warning,
@@ -1240,6 +1232,7 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 			TEXT("Leave failed: %s"),
 			*InSessionName.ToString()
 			));
+		bReturnAfterLeave = false;
 
 		UE_LOG(
 			LogTemp,
@@ -1248,204 +1241,7 @@ void UHBOnlineSessionSubsystem::HandleLeaveLobbyComplete(FName InSessionName, bo
 			*InSessionName.ToString()
 			);
 	}
-	
-}
 
-void UHBOnlineSessionSubsystem::HandleUpdateLobbyComplete(FName InSessionName, bool bWasSuccessful)
-{
-	if (SessionInterface.IsValid() && UpdateLobbyCompleteDelegateHandle.IsValid())
-	{
-		SessionInterface
-			->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateLobbyCompleteDelegateHandle);
-	}
-
-	UpdateLobbyCompleteDelegateHandle.Reset();
-
-	if (!bWasSuccessful)
-	{
-		FailMatchStart(FString::Printf(
-			TEXT("Lobby update failed | Session: %s"),
-			*InSessionName.ToString()
-			));
-
-		return;
-	}
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Match | Lobby update | Session: %s | Success: True"),
-		*InSessionName.ToString()
-	);
-	
-	if (!bConnectAfterLobbyUpdate)
-	{
-		return;
-	}
-
-	bConnectAfterLobbyUpdate = false;
-
-	const FString ServerAddress = PendingMatchServerAddress;
-
-	PendingMatchServerAddress.Reset();
-
-	if (ServerAddress.IsEmpty())
-	{
-		FailMatchStart(TEXT("Start failed: Pending server address empty"));
-
-		return;
-	}
-
-	if (bMatchTravelRequested)
-	{
-		return;
-	}
-
-	bMatchTravelRequested = true;
-
-	ConnectToMatchServer(ServerAddress);
-}
-
-void UHBOnlineSessionSubsystem::HandleSessionSettingsUpdated(FName InSessionName,
-	const FOnlineSessionSettings& InSessionSettings)
-{
-	if (InSessionName != HBOnline::PartyLobbySessionName)
-	{
-		return;
-	}
-
-	bool bMatchReady = false;
-
-	// 먼저 Settings에서 값을 읽어야 한다.
-	if (!InSessionSettings.Get(HBOnline::MatchReadyKey,bMatchReady))
-	{
-		return;
-	}
-
-	// Match가 다시 Ready=false가 되면
-	// 다음 Match에서 다시 Travel할 수 있도록 Reset.
-	if (!bMatchReady)
-	{
-		bMatchTravelRequested = false;
-		SetMatchStartState(EHBMatchStartState::Idle);
-		return;
-	}
-
-	FString ServerAddress;
-
-	if (!InSessionSettings.Get(HBOnline::MatchServerKey,ServerAddress))
-	{
-		FailMatchStart(
-			TEXT("Lobby updated but server address does not exist")
-			);
-
-		return;
-	}
-
-	if (ServerAddress.IsEmpty())
-	{
-		FailMatchStart(TEXT("Lobby updated but server address is empty"));
-
-		return;
-	}
-
-	/*
-	 * Owner는 UpdateSession 완료 후
-	 * HandleUpdateLobbyComplete()에서 직접 이동한다.
-	 *
-	 * Owner에게도 SettingsUpdated가 발생할 수 있으므로
-	 * 여기서는 Owner의 중복 ClientTravel을 막는다.
-	 */
-	if (bConnectAfterLobbyUpdate || bMatchTravelRequested)
-	{
-		return;
-	}
-
-	bMatchTravelRequested = true;
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Match | Match server received from Lobby | Server: %s"),
-		*ServerAddress
-	);
-
-	ConnectToMatchServer(ServerAddress);
-}
-
-void UHBOnlineSessionSubsystem::StartMatchServerPolling()
-{
-	// Steam refreshes the named session when lobby data changes, but unlike EOS it
-	// does not broadcast OnSessionSettingsUpdated to game code.
-	if (bConnectAfterLobbyUpdate || bMatchTravelRequested)
-	{
-		return;
-	}
-
-	UWorld* World = GetWorld();
-	if (World == nullptr)
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Polling failed to start: World unavailable")
-			);
-
-		return;
-	}
-
-	World->GetTimerManager().SetTimer(
-		MatchServerPollTimerHandle,
-		this,
-		&UHBOnlineSessionSubsystem::PollMatchServerSettings,
-		HBOnline::MatchServerPollIntervalSeconds,
-		true
-		);
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Match | Waiting for Steam Lobby match server update")
-		);
-
-	PollMatchServerSettings();
-}
-
-void UHBOnlineSessionSubsystem::StopMatchServerPolling()
-{
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(MatchServerPollTimerHandle);
-	}
-
-	MatchServerPollTimerHandle.Invalidate();
-}
-
-void UHBOnlineSessionSubsystem::PollMatchServerSettings()
-{
-	if (!SessionInterface.IsValid())
-	{
-		StopMatchServerPolling();
-		return;
-	}
-
-	FNamedOnlineSession* LobbySession =
-		SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
-
-	if (LobbySession == nullptr)
-	{
-		StopMatchServerPolling();
-		return;
-	}
-
-	bool bMatchReady = false;
-	if (LobbySession->SessionSettings.Get(
-			HBOnline::MatchReadyKey,
-			bMatchReady) &&
-		bMatchReady)
-	{
-		ConnectToPublishMatchServer();
-	}
 }
 
 void UHBOnlineSessionSubsystem::HandleNetworkFailure(
@@ -1455,192 +1251,36 @@ void UHBOnlineSessionSubsystem::HandleNetworkFailure(
 	const FString& InErrorString)
 {
 	(void)InNetDriver;
+	if (bReturnAfterLeave) return;
 
 	if (InWorld != nullptr && InWorld->GetGameInstance() != GetGameInstance())
 	{
 		return;
 	}
-
-	const bool bHasMatchTravelState =
-		bMatchTravelRequested ||
-		bConnectAfterLobbyUpdate ||
-		!PendingMatchServerAddress.IsEmpty() ||
-		MatchStartState == EHBMatchStartState::Publishing ||
-		MatchStartState == EHBMatchStartState::Traveling;
-
-	if (!bHasMatchTravelState)
+	if (InWorld && ServerTravelState == EHBServerTravelState::Traveling)
 	{
+		FailServerTravel(FString::Printf(TEXT("Server travel network failure: %s"), *InErrorString));
+		return;
+	}
+	if (bJoinRequestActive)
+	{
+		if (InWorld && LobbyOperationState == EHBLobbyOperationState::ConnectingToLobby)
+			FailJoinRequest(FString::Printf(TEXT("Lobby connection failed: %s"), *InErrorString));
+		return;
+	}
+	if (bHostRequestActive)
+	{
+		if (InWorld && LobbyOperationState == EHBLobbyOperationState::OpeningHostMap)
+		{
+			FailHostRequest(FString::Printf(TEXT("Host network failure: %s"), *InErrorString));
+		}
 		return;
 	}
 
-	UE_LOG(
-		LogTemp,
-		Error,
-		TEXT("Online | Match | Network failure | Type: %s | Error: %s"),
-		ENetworkFailure::ToString(InFailureType),
-		*InErrorString
-		);
-
-	PendingMatchServerAddress.Reset();
-	bConnectAfterLobbyUpdate = false;
-	bMatchTravelRequested = false;
-	SetMatchStartState(EHBMatchStartState::Failed, InErrorString);
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Match | Travel state reset | Retry allowed")
-		);
-}
-
-bool UHBOnlineSessionSubsystem::ResolveMatchServerAddress(
-	const FString& RequestedAddress,
-	FString& OutServerAddress) const
-{
-	FString CandidateAddress = RequestedAddress;
-	CandidateAddress.TrimStartAndEndInline();
-
-	const TCHAR* AddressSource = TEXT("Explicit");
-
-	if (CandidateAddress.IsEmpty())
+	if (InWorld && LobbyOperationState == EHBLobbyOperationState::InLobby)
 	{
-		if (FParse::Value(
-			FCommandLine::Get(),
-			HBOnline::MatchServerCommandLineKey,
-			CandidateAddress))
-		{
-			CandidateAddress.TrimStartAndEndInline();
-			AddressSource = TEXT("CommandLine");
-		}
-		else
-		{
-			CandidateAddress = HBOnline::LocalMatchServerAddress;
-			AddressSource = TEXT("LocalDefault");
-		}
+		// The test flow configures a return map; legacy callers keep their own exit policy.
+		FailLobbyOperation(FString::Printf(TEXT("Listen session network failure: %s"), *InErrorString));
+		if (!LobbyReturnMap.IsEmpty()) RequestLeaveToMenu(TEXT("호스트 연결이 종료되었습니다."));
 	}
-
-	FString ValidationError;
-
-	if (!ValidateMatchServerAddress(
-		CandidateAddress,
-		OutServerAddress,
-		ValidationError))
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("Online | Match | Address resolution failed | Source: %s | Address: %s | Error: %s"),
-			AddressSource,
-			*CandidateAddress,
-			*ValidationError
-			);
-
-		OutServerAddress.Reset();
-		return false;
-	}
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("Online | Match | Address resolved | Source: %s | Server: %s"),
-		AddressSource,
-		*OutServerAddress
-		);
-
-	return true;
-}
-
-bool UHBOnlineSessionSubsystem::ValidateMatchServerAddress(
-	const FString& ServerAddress,
-	FString& OutNormalizedAddress,
-	FString& OutError) const
-{
-	OutNormalizedAddress.Reset();
-	OutError.Reset();
-
-	FString CandidateAddress = ServerAddress;
-	CandidateAddress.TrimStartAndEndInline();
-
-	if (CandidateAddress.IsEmpty())
-	{
-		OutError = TEXT("Address is empty");
-		return false;
-	}
-
-	int32 PortSeparatorIndex = INDEX_NONE;
-	if (!CandidateAddress.FindLastChar(TEXT(':'), PortSeparatorIndex))
-	{
-		OutError = TEXT("Port is missing; expected Host:Port");
-		return false;
-	}
-
-	FString Host = CandidateAddress.Left(PortSeparatorIndex);
-	FString PortText = CandidateAddress.Mid(PortSeparatorIndex + 1);
-	Host.TrimStartAndEndInline();
-	PortText.TrimStartAndEndInline();
-
-	if (Host.IsEmpty())
-	{
-		OutError = TEXT("Host is empty");
-		return false;
-	}
-
-	if (Host.Len() > 253)
-	{
-		OutError = TEXT("Host is too long");
-		return false;
-	}
-
-	if (
-		Host.Equals(TEXT("0.0.0.0"), ESearchCase::IgnoreCase) ||
-		Host.Equals(TEXT("*"), ESearchCase::IgnoreCase))
-	{
-		OutError = TEXT("Bind-all address cannot be used as a client destination");
-		return false;
-	}
-
-	for (const TCHAR Character : Host)
-	{
-		const bool bAllowedCharacter =
-			FChar::IsAlnum(Character) ||
-			Character == TEXT('.') ||
-			Character == TEXT('-') ||
-			Character == TEXT('_');
-
-		if (!bAllowedCharacter)
-		{
-			OutError = TEXT("Host contains an unsupported character; use an IPv4 address or hostname");
-			return false;
-		}
-	}
-
-	if (PortText.IsEmpty())
-	{
-		OutError = TEXT("Port is empty");
-		return false;
-	}
-
-	for (const TCHAR Character : PortText)
-	{
-		if (!FChar::IsDigit(Character))
-		{
-			OutError = TEXT("Port must contain digits only");
-			return false;
-		}
-	}
-
-	const int64 Port = FCString::Atoi64(*PortText);
-	if (Port < 1 || Port > 65535)
-	{
-		OutError = TEXT("Port must be between 1 and 65535");
-		return false;
-	}
-
-	OutNormalizedAddress = FString::Printf(
-		TEXT("%s:%lld"),
-		*Host,
-		Port
-		);
-
-	return true;
 }

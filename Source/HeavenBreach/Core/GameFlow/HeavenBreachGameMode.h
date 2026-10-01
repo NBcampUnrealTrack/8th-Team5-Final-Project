@@ -21,10 +21,17 @@ class HEAVENBREACH_API AHeavenBreachGameMode : public AGameMode
 public:
 	AHeavenBreachGameMode();
     virtual void StartPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+    /** Internal server logic; UI may invoke this later while WaitingToStart. */
+    bool RegenerateDungeon();
     virtual void StartMatch() override;
     virtual void RestartPlayer(AController* NewPlayer) override;
     virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
     AHBDungeonRuntime* GetDungeonGenerator() const;
+    virtual void Tick(float DeltaSeconds) override;
+    bool ReportDungeonLoaded(APlayerController* Player, int32 GenerationId, bool bSucceeded);
+    bool IsPlayerDungeonLoaded(APlayerController* Player) const;
+    bool AreDungeonPlayersLoaded() const;
 
 
 	// 매치 시작
@@ -53,6 +60,14 @@ public:
 	void TravelPlayerToPostMatchMap(APlayerState* PlayerState, EHBPostMatchReason Reason);
 
 protected:
+    void HandleDungeonLayoutPlanned();
+    void ClearDungeonPlayerLoading();
+    TWeakObjectPtr<AHBDungeonRuntime> BoundDungeon;
+    FDelegateHandle DungeonLayoutPlannedHandle;
+    TMap<TWeakObjectPtr<APlayerController>, int32> LoadedDungeonGenerations;
+    TMap<TWeakObjectPtr<APlayerController>, double> DungeonLoadWaitStarted;
+    UPROPERTY(EditDefaultsOnly, Category="Match|Dungeon", meta=(ClampMin="1"))
+    float ClientDungeonLoadTimeoutSeconds = 120;
     UFUNCTION() void HandleDungeonReady();
     UFUNCTION() void HandleDungeonFailed(const FString& Reason);
 	// Shared entry point for new connections and players arriving via seamless travel.

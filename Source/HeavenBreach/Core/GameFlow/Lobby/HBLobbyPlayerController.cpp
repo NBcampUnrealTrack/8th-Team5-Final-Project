@@ -14,6 +14,13 @@
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
+
+void AHBLobbyPlayerController::ClientLobbyClosed_Implementation()
+{
+	if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+		Sessions->RequestLeaveToMenu(TEXT("호스트가 방을 나갔습니다."));
+}
 
 void AHBLobbyPlayerController::SetReady(bool bNewReady)
 {
@@ -22,8 +29,7 @@ void AHBLobbyPlayerController::SetReady(bool bNewReady)
 		return;
 	}
 
-	// All machines are clients in the VM topology.  Only the authoritative
-	// dedicated server is allowed to change the replicated ready state.
+	// The listen host validates the guest's request and updates replicated Ready.
 	ServerSetReady(bNewReady);
 }
 
@@ -66,9 +72,8 @@ bool AHBLobbyPlayerController::RequestStartDedicatedMatch()
 		return false;
 	}
 
-	// This is a per-player confirmation, not a host command.  The server RPC
-	// identifies the sender from its owning controller and never trusts a
-	// client-supplied player or Steam ID.
+	// The server identifies the caller from its owning controller and accepts
+	// the start command only from the host.
 	ServerRequestStartGame();
 	return true;
 }
@@ -80,8 +85,7 @@ void AHBLobbyPlayerController::SelectJob(FName JobId)
 		return;
 	}
 
-	// Same reasoning as SetReady: only the dedicated server may write the
-	// replicated selection, so the client just forwards the request.
+	// The authoritative host validates and writes the replicated selection.
 	ServerSelectJob(JobId);
 }
 
@@ -110,6 +114,7 @@ void AHBLobbyPlayerController::BeginPlay()
 		LobbyDebugTimer, this, &AHBLobbyPlayerController::RefreshLobbyDebug, 0.25f, true);
 #endif
 
+	if (!LobbyWidgetClass) return;
 	LobbyWidget = CreateWidget<UHBLobbyHUDWidget>(
 		this,
 		LobbyWidgetClass
@@ -259,6 +264,9 @@ void AHBLobbyPlayerController::ServerRequestStartGame_Implementation()
 
 void AHBLobbyPlayerController::ServerSetReady_Implementation(bool bNewReady)
 {
+	// The host starts the match; only guests toggle Ready.
+	if (IsLocalController() || !GetWorld() || GetNetMode() != NM_ListenServer) return;
+	if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>(); !Sessions || Sessions->IsMatchAdmissionClosed()) return;
 	AHBLobbyPlayerState* LobbyPlayerState = GetPlayerState<AHBLobbyPlayerState>();
 
 	if (!IsValid(LobbyPlayerState))

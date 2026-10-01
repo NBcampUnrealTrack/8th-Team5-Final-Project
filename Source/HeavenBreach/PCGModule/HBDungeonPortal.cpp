@@ -49,7 +49,8 @@ bool AHBDungeonPortal::ValidateDefinition(FString& Error) const
 bool AHBDungeonPortal::ConnectTo(AHBDungeonPortal* Other)
 {
 	FString Error;
-	if (!HasAuthority() || !IsValid(Other) || Other == this || Other->GetWorld() != GetWorld()
+	if (!GetWorld() || GetNetMode() == NM_Client || !HasAuthority() || !IsValid(Other) || !Other->HasAuthority()
+		|| Other == this || Other->GetWorld() != GetWorld()
 		|| !ValidateDefinition(Error) || !Other->ValidateDefinition(Error)) return false;
 	Disconnect(); Other->Disconnect();
 	TargetPortal = Other; Other->TargetPortal = this;
@@ -86,8 +87,10 @@ void AHBDungeonPortal::Disconnect()
 
 bool AHBDungeonPortal::TryTeleport(APawn* Pawn)
 {
-	if (!HasAuthority() || !IsValid(Pawn) || !Pawn->GetController() || !Pawn->GetController()->IsPlayerController() || Pawn->GetWorld() != GetWorld()
-		|| !IsValid(TargetPortal) || TargetPortal->TargetPortal != this || !Contains(Pawn->GetActorLocation())) return false;
+	if (!GetWorld() || GetNetMode() == NM_Client || !HasAuthority() || !IsValid(Pawn) || !Pawn->HasAuthority()
+		|| !Pawn->GetController() || !Pawn->GetController()->IsPlayerController() || Pawn->GetWorld() != GetWorld()
+		|| !IsValid(TargetPortal) || !TargetPortal->HasAuthority() || TargetPortal->GetWorld() != GetWorld()
+		|| TargetPortal->TargetPortal != this || !Contains(Pawn->GetActorLocation())) return false;
 	const TWeakObjectPtr<APawn> Key(Pawn);
 	if (BlockedPawns.Contains(Key)) return false;
 	const double Until = GetWorld()->GetTimeSeconds() + FMath::Max(0.1f, ReentryDelay);
@@ -98,14 +101,19 @@ bool AHBDungeonPortal::TryTeleport(APawn* Pawn)
 	if (!Pawn->TeleportTo(Destination.GetLocation(), Destination.Rotator())) return false;
 	TargetPortal->BlockedPawns.Add(Key, GetWorld()->GetTimeSeconds() + FMath::Max(0.1f, TargetPortal->ReentryDelay));
 	if (UPawnMovementComponent* Movement = Pawn->GetMovementComponent()) Movement->StopMovementImmediately();
-	if (AController* Controller = Pawn->GetController()) Controller->SetControlRotation(Destination.Rotator());
+	if (APlayerController* Controller = Cast<APlayerController>(Pawn->GetController()))
+	{
+		Controller->SetControlRotation(Destination.Rotator());
+		Controller->ClientSetRotation(Destination.Rotator(), true);
+	}
+	Pawn->ForceNetUpdate();
 	return true;
 }
 
 void AHBDungeonPortal::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (!HasAuthority() || !GetWorld()->IsGameWorld()) return;
+	if (!GetWorld() || GetNetMode() == NM_Client || !HasAuthority() || !GetWorld()->IsGameWorld()) return;
 	for (auto It = BlockedPawns.CreateIterator(); It; ++It)
 		if (!It.Key().IsValid() || (GetWorld()->GetTimeSeconds() >= It.Value() && !Contains(It.Key()->GetActorLocation()))) It.RemoveCurrent();
 	if (!IsValid(TargetPortal)) return;

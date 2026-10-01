@@ -47,6 +47,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "SteamSockets",
+			"Enabled": true
+		},
+		{
 			"Name": "CommonUI",
 			"Enabled": true
 		},
