@@ -113,10 +113,6 @@ void UEquipmentSlotWidget::NativeOnDragDetected(const FGeometry& InGeometry, con
 	Operation->bRotated = EquippedItem.bRotated;
 	Operation->Pivot = EDragPivot::MouseDown;
 
-	// �κ��丮 ĭ���� �巡���� ���� �Ȱ���, Operation�� �ڱ⸸�� Slate ���־�
-	// (SBox+SImage)�� ���� ����Ʈ�� �ٿ��� �����ϰ� �Ѵ�. ���� ���(DefaultDragVisual��
-	// �ܼ� UImage)�� ũ�Ⱑ ���� ������Ʈ�� �״�ζ� �۰� ������, TŰ ȸ����
-	// ���� �ݿ��� �� �ƴ�.
 	Operation->CreateVisual(this, IconTexture, VisualSize);
 
 	OutOperation = Operation;
@@ -195,7 +191,6 @@ void UEquipmentSlotWidget::UpdateSlot(bool bHasItem, const FString& DisplayName,
 
 	if (bHasItem)
 	{
-		// 1. �������� ������ ���
 		if (IconImage)
 		{
 			if (IconTexture)
@@ -228,7 +223,6 @@ void UEquipmentSlotWidget::UpdateSlot(bool bHasItem, const FString& DisplayName,
 	}
 	else
 	{
-		// 2. �������� ������ ��� (�� ����)
 		if (EmptySlotIcon && IconImage)
 		{
 			IconImage->SetBrushFromTexture(EmptySlotIcon, false);
@@ -274,7 +268,6 @@ void UEquipmentSlotWidget::UpdateDurabilityBar(bool bHasItem)
 		bIsItemBroken = (EquippedItem.CurrentDurability == 0.f);
 	}
 
-	// Text_Broken/Image_BrokenBG�� ProgressBar_Durability ������ �����ϰ� �׻� �����Ѵ�.
 	if (Text_Broken != nullptr)
 	{
 		Text_Broken->SetVisibility(bIsItemBroken ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
@@ -301,7 +294,6 @@ void UEquipmentSlotWidget::UpdateDurabilityBar(bool bHasItem)
 		? FMath::Clamp(EquippedItem.CurrentDurability / MaxDurability, 0.f, 1.f)
 		: 0.f;
 
-	// 100%(�� ��)�� ��ҿ� ����ϰ� �����, ��� �����ϸ� �׶����� �����ش�.
 	ProgressBar_Durability->SetVisibility(Percent >= 1.f ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 	ProgressBar_Durability->SetPercent(Percent);
 
@@ -341,8 +333,6 @@ void UEquipmentSlotWidget::UpdateGradeBackground(bool bHasItem)
 		return;
 	}
 
-	// InventoryTypes.h ���� �Լ��� �κ��丮 ĭ�̶� ���� �����(RGB�� ����, ���ĸ�
-	// ���� ũ�⿡ �°� ���⼭ ���� ����). Normal�� ���ó�� �� ���̰� �д�.
 	FLinearColor GradeColor = GetGradeTopColor(ViewData.Grade);
 	GradeColor.A = (ViewData.Grade == EItemGrade::Normal) ? 0.0f : 0.35f;
 

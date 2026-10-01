@@ -174,8 +174,6 @@ void UHB_PlayerAttributeSet::PostAttributeChange(
 		return;
 	}
 
-	// ����ġ�� ���� ���� ������ �Ѵ�.
-	// Ŭ�󿡼� ���� �� ������ �������� �ο��� ü�¹ٰ� �� �� Ƥ��.
 	if (!ASC->IsOwnerActorAuthoritative())
 	{
 		return;
@@ -224,11 +222,8 @@ void UHB_PlayerAttributeSet::PostGameplayEffectExecute(const struct FGameplayEff
 
 	if (Data.EvaluatedData.Attribute == GetPlayer_ManaAttribute())
 	{
-		// ȸ������ Ȱ������ ġ�� �ʴ´�. ���⼭ �� ������ ȸ���� ������ ȸ�� ������ ������ ���� �����Ѵ�.
 		if (Data.EvaluatedData.Magnitude < 0.f)
 		{
-			// ��Ƽ���� Cost GE �� ĳ������ ConsumeMana �� ��ġ�� �ʾ� LastManaActivityTime �� �� �и���.
-			// GE �� ������ ������ ��� ��θ� ���� �� ������ �޴´�.
 			if (UAbilitySystemComponent* ASC = GetOwningAbilitySystemComponent())
 			{
 				if (AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(ASC->GetAvatarActor()))

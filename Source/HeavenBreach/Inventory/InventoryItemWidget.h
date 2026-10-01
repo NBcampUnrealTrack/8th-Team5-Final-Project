@@ -31,9 +31,6 @@ public:
 		FIntPoint InItemSize,
 		float InCellSize);
 
-	// �巡�� �� TŰ�� ȸ���� ������� ��, �� ������ �巡�� �̸�����(UMG DefaultDragVisual)��
-	// ���̰� �ִ� �������̶�� ������ ȸ���� �����Ѵ�. InitializeItem ��ü�� �ٽ� �θ��� �ʰ�
-	// ������ ũ��/ȸ�� ������ �ٲ㼭 �巡�� ���� �Ź� �ٽ� �����ϴ� ����� ���Ѵ�.
 	void SetPreviewRotated(bool bInRotated);
 
 protected:
@@ -58,7 +55,6 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<USizeBox> SizeBox_Icon;
 
-	// ������ ȸ���� �����ϰ� �׻� ĭ �ϴܿ� �����Ǿ�� �ؼ� SizeBox_Icon ��(Overlay ����)�� �д�.
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UProgressBar> ProgressBar_Durability;
 
@@ -69,10 +65,6 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UProgressBar> ProgressBar_Cooldown;
 
-	// 1x2, 1x3ó�� ���簢���� �ƴ�(������) �������� ������ ��Ʈ ��ü�� ������ �־
-	// ĭ�� �� �� ä��� ª�� ���̴� ��찡 ����. �׷� �����ۿ��� �� ������ŭ ������
-	// �ڽ��� ��¦ Ű���� �����Ѵ�. 1.0�̸� ���� ����. ���� �����̳ʰ� ������ ���鼭
-	// WBP Ŭ���� ����Ʈ���� �ٷ� ���� �����ϴ�.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "1.0", ClampMax = "2.0", AllowPrivateAccess = "true"))
 	float ElongatedIconOverscale = 1.15f;
 
@@ -82,13 +74,9 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> Text_StackCount;
 
-	// �ļյ� ���� �����ۿ��� ���̴� �ؽ�Ʈ. UMG���� ������ ������ ������ �� �� ?
-	// ���ε��� ���ֵܵ� �����ϴ�(��Ī�Ǵ� ���� ������ nullptr).
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> Text_Broken;
 
-	// �ļ� �� ������ �ڿ� �򸮴� ������ ���� ���. UMG�� ���� �̸��� Image��
-	// �߰��ϸ� �ڵ� ���ε��ȴ�(��� ���� �� ��).
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_BrokenBG;
 
@@ -100,10 +88,6 @@ private:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_FavoriteStar;
 
-	// ���� ��� �������� �Ϲ� ���۰� �����ϱ� ���� ǥ��. ���ã�� ��(���� �ϴ�)�� ��Ī�Ǵ�
-	// ���� �ϴܿ� ���� ���������� ǥ���Ѵ�. ������ �ؽ�ó ��ü�� ���ã�� ���� ���� �������
-	// WBP_InventoryItem �����̳ʿ��� �� Image�� Brush�� ���� �����Ѵ� - �ڵ忡����
-	// ItemType == "Material"�� ���� ���̵��� ǥ�� ���θ� ����Ѵ�.
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UImage> Image_MaterialBadge;
 

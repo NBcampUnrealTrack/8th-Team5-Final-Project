@@ -62,7 +62,6 @@ private:
 	bool bLoadoutSaveInFlight = false;
 	bool bLoadoutSavePending = false;
 
-	// ��� �׽�Ʈ
 	UFUNCTION()
 	void HandleStashLoadCompleted(bool bSuccess);
 
@@ -71,7 +70,6 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Debug")
 	int32 TestGoldMinimum = 5000;
-	// ��� �׽�Ʈ
 
 #pragma region MatchProgression
 public:
