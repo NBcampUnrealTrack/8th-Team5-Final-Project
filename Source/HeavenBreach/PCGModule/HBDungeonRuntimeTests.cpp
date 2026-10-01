@@ -85,12 +85,26 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     TestEqual(TEXT("Client Load node cannot bypass layout application"), Dungeon->State, EHBDungeonRuntimeState::Idle);
     TestFalse(TEXT("Invalid generation rejected"), Dungeon->ApplyServerLayout(0, 1, Rooms));
     TestFalse(TEXT("Client cannot publish even with local actor authority"), SnapshotState->PublishDungeonLayout(2, 99, Rooms));
+    // A client has no server-side navigation timeout requirement.
+    Dungeon->EncounterTimeoutSeconds = 0.f;
     Dungeon->Tick(0);
     TestEqual(TEXT("Snapshot received before runtime binding is consumed"), Dungeon->GetGenerationId(), 1);
     TestEqual(TEXT("Authoritative seed applied"), Dungeon->ActiveSeed, 42);
     TestEqual(TEXT("Local loading starts from retained snapshot"), Dungeon->State, EHBDungeonRuntimeState::Loading);
     SnapshotState->OnDungeonSnapshotChanged.Broadcast();
     TestEqual(TEXT("Repeated notification does not restart generation"), Dungeon->GetGenerationId(), 1);
+    TestTrue(TEXT("Same client generation does not restart streaming"),
+        Dungeon->ApplyServerLayout(1, 42, SnapshotState->GetDungeonSnapshot().Rooms));
+    auto* Encounters = World->GetSubsystem<UHBEncounterSubsystem>();
+    auto* Chests = World->GetSubsystem<UHBChestSpawnSubsystem>();
+    TestNotNull(TEXT("Client encounter subsystem exists"), Encounters);
+    TestNotNull(TEXT("Client chest subsystem exists"), Chests);
+    if (Encounters) TestFalse(TEXT("Client cannot start room enemies"),
+        Encounters->StartEncounter(1, 42, 0, World->PersistentLevel, Room.Bounds, {}, Error));
+    if (Chests) TestFalse(TEXT("Client cannot start room chests"),
+        Chests->StartPlacement(1, 42, 0, World->PersistentLevel, Room.Bounds, {}, Error));
+    for (TActorIterator<ANavMeshBoundsVolume> It(World); It; ++It)
+        AddError(TEXT("Client snapshot loading created a navigation bounds volume."));
     World->SetNetDriver(nullptr);
     Driver->ServerConnection = nullptr;
     Driver->SetWorld(nullptr);
@@ -132,8 +146,10 @@ bool FHBDungeonLoadAckTest::RunTest(const FString&)
     World->SetNetDriver(Driver);
     TestTrue(TEXT("Stage the current generation in the local loader"), Dungeon->ApplyServerLayout(1, 42, {Room}));
     Driver->ServerConnection = nullptr;
+    TestEqual(TEXT("Fixture becomes a listen server"), World->GetNetMode(), NM_ListenServer);
+    TestTrue(TEXT("Listen server can plan while client cannot"), Dungeon->CanPlanGeneration());
     Player->SetAutonomousProxy(true);
-    Dungeon->State = EHBDungeonRuntimeState::Ready;
+    Dungeon->State = EHBDungeonRuntimeState::PreparingEncounters;
     auto* SecondPlayer = World->SpawnActor<APlayerController>();
     World->AddController(SecondPlayer);
     SecondPlayer->PlayerState = World->SpawnActor<APlayerState>();
@@ -141,6 +157,11 @@ bool FHBDungeonLoadAckTest::RunTest(const FString&)
     TestFalse(TEXT("Fixture represents a remote participant"), SecondPlayer->IsLocalController());
     TestFalse(TEXT("One unfinished participant blocks everyone"), Mode->AreDungeonPlayersLoaded());
     TestTrue(TEXT("Second participant completes"), Mode->ReportDungeonLoaded(SecondPlayer, 1, true));
+    TestFalse(TEXT("All client reports still wait for server room spawns"), Mode->AreDungeonPlayersLoaded());
+    Mode->StartMatch(); Mode->RestartPlayer(Player);
+    TestFalse(TEXT("PreparingEncounters blocks a direct match start"), Mode->IsMatchInProgress());
+    TestNull(TEXT("PreparingEncounters blocks player spawning"), Player->GetPawn());
+    Dungeon->State = EHBDungeonRuntimeState::Ready;
     TestTrue(TEXT("Host and both participants ready opens readiness gate"), Mode->AreDungeonPlayersLoaded());
     TestTrue(TEXT("Publish next generation"), Source->PublishDungeonLayout(2, 43, {Room}));
     TestFalse(TEXT("Previous generation acknowledgement rejected"), Mode->ReportDungeonLoaded(Player, 1, true));
@@ -356,6 +377,20 @@ public:
 			Test->AddError(TEXT("TestMG runtime dungeon did not become ready.")); return true;
 		}
 		FBox PlannedNavigationBounds(ForceInit);
+        const auto* SnapshotState = World->GetGameState<AHeavenBreachGameState>();
+        Test->TestNotNull(TEXT("Runtime uses the replicated dungeon GameState"), SnapshotState);
+        if (SnapshotState)
+        {
+            const auto& Snapshot = SnapshotState->GetDungeonSnapshot();
+            Test->TestEqual(TEXT("Room spawns and snapshot share a generation"), Snapshot.GenerationId, Dungeon->GenerationId);
+            Test->TestEqual(TEXT("Room spawns and snapshot share a seed"), Snapshot.Seed, Dungeon->ActiveSeed);
+            Test->TestEqual(TEXT("Published room count matches the prepared dungeon"), Snapshot.Rooms.Num(), Dungeon->Rooms.Num());
+            for (int32 Index = 0; Index < Snapshot.Rooms.Num() && Index < Dungeon->Rooms.Num(); ++Index)
+            {
+                Test->TestTrue(TEXT("Published module matches the loaded room"), Snapshot.Rooms[Index].ModuleMap == Dungeon->Rooms[Index].ModuleMap);
+                Test->TestTrue(TEXT("Published transform matches the loaded room"), Snapshot.Rooms[Index].Transform.Equals(Dungeon->Rooms[Index].Transform));
+            }
+        }
 		for (const FHBPrototypeRoom& Room : Dungeon->Rooms) PlannedNavigationBounds += Room.Bounds;
 		int32 NavigationVolumeCount = 0;
 		for (TActorIterator<ANavMeshBoundsVolume> It(World); It; ++It)

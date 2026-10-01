@@ -11,12 +11,13 @@ class APlayerStart;
 class AHBDungeonPortal;
 class AHBDungeonDoorSeal;
 class ANavMeshBoundsVolume;
+class AHeavenBreachGameState;
 UENUM(BlueprintType)
 enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, PreparingEncounters, Ready, Failed };
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FHBDungeonFailed, const FString&, Reason);
 
-/** Single-player gameplay dungeon. No preview camera, pawn, input or HUD. */
+/** Authority plans and prepares room spawns; each world loads its rooms locally. */
 UCLASS(Blueprintable)
 class HEAVENBREACH_API AHBDungeonRuntime : public AActor
 {
@@ -60,9 +61,19 @@ public:
     UFUNCTION(CallInEditor, Category="Dungeon - Modules") void RefreshModuleCatalog();
     bool PlanLayout();
     void MaterializeLayout(int32 PointCount);
+    bool CanPlanGeneration() const;
+    bool ApplyServerLayout(int32 InGenerationId, int32 InSeed, const TArray<FHBPrototypeRoom>& InRooms);
+    int32 GetGenerationId() const { return GenerationId; }
+    FSimpleMulticastDelegate OnLayoutPlanned;
     void Fail(const FString& Reason);
 private:
-    bool PrepareGameplay(FString& Error);
+    void BindSnapshotSource();
+    void ConsumeServerSnapshot();
+    bool ValidateLocalSettings(FString& Error) const;
+    void LoadLocalRooms();
+    bool PrepareServerGameplay(FString& Error);
+    bool PrepareClientGameplay(FString& Error);
+    bool SpawnDoorSeals(const FHBPrototypeRoom& Room, const TArray<FHBDungeonConnectorDefinition>& Connectors, FString& Error);
     bool PrepareEncounters(FString& Error);
     bool CreateDungeonNavigationBounds(FString& Error);
     bool IsEncounterNavigationReady() const;
@@ -77,4 +88,6 @@ private:
     UPROPERTY(Transient) TObjectPtr<ANavMeshBoundsVolume> DungeonNavigationBounds;
     double GenerationStartTime = 0;
     double EncounterStartTime = 0;
+    TWeakObjectPtr<AHeavenBreachGameState> SnapshotSource;
+    FDelegateHandle SnapshotChangedHandle;
 };
