@@ -7,6 +7,8 @@
 #include "Combat/Interface/DamageableInterface.h"
 #include "Combat/Ability/HBSkillAugment.h"
 #include "Item/ItemEffectRules.h"
+#include "Inventory/InventoryTypes.h"
+#include "Interaction/InteractableInterface.h"
 #include "GameFramework/Character.h"
 #include "HBPlayerCharacter.generated.h"
 
@@ -26,9 +28,36 @@ class UStaticMesh;
 class UQuickSlotComponent;
 class UDataTable;
 struct FHBWeaponPresentation;
+class UHBPlayerCorpseInventory;
+
+USTRUCT()
+struct FHBCorpseEquippedItem
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	EEquipSlotType Slot = EEquipSlotType::None;
+
+	UPROPERTY()
+	FItemInstance Item;
+};
+
+// 시체가 된 순간의 상태. 한 구조체로 묶어야 "시체다"와 "입고 있던 장비"가 같이 도착한다.
+USTRUCT()
+struct FHBCorpseState
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	bool bIsCorpse = false;
+
+	// 외형 전용. 실제 아이템은 시체 가방에 있다.
+	UPROPERTY()
+	TArray<FHBCorpseEquippedItem> EquippedSnapshot;
+};
 
 UCLASS(Blueprintable)
-class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface
+class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface,public IInteractableInterface
 
 {
 	GENERATED_BODY()
@@ -37,6 +66,15 @@ public:
 	AHBPlayerCharacter();
 
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+
+	// 서버 전용. 아이템을 시체 가방으로 옮기고 래그돌이 된다. 빙의 해제 전에 불러야 PlayerState 가 붙어 있다.
+	void BecomeCorpse();
+
+	bool IsCorpse() const { return CorpseState.bIsCorpse; }
+
+	virtual bool CanInteract_Implementation(AActor* Interactor) const override;
+	virtual void Interact_Implementation(AActor* Interactor) override;
+	virtual FText GetInteractPrompt_Implementation() const override;
 
 	void MoveForward(float Value);
 	void MoveRight(float Value);
@@ -102,6 +140,24 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UQuickSlotComponent* GetQuickSlot() const;
+
+protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Corpse")
+	TObjectPtr<UHBPlayerCorpseInventory> CorpseInventory;
+
+	UPROPERTY(ReplicatedUsing = OnRep_CorpseState)
+	FHBCorpseState CorpseState;
+
+	UFUNCTION()
+	void OnRep_CorpseState();
+
+	void StartCorpseRagdoll();
+
+	// 장비 외형이 볼 곳. 시체면 스냅샷, 아니면 PlayerState 의 장비.
+	bool HasVisualEquipmentSource() const;
+	bool GetVisualItemInSlot(EEquipSlotType Slot, FItemInstance& OutItem) const;
+
+public:
 
 	// ================ 디버그 ================
 
