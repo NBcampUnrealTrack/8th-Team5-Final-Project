@@ -19,13 +19,15 @@ class HEAVENBREACH_API AHBLobbyPlayerController : public APlayerController
 	GENERATED_BODY()
 	
 public:
+	UFUNCTION(Client, Reliable)
+	void ClientLobbyClosed();
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Ready")
 	void SetReady(bool bNewReady);
 
 	UFUNCTION(BlueprintCallable, Category = "Lobby")
 	void RequestStartGame();
 
-	/** Compatibility entry point used by the existing UI; the dedicated server decides whether the vote is accepted. */
+	/** Compatibility entry point used by existing UI; the listen host validates the caller and guest readiness. */
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Match")
 	bool RequestStartDedicatedMatch();
 

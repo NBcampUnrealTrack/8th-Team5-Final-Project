@@ -36,6 +36,10 @@ public:
 	UFUNCTION()
 	void HandleStashChanged();
 
+	// 저장된 창고를 넣는다. 각인 입구를 거친다. 새로 발린 게 있으면 true. 서버 전용.
+	// 외부 서버 불러오기(HandleLoadCompleted)와 로컬 불러오기(UHBPlayerSaveComponent)가 같이 쓴다.
+	bool ApplyLoadedEntries(const TArray<FInventoryEntry>& InEntries);
+
 protected:
 	virtual void BeginPlay() override;
 

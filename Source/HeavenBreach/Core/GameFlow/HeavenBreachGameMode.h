@@ -59,6 +59,9 @@ public:
 	void TravelPlayersToPostMatchMap(EHBPostMatchReason Reason);
 	void TravelPlayerToPostMatchMap(APlayerState* PlayerState, EHBPostMatchReason Reason);
 
+	// 서버. 살아 있는 채로 접속이 끊길 때(Logout 전, 폰이 지워지기 전) 시체를 남긴다. 남겼으면 true.
+	bool HandleAlivePlayerLeaving(AController* Controller);
+
 protected:
     void HandleDungeonLayoutPlanned();
     void ClearDungeonPlayerLoading();
@@ -103,6 +106,13 @@ protected:
 	UPROPERTY(Transient)
 	TSet<TObjectPtr<APlayerState>> PostMatchTravelRequestedPlayers;
 	
+	// 아이템을 잃은 사람(사망·시간 종료). 매치가 끝날 때 Died 사유로 보낸다.
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<APlayerState>> FailedPlayers;
+
+	// 서버. 시체를 남기고 빙의를 푼다. bSpectate 면 관전으로 넘긴다.
+	void LeaveCorpse(AController* Controller, APlayerState* PlayerState, bool bSpectate);
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match | Timer", meta = (ClamMin = "1.0"))
 	float MatchDurationSeconds = 1500.0f;
 	

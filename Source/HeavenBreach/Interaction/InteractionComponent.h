@@ -45,6 +45,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void EndHold();
 
+	/**
+	 * 상호작용하던 쪽이 더 이상 행동할 수 없을 때(사망 등) 홀드를 즉시 끊는다.
+	 * 서버에서는 대상에 OnHoldCancel 을 알리고, 로컬에서는 진행 바·뒤지는 동작을 끈다.
+	 * EndHold 와 달리 서버 RPC 를 보내지 않는다. 빙의가 풀린 폰에서도 부를 수 있게 하기 위해서다.
+	 */
+	void AbortHold();
+
 	/** 홀드 진행률 0~1. 진행 중이 아니면 0. 프로그레스 바용 */
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	float GetHoldProgress() const;

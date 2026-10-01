@@ -16,10 +16,12 @@
 #include "InventoryComponent.h"
 #include "EquipmentComponent.h"
 #include "Inventory/QuickSlotComponent.h"
+#include "Player/HBPlayerCorpseInventory.h"
 #include "Shop/ShopComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/DataTable.h"
 #include "Core/DataManagement/LoadoutStorage.h"
+#include "Core/DataManagement/HBPlayerSaveComponent.h"
 #include "Core/DataManagement/LoadoutStorageSubsystem.h"
 #include "TimerManager.h"
 #include "CraftComponent.h"
@@ -180,6 +182,11 @@ AHB_PlayerState::AHB_PlayerState()
 		Craft->SetGoldItemRow(CraftGoldRow);
 	}
 #pragma endregion
+
+#pragma region Save
+	// 로컬 저장 흐름과 저장 방식 칸(Local / Backend). 로비 · 매치 PlayerState 가 같이 갖는다.
+	SaveComponent = CreateDefaultSubobject<UHBPlayerSaveComponent>(TEXT("Save"));
+#pragma endregion
 }
 void AHB_PlayerState::BeginPlay()
 {
@@ -210,15 +217,20 @@ void AHB_PlayerState::BeginPlay()
 			.AddUObject(this, &AHB_PlayerState::OnMaxManaChanged);
 	}
 
-	if (HasAuthority() && Stash)
+	// 외부 서버 저장 모드일 때만 서버가 불러온다.
+	// 로컬 모드는 각자 PC 가 파일을 읽어 보낸다 (UHBPlayerSaveComponent). 서버는 기다리기만 한다.
+	if (UsesBackendSave())
 	{
-		if (UGameInstance* GameInstance = GetGameInstance())
+		if (HasAuthority() && Stash)
 		{
-			if (UStashStorageSubsystem* StorageSubsystem = GameInstance->GetSubsystem<UStashStorageSubsystem>())
+			if (UGameInstance* GameInstance = GetGameInstance())
 			{
-				Stash->SetStorage(StorageSubsystem->GetStorage());
-				Stash->LoadStash(TEXT("TestAccount"));
-				Stash->OnStashLoadCompleted.AddUniqueDynamic(this, &AHB_PlayerState::HandleStashLoadCompleted);
+				if (UStashStorageSubsystem* StorageSubsystem = GameInstance->GetSubsystem<UStashStorageSubsystem>())
+				{
+					Stash->SetStorage(StorageSubsystem->GetStorage());
+					Stash->LoadStash(TEXT("TestAccount"));
+					Stash->OnStashLoadCompleted.AddUniqueDynamic(this, &AHB_PlayerState::HandleStashLoadCompleted);
+				}
 			}
 		}
 	}
@@ -270,9 +282,13 @@ void AHB_PlayerState::SaveLoadout()
 	}
 
 	FPlayerLoadout Loadout;
-	if (Inventory) { Loadout.InventoryEntries = Inventory->GetEntries(); }
-	if (Equipment) { Loadout.EquipmentSlots = Equipment->GetSlots(); }
-	if (QuickSlot) { Loadout.QuickSlots = QuickSlot->GetSlots(); }
+	// 손실 뒤 상자·시체에서 가방으로 다시 옮겨도(시간 종료 직후, 조작된 클라) 그 아이템은 저장에 싣지 않는다.
+	if (!bCarriedItemsForfeited)
+	{
+		if (Inventory) { Loadout.InventoryEntries = Inventory->GetEntries(); }
+		if (Equipment) { Loadout.EquipmentSlots = Equipment->GetSlots(); }
+		if (QuickSlot) { Loadout.QuickSlots = QuickSlot->GetSlots(); }
+	}
 
 	bLoadoutSaveInFlight = true;
 	bLoadoutSavePending = false;
@@ -293,6 +309,86 @@ void AHB_PlayerState::HandleLoadoutSaved(bool bSuccess)
 	{
 		bLoadoutSavePending = false;
 		SaveLoadout();
+	}
+}
+
+void AHB_PlayerState::ForfeitCarriedItems(UHBPlayerCorpseInventory* Corpse)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (Corpse)
+	{
+		TArray<FItemInstance> Equipped;
+		if (Equipment)
+		{
+			for (uint8 Index = 0; Index < static_cast<uint8>(EEquipSlotType::MAX); ++Index)
+			{
+				FItemInstance Item;
+				if (Equipment->GetItemInSlot(static_cast<EEquipSlotType>(Index), Item))
+				{
+					Equipped.Add(Item);
+				}
+			}
+		}
+
+		Corpse->FillFrom(Equipped, Inventory ? Inventory->GetEntries() : TArray<FInventoryEntry>());
+	}
+
+	if (Equipment)
+	{
+		for (uint8 Index = 0; Index < static_cast<uint8>(EEquipSlotType::MAX); ++Index)
+		{
+			Equipment->ClearSlot(static_cast<EEquipSlotType>(Index));
+		}
+	}
+
+	if (Inventory)
+	{
+		Inventory->ClearAll();
+	}
+
+	if (QuickSlot)
+	{
+		TArray<FGuid> EmptySlots;
+		EmptySlots.SetNum(UQuickSlotComponent::NumQuickSlots);
+		QuickSlot->ApplyLoadedSlots(EmptySlots);
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(LoadoutSaveTimer);
+	}
+
+	bCarriedItemsForfeited = true;
+
+	UE_LOG(LogTemp, Log, TEXT("Loadout: forfeited carried items (corpse=%s, inFlight=%d)"),
+		Corpse ? TEXT("yes") : TEXT("no"), bLoadoutSaveInFlight ? 1 : 0);
+
+	if (!LoadoutStorage.IsValid() || LoadoutAccountId.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Loadout: forfeit save skipped (storage=%d, account=%s)"),
+			LoadoutStorage.IsValid() ? 1 : 0, *LoadoutAccountId);
+		return;
+	}
+
+	// 전송 중이어도 기다리지 않고 바로 빈 상태를 보낸다. 이 PlayerState 는 곧 파괴될 수 있어
+	// 기존 콜백 경로(BindUObject)에 맡기면 빈 저장이 누락된다. 그래서 콜백은 수명과 무관한 로그만.
+	FOnLoadoutSaved Callback = FOnLoadoutSaved::CreateLambda([](bool bSuccess)
+		{
+			if (!bSuccess)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Loadout: forfeit save failed"));
+			}
+		});
+	LoadoutStorage->SaveLoadoutAsync(LoadoutAccountId, FPlayerLoadout(), Callback);
+
+	// 앞선 전송이 이 빈 저장보다 늦게 도착할 수 있다. 살아 있으면 그 콜백에서 한 번 더 빈 상태로 덮는다.
+	if (bLoadoutSaveInFlight)
+	{
+		bLoadoutSavePending = true;
 	}
 }
 
@@ -343,9 +439,37 @@ void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& I
 		return;
 	}
 
-	// 각인 입구 (불러오기). 각인이 생기기 전에 저장된 장비는 여기서 한 번 발린다.
-	// 저장 연결(AddUniqueDynamic)이 아이템을 다 넣은 뒤라 넣는 도중엔 저장이 안 나간다. 그래서 따로 센다.
 	bool bNewlyEngraved = false;
+	ApplyLoadout(InLoadout, bNewlyEngraved);
+
+	// 외부 서버 저장 연결. 아이템을 다 넣은 뒤에 묶어서, 넣는 도중엔 저장이 안 나간다.
+	if (Inventory)
+	{
+		Inventory->OnInventoryChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
+	}
+	if (Equipment)
+	{
+		Equipment->OnEquipmentChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
+	}
+	if (QuickSlot)
+	{
+		QuickSlot->OnQuickSlotChanged.AddUObject(this, &AHB_PlayerState::HandleQuickSlotChanged);
+	}
+
+	// 새로 발린 게 있으면 저장한다 — 안 하면 다음 접속 때 다시 굴려져 값이 바뀐다.
+	if (bNewlyEngraved)
+	{
+		RequestSaveLoadout();
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Loadout: applied inv=%d"), InLoadout.InventoryEntries.Num());
+}
+
+void AHB_PlayerState::ApplyLoadout(const FPlayerLoadout& InLoadout, bool& bOutNewlyEngraved)
+{
+	// 각인 입구 (불러오기). 각인이 생기기 전에 저장된 장비는 여기서 한 번 발린다.
+	// 새로 발린 게 있는지는 부르는 쪽이 저장할지 정하려고 받는다.
+	bOutNewlyEngraved = false;
 
 	if (Inventory)
 	{
@@ -356,12 +480,10 @@ void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& I
 			FItemInstance Item = Entry.Item;
 			if (Inventory->EnsureEngraved(Item))
 			{
-				bNewlyEngraved = true;
+				bOutNewlyEngraved = true;
 			}
 			Inventory->TryAddItemAt(Item, Entry.Position);
 		}
-
-		Inventory->OnInventoryChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
 	}
 
 	if (Equipment)
@@ -375,30 +497,59 @@ void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& I
 			{
 				if (Inventory->EnsureEngraved(Slot))
 				{
-					bNewlyEngraved = true;
+					bOutNewlyEngraved = true;
 				}
 			}
 		}
 
 		Equipment->ApplyLoadedSlots(LoadedSlots);
-
-		Equipment->OnEquipmentChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
 	}
 
 	if (QuickSlot)
 	{
 		QuickSlot->ApplyLoadedSlots(InLoadout.QuickSlots);
-
-		QuickSlot->OnQuickSlotChanged.AddUObject(this, &AHB_PlayerState::HandleQuickSlotChanged);
 	}
+}
 
-	// 새로 발린 게 있으면 저장한다 — 안 하면 다음 접속 때 다시 굴려져 값이 바뀐다.
-	if (bNewlyEngraved)
+void AHB_PlayerState::ApplySavedData(const TArray<FInventoryEntry>& InStash, const FPlayerLoadout& InLoadout,
+	const FHBStartingLoadout& InStartingLoadout)
+{
+	if (!HasAuthority())
 	{
-		RequestSaveLoadout();
+		return;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("Loadout: applied inv=%d"), InLoadout.InventoryEntries.Num());
+	// 각인이 새로 발려도 여기서 저장을 부르지 않는다. 로컬 모드는 복제가 내 PC 에 도착하면 그쪽이 저장한다.
+	if (Stash)
+	{
+		Stash->ApplyLoadedEntries(InStash);
+	}
+	GrantTestGoldIfNeeded();
+
+	bool bNewlyEngraved = false;
+	ApplyLoadout(InLoadout, bNewlyEngraved);
+
+	// 로비에서 등록한 스킬. 비어 있으면(첫 실행) 지금 값을 둔다 — 로비에서 넘어온 값이나 기본 구성.
+	if (InStartingLoadout.Job)
+	{
+		FText Error;
+		if (!TrySetStartingLoadout(InStartingLoadout, Error))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Save] 저장된 스킬 구성이 안 맞아 무시한다 | %s"), *Error.ToString());
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Save] 적용 %s | 창고 %d 인벤 %d"),
+		*GetNameSafe(this), InStash.Num(), InLoadout.InventoryEntries.Num());
+}
+
+bool AHB_PlayerState::UsesBackendSave() const
+{
+	if (!SaveComponent)
+	{
+		return true;
+	}
+	return SaveComponent->GetSaveMode() == EHBSaveMode::Backend;
 }
 
 FString AHB_PlayerState::ResolveAccountId() const
@@ -540,7 +691,17 @@ void AHB_PlayerState::HandleStashLoadCompleted(bool bSuccess)
 {
 	LoadLoadout();
 
-	if (!bSuccess || !HasAuthority() || !bGrantTestGold || !Stash)
+	if (!bSuccess)
+	{
+		return;
+	}
+	GrantTestGoldIfNeeded();
+}
+
+void AHB_PlayerState::GrantTestGoldIfNeeded()
+{
+	// 로컬 모드에서는 아래 SaveStash() 가 저장소가 없어 아무것도 안 한다. 그 경우 내 PC 가 복제를 받아 저장한다.
+	if (!HasAuthority() || !bGrantTestGold || !Stash)
 	{
 		return;
 	}
