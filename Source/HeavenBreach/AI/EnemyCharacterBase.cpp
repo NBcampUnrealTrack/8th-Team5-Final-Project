@@ -26,8 +26,6 @@
 #include "Combat/GameplayCue/HitCuePlay.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/PlayerState/HB_PlayerState.h"
-#include "AI/GAS/EnemyMontageGABase.h"
-#include "Animation/AnimInstance.h"
 
 // Sets default values
 AEnemyCharacterBase::AEnemyCharacterBase()
@@ -157,11 +155,13 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 	// 피격 반응
 	if (!AbilitySystemComp->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
 	{
-		// 일반 타격은 경직을 주지 않는다. 피격 몽타주는 위의 타격 큐가 모든 화면에서 튼다 (PlayHit).
-		// 공격 · 이동을 끊는 진짜 경직(Ability.HitReact)은 패링만 준다 (AHBPlayerCharacter::ApplyStaggerTo).
+		// 일반 타격은 피격 모션만 준다 (Ability.Hit — 목 슬롯 몽타주. 공격 · 이동을 끊지 않는다).
+		// 공격을 끊는 진짜 경직(Ability.HitReact)은 패링만 준다 (AHBPlayerCharacter::ApplyStaggerTo).
 		// 왜: 플레이어 연계 공격이 빨라서, 매 타격 경직이면 적이 아무것도 못 한다.
+		// Ability.Hit GA 가 없는 적은 모션 없이 소리 · 이펙트만 난다.
 		//
 		// 쳐낼 조건: 특정 스킬이 경직을 줘야 하면 그 스킬에서 Ability.HitReact 를 따로 부른다.
+		AbilitySystemComp->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_Hit));
 
 		// 때린상대의 위치로 가기위한 위치를 감각관리컴포넌트에 건네준다.
 		if (InstigatorActor)
@@ -175,63 +175,7 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 			}
 		}
 	}
-
-}
-
-void AEnemyCharacterBase::PlayHit() const
-{
-	// 죽이는 타격에도 큐는 나간다. 사망 몽타주 위에 얹지 않는다
-	if (IsDead())
-	{
-		return;
-	}
-
-	UAnimMontage* HitMontage = FindHitMontage();
-	if (!HitMontage)
-	{
-		return;
-	}
-	USkeletalMeshComponent* MeshComp = GetMesh();
-	if (!MeshComp)
-	{
-		return;
-	}
-	UAnimInstance* AnimInstance = MeshComp->GetAnimInstance();
-	if (!AnimInstance)
-	{
-		return;
-	}
-
-	// ASC 를 거치지 않는다. ASC 는 몽타주를 하나만 들고 있어서, 거치면 공격 몽타주 자리를 빼앗아 공격이 끊긴다.
-	// 마지막 인자 false = 다른 몽타주를 멈추지 않는다.
-	AnimInstance->Montage_Play(HitMontage, 1.f, EMontagePlayReturnType::MontageLength, 0.f, false);
-}
-
-UAnimMontage* AEnemyCharacterBase::FindHitMontage() const
-{
-	if (!ArchetypeData)
-	{
-		return nullptr;
-	}
-
-	for (const TSubclassOf<UGameplayAbility>& AbilityClass : ArchetypeData->Abilities)
-	{
-		if (!AbilityClass)
-		{
-			continue;
-		}
-		const UEnemyMontageGABase* MontageGA = Cast<UEnemyMontageGABase>(AbilityClass->GetDefaultObject());
-		if (!MontageGA)
-		{
-			continue;
-		}
-		if (!MontageGA->GetAssetTags().HasTag(AbilityTag::TAG_Ability_HitReact))
-		{
-			continue;
-		}
-		return MontageGA->GetMontage();
-	}
-	return nullptr;
+	
 }
 
 void AEnemyCharacterBase::SetMoveSpeed(bool bRun)

@@ -92,11 +92,17 @@ void UGA_PlayerStagger::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	//
 	// 왜 여기인가: 몽타주 태스크 생성이 실패하면 위에서 반환하므로,
 	// 이 자리는 "경직이 확정된 뒤" 다. 감속과 같은 이유로 여기 둔다.
-	if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()))
+	//
+	// 서버에서만 쏜다. 이 GA 는 소유 클라에서도 같이 돌아서(ServerInitiated),
+	// 양쪽에서 쏘면 클라만 두 번 흔들린다. ClientPlayCameraShake 는 서버가 부르면 소유 클라로 간다.
+	if (ActorInfo->IsNetAuthority())
 	{
-		if (AHBPlayerController* PC = Cast<AHBPlayerController>(Player->GetController()))
+		if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()))
 		{
-			PC->ClientPlayCameraShake(Player->GetHitShakeClass(), Player->GetStaggerShakeScale());
+			if (AHBPlayerController* PC = Cast<AHBPlayerController>(Player->GetController()))
+			{
+				PC->ClientPlayCameraShake(Player->GetHitShakeClass(), Player->GetStaggerShakeScale());
+			}
 		}
 	}
 

@@ -26,9 +26,6 @@ public:
 
 	// 사거리에 맞는 어빌리티인지 확인
 	bool IsRange(float Distance) const;
-
-	// 이 어빌리티가 트는 몽타주. 일반 타격 피격 연출이 피격 GA 의 몽타주를 빌려 쓴다 (AEnemyCharacterBase::PlayHit)
-	UAnimMontage* GetMontage() const { return Montage; }
 protected:
 	// 실행시킬 몽타주
 	UPROPERTY(EditDefaultsOnly, Category = "Ability")
