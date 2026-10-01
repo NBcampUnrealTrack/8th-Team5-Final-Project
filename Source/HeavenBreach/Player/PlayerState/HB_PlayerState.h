@@ -22,6 +22,7 @@ class ILoadoutStorage;
 class UCraftComponent;
 class UHBCommonAugmentSet;
 class UHBPlayerCorpseInventory;
+class UHBPlayerSaveComponent;
 
 struct FPlayerLoadout;
 
@@ -384,6 +385,16 @@ public:
 	// Corpse 가 있으면 먼저 그쪽으로 옮긴다(사망). 없으면 그냥 비운다(시간 종료).
 	// 디바운스 없이 바로 저장한다 — 곧 맵을 떠나거나 접속이 끊긴다.
 	void ForfeitCarriedItems(UHBPlayerCorpseInventory* Corpse);
+
+	// 로컬 저장 모드: 클라가 보낸 저장 데이터를 적용한다. UHBPlayerSaveComponent 가 검사한 뒤 부른다. 서버 전용.
+	void ApplySavedData(const TArray<FInventoryEntry>& InStash, const FPlayerLoadout& InLoadout,
+		const FHBStartingLoadout& InStartingLoadout);
+
+	// 계정 ID. Steam 이면 Steam ID, 아니면 TestAccount. 로컬 저장 파일 이름에도 쓴다.
+	FString ResolveAccountId() const;
+
+	UHBPlayerSaveComponent* GetSaveComponent() const { return SaveComponent; }
+
 private:
 	UPROPERTY()
 	TObjectPtr<UStashComponent> Stash;
@@ -397,12 +408,24 @@ private:
 	UPROPERTY()
 	TObjectPtr<UQuickSlotComponent> QuickSlot;
 
+	UPROPERTY()
+	TObjectPtr<UHBPlayerSaveComponent> SaveComponent;
+
 	void LoadLoadout();
 	void HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& InLoadout);
 
+	// 저장된 인벤토리 · 장착 · 퀵슬롯을 넣는다. 외부 서버 · 로컬 두 방식이 같이 쓴다.
+	// 새로 각인이 발린 게 있으면 bOutNewlyEngraved = true.
+	void ApplyLoadout(const FPlayerLoadout& InLoadout, bool& bOutNewlyEngraved);
+
+	// 창고 골드가 TestGoldMinimum 보다 적으면 채운다. 외부 서버 · 로컬 두 방식이 같이 쓴다.
+	void GrantTestGoldIfNeeded();
+
+	// 외부 서버 저장 모드인가. 컴포넌트가 없으면 예전 방식(외부 서버)으로 본다.
+	bool UsesBackendSave() const;
+
 	TSharedPtr<ILoadoutStorage> LoadoutStorage;
 	FString LoadoutAccountId;
-	FString ResolveAccountId() const;
 #pragma endregion
 
 #pragma region Shop
