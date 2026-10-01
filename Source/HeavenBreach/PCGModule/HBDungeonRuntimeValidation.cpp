@@ -9,6 +9,8 @@ bool HBDungeonRuntimeValidation::ValidateLayoutForLoading(const TArray<FHBProtot
 {
     Error.Reset();
     if (Rooms.IsEmpty()) { Error = TEXT("Layout has no rooms."); return false; }
+    TArray<TSet<FName>> PortalEndpoints;
+    PortalEndpoints.SetNum(Rooms.Num());
     for (int32 Index = 0; Index < Rooms.Num(); ++Index)
     {
         const auto& R = Rooms[Index];
@@ -19,8 +21,15 @@ bool HBDungeonRuntimeValidation::ValidateLayoutForLoading(const TArray<FHBProtot
         { Error = TEXT("Layout needs contiguous room IDs, valid modules/transforms and preceding parent IDs."); return false; }
         if (R.Connection != EHBDungeonConnection::Door && R.Connection != EHBDungeonConnection::Portal)
         { Error = TEXT("Unknown room connection type."); return false; }
-        if (Index > 0 && R.Connection == EHBDungeonConnection::Portal && (R.ParentPortalId.IsNone() || R.EntryPortalId.IsNone()))
-        { Error = TEXT("Portal connection is missing stable portal IDs."); return false; }
+        if (R.Connection == EHBDungeonConnection::Portal)
+        {
+            if (Index == 0 || R.ParentPortalId.IsNone() || R.EntryPortalId.IsNone())
+            { Error = TEXT("Portal connections require a preceding parent and stable portal IDs."); return false; }
+            if (PortalEndpoints[R.ParentId].Contains(R.ParentPortalId) || PortalEndpoints[Index].Contains(R.EntryPortalId))
+            { Error = TEXT("A portal endpoint cannot be reused by another connection in the same room instance."); return false; }
+            PortalEndpoints[R.ParentId].Add(R.ParentPortalId);
+            PortalEndpoints[Index].Add(R.EntryPortalId);
+        }
         TSet<FName> Seen;
         for (FName Id : R.UsedConnectorIds)
         {

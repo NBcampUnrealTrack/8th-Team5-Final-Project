@@ -5,15 +5,20 @@
 
 #include "Net/UnrealNetwork.h"
 #include "PCGModule/HBDungeonRuntimeValidation.h"
+#include "PCGModule/HBDungeonDoorSeal.h"
 
-bool AHeavenBreachGameState::PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms)
+bool AHeavenBreachGameState::PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms,
+        TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& SealExtent)
 {
     if (!HasAuthority() || GetNetMode() == NM_Client || GenerationId <= DungeonSnapshot.GenerationId) return false;
     FString Error;
-    if (!HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error)) return false;
+    if (!HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error)
+        || !AHBDungeonDoorSeal::ValidateSettings(SealClass, SealExtent, Error)) return false;
     DungeonSnapshot.GenerationId = GenerationId;
     DungeonSnapshot.Seed = Seed;
     DungeonSnapshot.Rooms = Rooms;
+    DungeonSnapshot.DoorSealClass = SealClass.Get();
+    DungeonSnapshot.DoorSealExtent = SealExtent;
     ForceNetUpdate();
     OnDungeonSnapshotChanged.Broadcast();
     return true;

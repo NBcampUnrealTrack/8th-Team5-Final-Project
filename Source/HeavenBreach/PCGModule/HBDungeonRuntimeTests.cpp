@@ -53,6 +53,18 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     TestFalse(TEXT("Self parent rejected"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
     Rooms[0] = Room; Rooms[0].UsedConnectorIds.Add(TEXT("Door")); Rooms[0].UnusedConnectorIds.Add(TEXT("Door"));
     TestFalse(TEXT("Conflicting seal intent rejected"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[0] = Room; Rooms[0].Connection = EHBDungeonConnection::Portal;
+    TestFalse(TEXT("Root portal rejected before parent stream indexing"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[0] = Room;
+    FHBPrototypeRoom Child = Room;
+    Child.Id = 1; Child.ParentId = 0; Child.Connection = EHBDungeonConnection::Portal;
+    Child.ParentPortalId = TEXT("Exit"); Child.EntryPortalId = TEXT("Entry");
+    Rooms.Add(Child);
+    TestTrue(TEXT("Distinct room portal endpoints accepted"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Child.Id = 2; Rooms.Add(Child);
+    TestFalse(TEXT("Reusing a parent portal endpoint rejected"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms.SetNum(1);
+    Rooms[0].UsedConnectorIds.Add(TEXT("Door")); Rooms[0].UnusedConnectorIds.Add(TEXT("Door"));
 
     const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
         .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
@@ -60,16 +72,18 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
     auto* Dungeon = World->SpawnActor<AHBDungeonRuntime>();
     TestTrue(TEXT("Standalone may plan"), Dungeon->CanPlanGeneration());
-    TestFalse(TEXT("Server does not accept client layout entry point"), Dungeon->ApplyServerLayout(1, 1, Rooms));
+    TestFalse(TEXT("Server does not accept client layout entry point"), Dungeon->ApplyServerLayout(FHBDungeonSnapshot()));
     auto* SnapshotState = World->SpawnActor<AHeavenBreachGameState>();
     World->SetGameState(SnapshotState);
-    TestFalse(TEXT("Malformed snapshot is not published"), SnapshotState->PublishDungeonLayout(1, 42, Rooms));
+    TestFalse(TEXT("Malformed snapshot is not published"), SnapshotState->PublishDungeonLayout(1, 42, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     Rooms[0] = Room;
-    TestTrue(TEXT("Authority publishes validated snapshot"), SnapshotState->PublishDungeonLayout(1, 42, Rooms));
+    TestFalse(TEXT("Missing seal class cannot be published"), SnapshotState->PublishDungeonLayout(1, 42, Rooms, nullptr, FVector(30, 160, 220)));
+    TestFalse(TEXT("Invalid seal size cannot be published"), SnapshotState->PublishDungeonLayout(1, 42, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector::ZeroVector));
+    TestTrue(TEXT("Authority publishes validated snapshot"), SnapshotState->PublishDungeonLayout(1, 42, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     Rooms[0].ModuleId = TEXT("ChangedAfterPublication");
     TestEqual(TEXT("Snapshot owns its room data"), SnapshotState->GetDungeonSnapshot().Rooms[0].ModuleId, Room.ModuleId);
-    TestFalse(TEXT("Published generation is immutable"), SnapshotState->PublishDungeonLayout(1, 99, Rooms));
-    TestFalse(TEXT("Old generation rejected"), SnapshotState->PublishDungeonLayout(0, 99, Rooms));
+    TestFalse(TEXT("Published generation is immutable"), SnapshotState->PublishDungeonLayout(1, 99, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
+    TestFalse(TEXT("Old generation rejected"), SnapshotState->PublishDungeonLayout(0, 99, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     auto* Driver = NewObject<UIpNetDriver>(World);
     Driver->SetWorld(World);
     // A child connection is a socket-free net-mode marker. An uninitialized
@@ -83,18 +97,23 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     TestFalse(TEXT("Client Plan node cannot generate"), Dungeon->PlanLayout());
     Dungeon->MaterializeLayout(1);
     TestEqual(TEXT("Client Load node cannot bypass layout application"), Dungeon->State, EHBDungeonRuntimeState::Idle);
-    TestFalse(TEXT("Invalid generation rejected"), Dungeon->ApplyServerLayout(0, 1, Rooms));
-    TestFalse(TEXT("Client cannot publish even with local actor authority"), SnapshotState->PublishDungeonLayout(2, 99, Rooms));
+    TestFalse(TEXT("Invalid generation rejected"), Dungeon->ApplyServerLayout(FHBDungeonSnapshot()));
+    TestFalse(TEXT("Client cannot publish even with local actor authority"), SnapshotState->PublishDungeonLayout(2, 99, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     // A client has no server-side navigation timeout requirement.
     Dungeon->EncounterTimeoutSeconds = 0.f;
+    // Clients must use the server's wall settings even when their local defaults differ.
+    Dungeon->DoorSealClass = nullptr;
+    Dungeon->DoorSealExtent = FVector::ZeroVector;
     Dungeon->Tick(0);
     TestEqual(TEXT("Snapshot received before runtime binding is consumed"), Dungeon->GetGenerationId(), 1);
     TestEqual(TEXT("Authoritative seed applied"), Dungeon->ActiveSeed, 42);
+    TestTrue(TEXT("Snapshot retains the server wall class"), SnapshotState->GetDungeonSnapshot().DoorSealClass.Get() == AHBDungeonDoorSeal::StaticClass());
+    TestTrue(TEXT("Snapshot retains the server wall size"), SnapshotState->GetDungeonSnapshot().DoorSealExtent.Equals(FVector(30, 160, 220)));
     TestEqual(TEXT("Local loading starts from retained snapshot"), Dungeon->State, EHBDungeonRuntimeState::Loading);
     SnapshotState->OnDungeonSnapshotChanged.Broadcast();
     TestEqual(TEXT("Repeated notification does not restart generation"), Dungeon->GetGenerationId(), 1);
     TestTrue(TEXT("Same client generation does not restart streaming"),
-        Dungeon->ApplyServerLayout(1, 42, SnapshotState->GetDungeonSnapshot().Rooms));
+        Dungeon->ApplyServerLayout(SnapshotState->GetDungeonSnapshot()));
     auto* Encounters = World->GetSubsystem<UHBEncounterSubsystem>();
     auto* Chests = World->GetSubsystem<UHBChestSpawnSubsystem>();
     TestNotNull(TEXT("Client encounter subsystem exists"), Encounters);
@@ -130,7 +149,7 @@ bool FHBDungeonLoadAckTest::RunTest(const FString&)
     FHBPrototypeRoom Room;
     Room.Id = 0; Room.ModuleId = TEXT("TestModule");
     Room.ModuleMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Engine/Maps/Entry.Entry")));
-    TestTrue(TEXT("Publish generation"), Source->PublishDungeonLayout(1, 42, {Room}));
+    TestTrue(TEXT("Publish generation"), Source->PublishDungeonLayout(1, 42, {Room}, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     TestFalse(TEXT("Unknown controller rejected"), Mode->ReportDungeonLoaded(nullptr, 1, true));
     TestFalse(TEXT("Zero generation rejected"), Mode->ReportDungeonLoaded(Player, 0, true));
     TestFalse(TEXT("Future generation rejected"), Mode->ReportDungeonLoaded(Player, 2, true));
@@ -144,7 +163,7 @@ bool FHBDungeonLoadAckTest::RunTest(const FString&)
     Driver->SetWorld(World);
     Driver->ServerConnection = NewObject<UChildConnection>(Driver);
     World->SetNetDriver(Driver);
-    TestTrue(TEXT("Stage the current generation in the local loader"), Dungeon->ApplyServerLayout(1, 42, {Room}));
+    TestTrue(TEXT("Stage the current generation in the local loader"), Dungeon->ApplyServerLayout(Source->GetDungeonSnapshot()));
     Driver->ServerConnection = nullptr;
     TestEqual(TEXT("Fixture becomes a listen server"), World->GetNetMode(), NM_ListenServer);
     TestTrue(TEXT("Listen server can plan while client cannot"), Dungeon->CanPlanGeneration());
@@ -163,7 +182,7 @@ bool FHBDungeonLoadAckTest::RunTest(const FString&)
     TestNull(TEXT("PreparingEncounters blocks player spawning"), Player->GetPawn());
     Dungeon->State = EHBDungeonRuntimeState::Ready;
     TestTrue(TEXT("Host and both participants ready opens readiness gate"), Mode->AreDungeonPlayersLoaded());
-    TestTrue(TEXT("Publish next generation"), Source->PublishDungeonLayout(2, 43, {Room}));
+    TestTrue(TEXT("Publish next generation"), Source->PublishDungeonLayout(2, 43, {Room}, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     TestFalse(TEXT("Previous generation acknowledgement rejected"), Mode->ReportDungeonLoaded(Player, 1, true));
     TestFalse(TEXT("Old acknowledgements do not unlock a new generation"), Mode->AreDungeonPlayersLoaded());
     Player->PlayerState->SetIsOnlyASpectator(true);

@@ -22,7 +22,8 @@ class HEAVENBREACH_API AHeavenBreachGameState : public AGameState
 	GENERATED_BODY()
 	
 public:
-    bool PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms);
+    bool PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms,
+        TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& SealExtent);
     const FHBDungeonSnapshot& GetDungeonSnapshot() const { return DungeonSnapshot; }
     FSimpleMulticastDelegate OnDungeonSnapshotChanged;
 

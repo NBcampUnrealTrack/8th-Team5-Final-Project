@@ -12,6 +12,7 @@ class AHBDungeonPortal;
 class AHBDungeonDoorSeal;
 class ANavMeshBoundsVolume;
 class AHeavenBreachGameState;
+struct FHBDungeonSnapshot;
 UENUM(BlueprintType)
 enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, PreparingEncounters, Ready, Failed };
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
@@ -62,7 +63,7 @@ public:
     bool PlanLayout();
     void MaterializeLayout(int32 PointCount);
     bool CanPlanGeneration() const;
-    bool ApplyServerLayout(int32 InGenerationId, int32 InSeed, const TArray<FHBPrototypeRoom>& InRooms);
+    bool ApplyServerLayout(const FHBDungeonSnapshot& Snapshot);
     int32 GetGenerationId() const { return GenerationId; }
     bool ActivateEncounters(FString& Error);
     bool AreEncountersActive() const { return bEncountersActive; }
@@ -84,6 +85,8 @@ private:
     bool bEncountersActive = false;
     HBConnectorLayout::FSettings ActiveSettings;
     FHBDungeonGenerationRules ActiveRules;
+    UPROPERTY(Transient) TSubclassOf<AHBDungeonDoorSeal> ActiveDoorSealClass;
+    FVector ActiveDoorSealExtent = FVector::ZeroVector;
     UPROPERTY(Transient) TArray<TObjectPtr<ULevelStreamingDynamic>> Streams;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonPortal>> LinkedPortals;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonDoorSeal>> Seals;

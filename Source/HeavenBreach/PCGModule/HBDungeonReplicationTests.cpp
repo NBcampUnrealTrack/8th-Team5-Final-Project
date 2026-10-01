@@ -3,6 +3,13 @@
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "PCGModule/HBDungeonRuntime.h"
 #include "PCGModule/HBDungeonModuleDefinition.h"
+#include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBDungeonDoorSeal.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/ArrowComponent.h"
+#include "Components/BoxComponent.h"
+#include "Engine/StaticMesh.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBChestSpawnSubsystem.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
@@ -412,9 +419,159 @@ namespace
             return true;
         }
     };
+    class FHBWaitForDungeonGeometry : public IAutomationLatentCommand
+    {
+        FAutomationTestBase* Test;
+        TSharedRef<FHBReplicationFixture> Fixture;
+        double Started = FPlatformTime::Seconds();
+        bool bMatchStarted = false;
+        bool bTeleported = false;
+        bool bChangedClientDefaults = false;
+        FVector Destination = FVector::ZeroVector;
+        FRotator Facing = FRotator(0, 137, 0);
+        int32 SealCount = 0;
+        int32 PortalPairs = 0;
+
+        bool CheckGeometry(AHBDungeonRuntime* Host, AHBDungeonRuntime* Client, const FHBDungeonSnapshot& Snapshot)
+        {
+            for (const auto& Room : Snapshot.Rooms)
+            {
+                ULevel* HostLevel = Host->GetLoadedRoomLevel(Room.Id);
+                ULevel* ClientLevel = Client->GetLoadedRoomLevel(Room.Id);
+                if (!HostLevel || !ClientLevel) { Test->AddError(TEXT("Geometry fixture has an unloaded room.")); return false; }
+                TArray<AHBDungeonDoorSeal*> HostSeals, ClientSeals;
+                for (AActor* Actor : HostLevel->Actors)
+                    if (auto* Seal = Cast<AHBDungeonDoorSeal>(Actor); IsValid(Seal) && Seal->GetOwner() == Host) HostSeals.Add(Seal);
+                for (AActor* Actor : ClientLevel->Actors)
+                    if (auto* Seal = Cast<AHBDungeonDoorSeal>(Actor); IsValid(Seal) && Seal->GetOwner() == Client) ClientSeals.Add(Seal);
+                Test->TestEqual(TEXT("Server room has one wall per unused connector"), HostSeals.Num(), Room.UnusedConnectorIds.Num());
+                Test->TestEqual(TEXT("Client room has the same number of walls without replicated duplicates"), ClientSeals.Num(), HostSeals.Num());
+                for (AHBDungeonDoorSeal* HostSeal : HostSeals)
+                {
+                    ++SealCount;
+                    auto* Found = ClientSeals.FindByPredicate([HostSeal](const auto* Seal) { return Seal->GetFName() == HostSeal->GetFName(); });
+                    if (!Found) { Test->AddError(TEXT("Client wall is missing its stable generation/room/connector identity.")); return false; }
+                    AHBDungeonDoorSeal* ClientSeal = *Found;
+                    Test->TestTrue(TEXT("Both walls use the authoritative class"),
+                        HostSeal->GetClass() == Snapshot.DoorSealClass.Get() && ClientSeal->GetClass() == HostSeal->GetClass());
+                    Test->TestTrue(TEXT("Wall transforms agree across server and client"), HostSeal->GetActorTransform().Equals(ClientSeal->GetActorTransform(), 0.1));
+                    Test->TestTrue(TEXT("Wall collision bounds agree across server and client"),
+                        HostSeal->GetComponentsBoundingBox(true).Equals(ClientSeal->GetComponentsBoundingBox(true), 0.1));
+                    for (AHBDungeonDoorSeal* Seal : {HostSeal, ClientSeal})
+                    {
+                        Test->TestFalse(TEXT("Locally generated walls are not replicated actors"), Seal->GetIsReplicated());
+                        Test->TestTrue(TEXT("Wall blocks player collision"), Seal->Wall->IsQueryCollisionEnabled()
+                            && Seal->Wall->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Block);
+                        Test->TestTrue(TEXT("Wall mesh size follows the server snapshot"),
+                            (Seal->Wall->GetStaticMesh()->GetBounds().BoxExtent * Seal->Wall->GetRelativeScale3D()).Equals(Snapshot.DoorSealExtent, 0.1));
+                    }
+                }
+                if (Room.Connection != EHBDungeonConnection::Portal) continue;
+                ++PortalPairs;
+                FString Error;
+                auto* HostSource = AHBDungeonPortal::FindInLevel(Host->GetLoadedRoomLevel(Room.ParentId), Room.ParentPortalId, Error);
+                auto* HostTarget = AHBDungeonPortal::FindInLevel(HostLevel, Room.EntryPortalId, Error);
+                auto* ClientSource = AHBDungeonPortal::FindInLevel(Client->GetLoadedRoomLevel(Room.ParentId), Room.ParentPortalId, Error);
+                auto* ClientTarget = AHBDungeonPortal::FindInLevel(ClientLevel, Room.EntryPortalId, Error);
+                if (!HostSource || !HostTarget || !ClientSource || !ClientTarget) { Test->AddError(Error); return false; }
+                Test->TestTrue(TEXT("Server portal endpoints are reciprocally linked in their planned instances"),
+                    HostSource->TargetPortal == HostTarget && HostTarget->TargetPortal == HostSource);
+                Test->TestTrue(TEXT("Client portals have matching trigger and arrival geometry"),
+                    HostSource->Trigger->GetComponentTransform().Equals(ClientSource->Trigger->GetComponentTransform(), 0.1)
+                    && HostTarget->Arrival->GetComponentTransform().Equals(ClientTarget->Arrival->GetComponentTransform(), 0.1));
+                Test->TestFalse(TEXT("Locally authoritative client portals cannot connect"), ClientSource->ConnectTo(ClientTarget));
+                Test->TestTrue(TEXT("Portal links remain server-only"), !ClientSource->TargetPortal && !ClientTarget->TargetPortal);
+            }
+            Test->TestTrue(TEXT("Geometry fixture exercised actual unused-door walls"), SealCount > 0);
+            Test->TestTrue(TEXT("Geometry fixture exercised actual cross-room portal pairs"), PortalPairs > 0);
+            return true;
+        }
+
+    public:
+        FHBWaitForDungeonGeometry(FAutomationTestBase* InTest, TSharedRef<FHBReplicationFixture> InFixture)
+            : Test(InTest), Fixture(InFixture) {}
+
+        virtual bool Update() override
+        {
+            if (!Fixture->bConfigured) return true;
+            if (FPlatformTime::Seconds() - Started > 90.)
+            { Test->AddError(TEXT("Listen walls/portal synchronization timed out.")); return true; }
+            UWorld* Server = nullptr;
+            UWorld* Client = nullptr;
+            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            {
+                if (Context.WorldType != EWorldType::PIE || !Context.World()) continue;
+                if (Context.World()->GetNetMode() == NM_ListenServer) Server = Context.World();
+                if (Context.World()->GetNetMode() == NM_Client) Client = Context.World();
+            }
+            auto* Mode = Server ? Server->GetAuthGameMode<AHeavenBreachGameMode>() : nullptr;
+            if (Mode) FindFProperty<FBoolProperty>(Mode->GetClass(), TEXT("bAutoStartMatch"))->SetPropertyValue_InContainer(Mode, false);
+            auto* HostDungeon = FindDungeon(Server);
+            auto* ClientDungeon = FindDungeon(Client);
+            if (!Mode || !HostDungeon || !ClientDungeon) return false;
+            if (!bChangedClientDefaults)
+            {
+                ClientDungeon->DoorSealClass = nullptr;
+                ClientDungeon->DoorSealExtent = FVector::ZeroVector;
+                bChangedClientDefaults = true;
+            }
+            if (HostDungeon->State == EHBDungeonRuntimeState::Failed || ClientDungeon->State == EHBDungeonRuntimeState::Failed)
+            {
+                Test->AddError(FString::Printf(TEXT("Geometry fixture failed: host=%s client=%s"), *HostDungeon->Status, *ClientDungeon->Status));
+                return true;
+            }
+            if (!HostDungeon->IsReady() || !ClientDungeon->IsReady() || !Mode->AreDungeonPlayersLoaded()) return false;
+            if (!bMatchStarted)
+            {
+                const auto* HostState = Server->GetGameState<AHeavenBreachGameState>();
+                const auto* ClientState = Client->GetGameState<AHeavenBreachGameState>();
+                if (!HostState || !ClientState) return false;
+                Test->TestTrue(TEXT("Wall asset path and size replicate with the layout"),
+                    HostState->GetDungeonSnapshot().DoorSealClass == ClientState->GetDungeonSnapshot().DoorSealClass
+                    && HostState->GetDungeonSnapshot().DoorSealExtent.Equals(ClientState->GetDungeonSnapshot().DoorSealExtent));
+                if (!CheckGeometry(HostDungeon, ClientDungeon, HostState->GetDungeonSnapshot()) || !SupplyFixtureLoadouts(Test, Mode)) return true;
+                Mode->StartMatch();
+                Test->TestTrue(TEXT("Portal network test starts only after dungeon acknowledgements"), Mode->IsMatchInProgress());
+                if (!Mode->IsMatchInProgress()) return true;
+                bMatchStarted = true;
+                return false;
+            }
+            APlayerController* Remote = nullptr;
+            for (FConstPlayerControllerIterator It = Server->GetPlayerControllerIterator(); It; ++It)
+                if (It->IsValid() && !It->Get()->IsLocalController()) Remote = It->Get();
+            APlayerController* Local = Client->GetFirstPlayerController();
+            auto* HostPawn = Remote ? Cast<ACharacter>(Remote->GetPawn()) : nullptr;
+            auto* ClientPawn = Local ? Cast<ACharacter>(Local->GetPawn()) : nullptr;
+            if (!HostPawn || !ClientPawn) return false;
+            if (!bTeleported)
+            {
+                // Safe synthetic arrivals isolate networking from authored map clearance.
+                HostPawn->GetCharacterMovement()->SetMovementMode(MOVE_Flying);
+                ClientPawn->GetCharacterMovement()->SetMovementMode(MOVE_Flying);
+                HostPawn->GetCharacterMovement()->StopMovementImmediately();
+                ClientPawn->GetCharacterMovement()->StopMovementImmediately();
+                auto* Source = Server->SpawnActor<AHBDungeonPortal>(HostPawn->GetActorLocation(), FRotator::ZeroRotator);
+                auto* Target = Server->SpawnActor<AHBDungeonPortal>(HostPawn->GetActorLocation() + FVector(10000, 5000, 20000), Facing);
+                if (!Source || !Target) { Test->AddError(TEXT("Could not spawn safe network portal fixture.")); return true; }
+                Source->PortalId = TEXT("NetworkExit"); Target->PortalId = TEXT("NetworkEntry");
+                Source->SetActorTickEnabled(false); Target->SetActorTickEnabled(false);
+                Destination = Target->Arrival->GetComponentLocation();
+                if (!Source->ConnectTo(Target) || !Source->TryTeleport(HostPawn))
+                { Test->AddError(TEXT("Server could not traverse the safe network portal fixture.")); return true; }
+                Test->TestTrue(TEXT("Server pawn reaches the portal arrival"), HostPawn->GetActorLocation().Equals(Destination, 0.1));
+                bTeleported = true;
+                return false;
+            }
+            if (!ClientPawn->GetActorLocation().Equals(Destination, 20.) || !Local->GetControlRotation().Equals(Facing, 1.)) return false;
+            Test->TestTrue(TEXT("Owning client receives the portal arrival facing"), Local->GetControlRotation().Equals(Facing, 1.));
+            Test->AddInfo(FString::Printf(TEXT("Listen geometry verified %d matching walls, %d portal pairs and remote player position/facing."), SealCount, PortalPairs));
+            return true;
+        }
+    };
+    enum class EHBDungeonNetworkTest { Replication, Activation, Geometry };
 }
 
-static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, bool bActivationTest)
+static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, EHBDungeonNetworkTest Kind)
 {
     const FString Map = TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay");
     if (!FPackageName::DoesPackageExist(Map)) { Test->AddError(TEXT("Dungeon network fixture map is missing.")); return false; }
@@ -453,7 +610,9 @@ static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, bool bActivationT
         return true;
     }));
     ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
-    if (bActivationTest)
+    if (Kind == EHBDungeonNetworkTest::Geometry)
+        FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonGeometry>(Test, Fixture));
+    else if (Kind == EHBDungeonNetworkTest::Activation)
         FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonActivation>(Test, Fixture));
     else
         FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBWaitForDungeonReplication>(Test, Fixture));
@@ -464,9 +623,13 @@ static bool QueueDungeonNetworkTest(FAutomationTestBase* Test, bool bActivationT
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenReplicationTest, "HeavenBreach.PCGModule.Network.ListenRoomReplication",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FHBDungeonListenReplicationTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, false); }
+bool FHBDungeonListenReplicationTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, EHBDungeonNetworkTest::Replication); }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenActivationTest, "HeavenBreach.PCGModule.Network.ListenEncounterActivation",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FHBDungeonListenActivationTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, true); }
+bool FHBDungeonListenActivationTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, EHBDungeonNetworkTest::Activation); }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDungeonListenGeometryTest, "HeavenBreach.PCGModule.Network.ListenWallsAndPortals",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBDungeonListenGeometryTest::RunTest(const FString&) { return QueueDungeonNetworkTest(this, EHBDungeonNetworkTest::Geometry); }
 #endif

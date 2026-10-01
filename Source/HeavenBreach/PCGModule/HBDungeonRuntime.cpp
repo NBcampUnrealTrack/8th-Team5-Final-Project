@@ -83,6 +83,8 @@ void AHBDungeonRuntime::StartGeneration()
     ActiveSeed = bRandomSeedOnStart ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
     ++GenerationId;
     ActiveRules = DungeonRules;
+    ActiveDoorSealClass = DoorSealClass;
+    ActiveDoorSealExtent = DoorSealExtent;
     ActiveSettings.Seed = ActiveSeed;
     ActiveSettings.Origin = GetActorTransform();
     ActiveSettings.bAllowModuleReuse = bAllowModuleReuse;
@@ -105,7 +107,7 @@ bool AHBDungeonRuntime::PlanLayout()
         || !HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error))
     { Fail(Error); return false; }
     auto* GameState = GetWorld()->GetGameState<AHeavenBreachGameState>();
-    if (!GameState || !GameState->PublishDungeonLayout(GenerationId, ActiveSeed, Rooms))
+    if (!GameState || !GameState->PublishDungeonLayout(GenerationId, ActiveSeed, Rooms, ActiveDoorSealClass, ActiveDoorSealExtent))
     { Fail(TEXT("Could not publish dungeon layout to HeavenBreachGameState.")); return false; }
     OnLayoutPlanned.Broadcast();
     return true;
@@ -128,27 +130,31 @@ bool AHBDungeonRuntime::CanPlanGeneration() const
 }
 bool AHBDungeonRuntime::ValidateLocalSettings(FString& Error) const
 {
-    if (!DoorSealClass || DoorSealExtent.ContainsNaN() || DoorSealExtent.GetMin() <= 0 || SpawnTag.IsNone())
-    { Error = TEXT("Configure a door seal class, positive extent and spawn tag."); return false; }
+    if (GetNetMode() != NM_Client && !AHBDungeonDoorSeal::ValidateSettings(DoorSealClass, DoorSealExtent, Error)) return false;
+    if (SpawnTag.IsNone()) { Error = TEXT("Configure a dungeon spawn tag."); return false; }
     if (!FMath::IsFinite(LoadTimeoutSeconds) || LoadTimeoutSeconds <= 0)
     { Error = TEXT("Load timeout must be positive and finite."); return false; }
     return true;
 }
-bool AHBDungeonRuntime::ApplyServerLayout(int32 InGenerationId, int32 InSeed, const TArray<FHBPrototypeRoom>& InRooms)
+bool AHBDungeonRuntime::ApplyServerLayout(const FHBDungeonSnapshot& Snapshot)
 {
-    if (!GetWorld() || !GetWorld()->IsGameWorld() || GetNetMode() != NM_Client || InGenerationId <= 0) return false;
-    if (InGenerationId < GenerationId) return false;
-    if (InGenerationId == GenerationId) return State == EHBDungeonRuntimeState::Loading || IsReady();
+    if (!GetWorld() || !GetWorld()->IsGameWorld() || GetNetMode() != NM_Client || Snapshot.GenerationId <= 0) return false;
+    if (Snapshot.GenerationId < GenerationId) return false;
+    if (Snapshot.GenerationId == GenerationId) return State == EHBDungeonRuntimeState::Loading || IsReady();
     FString Error;
-    if (!ValidateLocalSettings(Error) || !HBDungeonRuntimeValidation::ValidateLayoutForLoading(InRooms, Error))
+    const TSubclassOf<AHBDungeonDoorSeal> SealClass = Snapshot.DoorSealClass.LoadSynchronous();
+    if (!ValidateLocalSettings(Error) || !AHBDungeonDoorSeal::ValidateSettings(SealClass, Snapshot.DoorSealExtent, Error)
+        || !HBDungeonRuntimeValidation::ValidateLayoutForLoading(Snapshot.Rooms, Error))
     {
         UE_LOG(LogHBDungeonRuntime, Warning, TEXT("Rejected server layout: %s"), *Error);
         return false;
     }
     ClearGenerated();
-    GenerationId = InGenerationId;
-    ActiveSeed = InSeed;
-    Rooms = InRooms;
+    GenerationId = Snapshot.GenerationId;
+    ActiveSeed = Snapshot.Seed;
+    Rooms = Snapshot.Rooms;
+    ActiveDoorSealClass = SealClass;
+    ActiveDoorSealExtent = Snapshot.DoorSealExtent;
     ModuleCatalog.Reset();
     GenerationStartTime = FPlatformTime::Seconds();
     LoadLocalRooms();
@@ -172,17 +178,29 @@ void AHBDungeonRuntime::LoadLocalRooms()
 bool AHBDungeonRuntime::SpawnDoorSeals(const FHBPrototypeRoom& Room,
     const TArray<FHBDungeonConnectorDefinition>& Connectors, FString& Error)
 {
-    for (FName Id : Room.UnusedConnectorIds)
+    if (!AHBDungeonDoorSeal::ValidateSettings(ActiveDoorSealClass, ActiveDoorSealExtent, Error)) return false;
+    ULevel* Level = GetLoadedRoomLevel(Room.Id);
+    if (!Level) { Error = TEXT("Missing streamed room for door seals."); return false; }
+    for (int32 Index = 0; Index < Room.UnusedConnectorIds.Num(); ++Index)
     {
+        const FName Id = Room.UnusedConnectorIds[Index];
         const auto* Connector = Connectors.FindByPredicate([Id](const auto& C) { return C.ConnectorId == Id; });
         if (!Connector) { Error = TEXT("Layout references a missing unused connector."); return false; }
         FTransform Transform = Connector->LocalTransform * Room.Transform;
-        Transform.AddToTranslation(Transform.GetRotation().RotateVector(FVector(0, 0, DoorSealExtent.Z)));
+        Transform.AddToTranslation(Transform.GetRotation().RotateVector(FVector(0, 0, ActiveDoorSealExtent.Z)));
         FActorSpawnParameters Params; Params.Owner = this;
+        Params.OverrideLevel = Level;
+        Params.Name = FName(*FString::Printf(TEXT("HBDungeonSeal_G%d_R%d_C%d"), GenerationId, Room.Id, Index));
         Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        auto* Seal = GetWorld()->SpawnActor<AHBDungeonDoorSeal>(DoorSealClass, Transform, Params);
+        auto* Seal = GetWorld()->SpawnActor<AHBDungeonDoorSeal>(ActiveDoorSealClass, Transform, Params);
         if (!Seal) { Error = TEXT("Could not create unused-door seal."); return false; }
-        Seal->SetExtent(DoorSealExtent); Seals.Add(Seal);
+        if (!Seal->SetExtent(ActiveDoorSealExtent))
+        {
+            Seal->Destroy();
+            Error = TEXT("Spawned door seal changed its mesh, replication or collision settings.");
+            return false;
+        }
+        Seals.Add(Seal);
     }
     return true;
 }
@@ -281,7 +299,7 @@ void AHBDungeonRuntime::ConsumeServerSnapshot()
     if (GetNetMode() != NM_Client || !SnapshotSource.IsValid()) return;
     const auto& Snapshot = SnapshotSource->GetDungeonSnapshot();
     if (Snapshot.GenerationId <= GenerationId) return;
-    if (!ApplyServerLayout(Snapshot.GenerationId, Snapshot.Seed, Snapshot.Rooms))
+    if (!ApplyServerLayout(Snapshot))
         Fail(TEXT("Could not apply replicated dungeon layout."));
 }
 bool AHBDungeonRuntime::CreateDungeonNavigationBounds(FString& Error)
