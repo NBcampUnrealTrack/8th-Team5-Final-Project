@@ -118,9 +118,6 @@ struct FItemInstance
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	bool bRevealed = true;
 
-	// ��� ������. -1�̸� "�� �ν��Ͻ��� ���� �������� �ʱ�ȭ���� ����"�� �ǹ��ϰ�,
-	// ����/�Ĺ����� �������� ó�� �����Ǵ� ������ ��޺� �ִ�ġ�� ä����� �Ѵ�.
-	// 0�� �Ǹ� �ļ� ����(����/���� ���/�簢�� �Ұ�, ����/�Ǹ�/���ظ� ����).
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	float CurrentDurability = -1.f;
 
@@ -155,12 +152,8 @@ HEAVENBREACH_API bool ResolveItemViewData(const FDataTableRowHandle& InRow, FIte
 
 HEAVENBREACH_API FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InViewData);
 
-// ��޺� �ִ� ������(��ȹ�� 10.2 ����: �Ϲ� 100 / ��� 150 / ���� 200 / õ�� 250).
-// �뷱�� ������ ���� �� ���� ��ġ�� �ȴ�.
 HEAVENBREACH_API float GetMaxDurabilityForGrade(EItemGrade InGrade);
 
-// ��޺� ��� �׶��̼� ����(�κ��丮 ĭ/���� ���� ����). �� ������ ���� �� ����
-// ��ġ�� InventoryItemWidget, EquipmentSlotWidget ���ʿ� �� �ݿ��ȴ�.
 HEAVENBREACH_API FLinearColor GetGradeTopColor(EItemGrade InGrade);
 HEAVENBREACH_API FLinearColor GetGradeBottomColor(EItemGrade InGrade);
 

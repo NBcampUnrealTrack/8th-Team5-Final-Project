@@ -23,8 +23,6 @@ bool UHBPrototypeAbilityBase::BeginAbilityWithCooldown(
 	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
 	if (!ASC || HBEffects::IsCooldownActive(ASC, CooldownTag)) return false;
 
-	// ��ų�� �ϳ��ϳ� ��ġ�� �ʵ��� ���⼭ �����Ų��.
-	// CooldownTag �� �̹� ��ų�� �ĺ��ϹǷ� �״�� SourceTag �� ����.
 	AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
 	const float FinalCost = Player ? Player->ModifyManaCost(CooldownTag, ManaCost) : ManaCost;
 

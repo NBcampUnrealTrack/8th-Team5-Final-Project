@@ -23,13 +23,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInventoryItemActivated, FGuid, InstanceId);
 
 /**
- * �κ��丮 ȭ��.
  *
- * UI.Layer.Menu ���ÿ� push �Ǿ� �����Ѵ�. Ȱ�� ���¿��� Menu �Է� ��带
- * �����ϹǷ� PlayerController�� �̵�/���� �Է��� ���� ���� �ʿ䰡 ����.
  *
- * ����/���� UI �ȿ� �ڽ� �������� ���� ��쵵 �ִµ�, �׶��� Ȱ��ȭ����
- * �����Ƿ� �Է� ��峪 Back ó���� �������� �ʴ´�.
  */
 UCLASS()
 class HEAVENBREACH_API UInventoryWidget : public UHB_ActivatableWidget
@@ -190,9 +185,6 @@ private:
 	FIntPoint PressedCell = FIntPoint::ZeroValue;
 	FVector2D PressedLocalPosition = FVector2D::ZeroVector;
 	bool bPressedWithCtrl = false;
-	// ��Ŭ���� ������ ��ȿ�� ������ ĭ���� ���۵ƴ��� ����. �̰� ������ �κ��丮 �ٱ��̳�
-	// �� ĭ���� ��Ŭ���ص� ������ ������ PressedCell/bPressedWithCtrl ���� �״�� �����־,
-	// Ctrl ���� �ƹ����� ��Ŭ���ص� ���� �������� ���ؽ�Ʈ �޴��� �ٽ� �ߴ� ���װ� �־���.
 	bool bHasValidPress = false;
 
 	bool bSuppressDropOnCancel = false;
@@ -221,7 +213,6 @@ private:
 	UPROPERTY()
 	TObjectPtr<UItemInfoPopupWidget> HoverInfoPopup;
 
-	// ���� ������ ������ ���콺�� �����̴� �� ƽ���� �˾��� �ٽ� ������ �ʱ� ���� ������.
 	FGuid HoveredItemInstanceId;
 
 	void UpdateHoverInfoPopup(FIntPoint InCell);
@@ -242,6 +233,5 @@ private:
 	FIntPoint HoveredCell = FIntPoint(-1, -1);
 	TObjectPtr<UShopComponent> LinkedShop;
 
-	// �巡�� ���� Operation�� ��Ƶּ� TŰ �Է��� ������ �� �ٷ� ȸ����ų �� �ְ� �Ѵ�.
 	TWeakObjectPtr<UInventoryDragDropOperation> ActiveDragOperation;
 };
