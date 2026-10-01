@@ -16,6 +16,7 @@
 #include "InventoryComponent.h"
 #include "EquipmentComponent.h"
 #include "Inventory/QuickSlotComponent.h"
+#include "Player/HBPlayerCorpseInventory.h"
 #include "Shop/ShopComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/DataTable.h"
@@ -281,9 +282,13 @@ void AHB_PlayerState::SaveLoadout()
 	}
 
 	FPlayerLoadout Loadout;
-	if (Inventory) { Loadout.InventoryEntries = Inventory->GetEntries(); }
-	if (Equipment) { Loadout.EquipmentSlots = Equipment->GetSlots(); }
-	if (QuickSlot) { Loadout.QuickSlots = QuickSlot->GetSlots(); }
+	// 손실 뒤 상자·시체에서 가방으로 다시 옮겨도(시간 종료 직후, 조작된 클라) 그 아이템은 저장에 싣지 않는다.
+	if (!bCarriedItemsForfeited)
+	{
+		if (Inventory) { Loadout.InventoryEntries = Inventory->GetEntries(); }
+		if (Equipment) { Loadout.EquipmentSlots = Equipment->GetSlots(); }
+		if (QuickSlot) { Loadout.QuickSlots = QuickSlot->GetSlots(); }
+	}
 
 	bLoadoutSaveInFlight = true;
 	bLoadoutSavePending = false;
@@ -304,6 +309,86 @@ void AHB_PlayerState::HandleLoadoutSaved(bool bSuccess)
 	{
 		bLoadoutSavePending = false;
 		SaveLoadout();
+	}
+}
+
+void AHB_PlayerState::ForfeitCarriedItems(UHBPlayerCorpseInventory* Corpse)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (Corpse)
+	{
+		TArray<FItemInstance> Equipped;
+		if (Equipment)
+		{
+			for (uint8 Index = 0; Index < static_cast<uint8>(EEquipSlotType::MAX); ++Index)
+			{
+				FItemInstance Item;
+				if (Equipment->GetItemInSlot(static_cast<EEquipSlotType>(Index), Item))
+				{
+					Equipped.Add(Item);
+				}
+			}
+		}
+
+		Corpse->FillFrom(Equipped, Inventory ? Inventory->GetEntries() : TArray<FInventoryEntry>());
+	}
+
+	if (Equipment)
+	{
+		for (uint8 Index = 0; Index < static_cast<uint8>(EEquipSlotType::MAX); ++Index)
+		{
+			Equipment->ClearSlot(static_cast<EEquipSlotType>(Index));
+		}
+	}
+
+	if (Inventory)
+	{
+		Inventory->ClearAll();
+	}
+
+	if (QuickSlot)
+	{
+		TArray<FGuid> EmptySlots;
+		EmptySlots.SetNum(UQuickSlotComponent::NumQuickSlots);
+		QuickSlot->ApplyLoadedSlots(EmptySlots);
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(LoadoutSaveTimer);
+	}
+
+	bCarriedItemsForfeited = true;
+
+	UE_LOG(LogTemp, Log, TEXT("Loadout: forfeited carried items (corpse=%s, inFlight=%d)"),
+		Corpse ? TEXT("yes") : TEXT("no"), bLoadoutSaveInFlight ? 1 : 0);
+
+	if (!LoadoutStorage.IsValid() || LoadoutAccountId.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Loadout: forfeit save skipped (storage=%d, account=%s)"),
+			LoadoutStorage.IsValid() ? 1 : 0, *LoadoutAccountId);
+		return;
+	}
+
+	// 전송 중이어도 기다리지 않고 바로 빈 상태를 보낸다. 이 PlayerState 는 곧 파괴될 수 있어
+	// 기존 콜백 경로(BindUObject)에 맡기면 빈 저장이 누락된다. 그래서 콜백은 수명과 무관한 로그만.
+	FOnLoadoutSaved Callback = FOnLoadoutSaved::CreateLambda([](bool bSuccess)
+		{
+			if (!bSuccess)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Loadout: forfeit save failed"));
+			}
+		});
+	LoadoutStorage->SaveLoadoutAsync(LoadoutAccountId, FPlayerLoadout(), Callback);
+
+	// 앞선 전송이 이 빈 저장보다 늦게 도착할 수 있다. 살아 있으면 그 콜백에서 한 번 더 빈 상태로 덮는다.
+	if (bLoadoutSaveInFlight)
+	{
+		bLoadoutSavePending = true;
 	}
 }
 

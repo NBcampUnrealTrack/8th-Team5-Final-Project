@@ -21,6 +21,7 @@ class UShopComponent;
 class ILoadoutStorage;
 class UCraftComponent;
 class UHBCommonAugmentSet;
+class UHBPlayerCorpseInventory;
 class UHBPlayerSaveComponent;
 
 struct FPlayerLoadout;
@@ -62,6 +63,9 @@ private:
 	void HandleLoadoutSaved(bool bSuccess);
 	bool bLoadoutSaveInFlight = false;
 	bool bLoadoutSavePending = false;
+
+	// 서버. 손실 뒤엔 무엇이 다시 들어와도 빈 상태로만 저장한다. 매치마다 새 PlayerState 라 복제·리셋 불필요.
+	bool bCarriedItemsForfeited = false;
 
 	// ��� �׽�Ʈ
 	UFUNCTION()
@@ -377,6 +381,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Loadout")
 	void SaveLoadout();
 
+	// 서버 전용. 들고 있던 가방·장비·퀵슬롯을 잃는다.
+	// Corpse 가 있으면 먼저 그쪽으로 옮긴다(사망). 없으면 그냥 비운다(시간 종료).
+	// 디바운스 없이 바로 저장한다 — 곧 맵을 떠나거나 접속이 끊긴다.
+	void ForfeitCarriedItems(UHBPlayerCorpseInventory* Corpse);
+
 	// 로컬 저장 모드: 클라가 보낸 저장 데이터를 적용한다. UHBPlayerSaveComponent 가 검사한 뒤 부른다. 서버 전용.
 	void ApplySavedData(const TArray<FInventoryEntry>& InStash, const FPlayerLoadout& InLoadout,
 		const FHBStartingLoadout& InStartingLoadout);
@@ -385,6 +394,7 @@ public:
 	FString ResolveAccountId() const;
 
 	UHBPlayerSaveComponent* GetSaveComponent() const { return SaveComponent; }
+
 private:
 	UPROPERTY()
 	TObjectPtr<UStashComponent> Stash;

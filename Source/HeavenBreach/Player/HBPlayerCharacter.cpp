@@ -15,6 +15,7 @@
 #include "Player/HBInteractAnimComponent.h"
 #include "Player/HBCameraMotionComponent.h"
 #include "Player/HBFootstepComponent.h"
+#include "Player/HBPlayerCorpseInventory.h"
 #include "Combat/Block/GA_GuardStance.h"
 #include "Combat/Block/GA_PlayerParry.h"
 #include "Combat/Damage/HBDamageCalculation.h"
@@ -123,6 +124,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	InteractAnimComp = CreateDefaultSubobject<UHBInteractAnimComponent>(TEXT("InteractAnimComp"));
 	CameraMotionComp = CreateDefaultSubobject<UHBCameraMotionComponent>(TEXT("CameraMotionComp"));
 	FootstepComp = CreateDefaultSubobject<UHBFootstepComponent>(TEXT("FootstepComp"));
+	CorpseInventory = CreateDefaultSubobject<UHBPlayerCorpseInventory>(TEXT("CorpseInventory"));
 
 	// 구 방어(BP_GA_PlayerBlock)가 쓰던 몽타주를 그대로 가져왔다. 임시다.
 	GuardMontage = TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(
@@ -222,6 +224,7 @@ void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	DOREPLIFETIME(ThisClass,SelectedPassiveSkillIds);
 	DOREPLIFETIME(ThisClass,BaseUpperBodyMesh);
 	DOREPLIFETIME(ThisClass,BaseLowerBodyMesh);
+	DOREPLIFETIME(ThisClass,CorpseState);
 }
 
 void AHBPlayerCharacter::MoveForward(const float Value)
@@ -1523,6 +1526,7 @@ void AHBPlayerCharacter::SetupInteractionPrompt()
 
 	InteractionPromptWidgetInstance->AddToViewport();
 	InteractionPromptWidgetInstance->HidePrompt();
+	InteractionPromptWidgetInstance->SetInteractionSource(InteractionComp);
 
 	InteractionComp->OnFocusChanged.AddDynamic(this, &AHBPlayerCharacter::HandleInteractableFocusChanged);
 }
@@ -2239,13 +2243,13 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 
 void AHBPlayerCharacter::RefreshWeaponVisual()
 {
-	if (!GetEquipment() || !WeaponMeshComp)
+	if (!HasVisualEquipmentSource() || !WeaponMeshComp)
 	{
 		return;
 	}
 	
 	FItemInstance WeaponItem;
-	if (GetEquipment()->GetItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
+	if (GetVisualItemInSlot(EEquipSlotType::PrimaryWeapon, WeaponItem))
 	{
 		if (const FWeaponData* WeaponData = WeaponItem.ItemRow.GetRow<FWeaponData>(TEXT("RefreshWeaponVisual")))
 		{
@@ -2262,13 +2266,13 @@ void AHBPlayerCharacter::RefreshWeaponVisual()
 
 void AHBPlayerCharacter::RefreshShieldVisual()
 {
-	if (!GetEquipment() || !ShieldMeshComp)
+	if (!HasVisualEquipmentSource() || !ShieldMeshComp)
 	{
 		return;
 	}
 	
 	FItemInstance ShieldItem;
-	if (GetEquipment()->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+	if (GetVisualItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
 	{
 		if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("RefreshShieldVisual")))
 		{
@@ -2285,13 +2289,13 @@ void AHBPlayerCharacter::RefreshShieldVisual()
 
 void AHBPlayerCharacter::RefreshHelmetVisual()
 {
-	if (!GetEquipment() || !HelmetMeshComp)
+	if (!HasVisualEquipmentSource() || !HelmetMeshComp)
 	{
 		return;
 	}
 	
 	FItemInstance HelmetItem;
-	if (GetEquipment()->GetItemInSlot(EEquipSlotType::Helmet, HelmetItem))
+	if (GetVisualItemInSlot(EEquipSlotType::Helmet, HelmetItem))
 	{
 		if (const FItemData* HelmetData = HelmetItem.ItemRow.GetRow<FItemData>(TEXT("RefreshHelmetVisual")))
 		{
@@ -2310,13 +2314,13 @@ void AHBPlayerCharacter::RefreshHelmetVisual()
 
 void AHBPlayerCharacter::RefreshChestVisual()
 {
-	if (!GetEquipment() || !ChestMeshComp)
+	if (!HasVisualEquipmentSource() || !ChestMeshComp)
 	{
 		return;
 	}
 
 	FItemInstance ChestItem;
-	if (GetEquipment()->GetItemInSlot(EEquipSlotType::Chest, ChestItem))
+	if (GetVisualItemInSlot(EEquipSlotType::Chest, ChestItem))
 	{
 		if (const FItemData* ChestData = ChestItem.ItemRow.GetRow<FItemData>(TEXT("RefreshChestVisual")))
 		{
@@ -2333,12 +2337,12 @@ void AHBPlayerCharacter::RefreshChestVisual()
 
 void AHBPlayerCharacter::RefreshLegsVisual()
 {
-	if (!GetEquipment() || !LegsMeshComp)
+	if (!HasVisualEquipmentSource() || !LegsMeshComp)
 	{
 		return;
 	}
 	FItemInstance LegsItem;
-	if (GetEquipment()->GetItemInSlot(EEquipSlotType::Legs, LegsItem))
+	if (GetVisualItemInSlot(EEquipSlotType::Legs, LegsItem))
 	{
 		if (const FItemData* LegsData = LegsItem.ItemRow.GetRow<FItemData>(TEXT("RefreshLegsVisual")))
 		{
@@ -2443,12 +2447,12 @@ bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
 	{
 		// (기존 TestChestMesh 블록은 그대로 위에 있음, 건드릴 필요 없음)
 	}
-	else if (UEquipmentComponent* Equipment = GetEquipment())
+	else if (HasVisualEquipmentSource())
 	{
-		const auto GetEquippedItemData = [Equipment](EEquipSlotType Slot) -> const FItemData*
+		const auto GetEquippedItemData = [this](EEquipSlotType Slot) -> const FItemData*
 			{
 				FItemInstance Item;
-				if (Equipment->GetItemInSlot(Slot, Item))
+				if (GetVisualItemInSlot(Slot, Item))
 				{
 					return Item.ItemRow.GetRow<FItemData>(TEXT("ModularEquipment"));
 				}
@@ -2522,7 +2526,7 @@ void AHBPlayerCharacter::OnConstruction(const FTransform& Transform)
 	Super::OnConstruction(Transform);
 	SetUnderwearVisible(bUnderwearVisible);
 	// Construction runs for Blueprint preview actors and placed actors when references change.
-	if (!bEnableEquipmentVisualTest && !GetEquipment())
+	if (!bEnableEquipmentVisualTest && !HasVisualEquipmentSource())
 	{
 		HelmetMeshComp->SetSkeletalMesh(nullptr);
 		WeaponMeshComp->SetStaticMesh(nullptr);
@@ -2598,7 +2602,7 @@ void AHBPlayerCharacter::ApplyTemporaryEquipmentVisualTest()
 {
 	if (!bEnableEquipmentVisualTest)
 	{
-		if (!GetEquipment())
+		if (!HasVisualEquipmentSource())
 		{
 			HelmetMeshComp->SetSkeletalMesh(nullptr);
 			WeaponMeshComp->SetStaticMesh(nullptr);
@@ -2665,6 +2669,148 @@ UEquipmentComponent* AHBPlayerCharacter::GetEquipment() const
 {
 	const AHB_PlayerState* PS = GetPlayerState<AHB_PlayerState>();
 	return PS ? PS->GetEquipment() : nullptr;
+}
+
+bool AHBPlayerCharacter::HasVisualEquipmentSource() const
+{
+	return CorpseState.bIsCorpse || GetEquipment() != nullptr;
+}
+
+bool AHBPlayerCharacter::GetVisualItemInSlot(EEquipSlotType Slot, FItemInstance& OutItem) const
+{
+	if (CorpseState.bIsCorpse)
+	{
+		for (const FHBCorpseEquippedItem& Entry : CorpseState.EquippedSnapshot)
+		{
+			if (Entry.Slot == Slot)
+			{
+				OutItem = Entry.Item;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	const UEquipmentComponent* Equipment = GetEquipment();
+	return Equipment && Equipment->GetItemInSlot(Slot, OutItem);
+}
+
+void AHBPlayerCharacter::BecomeCorpse()
+{
+	if (!HasAuthority() || CorpseState.bIsCorpse)
+	{
+		return;
+	}
+
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		ASC->CancelAllAbilities();
+	}
+
+	FHBCorpseState NewState;
+	NewState.bIsCorpse = true;
+	if (const UEquipmentComponent* Equipment = GetEquipment())
+	{
+		for (uint8 Index = 0; Index < static_cast<uint8>(EEquipSlotType::MAX); ++Index)
+		{
+			FHBCorpseEquippedItem Entry;
+			Entry.Slot = static_cast<EEquipSlotType>(Index);
+			if (Equipment->GetItemInSlot(Entry.Slot, Entry.Item))
+			{
+				NewState.EquippedSnapshot.Add(Entry);
+			}
+		}
+	}
+
+	// 스냅샷을 먼저 세운다. 아래에서 장비를 비울 때 외형이 벗겨지지 않는다.
+	CorpseState = NewState;
+	OnRep_CorpseState();
+
+	if (AHB_PlayerState* PS = GetPlayerState<AHB_PlayerState>())
+	{
+		PS->ForfeitCarriedItems(CorpseInventory);
+	}
+
+	SetCanBeDamaged(false);
+	ForceNetUpdate();
+}
+
+void AHBPlayerCharacter::OnRep_CorpseState()
+{
+	if (!CorpseState.bIsCorpse)
+	{
+		return;
+	}
+
+	// 죽는 순간 누르고 있던 홀드를 끊는다. 안 끊으면 봉인문 같은 대상이 시체 상태로 완료된다.
+	// 서버는 BecomeCorpse 에서 직접 여기로 오므로 서버·소유 클라 양쪽이 이 한 곳에서 정리된다.
+	if (UInteractionComponent* InteractionComp = FindComponentByClass<UInteractionComponent>())
+	{
+		InteractionComp->AbortHold();
+	}
+
+	StartCorpseRagdoll();
+	RefreshEquippedVisuals();
+
+	// 내 캐릭터가 시체가 되면 떠 있던 상호작용 프롬프트를 치운다. 빙의가 풀리면 포커스 갱신이 멈춰 스스로 안 꺼진다.
+	if (InteractionPromptWidgetInstance)
+	{
+		InteractionPromptWidgetInstance->RemoveFromParent();
+		InteractionPromptWidgetInstance = nullptr;
+	}
+}
+
+void AHBPlayerCharacter::StartCorpseRagdoll()
+{
+	// 적 시체(AEnemyCharacterBase::StartRagdoll)와 같은 설정이다.
+	// Visibility 만 막아 루팅 트레이스가 잡히고, 공격 채널은 막지 않아 시체가 방패가 되지 않는다.
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->StopMovementImmediately();
+		Move->DisableMovement();
+	}
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp)
+	{
+		return;
+	}
+
+	MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	MeshComp->SetCollisionObjectType(ECC_PhysicsBody);
+	MeshComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+	MeshComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+	MeshComp->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	MeshComp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+
+	MeshComp->SetSimulatePhysics(true);
+	MeshComp->WakeAllRigidBodies();
+	MeshComp->SetPhysicsBlendWeight(1.f);
+}
+
+bool AHBPlayerCharacter::CanInteract_Implementation(AActor* Interactor) const
+{
+	// 다 가져간 시체는 F 를 띄우지 않는다.
+	return CorpseState.bIsCorpse && Interactor && Interactor != this
+		&& CorpseInventory && CorpseInventory->GetEntries().Num() > 0;
+}
+
+void AHBPlayerCharacter::Interact_Implementation(AActor* Interactor)
+{
+	if (HasAuthority() && CorpseState.bIsCorpse && CorpseInventory)
+	{
+		CorpseInventory->HandleInteract(Interactor);
+	}
+}
+
+FText AHBPlayerCharacter::GetInteractPrompt_Implementation() const
+{
+	return CorpseInventory ? CorpseInventory->GetPrompt() : FText::GetEmpty();
 }
 
 // ================ 디버그 ================
