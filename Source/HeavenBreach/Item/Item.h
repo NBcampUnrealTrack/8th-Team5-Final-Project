@@ -109,6 +109,8 @@ struct FItemData : public FTableRowBase
 	FString UseEffect;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FString WorldMeshPath;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Display", meta = (ClampMin = "0.01"))
+	float WorldScaleMultiplier = 1.f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TObjectPtr<UTexture2D> Icon;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
@@ -125,6 +127,8 @@ struct FItemData : public FTableRowBase
 	FString Notes;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float HealAmount = 0.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	float ManaAmount = 0.f;
 
 	// 아이템 정보 팝업(상세 정보)에 표시되는 플레이버 텍스트.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Display")
