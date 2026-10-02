@@ -111,6 +111,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AI")
 	void TryRetarget();
 
+	// 같은 경계 팀원이 맞았거나 플레이어를 발견했다. 맞은 본인과 같은 반응으로 그 위치를 수색하러 간다.
+	// AEnemyCharacterBase::AlertTeamMates 가 부른다.
+	void OnTeamAlerted(AActor* Player);
+
 protected:
 	// 데이터 에셋. 값을 복사하는 게 아니라 애셋 포인터만 들고 있는다.
 	UPROPERTY()

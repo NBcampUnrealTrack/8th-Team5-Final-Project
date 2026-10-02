@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameState.h"
+#include "PCGModule/HBDungeonSnapshot.h"
 #include "HeavenBreachGameState.generated.h"
 
 /**
@@ -21,6 +22,12 @@ class HEAVENBREACH_API AHeavenBreachGameState : public AGameState
 	GENERATED_BODY()
 	
 public:
+    bool PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms,
+        TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& SealExtent);
+    bool InvalidateDungeonLayout(int32 GenerationId, const FString& FailureReason = FString());
+    const FHBDungeonSnapshot& GetDungeonSnapshot() const { return DungeonSnapshot; }
+    FSimpleMulticastDelegate OnDungeonSnapshotChanged;
+
 	UPROPERTY(BlueprintAssignable, Category = "Match")
 	FOnMatchStateChanged OnMatchStateChanged;
 
@@ -41,6 +48,11 @@ public:
 
 
 protected:
+    UPROPERTY(ReplicatedUsing=OnRep_DungeonSnapshot)
+    FHBDungeonSnapshot DungeonSnapshot;
+    UFUNCTION()
+    void OnRep_DungeonSnapshot();
+
 	// MatchState 변경 전달
 	virtual void OnRep_MatchState() override;
 

@@ -26,6 +26,7 @@
 #include "Combat/GameplayCue/HitCuePlay.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/PlayerState/HB_PlayerState.h"
+#include "EngineUtils.h"
 
 // Sets default values
 AEnemyCharacterBase::AEnemyCharacterBase()
@@ -173,9 +174,84 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 					Alert->DamageSensed(InstigatorActor->GetActorLocation());
 				}
 			}
+
+			// 같은 경계 팀원도 때린 사람 위치로 수색하러 온다.
+			AlertTeamMates(InstigatorActor);
 		}
 	}
-	
+
+}
+
+void AEnemyCharacterBase::AlertTeamMates(AActor* Player)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (AlertTeam.IsNone())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// 연타 때마다 훑지 않는다. 간격이 지나면 그때의 플레이어 위치로 다시 알린다.
+	const double Now = World->GetTimeSeconds();
+	if (bTeamAlertSent)
+	{
+		if (Now - LastTeamAlertTime < TeamAlertInterval)
+		{
+			return;
+		}
+	}
+	bTeamAlertSent = true;
+	LastTeamAlertTime = Now;
+
+	const ULevel* MyLevel = GetLevel();
+	int32 AlertedCount = 0;
+
+	for (TActorIterator<AEnemyCharacterBase> It(World); It; ++It)
+	{
+		AEnemyCharacterBase* Mate = *It;
+		if (Mate == this)
+		{
+			continue;
+		}
+
+		if (Mate->AlertTeam != AlertTeam)
+		{
+			continue;
+		}
+
+		// 같은 방 모듈이 여러 번 나와도 방끼리는 섞지 않는다.
+		if (Mate->GetLevel() != MyLevel)
+		{
+			continue;
+		}
+
+		if (Mate->IsDead())
+		{
+			continue;
+		}
+
+		// 아직 활성화 전(컨트롤러 없음)인 적은 건너뛴다.
+		AEnemyAIControllerBase* MateAI = Cast<AEnemyAIControllerBase>(Mate->GetController());
+		if (!MateAI)
+		{
+			continue;
+		}
+
+		MateAI->OnTeamAlerted(Player);
+		++AlertedCount;
+	}
+
+	UE_LOG(LogEnemyAI, Log, TEXT("[Team] %s (%s) → 팀원 %d 명에게 알림"),
+		*GetName(), *AlertTeam.ToString(), AlertedCount);
 }
 
 void AEnemyCharacterBase::SetMoveSpeed(bool bRun)

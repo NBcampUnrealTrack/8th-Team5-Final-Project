@@ -46,4 +46,17 @@ protected:
 	
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<AHBPlayerCharacter> OwnerInst;
+
+	// ----- 활 (활 AnimBP 가 캐스트 없이 읽는다) -----
+	// 활을 당기는 중인가. AHBPlayerCharacter::IsBowDrawing.
+	UPROPERTY(BlueprintReadOnly, Category = "Animation|Bow")
+	bool bBowDrawing = false;
+
+	// 손에 든 스켈레탈 무기(활). 테스트 AnimBP 의 BowVisual 자리. 활이 아니면 메시가 비어 있다.
+	UPROPERTY(BlueprintReadOnly, Category = "Animation|Bow")
+	TObjectPtr<USkeletalMeshComponent> WeaponSkeletalMesh;
+
+	// 활마다 다른 시위 IK 보정값. 외형 표(DT_WeaponPresentation)에서 온다.
+	UPROPERTY(BlueprintReadOnly, Category = "Animation|Bow")
+	float StringIKOffset = 0.f;
 };

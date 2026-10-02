@@ -15,6 +15,8 @@
 #include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
+#include "IpNetDriver.h"
+#include "Engine/ChildConnection.h"
 namespace
 {
 	FHBModuleCatalogEntry MakeModule(const TCHAR* Name, EHBPrototypeRoomRole Role, EHBAllowedFloor Floor = EHBAllowedFloor::Any)
@@ -273,6 +275,24 @@ bool FHBPortalActorTest::RunTest(const FString&)
 	auto* OtherPawn = World->SpawnActor<AHBPCGExplorerPawn>();
 	OtherPC->Possess(OtherPawn); OtherPawn->SetActorLocation(FVector::ZeroVector);
 	TestTrue(TEXT("Re-entry guard is per player, not shared"), A->TryTeleport(OtherPawn));
+	// Non-replicated actors still have local authority in client worlds.
+	auto* ClientProbePC = World->SpawnActor<APlayerController>();
+	auto* ClientProbePawn = World->SpawnActor<AHBPCGExplorerPawn>();
+	ClientProbePC->Possess(ClientProbePawn);
+	World->AddController(ClientProbePC);
+	ClientProbePawn->SetActorLocation(FVector::ZeroVector);
+	auto* Driver = NewObject<UIpNetDriver>(World);
+	Driver->SetWorld(World);
+	Driver->ServerConnection = NewObject<UChildConnection>(Driver);
+	World->SetNetDriver(Driver);
+	TestTrue(TEXT("Fixture portals retain local actor authority"), A->HasAuthority());
+	TestFalse(TEXT("Client cannot replace a portal pair"), A->ConnectTo(B));
+	TestFalse(TEXT("Client cannot execute portal travel"), A->TryTeleport(ClientProbePawn));
+	A->Tick(0.f);
+	TestTrue(TEXT("Client portal tick leaves player location unchanged"), ClientProbePawn->GetActorLocation().Equals(FVector::ZeroVector));
+	World->SetNetDriver(nullptr);
+	Driver->ServerConnection = nullptr;
+	Driver->SetWorld(nullptr);
 	auto* CharacterPC = World->SpawnActor<APlayerController>();
 	auto* Character = World->SpawnActor<ACharacter>();
 	CharacterPC->Possess(Character);

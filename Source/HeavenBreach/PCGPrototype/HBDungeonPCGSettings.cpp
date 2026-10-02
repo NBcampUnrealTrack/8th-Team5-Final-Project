@@ -26,7 +26,9 @@ namespace
     {
         UPCGComponent* Component = Cast<UPCGComponent>(Context->ExecutionSource.GetObject());
         AActor* Owner = Component ? Component->GetOwner() : nullptr;
-        return {Cast<AHBPCGPreviewGenerator>(Owner), Cast<AHBDungeonRuntime>(Owner)};
+        auto* Runtime = Cast<AHBDungeonRuntime>(Owner);
+        if (Runtime && !Runtime->CanPlanGeneration()) return {};
+        return {Cast<AHBPCGPreviewGenerator>(Owner), Runtime};
     }
 	class FHBPlanElement : public IPCGElement
 	{

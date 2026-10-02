@@ -4,6 +4,22 @@
 #include "Core/GameFlow/Lobby/HBLobbyGameState.h"
 
 #include "Net/UnrealNetwork.h"
+#include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
+
+bool AHBLobbyGameState::AreGuestsReady(int32 MinimumPlayers) const
+{
+	if (!IsValid(HostPlayerState) || !PlayerArray.Contains(HostPlayerState)
+		|| PlayerArray.Num() > 4) return false;
+	// A lone host may start immediately. With guests, keep the configured
+	// minimum and require every guest to be ready.
+	if (PlayerArray.Num() > 1 && PlayerArray.Num() < FMath::Max(1, MinimumPlayers)) return false;
+	for (APlayerState* Player : PlayerArray)
+	{
+		const auto* Guest = Cast<AHBLobbyPlayerState>(Player);
+		if (!Guest || (Guest != HostPlayerState && !Guest->IsReady())) return false;
+	}
+	return true;
+}
 
 void AHBLobbyGameState::SetCanStartMatch(bool bNewCanStartMatch)
 {
@@ -27,6 +43,8 @@ void AHBLobbyGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	
 	DOREPLIFETIME(AHBLobbyGameState, bCanStartMatch);
+	DOREPLIFETIME(AHBLobbyGameState, HostPlayerState);
+	DOREPLIFETIME(AHBLobbyGameState, RoomName);
 }
 
 void AHBLobbyGameState::OnRep_CanStartMatch()

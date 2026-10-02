@@ -18,11 +18,16 @@ class HEAVENBREACH_API AHBLobbyGameMode : public AGameMode
 	
 public:
 	AHBLobbyGameMode();
+	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
 	
 	void EvaluateCanStartMatch();
 	void HandleReadyStateChanged();
 	void ConfirmStart(class AHBLobbyPlayerState* RequestingPlayerState);
 	void TryStartGame();
+
+	/** Authority-only internal start API; does not check UI Ready/confirmation. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Lobby|Travel")
+	bool RequestMatchTravel(TSoftObjectPtr<UWorld> Destination);
 
 	/**
 	 * JobId 로 직업 DA 를 찾는다. 못 찾으면 nullptr 이고 경고를 남긴다.
@@ -53,6 +58,7 @@ protected:
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|Travel")
 	TSoftObjectPtr<UWorld> GameplayMap;
+	bool bUseConfiguredGameplayMap = true;
 
 	/**
 	 * 이 로비에서 고를 수 있는 직업들. BP_HBLobbyGameMode 에서 채운다.
@@ -81,6 +87,4 @@ private:
 	void ResetStartConfirmations();
 	bool AreAllPlayersReadyAndConfirmed() const;
 
-	/** Prevents duplicate clicks in the final frame from issuing multiple server travels. */
-	bool bTravelRequested = false;
 };

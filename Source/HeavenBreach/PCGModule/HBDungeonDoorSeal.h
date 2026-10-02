@@ -11,5 +11,6 @@ class HEAVENBREACH_API AHBDungeonDoorSeal : public AActor
 public:
     AHBDungeonDoorSeal();
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Dungeon") TObjectPtr<UStaticMeshComponent> Wall;
-    void SetExtent(const FVector& HalfExtent);
+    static bool ValidateSettings(TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& HalfExtent, FString& Error);
+    bool SetExtent(const FVector& HalfExtent);
 };

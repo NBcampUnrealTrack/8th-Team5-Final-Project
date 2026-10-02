@@ -88,11 +88,30 @@ void AItemBase::OnRep_ItemID()
 	InitializeFromDataTable();
 }
 
+static float GetItemCategoryScale(const FString& ItemType)
+{
+	static const TMap<FString, float> CategoryScales = {
+		{TEXT("Junk"), 0.16f},
+		{TEXT("Material"), 0.18f},
+		{TEXT("Relic"), 0.5f},
+		{TEXT("Accessory"), 0.1f},
+		{TEXT("Key"), 0.14f},
+		{TEXT("Currency"), 0.15f},
+	};
+	if (const float* Found = CategoryScales.Find(ItemType))
+	{
+		return *Found;
+	}
+	return 1.f;
+}
+
 void AItemBase::InitializeFromDataTable()
 {
 	static const FString ContextString(TEXT("AItemBase::InitializeFromDataTable"));
 
 	FString MeshPathToLoad;
+	FString WorldScaleItemType;
+	float WorldScaleMultiplier = 1.f;
 
 	switch (SourceTable)
 	{
@@ -164,6 +183,8 @@ void AItemBase::InitializeFromDataTable()
 		GridHeight = Row->GridHeight;
 		Icon = Row->Icon;
 		MeshPathToLoad = Row->WorldMeshPath;
+		WorldScaleItemType = Row->ItemType;
+		WorldScaleMultiplier = Row->WorldScaleMultiplier;
 		break;
 	}
 	}
@@ -174,7 +195,7 @@ void AItemBase::InitializeFromDataTable()
 		if (UStaticMesh* LoadedStaticMesh = LoadObject<UStaticMesh>(nullptr, *MeshPathToLoad))
 		{
 			MeshComponent->SetStaticMesh(LoadedStaticMesh);
-			MeshComponent->SetWorldScale3D(FVector(1.f));
+			MeshComponent->SetWorldScale3D(FVector(GetItemCategoryScale(WorldScaleItemType) * WorldScaleMultiplier));
 			MeshComponent->SetVisibility(true);
 			SkeletalMeshComponent->SetSkeletalMesh(nullptr);
 			SkeletalMeshComponent->SetVisibility(false);

@@ -12,6 +12,7 @@ namespace ItemTag
 	// DT_Item 의 WeaponType 문자열로 "Weapon.<타입>" 을 만들어 찾는다.
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Weapon_Sword)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Weapon_Dagger)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Weapon_Staff)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Weapon_Bow)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Weapon_Unarmed)

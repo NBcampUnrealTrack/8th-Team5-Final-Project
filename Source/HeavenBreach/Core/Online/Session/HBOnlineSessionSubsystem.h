@@ -3,16 +3,33 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "HBOnlineSessionSubsystem.generated.h"
 
 class UNetDriver;
+struct FWorldContext;
 
 namespace ENetworkFailure
 {
 	enum Type : int;
 }
+namespace ETravelFailure
+{
+	enum Type : int;
+}
+
+UENUM(BlueprintType)
+enum class EHBServerTravelState : uint8
+{
+	Idle,
+	ClosingLobby,
+	Traveling,
+	RestoringLobby,
+	Complete,
+	Failed
+};
 
 UENUM(BlueprintType)
 enum class EHBMatchStartState : uint8
@@ -31,7 +48,37 @@ enum class EHBLobbyOperationState : uint8
 	Finding,
 	Joining,
 	InLobby,
-	Failed
+	Failed,
+	OpeningHostMap,
+	CleaningUpHost,
+	ConnectingToLobby,
+	CleaningUpJoin,
+	Leaving
+};
+
+/** Snapshot of the latest search. SessionId remains the selection key across refreshes. */
+USTRUCT(BlueprintType)
+struct FHBLobbySearchEntry
+{
+	GENERATED_BODY()
+	UPROPERTY(BlueprintReadOnly) FString SessionId;
+	UPROPERTY(BlueprintReadOnly) FString HostName;
+	UPROPERTY(BlueprintReadOnly) FString RoomName;
+	UPROPERTY(BlueprintReadOnly) bool bPasswordProtected = false;
+	UPROPERTY(BlueprintReadOnly) int32 CurrentPlayers = 0;
+	UPROPERTY(BlueprintReadOnly) FString MapPackage;
+	UPROPERTY(BlueprintReadOnly) int32 MaxPlayers = 0;
+	UPROPERTY(BlueprintReadOnly) int32 OpenSlots = 0;
+	UPROPERTY(BlueprintReadOnly) int32 PingInMs = 0;
+};
+
+USTRUCT(BlueprintType)
+struct FHBSteamFriendEntry
+{
+	GENERATED_BODY()
+	UPROPERTY(BlueprintReadOnly) FString UserId;
+	UPROPERTY(BlueprintReadOnly) FString DisplayName;
+	UPROPERTY(BlueprintReadOnly) bool bCanInvite = false;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
@@ -51,24 +98,69 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	);
 
 /**
- * 
+ *
  */
 UCLASS()
 class HEAVENBREACH_API UHBOnlineSessionSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
-	
+
 public:
+	bool RequestHostRoom(const FString& Name, const FString& Password, TSoftObjectPtr<UWorld> LobbyMap);
+	bool RequestJoinRoom(const FString& SessionId, const FString& Password);
+	bool RefreshSteamFriends();
+	TArray<FHBSteamFriendEntry> GetSteamFriends() const { return SteamFriends; }
+	bool IsReadingFriends() const { return bReadingFriends; }
+	bool InviteSteamFriend(const FString& UserId);
+	bool GetPendingInvite(FHBLobbySearchEntry& Entry) const;
+	bool AcceptPendingInvite(const FString& Password);
+	void DeclinePendingInvite();
+	void SetLobbyReturnMap(const FString& Package) { LobbyReturnMap = Package; }
+	bool RequestLeaveToMenu(const FString& Notice = FString());
+	FString ConsumeMenuNotice();
+	FString GetHostedRoomName() const { return HostedRoomName; }
+	FString CheckLobbyPassword(const FString& Options) const;
+	void PublishGamePresence(const FString& State);
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
-	
+
+	/** Server-only transition primitive. No UI readiness policy. True means accepted. */
+	bool RequestServerMatchTravel(TSoftObjectPtr<UWorld> Destination);
+	/** Retry restoring admission after a failed transition, only in the original lobby. */
+	bool RetryLobbyAdmissionRecovery();
+	bool IsMatchAdmissionClosed() const { return bMatchAdmissionClosed; }
+	UFUNCTION(BlueprintPure, Category = "Online|Travel")
+	EHBServerTravelState GetServerTravelState() const { return ServerTravelState; }
+	UFUNCTION(BlueprintPure, Category = "Online|Travel")
+	FString GetServerTravelError() const { return ServerTravelError; }
+	bool IsServerTravelInProgress() const
+	{
+		return ServerTravelState == EHBServerTravelState::ClosingLobby ||
+			ServerTravelState == EHBServerTravelState::Traveling ||
+			ServerTravelState == EHBServerTravelState::RestoringLobby;
+	}
+
+	/** Legacy compatibility only: rejects creation without an explicit listen map. */
 	bool CreateLobby(int32 MaxPlayers);
+	/** Search only; completion is reported through OnLobbyOperationStateChanged. */
+	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
 	bool FindLobbies();
 	bool JoinLobby(int32 InSearchResultIndex);
+	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
+	bool RequestJoinLobby(const FString& SessionId);
+	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
+	TArray<FHBLobbySearchEntry> GetLobbySearchResults() const;
 	void LeaveLobby();
 
-	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
+	UFUNCTION(BlueprintCallable, Category = "Online|Lobby", meta = (DeprecatedFunction, DeprecationMessage = "Use RequestHostLobby with an explicit lobby map."))
 	bool RequestCreateLobby(int32 MaxPlayers);
+
+	/** Starts an asynchronous Steam listen host. True means accepted, not ready.
+	 * Observe OnLobbyOperationStateChanged; InLobby means the listen map is ready.
+	 * MaxPlayers includes the host. LobbyMap must be a saved map asset.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
+	bool RequestHostLobby(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap);
 
 	UFUNCTION(BlueprintCallable, Category = "Online|Lobby")
 	bool RequestFindAndJoinLobby();
@@ -82,25 +174,31 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
 	bool IsLobbyOperationInProgress() const
 	{
-		return LobbyOperationState == EHBLobbyOperationState::Creating ||
+		return IsServerTravelInProgress() || LobbyOperationState == EHBLobbyOperationState::Creating ||
 			LobbyOperationState == EHBLobbyOperationState::Finding ||
-			LobbyOperationState == EHBLobbyOperationState::Joining;
+			LobbyOperationState == EHBLobbyOperationState::Joining ||
+			LobbyOperationState == EHBLobbyOperationState::OpeningHostMap ||
+			LobbyOperationState == EHBLobbyOperationState::CleaningUpHost ||
+			LobbyOperationState == EHBLobbyOperationState::ConnectingToLobby ||
+			LobbyOperationState == EHBLobbyOperationState::CleaningUpJoin ||
+			LobbyOperationState == EHBLobbyOperationState::Leaving;
 	}
 
 	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
 	FString GetLastLobbyOperationError() const
 	{
-		return LastLobbyOperationError;
+		return AuxiliaryError.IsEmpty() ? LastLobbyOperationError : AuxiliaryError;
 	}
 
 	UPROPERTY(BlueprintAssignable, Category = "Online|Lobby")
 	FHBOnLobbyOperationStateChanged OnLobbyOperationStateChanged;
-	
+
+	/** Retired dedicated-server APIs. Kept as rejecting stubs for existing callers. */
 	bool PublishMatchServer(const FString& ServerAddress);
 	void ConnectToMatchServer(const FString& ServerAddress);
 	void ConnectToPublishMatchServer();
-	
-	UFUNCTION(BlueprintCallable, Category = "Online|Match")
+
+	UFUNCTION(BlueprintCallable, Category = "Online|Match", meta = (DeprecatedFunction, DeprecationMessage = "Use Lobby GameMode readiness/confirmation to start a listen match."))
 	bool RequestStartMatch();
 
 	UFUNCTION(BlueprintPure, Category = "Online|Match")
@@ -109,8 +207,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Online|Match")
 	bool IsMatchStartInProgress() const
 	{
-		return MatchStartState == EHBMatchStartState::Publishing ||
-			MatchStartState == EHBMatchStartState::Traveling;
+		return false; // Compatibility only; the dedicated match-start pipeline is retired.
 	}
 
 	UFUNCTION(BlueprintPure, Category = "Online|Match")
@@ -120,9 +217,69 @@ public:
 	FHBOnMatchStartStateChanged OnMatchStartStateChanged;
 
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
-	
+
 private:
-	void HandleCreateLobbyComplete(FName InSessionName, bool bWasSuccessful);
+	bool RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password);
+	bool JoinLobbyResult(const FOnlineSessionSearchResult& Result, const FString& Password);
+	void InitializeMultiplayerLobby();
+	void DeinitializeMultiplayerLobby();
+	void HandleSteamInvite(bool bSuccess, int32 LocalUser, FUniqueNetIdPtr UserId, const FOnlineSessionSearchResult& Result);
+	bool ReturnToMenu(float DeltaSeconds);
+	FString HostedRoomName;
+	FString HostedPasswordProof;
+	FString HostedPasswordSalt;
+	FString PendingJoinProof;
+	FString ConnectedLobbyMap;
+	FString LobbyReturnMap;
+	FString MenuNotice;
+	bool bReturnAfterLeave = false;
+	bool bReadingFriends = false;
+	FString AuxiliaryError;
+	TArray<FHBSteamFriendEntry> SteamFriends;
+	TSharedPtr<FOnlineSessionSearchResult> PendingInvite;
+	FDelegateHandle InviteAcceptedHandle;
+	FDelegateHandle LobbySeamlessTravelHandle;
+	FTSTicker::FDelegateHandle ReturnMenuTickerHandle;
+	friend class FHBServerTravelGuardsTest;
+	void HandleTravelSessionUpdated(FName SessionName, bool bSuccess);
+	void FailServerTravel(const FString& Error);
+	bool ObserveServerTravel(float DeltaSeconds);
+	void SetServerTravelState(EHBServerTravelState State, const FString& Error = FString());
+	EHBServerTravelState ServerTravelState = EHBServerTravelState::Idle;
+	FString ServerTravelError;
+	FString TravelSourceMap;
+	FString TravelDestinationMap;
+	bool bMatchAdmissionClosed = false;
+	double ServerTravelDeadline = 0.0;
+	TSharedPtr<FOnlineSessionSettings> PreTravelSettings;
+	FDelegateHandle TravelSessionUpdateHandle;
+	FTSTicker::FDelegateHandle ServerTravelTickerHandle;
+	bool FindLobbiesInternal(bool bJoinFirstResult);
+	bool ValidateLobbyClient(int32& OutLocalUser);
+	void FailJoinRequest(const FString& Error);
+	bool BeginJoinCleanup(float DeltaSeconds);
+	void HandleJoinCleanupComplete(FName SessionName, bool bWasSuccessful);
+	bool bJoinRequestActive = false;
+	FString JoinFailureReason;
+	FTSTicker::FDelegateHandle JoinCleanupTickerHandle;
+	void HandleHostSessionCreated(FName SessionName, bool bWasSuccessful);
+	void HandleLocalMapDeparture(const FWorldContext& WorldContext, const FString& MapName);
+	void ResetLobbyAfterLeave();
+	void HandleLobbyMapLoaded(UWorld* LoadedWorld);
+	void HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error);
+	void FailHostRequest(const FString& Error);
+	bool BeginHostCleanup(float DeltaSeconds);
+	void HandleHostCleanupComplete(FName SessionName, bool bWasSuccessful);
+	FString PendingHostMap;
+	FString HostFailureReason;
+	bool bHostRequestActive = false;
+	FDelegateHandle HostCreateDelegateHandle;
+	FDelegateHandle LobbyTravelFailureDelegateHandle;
+	FDelegateHandle LobbyMapLoadedDelegateHandle;
+	FDelegateHandle LocalMapDepartureDelegateHandle;
+	FTSTicker::FDelegateHandle HostCleanupTickerHandle;
+	TWeakObjectPtr<UWorld> HostCleanupWorld;
+
 	void HandleFindLobbiesComplete(bool bWasSuccessful);
 	void HandleJoinLobbyComplete(
 		FName InSessionName,
@@ -132,30 +289,14 @@ private:
 		FName InSessionName,
 		bool bWasSuccessful
 		);
-	void HandleUpdateLobbyComplete(FName InSessionName, bool bWasSuccessful);
-	void HandleSessionSettingsUpdated(
-		FName InSessionName, 
-		const FOnlineSessionSettings& InSessionSettings);
 	void HandleNetworkFailure(
 		UWorld* InWorld,
 		UNetDriver* InNetDriver,
 		ENetworkFailure::Type InFailureType,
 		const FString& InErrorString
 		);
-	bool TravelToJoinedDedicatedServer(FName InSessionName);
-	void StartMatchServerPolling();
-	void StopMatchServerPolling();
-	void PollMatchServerSettings();
-	bool ResolveMatchServerAddress(
-		const FString& RequestedAddress,
-		FString& OutServerAddress
-		) const;
-	bool ValidateMatchServerAddress(
-		const FString& ServerAddress,
-		FString& OutNormalizedAddress,
-		FString& OutError
-		) const;
-	bool FailMatchStart(const FString& ErrorMessage);
+	bool TravelToJoinedLobby(FName InSessionName);
+	bool RejectLegacyMatchRequest();
 	void SetMatchStartState(
 		EHBMatchStartState NewState,
 		const FString& ErrorMessage = FString()
@@ -165,30 +306,20 @@ private:
 		EHBLobbyOperationState NewState,
 		const FString& ErrorMessage = FString()
 		);
-	
+
 	IOnlineSessionPtr SessionInterface;
 
 	EHBLobbyOperationState LobbyOperationState = EHBLobbyOperationState::Idle;
 	FString LastLobbyOperationError;
 	bool bJoinFirstLobbyAfterFind = false;
-	
+
 	EHBMatchStartState MatchStartState = EHBMatchStartState::Idle;
 	FString LastMatchStartError;
 
-	FString PendingMatchServerAddress;
-	bool bConnectAfterLobbyUpdate = false;
-	
-	bool bMatchTravelRequested = false;
-	
-	TSharedPtr<FOnlineSessionSettings> LobbySettings;
 	TSharedPtr<FOnlineSessionSearch> LobbySearch;
-	
-	FDelegateHandle CreateLobbyCompleteDelegateHandle;
+
 	FDelegateHandle FindLobbiesCompleteDelegateHandle;
 	FDelegateHandle JoinLobbyCompleteDelegateHandle;
 	FDelegateHandle LeaveLobbyCompleteDelegateHandle;
-	FDelegateHandle UpdateLobbyCompleteDelegateHandle;
-	FDelegateHandle SessionSettingsUpdatedDelegateHandle;
 	FDelegateHandle NetworkFailureDelegateHandle;
-	FTimerHandle MatchServerPollTimerHandle;
 };

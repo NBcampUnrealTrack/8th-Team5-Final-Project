@@ -132,9 +132,6 @@ void UInventoryItemWidget::InitializeItem(
 		// NaturalGridSize에 CellSize를 곱해 자연 크기를 구하고, 박스 전체를 회전 상태에 맞춰 90도 돌린다.
 		const FVector2D NaturalIconSize = FVector2D(NaturalGridSize.X * CellSize, NaturalGridSize.Y * CellSize);
 
-		// 1x2, 1x3ó�� ���簢���� �ƴ� ������ �������� ������ ��Ʈ ��ü ���� ������
-		// ĭ�� �� �� ä��� ª�� ���̴� ��찡 ����. �׷� �����ۿ��� ��¦ Ȯ���ؼ�
-		// �����Ѵ� (���簢�� �������� �̹� �� �� ���̹Ƿ� �״�� �д�).
 		const bool bIsElongated = !FMath::IsNearlyEqual(NaturalIconSize.X, NaturalIconSize.Y);
 		const FVector2D ScaledIconSize = bIsElongated
 			? NaturalIconSize * ElongatedIconOverscale
@@ -148,7 +145,6 @@ void UInventoryItemWidget::InitializeItem(
 
 	if (ProgressBar_Durability != nullptr)
 	{
-		// �����̸鼭 �������� �ʱ�ȭ�� �����۸� �����Ѵ�(-1�� ���� �ջ� �� ���� ���Ž�/���ʱ�ȭ ���·� ����).
 		const bool bTrackDurability = bIsRevealed && ViewData.IsEquippable() && Item.CurrentDurability >= 0.f;
 
 		if (bTrackDurability)
@@ -158,7 +154,6 @@ void UInventoryItemWidget::InitializeItem(
 				? FMath::Clamp(Item.CurrentDurability / MaxDurability, 0.f, 1.f)
 				: 0.f;
 
-			// 100%(�� ��)�� �� ��ҿ� ����ϰ� �����, ��� �����ϸ� �׶����� �����ش�.
 			ProgressBar_Durability->SetVisibility(Percent >= 1.f ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 			ProgressBar_Durability->SetPercent(Percent);
 
@@ -234,20 +229,12 @@ void UInventoryItemWidget::InitializeItem(
 			Text_StackCount->SetVisibility(ESlateVisibility::Hidden);
 		}
 	}
-	// ���ã�� ǥ�ø� �ܼ�ȭ: ĭ ��ü�� ���δ� �׵θ� �޽�(Border_ItemFrame +
-	// Anim_FavoritePulse)�� �ʹ� ȭ���ؼ� ����, ���� �ϴ��� ���� �� ������
-	// (Image_FavoriteStar) �ϳ��� �Ѱ� ����. Border_ItemFrame/Anim_FavoritePulse��
-	// �� �̻� ���ã������� ���� �ʴ´�(�ٸ� �뵵�� ���ܵε� ���⼭�� �ǵ帮�� ����).
 	if (Image_FavoriteStar != nullptr)
 	{
 		Image_FavoriteStar->SetVisibility(bIsRevealed && Item.bIsFavorite
 			? ESlateVisibility::HitTestInvisible
 			: ESlateVisibility::Hidden);
 	}
-	// ���� ��� ������ ���п� ǥ�� - �Ϲ� ���۰� �򰥸��ٴ� �ǵ������ �߰�.
-	// ���ã�� ��(���� �ϴ�)�� ��Ī�Ǵ� ���� �ϴܿ� ���� ���������� ǥ��. ������ �ؽ�ó��
-	// Image_FavoriteStar�� ������ ������� WBP_InventoryItem �����̳ʿ��� �̹� �����Ǿ�
-	// �����Ƿ�, �ڵ忡���� ItemType == "Material"�� ���� ���̵��� ǥ�� ���θ� ����Ѵ�.
 	if (Image_MaterialBadge != nullptr)
 	{
 		const bool bIsCraftMaterial = bIsRevealed && bHasViewData && ViewData.ItemType == TEXT("Material");
@@ -324,8 +311,6 @@ void UInventoryItemWidget::NativeOnDragDetected(
 	Operation->OnDrop.AddDynamic(this, &UInventoryItemWidget::HandleDragFinished);
 	Operation->OnDragCancelled.AddDynamic(this, &UInventoryItemWidget::HandleDragFinished);
 
-	// �׸��� �巡���� ���� ȭ�� ���־�(UMG DefaultDragVisual)�� Operation�� ����ؼ�,
-	// �巡�� �� TŰ ȸ��(SetRotated())�� �� SizeBox/���� ������ �Բ� �����ϰ� �Ѵ�.
 	Operation->SetDefaultVisual(DragVisualContainer, DragItemWidget, VisualSize);
 
 	SetVisibility(ESlateVisibility::Hidden);

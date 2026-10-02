@@ -185,6 +185,9 @@ void UEnemySummonGABase::OnSpawnEventReceived(FGameplayEventData Payload)
 	Params.Owner = Avatar;
 	Params.Instigator = Cast<APawn>(Avatar);
 
+	// 소환자와 같은 레벨(방)에 생성한다. 경계 팀은 같은 레벨끼리만 묶이기 때문이다.
+	Params.OverrideLevel = Avatar->GetLevel();
+
 	int32 Spawned = 0;
 	for (const FSummonPoint& Planned : PendingPoints)
 	{
@@ -221,6 +224,12 @@ void UEnemySummonGABase::OnSpawnEventReceived(FGameplayEventData Payload)
 
 		// 드랍 없음 · 루팅 불가 · 죽으면 사라짐. 경험치는 그대로 준다
 		Minion->MarkAsSummoned(DespawnDelay);
+
+		// 소환자의 경계 팀을 물려받는다.
+		if (const AEnemyCharacterBase* Summoner = Cast<AEnemyCharacterBase>(Avatar))
+		{
+			Minion->SetAlertTeam(Summoner->GetAlertTeam());
+		}
 		Comp->Register(Minion);
 		PlayCueAt(SpawnCueTag, Planned.Location);
 

@@ -52,6 +52,8 @@ struct FItemViewData
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString IconPath;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FString WorldMeshPath;
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString ItemType;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	int32 SellValue = 0;
@@ -66,7 +68,9 @@ struct FItemViewData
 	bool IsEquippable() const { return EquipSlotType != EEquipSlotType::None; }
 	UPROPERTY(BlueprintReadOnly)
 	float HealAmount = 0.f;
-	bool IsConsumable() const { return HealAmount > 0.f; }
+	UPROPERTY(BlueprintReadOnly)
+	float ManaAmount = 0.f;
+	bool IsConsumable() const { return HealAmount > 0.f || ManaAmount > 0.f; }
 
 	// ===== 악세서리 옵션 =====
 	// FItemData 의 같은 이름 칸을 그대로 옮겨 담는다. 무기·방패 행은 비어서 온다.
@@ -118,9 +122,6 @@ struct FItemInstance
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	bool bRevealed = true;
 
-	// ��� ������. -1�̸� "�� �ν��Ͻ��� ���� �������� �ʱ�ȭ���� ����"�� �ǹ��ϰ�,
-	// ����/�Ĺ����� �������� ó�� �����Ǵ� ������ ��޺� �ִ�ġ�� ä����� �Ѵ�.
-	// 0�� �Ǹ� �ļ� ����(����/���� ���/�簢�� �Ұ�, ����/�Ǹ�/���ظ� ����).
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	float CurrentDurability = -1.f;
 
@@ -155,12 +156,8 @@ HEAVENBREACH_API bool ResolveItemViewData(const FDataTableRowHandle& InRow, FIte
 
 HEAVENBREACH_API FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InViewData);
 
-// ��޺� �ִ� ������(��ȹ�� 10.2 ����: �Ϲ� 100 / ��� 150 / ���� 200 / õ�� 250).
-// �뷱�� ������ ���� �� ���� ��ġ�� �ȴ�.
 HEAVENBREACH_API float GetMaxDurabilityForGrade(EItemGrade InGrade);
 
-// ��޺� ��� �׶��̼� ����(�κ��丮 ĭ/���� ���� ����). �� ������ ���� �� ����
-// ��ġ�� InventoryItemWidget, EquipmentSlotWidget ���ʿ� �� �ݿ��ȴ�.
 HEAVENBREACH_API FLinearColor GetGradeTopColor(EItemGrade InGrade);
 HEAVENBREACH_API FLinearColor GetGradeBottomColor(EItemGrade InGrade);
 

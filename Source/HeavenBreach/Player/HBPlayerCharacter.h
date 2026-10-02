@@ -7,6 +7,8 @@
 #include "Combat/Interface/DamageableInterface.h"
 #include "Combat/Ability/HBSkillAugment.h"
 #include "Item/ItemEffectRules.h"
+#include "Inventory/InventoryTypes.h"
+#include "Interaction/InteractableInterface.h"
 #include "GameFramework/Character.h"
 #include "HBPlayerCharacter.generated.h"
 
@@ -24,9 +26,38 @@ struct FHBStartingLoadout;
 class USkeletalMesh;
 class UStaticMesh;
 class UQuickSlotComponent;
+class UDataTable;
+struct FHBWeaponPresentation;
+class UHBPlayerCorpseInventory;
+
+USTRUCT()
+struct FHBCorpseEquippedItem
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	EEquipSlotType Slot = EEquipSlotType::None;
+
+	UPROPERTY()
+	FItemInstance Item;
+};
+
+// 시체가 된 순간의 상태. 한 구조체로 묶어야 "시체다"와 "입고 있던 장비"가 같이 도착한다.
+USTRUCT()
+struct FHBCorpseState
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	bool bIsCorpse = false;
+
+	// 외형 전용. 실제 아이템은 시체 가방에 있다.
+	UPROPERTY()
+	TArray<FHBCorpseEquippedItem> EquippedSnapshot;
+};
 
 UCLASS(Blueprintable)
-class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface
+class HEAVENBREACH_API AHBPlayerCharacter : public ACharacter,public IDamageableInterface,public IAbilitySystemInterface,public IInteractableInterface
 
 {
 	GENERATED_BODY()
@@ -36,11 +67,23 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
+	// 서버 전용. 아이템을 시체 가방으로 옮기고 래그돌이 된다. 빙의 해제 전에 불러야 PlayerState 가 붙어 있다.
+	void BecomeCorpse();
+
+	bool IsCorpse() const { return CorpseState.bIsCorpse; }
+
+	virtual bool CanInteract_Implementation(AActor* Interactor) const override;
+	virtual void Interact_Implementation(AActor* Interactor) override;
+	virtual FText GetInteractPrompt_Implementation() const override;
+
 	void MoveForward(float Value);
 	void MoveRight(float Value);
 
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
 	virtual void Attack();
+
+	// 공격 키를 뗐을 때. 활을 당기는 중이면 쏜다(당긴 시간이 짧으면 취소). 근접 평타는 영향 없음.
+	void StopAttack();
 
 	// 패링을 시도한다. 방패가 유일한 전제조건이고 직업은 보지 않는다.
 	UFUNCTION(BlueprintCallable, Category = "Player|Combat")
@@ -98,6 +141,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UQuickSlotComponent* GetQuickSlot() const;
 
+protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Corpse")
+	TObjectPtr<UHBPlayerCorpseInventory> CorpseInventory;
+
+	UPROPERTY(ReplicatedUsing = OnRep_CorpseState)
+	FHBCorpseState CorpseState;
+
+	UFUNCTION()
+	void OnRep_CorpseState();
+
+	void StartCorpseRagdoll();
+
+	// 장비 외형이 볼 곳. 시체면 스냅샷, 아니면 PlayerState 의 장비.
+	bool HasVisualEquipmentSource() const;
+	bool GetVisualItemInSlot(EEquipSlotType Slot, FItemInstance& OutItem) const;
+
+public:
+
 	// ================ 디버그 ================
 
 	/**
@@ -136,6 +197,30 @@ public:
 	// 장착 무기의 WeaponType을 태그로 변환한다. 올바르지 않거나 타입이 없으면 Weapon.Unarmed.
 	UFUNCTION(BlueprintPure, Category = "Player|Combat")
 	FGameplayTag GetEquippedWeaponTag() const;
+
+	// 장착 무기의 외형 행(DT_WeaponPresentation). 장비가 바뀔 때 갱신해 둔 값이다. 없으면 nullptr.
+	const FHBWeaponPresentation* GetWeaponPresentation() const { return CachedWeaponPresentation; }
+
+	// 외형 행에 스켈레탈 메시가 있는 무기(활)를 들었을 때 보이는 메시. 아니면 숨겨져 있다.
+	USkeletalMeshComponent* GetWeaponSkeletalMesh() const { return WeaponSkeletalMeshComp; }
+
+	// 활을 당기고 있는가. 활 AnimBP · 장전 화살 · 다른 클라 화면이 이걸 본다.
+	UFUNCTION(BlueprintPure, Category = "Player|Bow")
+	bool IsBowDrawing() const { return bDrawingBow; }
+
+	// 활 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
+	void SetBowDrawing(bool bDrawing);
+
+	// 장전 중 손에 보이는 화살 메시. 외형 행에 없으면 nullptr.
+	UFUNCTION(BlueprintPure, Category = "Player|Bow")
+	UStaticMesh* GetHeldArrowMesh() const;
+
+	// 화면 중앙(카메라)에서 조준 방향으로 쏜 트레이스의 끝. 맞은 곳이 있으면 그 지점.
+	// 장전 화살 표시와 서버의 화살 발사가 같은 값을 쓴다.
+	UFUNCTION(BlueprintPure, Category = "Player|Bow")
+	FVector ComputeAimPoint(float MaxDistance = 10000.f) const;
+
+	UCameraComponent* GetFirstPersonCamera() const { return FirstPersonCamera; }
 #pragma region Interaction
 public:
 	virtual void PawnClientRestart() override;
@@ -156,7 +241,7 @@ private:
 
 private:
 	UFUNCTION()
-	void HandleItemUsed(FName ItemId, float HealAmount);
+	void HandleItemUsed(FName ItemId, float HealAmount, float ManaAmount);
 
 protected:
 	virtual void OnAbilitySystemInitialized(UAbilitySystemComponent* AbilitySystem);
@@ -277,7 +362,11 @@ public:
 	// 새 회복을 만들면 SetPlayer_HP 대신 이걸 부른다.
 	void ReceiveHeal(float Amount);
 
-	UFUNCTION(BlueprintPure, Category="Player|Combat")
+	// 마나 회복은 전부 여기를 지난다. ReceiveHeal 과 같은 이유 - 포션 외에 다른 마나 회복이
+	// 생겨도 전부 이걸 부르면 한 곳에서만 관리하면 된다.
+	void ReceiveMana(float Amount);
+
+	UFUNCTION(BlueprintPure, Category = "Player|Combat")
 	float GetAttackRange() const;
 	
 	// 정면 판정 각도. 패링과 방어태세가 같은 값을 쓴다.
@@ -488,6 +577,22 @@ private:
 	void ResetCombatInstinct();
 
 	TWeakObjectPtr<AActor> ConsecutiveTarget;
+
+	// 활 당김 상태. 소유 클라는 GA 가 직접 세팅하므로 복제에서 뺀다(COND_SkipOwner).
+	// 이름을 bBowDrawing 으로 하지 않는다: 기문 님 테스트 BP(BP_Test_BowCharacter, 이 클래스의 자식)에
+	// 같은 이름의 BP 변수가 있어 충돌하면 그쪽 변수가 bBowDrawing_0 으로 바뀌어 테스트가 깨진다.
+	UPROPERTY(Replicated)
+	bool bDrawingBow = false;
+
+	// 무기에 따른 교체 전의 AnimBP(BP 기본값 또는 직업 데이터). 무기를 내려놓으면 이걸로 돌아간다.
+	UPROPERTY()
+	TSubclassOf<UAnimInstance> BaseAnimClass;
+
+	// DataTable 행 포인터. 표는 에디터 애셋이라 게임 중에 행이 옮겨지지 않는다.
+	const FHBWeaponPresentation* CachedWeaponPresentation = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<AActor> HeldArrowActor;
 	int32 ConsecutiveHitCount = 0;
 	TWeakObjectPtr<AActor> LastDamageInstigator;
 	double LastDamageReceivedTime = -1000.0;
@@ -614,6 +719,50 @@ protected:
 	// 위 값을 이동 컴포넌트에 넣는다. RefreshMovementSpeed 가 부른다.
 	void ApplyMovementInertia(class UCharacterMovementComponent* Movement) const;
 
+	// ----- 점프 감각 (Docs/점프-감각-설계.md) -----
+	// 서버와 소유 클라가 같은 규칙으로 각자 계산한다. 복제 값은 없다.
+
+	// 정점을 지나 내려올 때만 중력에 곱한다. 오를 때는 그대로라 점프 높이는 안 바뀐다. 둥둥 뜨는 느낌을 없앤다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="1.0"))
+	float FallGravityScale = 1.6f;
+
+	// 착지 직전 하강 속도가 이 이하면 충격 0(보통 점프 ≈ 530). 이 위로는 비례해서 커진다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="cm/s"))
+	float LandSoftSpeed = 600.f;
+
+	// 이 속도 이상으로 떨어지면 충격 1(최대).
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="cm/s"))
+	float LandHardSpeed = 1100.f;
+
+	// 충격 1 일 때 착지 순간 줄어드는 이동 속도 비율. 0.4 면 60% 속도에서 시작해 회복.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float LandMaxSlow = 0.4f;
+
+	// 착지 감속이 원래 속도로 돌아오는 시간.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="s"))
+	float LandSlowDuration = 0.35f;
+
+	// 착지 후 이 시간 안에 다시 뛰면 점프가 낮다(연속 점프 억제). 막지는 않는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="s"))
+	float RejumpWindow = 0.3f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float RejumpHeightScale = 0.75f;
+
+	// 이동 컴포넌트의 원래 값. 공중·착지 처리 동안 바꿨다가 되돌린다.
+	float BaseJumpZVelocity = 0.f;
+	float BaseGravityScale = 1.f;
+
+	// 마지막 착지 시각(월드 시간)과 그때의 충격 0~1.
+	double LastLandedTime = -1000.0;
+	float LastLandImpact = 0.f;
+
+	// 공중이거나 착지 회복 중이면 true. 이때만 틱을 켜 둔다.
+	bool NeedsJumpFeelTick() const;
+
+	// 점프 감각 값(중력·점프 높이)을 이동 컴포넌트에 넣는다. 공중·착지 회복 중 매 틱.
+	void UpdateJumpFeel();
+
 	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
 	bool bIsSprinting = false;
 
@@ -640,6 +789,19 @@ protected:
 	
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
+
+	// 시위가 움직이는 무기(활). 외형 행에 SkeletalMesh 가 있을 때만 보이고, 그때 WeaponMeshComp 는 비운다.
+	// "Weapon" 컴포넌트 태그를 달지 않는다 — 근접 트레이스 대상이 아니다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> WeaponSkeletalMeshComp;
+
+	// 무기별 외형·애니 표. 행 구조체 FHBWeaponPresentation. 비어 있으면 예전처럼 스태틱 무기만 보인다.
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Equipment")
+	TObjectPtr<UDataTable> WeaponPresentationTable;
+
+	// 장전 중 손에 보이는 화살 액터(BP_BowHeldArrow). 모든 머신이 각자 로컬로 만든다. 복제하지 않는다.
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Bow")
+	TSubclassOf<AActor> HeldArrowActorClass;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Combat")
 	TObjectPtr<class UMeleeTraceComponent> MeleeTraceComp;
@@ -733,6 +895,11 @@ protected:
 	
 	virtual void BeginPlay() override;
 
+	// 점프 감각: 공중·착지 회복 중에만 켜진다.
+	virtual void Tick(float DeltaSeconds) override;
+	virtual void Landed(const FHitResult& Hit) override;
+	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
+
 	// 나가거나 파괴될 때 아이템 동작 효과로 파티원에게 건 것을 거둔다. 안 거두면 버프가 영원히 남는다.
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -740,6 +907,10 @@ protected:
 	void RefreshEquippedVisuals();
 	
 	void RefreshWeaponVisual();
+
+	// 외형 행의 CharacterAnimClass 로 AnimBP 를 바꾼다. 없으면 BaseAnimClass 로 되돌린다.
+	void RefreshCharacterAnimClass();
+
 	void RefreshShieldVisual();
 	void RefreshHelmetVisual();
 	void RefreshChestVisual();
