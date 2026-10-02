@@ -165,7 +165,8 @@ void AEnemyCharacterBase::ApplyMeleeHit_Implementation(AActor* InstigatorActor, 
 		AbilitySystemComp->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_Hit));
 
 		// 때린상대의 위치로 가기위한 위치를 감각관리컴포넌트에 건네준다.
-		if (InstigatorActor)
+		// 폰이 아닌 것(트랩 등)에 맞았으면 수색하지 않는다. 그 자리를 뒤지러 가 봐야 아무도 없다.
+		if (Cast<APawn>(InstigatorActor))
 		{
 			if (AEnemyAIControllerBase* AIC = Cast<AEnemyAIControllerBase>(GetController()))
 			{

@@ -30,6 +30,10 @@ namespace CueTag
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Magic)
 
+	// 함정 전용. 트랩이 HitCueTag 칸으로 자기 ASC 에 단다 (AHBTrapBase).
+	// 적 공격 전용 큐와 같은 이유로 따로 둔다 — 함정에 맞은 건지 귀로 구분되게.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Spike)
+
 	// ================ 스킬 발동 연출 ================
 	// 타격이 아니라 시전자 본인에게서 터지는 것. 맞은 대상도 재질도 없다.
 	// 위의 Hit 계열과 달리 ResolveCueTag 를 거치지 않는다.

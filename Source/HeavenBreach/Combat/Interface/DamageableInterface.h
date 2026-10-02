@@ -21,7 +21,9 @@ UENUM(BlueprintType)
 enum class EHBDamageSource : uint8
 {
 	Melee    UMETA(DisplayName = "근접"),
-	Ranged   UMETA(DisplayName = "원거리")
+	Ranged   UMETA(DisplayName = "원거리"),
+	// 함정 (AHBTrapBase). 지금 코드는 Melee 인지만 보므로 근접 받는 피해 옵션 · 패링 반격 경직이 걸리지 않는다.
+	Trap     UMETA(DisplayName = "함정")
 };
 
 UINTERFACE(MinimalAPI, BlueprintType, meta=(DisplayName = "Damageable Interface"))
