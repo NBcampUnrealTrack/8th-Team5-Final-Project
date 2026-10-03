@@ -43,6 +43,9 @@ public:
 	 */
 	virtual bool OnHoldBegin_Implementation(AActor* Interactor) override;
 
+	/** 클라에서 먼저 확인. 열쇠가 없으면 누르는 동작부터 시작하지 않는다 */
+	virtual bool CanBeginHold_Implementation(AActor* Interactor) const override;
+
 	/** 중간에 놓음 — Sealed 로 되돌린다. 열쇠는 아직 소비하지 않았으므로 손실이 없다 */
 	virtual void OnHoldCancel_Implementation(AActor* Interactor) override;
 

@@ -685,3 +685,11 @@ void UHB_HUDLayer::PlayHitEffect()
 		WBP_PlayerBloodSplatter->PlayHitEffect();
 	}
 }
+
+void UHB_HUDLayer::ShowNotification(const FText& Header, const FText& Body)
+{
+	if (WBP_Notification)
+	{
+		WBP_Notification->ShowNotification(Header, Body);
+	}
+}
