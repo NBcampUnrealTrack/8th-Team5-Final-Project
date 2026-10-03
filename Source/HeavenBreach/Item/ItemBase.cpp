@@ -97,6 +97,7 @@ static float GetItemCategoryScale(const FString& ItemType)
 		{TEXT("Accessory"), 0.1f},
 		{TEXT("Key"), 0.14f},
 		{TEXT("Currency"), 0.15f},
+		{TEXT("Torch"), 0.5f},
 	};
 	if (const float* Found = CategoryScales.Find(ItemType))
 	{

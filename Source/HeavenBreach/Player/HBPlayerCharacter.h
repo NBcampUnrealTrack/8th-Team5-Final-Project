@@ -25,6 +25,9 @@ struct FHBJobSkillData;
 struct FHBStartingLoadout;
 class USkeletalMesh;
 class UStaticMesh;
+class UPointLightComponent;
+class UParticleSystemComponent;
+class UParticleSystem;
 class UQuickSlotComponent;
 class UDataTable;
 struct FHBWeaponPresentation;
@@ -790,6 +793,12 @@ protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> ShieldMeshComp;
 
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment|Torch")
+	TObjectPtr<UPointLightComponent> TorchLightComp;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment|Torch")
+	TObjectPtr<UParticleSystemComponent> TorchFireComp;
+
 	// 시위가 움직이는 무기(활). 외형 행에 SkeletalMesh 가 있을 때만 보이고, 그때 WeaponMeshComp 는 비운다.
 	// "Weapon" 컴포넌트 태그를 달지 않는다 — 근접 트레이스 대상이 아니다.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Equipment")
@@ -892,6 +901,34 @@ protected:
 	
 	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment")
 	FName ShieldSocketName = TEXT("SecondWeaponSocket");
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment|Torch")
+	FVector TorchFlameOffset = FVector(0.f, 0.f, 49.f);
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment|Torch", meta = (ClampMin = "0"))
+	float TorchLightIntensity = 800.f;
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment|Torch")
+	FLinearColor TorchLightColor = FLinearColor(1.f, 0.55f, 0.2f);
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment|Torch")
+	TSoftObjectPtr<UParticleSystem> TorchFireTemplate;
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment|Torch", meta = (ClampMin = "0.01"))
+	float TorchHandScale = 0.35f;
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment|Torch")
+	FName TorchSocketName = TEXT("TorchSocket");
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment|Torch")
+	FVector TorchHandOffset = FVector::ZeroVector;
+
+	UPROPERTY(EditDefaultsOnly,Category="Player|Equipment|Torch")
+	FRotator TorchHandRotation = FRotator::ZeroRotator;
+
+	FTransform ShieldBaseRelativeTransform;
+	bool bShieldBaseTransformCaptured = false;
+	void ApplySecondaryEquipTransform(bool bTorch);
 	
 	virtual void BeginPlay() override;
 
@@ -912,6 +949,7 @@ protected:
 	void RefreshCharacterAnimClass();
 
 	void RefreshShieldVisual();
+	void RefreshTorchLight(float InLightRadius);
 	void RefreshHelmetVisual();
 	void RefreshChestVisual();
 	void RefreshLegsVisual();

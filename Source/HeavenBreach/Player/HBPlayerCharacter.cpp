@@ -9,6 +9,9 @@
 #include "Engine/DataTable.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Particles/ParticleSystemComponent.h"
+#include "Particles/ParticleSystem.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
 #include "Combat/Attack/GA_PlayerAttackRE.h"
 #include "Combat/Attack/GA_PlayerBowAttack.h"
@@ -103,6 +106,17 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
 	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	ShieldMeshComp->ComponentTags.Add(TEXT("Shield"));
+
+	TorchLightComp = CreateDefaultSubobject<UPointLightComponent>(TEXT("TorchLightComp"));
+	TorchLightComp->SetupAttachment(ShieldMeshComp);
+	TorchLightComp->SetCastShadows(false);
+	TorchLightComp->SetVisibility(false);
+
+	TorchFireComp = CreateDefaultSubobject<UParticleSystemComponent>(TEXT("TorchFireComp"));
+	TorchFireComp->SetupAttachment(ShieldMeshComp);
+	TorchFireComp->bAutoActivate = false;
+
+	TorchFireTemplate = TSoftObjectPtr<UParticleSystem>(FSoftObjectPath(TEXT("/Game/Asset/MultistoryDungeons/Effects/Torch_Fire_01.Torch_Fire_01")));
 	
 	#pragma region ModularEquipmentMesh
 	HelmetMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HelmetMeshComp"));
@@ -394,6 +408,11 @@ const FShieldData* AHBPlayerCharacter::GetEquippedShieldData() const
 
 	FItemInstance ShieldItem;
 	if (!GetEquipment()->GetItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+	{
+		return nullptr;
+	}
+
+	if (!ShieldItem.ItemRow.DataTable || ShieldItem.ItemRow.DataTable->GetRowStruct() != FShieldData::StaticStruct())
 	{
 		return nullptr;
 	}
@@ -2560,19 +2579,114 @@ void AHBPlayerCharacter::RefreshShieldVisual()
 	}
 	
 	FItemInstance ShieldItem;
-	if (GetVisualItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+	if (GetVisualItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem) && ShieldItem.ItemRow.DataTable)
 	{
-		if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("RefreshShieldVisual")))
+		const UScriptStruct* RowStruct = ShieldItem.ItemRow.DataTable->GetRowStruct();
+		if (RowStruct == FShieldData::StaticStruct())
 		{
-			if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*ShieldData->EquipMeshPath))
+			if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("RefreshShieldVisual")))
 			{
-				ShieldMeshComp->SetStaticMesh(WeaponMesh);
-				return;
+				if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*ShieldData->EquipMeshPath))
+				{
+					ShieldMeshComp->SetStaticMesh(WeaponMesh);
+					ApplySecondaryEquipTransform(false);
+					RefreshTorchLight(0.f);
+					return;
+				}
+			}
+		}
+		else if (RowStruct == FItemData::StaticStruct())
+		{
+			if (const FItemData* TorchData = ShieldItem.ItemRow.GetRow<FItemData>(TEXT("RefreshShieldVisual")))
+			{
+				if (UStaticMesh* TorchMesh = LoadObject<UStaticMesh>(nullptr, *TorchData->WorldMeshPath))
+				{
+					ShieldMeshComp->SetStaticMesh(TorchMesh);
+					ApplySecondaryEquipTransform(true);
+					RefreshTorchLight(TorchData->LightRadius);
+					return;
+				}
 			}
 		}
 	}
 	
 	ShieldMeshComp->SetStaticMesh(nullptr);
+	ApplySecondaryEquipTransform(false);
+	RefreshTorchLight(0.f);
+}
+
+void AHBPlayerCharacter::ApplySecondaryEquipTransform(bool bTorch)
+{
+	if (!ShieldMeshComp)
+	{
+		return;
+	}
+
+	if (!bShieldBaseTransformCaptured)
+	{
+		ShieldBaseRelativeTransform = ShieldMeshComp->GetRelativeTransform();
+		bShieldBaseTransformCaptured = true;
+	}
+
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	const bool bUseTorchSocket = bTorch && CharacterMesh && CharacterMesh->DoesSocketExist(TorchSocketName);
+	const FName TargetSocket = bUseTorchSocket ? TorchSocketName : ShieldSocketName;
+	if (CharacterMesh && (ShieldMeshComp->GetAttachParent() != CharacterMesh || ShieldMeshComp->GetAttachSocketName() != TargetSocket))
+	{
+		ShieldMeshComp->AttachToComponent(CharacterMesh, FAttachmentTransformRules::KeepRelativeTransform, TargetSocket);
+	}
+
+	if (bTorch)
+	{
+		const FTransform TorchBase = bUseTorchSocket ? FTransform::Identity : ShieldBaseRelativeTransform;
+		ShieldMeshComp->SetRelativeLocationAndRotation(TorchBase.GetLocation() + TorchHandOffset,
+			(TorchBase.GetRotation() * TorchHandRotation.Quaternion()).Rotator());
+		ShieldMeshComp->SetRelativeScale3D(FVector(TorchHandScale));
+	}
+	else
+	{
+		ShieldMeshComp->SetRelativeTransform(ShieldBaseRelativeTransform);
+	}
+}
+
+void AHBPlayerCharacter::RefreshTorchLight(float InLightRadius)
+{
+	const bool bLit = InLightRadius > 0.f;
+
+	if (TorchLightComp)
+	{
+		if (bLit)
+		{
+			TorchLightComp->SetRelativeLocation(TorchFlameOffset);
+			TorchLightComp->SetAttenuationRadius(InLightRadius);
+			TorchLightComp->SetIntensity(TorchLightIntensity);
+			TorchLightComp->SetLightColor(TorchLightColor);
+		}
+		TorchLightComp->SetVisibility(bLit);
+	}
+
+	if (TorchFireComp)
+	{
+		if (bLit)
+		{
+			if (UParticleSystem* FireTemplate = TorchFireTemplate.LoadSynchronous())
+			{
+				TorchFireComp->SetRelativeLocation(TorchFlameOffset);
+				if (TorchFireComp->Template != FireTemplate)
+				{
+					TorchFireComp->SetTemplate(FireTemplate);
+				}
+				if (!TorchFireComp->IsActive())
+				{
+					TorchFireComp->Activate(true);
+				}
+			}
+		}
+		else if (TorchFireComp->IsActive())
+		{
+			TorchFireComp->DeactivateImmediate();
+		}
+	}
 }
 
 void AHBPlayerCharacter::RefreshHelmetVisual()
