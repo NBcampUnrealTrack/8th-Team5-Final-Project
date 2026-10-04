@@ -20,12 +20,16 @@ bool UHBEncounterComponent::Validate(TArray<FString>& OutErrors) const
 		if (Group.GroupId.IsNone() || GroupIds.Contains(Group.GroupId))
 			OutErrors.Add(Label + TEXT(" needs a nonempty, unique GroupId."));
 		GroupIds.Add(Group.GroupId);
-		if (Group.MinCount < 0 || Group.MaxCount < Group.MinCount)
-			OutErrors.Add(Label + TEXT(" count range must satisfy 0 <= MinCount <= MaxCount."));
-		if (Group.MaxCount > 0)
+		TArray<FString> CountErrors;
+		HBSpawnCountSelection::Validate(Group.MinCount, Group.MaxCount, Group.CountSelectionMode, Group.CountWeights, CountErrors);
+		for (const FString& Error : CountErrors) OutErrors.Add(Label + TEXT(" ") + Error);
+		int32 SelectableMinimum = 0, SelectableMaximum = 0;
+		HBSpawnCountSelection::GetSelectableRange(Group.MinCount, Group.MaxCount,
+			Group.CountSelectionMode, Group.CountWeights, SelectableMinimum, SelectableMaximum);
+		if (SelectableMaximum > 0)
 		{
 			bSpawnsAnything = true;
-			if (Group.Monsters.IsEmpty()) OutErrors.Add(Label + TEXT(" needs a monster class when MaxCount is positive."));
+			if (Group.Monsters.IsEmpty()) OutErrors.Add(Label + TEXT(" needs a monster class when a positive count can be selected."));
 		}
 		TSet<UClass*> Classes;
 		int64 TotalWeight = 0;

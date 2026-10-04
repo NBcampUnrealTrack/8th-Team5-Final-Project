@@ -92,6 +92,26 @@ bool FHBEncounterSelectionTest::RunTest(const FString&)
 		SeenCounts.Add(Placed.Num());
 	}
 	TestTrue(TEXT("Changing dungeon seed can vary the count"), SeenCounts.Num() > 1);
+	Config->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Weighted;
+	Config->Groups[0].CountWeights = {{2, 1}, {3, 0}, {4, 5}};
+	int32 TwoCount = 0, FourCount = 0;
+	for (int32 Seed = 1; Seed <= 64; ++Seed)
+	{
+		TestTrue(TEXT("Monster selection accepts weighted counts"),
+			HBEncounterSelection::SelectAndPlace(*Config, Points, Seed, 2, Accept, Placed, Error));
+		TestTrue(TEXT("Monster count uses only positive-weight choices"), Placed.Num() == 2 || Placed.Num() == 4);
+		TwoCount += Placed.Num() == 2;
+		FourCount += Placed.Num() == 4;
+	}
+	TestTrue(TEXT("Larger monster count follows its greater weight"), FourCount > TwoCount && TwoCount > 0);
+	HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error);
+	const FString WeightedSignature = Signature(Placed);
+	Algo::Reverse(Config->Groups[0].CountWeights);
+	TestTrue(TEXT("Weighted monster selection replays"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
+	TestEqual(TEXT("Weighted monster replay preserves points"), Signature(Placed), WeightedSignature);
+	Config->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Uniform;
+	Config->Groups[0].CountWeights.Reset();
 	Config->Groups[0].MinCount = Config->Groups[0].MaxCount = 3;
 	Points[1]->GroupId = TEXT("AnotherGroup");
 	TestTrue(TEXT("Other group point is not selected"),

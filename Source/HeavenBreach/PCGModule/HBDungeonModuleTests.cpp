@@ -190,6 +190,23 @@ bool FHBModuleEncounterAuthoringTest::RunTest(const FString&)
 	Common.EnemyClass = AEnemyCharacterBase::StaticClass();
 	Setup->Encounter->Groups[0].Monsters.Add(Common);
 	TestTrue(TEXT("Valid common setup and point pass"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	Point->bRequired = true;
+	Point->GroupId = TEXT("Common");
+	Setup->Encounter->Groups[0].MinCount = 0;
+	Setup->Encounter->Groups[0].MaxCount = 2;
+	Setup->Encounter->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Weighted;
+	Setup->Encounter->Groups[0].CountWeights = {{0, 0}, {1, 1}, {2, 0}};
+	TestTrue(TEXT("Required enemy point uses minimum selectable count"),
+		AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	Setup->Encounter->Groups[0].CountWeights[0].Weight = 1;
+	TestFalse(TEXT("Weighted zero count conflicts with a required enemy point"),
+		AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Weighted required enemy count is diagnosed"), HasIssue(Issues, TEXT("EncounterRequiredCount")));
+	Setup->Encounter->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Uniform;
+	Setup->Encounter->Groups[0].CountWeights.Reset();
+	Setup->Encounter->Groups[0].MinCount = Setup->Encounter->Groups[0].MaxCount = 1;
+	Point->bRequired = false;
+	Point->GroupId = NAME_None;
 
 	auto* Duplicate = Fixture.World->SpawnActor<AHBEnemySpawnPoint>();
 	Duplicate->PointId = Point->PointId;
@@ -270,6 +287,23 @@ bool FHBModuleChestAuthoringTest::RunTest(const FString&)
 	Duplicate->bRequired = false;
 	TestTrue(TEXT("One required point fits the guaranteed count"),
 		AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	Setup->Placement->Groups[0].MinCount = 0;
+	Setup->Placement->Groups[0].MaxCount = 2;
+	Setup->Placement->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Weighted;
+	Setup->Placement->Groups[0].CountWeights = {{0, 0}, {1, 1}, {2, 0}};
+	TestTrue(TEXT("Required chest point uses minimum selectable count"),
+		AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	Setup->Placement->Groups[0].CountWeights[0].Weight = 1;
+	TestFalse(TEXT("Weighted zero count conflicts with a required chest point"),
+		AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Weighted required chest count is diagnosed"), HasIssue(Issues, TEXT("ChestRequiredCount")));
+	Setup->Placement->Groups[0].CountWeights = {{3, 1}};
+	TestFalse(TEXT("Module validation propagates invalid count weights"),
+		AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
+	TestTrue(TEXT("Invalid count weights are diagnosed"), HasIssue(Issues, TEXT("ChestPlacementComponent")));
+	Setup->Placement->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Uniform;
+	Setup->Placement->Groups[0].CountWeights.Reset();
+	Setup->Placement->Groups[0].MinCount = Setup->Placement->Groups[0].MaxCount = 1;
 	AHBChestSetupActor* SecondSetup = Fixture.World->SpawnActor<AHBChestSetupActor>();
 	TestFalse(TEXT("Duplicate chest setups are rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
 	TestTrue(TEXT("Duplicate setup is diagnosed"), HasIssue(Issues, TEXT("ChestSetupCount")));
