@@ -87,6 +87,14 @@ public:
 
 	bool IsSummoned() const { return bSummoned; }
 
+	// 경계 팀을 정한다. 스폰하는 쪽(PCG · 소환)이 스폰 직후에 부른다.
+	void SetAlertTeam(FName InAlertTeam) { AlertTeam = InAlertTeam; }
+	FName GetAlertTeam() const { return AlertTeam; }
+
+	// 같은 경계 팀원들에게 이 플레이어를 알린다. 서버 전용.
+	// 맞았을 때(ApplyMeleeHit)와 교전이 아니었다가 처음 발견했을 때(컨트롤러의 시야 감지) 부른다.
+	void AlertTeamMates(AActor* Player);
+
 	// 시체를 물리로 넘긴다. 사망 몽타주 끝의 AN_StartRagdoll 이 부른다.
 	//
 	// 왜 BecomeDead 가 아닌가: 거기서 켜면 사망 애니가 아예 안 나오고
@@ -187,6 +195,25 @@ protected:
 
 	// 마지막으로 자신을공격한 대상
 	TWeakObjectPtr<AActor> LastDamageInstigator;
+
+	/**
+	 * 경계 팀. 한 명이 맞거나 플레이어를 발견하면 같은 팀 전원이 그 위치로 수색하러 온다. 비어 있으면 팀이 없다.
+	 *
+	 * 왜 Team.* 태그가 아닌가: Team.Player / Team.Enemy 는 "같은 편이면 안 맞는다" 판정이다. 무리 구분은 뜻이 달라 섞지 않는다.
+	 * 왜 FName 인가: 레벨 디자이너가 태그 등록 없이 바로 적게 하려고.
+	 * 작동방식: 같은 이름 + 같은 레벨(방)이어야 한 팀이다. 같은 방 모듈이 던전에 여러 번 나와도 방끼리 섞이지 않는다.
+	 *
+	 * 쳐낼 조건: 팀 단위 협동(포위 · 신호 공유)이 생기면 팀 관리 서브시스템으로 옮긴다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Team")
+	FName AlertTeam;
+
+	// 한 적이 팀에 알리는 최소 간격. 연타 때마다 적 전체를 훑지 않게.
+	UPROPERTY(EditDefaultsOnly, Category = "AI|Team", meta = (ClampMin = "0.0"))
+	float TeamAlertInterval = 1.f;
+
+	bool bTeamAlertSent = false;
+	double LastTeamAlertTime = 0.0;
 
 	// 사망변수가 변경되면 해야할것들
 	UFUNCTION()

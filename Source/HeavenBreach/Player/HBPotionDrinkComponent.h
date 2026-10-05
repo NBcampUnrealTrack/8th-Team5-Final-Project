@@ -76,7 +76,7 @@ private:
 	void HandleInterruptTagChanged(const FGameplayTag Tag, int32 NewCount);
 
 	UFUNCTION(NetMulticast, Reliable)
-	void Multicast_StartDrink();
+	void Multicast_StartDrink(const FString& InBottleMeshPath);
 
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_StopDrink(bool bInterrupted);

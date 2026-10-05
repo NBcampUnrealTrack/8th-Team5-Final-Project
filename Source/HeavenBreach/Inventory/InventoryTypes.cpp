@@ -42,7 +42,9 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.DisplayName = ItemRow->ItemName;
 		OutViewData.ItemType = ItemRow->ItemType;
 		OutViewData.IconPath = ItemRow->Icon ? ItemRow->Icon->GetPathName() : FString();
+		OutViewData.WorldMeshPath = ItemRow->WorldMeshPath;
 		OutViewData.HealAmount = ItemRow->HealAmount;
+		OutViewData.ManaAmount = ItemRow->ManaAmount;
 		OutViewData.SellValue = ItemRow->SellValue;
 		OutViewData.Description = ItemRow->Description;
 		OutViewData.Icon = ItemRow->Icon;

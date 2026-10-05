@@ -143,6 +143,26 @@ bool FHBChestSpawnSelectionTest::RunTest(const FString&)
 		}
 		TestTrue(TEXT("Dungeon seed varies the count"), Counts.Num() > 1);
 		TestTrue(TEXT("Dungeon seed varies point or class selection"), Signatures.Num() > 1);
+		Config->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Weighted;
+		Config->Groups[0].CountWeights = {{2, 1}, {3, 0}, {4, 5}};
+		int32 TwoCount = 0, FourCount = 0;
+		for (int32 Seed = 1; Seed <= 64; ++Seed)
+		{
+			TestTrue(TEXT("Chest selection accepts weighted counts"),
+				HBChestSelection::SelectAndPlace(*Config, Points, Seed, 2, Accept, Placed, Error));
+			TestTrue(TEXT("Chest count uses only positive-weight choices"), Placed.Num() == 2 || Placed.Num() == 4);
+			TwoCount += Placed.Num() == 2;
+			FourCount += Placed.Num() == 4;
+		}
+		TestTrue(TEXT("Larger chest count follows its greater weight"), FourCount > TwoCount && TwoCount > 0);
+		HBChestSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error);
+		const FString WeightedSignature = Signature(Placed);
+		Algo::Reverse(Config->Groups[0].CountWeights);
+		TestTrue(TEXT("Weighted chest selection replays"),
+			HBChestSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
+		TestEqual(TEXT("Weighted chest replay preserves points and classes"), Signature(Placed), WeightedSignature);
+		Config->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Uniform;
+		Config->Groups[0].CountWeights.Reset();
 		Config->Groups[0].MinCount = Config->Groups[0].MaxCount = 3;
 		int32 CommonDraws = 0;
 		int32 RareDraws = 0;

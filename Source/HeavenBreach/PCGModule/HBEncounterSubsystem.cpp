@@ -115,7 +115,9 @@ bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 		for (const FHBEncounterGroup& Group : Config.Groups)
 		{
 			if (Group.Grade != Grade) continue;
-			const int32 Target = Random.RandRange(Group.MinCount, Group.MaxCount);
+			int32 Target = 0;
+			if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, Group.CountSelectionMode,
+				Group.CountWeights, Random, Target, OutError)) return false;
 			TArray<AHBEnemySpawnPoint*> Required;
 			TArray<AHBEnemySpawnPoint*> Optional;
 			for (AHBEnemySpawnPoint* Point : SortedPoints)

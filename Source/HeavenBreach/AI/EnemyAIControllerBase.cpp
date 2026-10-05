@@ -576,7 +576,19 @@ void AEnemyAIControllerBase::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulu
 	// 시야내 누군가 들어옴
 	if (Stimulus.WasSuccessfullySensed())
 	{
+		// 교전이 아니었다가 지금 발견했으면 같은 경계 팀에 알린다.
+		// 이미 교전 중에 다시 보인 경우는 알리지 않는다 — 시야가 끊겼다 이어질 때마다 보내지 않게.
+		const bool bWasEngaged = AlertComponent->GetState() == EAlertState::Engaged;
+
 		AlertComponent->SightSensed(Actor);
+
+		if (!bWasEngaged)
+		{
+			if (AEnemyCharacterBase* Enemy = Cast<AEnemyCharacterBase>(GetPawn()))
+			{
+				Enemy->AlertTeamMates(Actor);
+			}
+		}
 	}
 	// 시야내에 있던 누군가가 빠져나감
 	else
@@ -584,6 +596,23 @@ void AEnemyAIControllerBase::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulu
 		// StimulusLocation = 마지막으로 성공 감지된 위치
 		AlertComponent->SightLost(Actor, Stimulus.StimulusLocation);
 	}
+}
+
+void AEnemyAIControllerBase::OnTeamAlerted(AActor* Player)
+{
+	if (!AlertComponent)
+	{
+		return;
+	}
+
+	// 시야 감지와 같은 문을 거친다. 플레이어가 아닌 것 · 죽은 것은 여기서 막는다 (R9).
+	if (!IsValidTarget(Player))
+	{
+		return;
+	}
+
+	// 교전 중이면 DamageSensed 가 알아서 무시한다.
+	AlertComponent->DamageSensed(Player->GetActorLocation());
 }
 
 void AEnemyAIControllerBase::OnTargetPerceptionForgotten(AActor* Actor)

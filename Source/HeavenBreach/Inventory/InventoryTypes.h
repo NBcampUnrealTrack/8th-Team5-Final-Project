@@ -52,6 +52,8 @@ struct FItemViewData
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString IconPath;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FString WorldMeshPath;
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FString ItemType;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	int32 SellValue = 0;
@@ -66,7 +68,9 @@ struct FItemViewData
 	bool IsEquippable() const { return EquipSlotType != EEquipSlotType::None; }
 	UPROPERTY(BlueprintReadOnly)
 	float HealAmount = 0.f;
-	bool IsConsumable() const { return HealAmount > 0.f; }
+	UPROPERTY(BlueprintReadOnly)
+	float ManaAmount = 0.f;
+	bool IsConsumable() const { return HealAmount > 0.f || ManaAmount > 0.f; }
 
 	// ===== 악세서리 옵션 =====
 	// FItemData 의 같은 이름 칸을 그대로 옮겨 담는다. 무기·방패 행은 비어서 온다.
