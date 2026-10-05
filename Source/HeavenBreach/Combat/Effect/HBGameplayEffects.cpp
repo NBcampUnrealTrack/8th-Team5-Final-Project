@@ -4,6 +4,7 @@
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
 #include "Core/Tag/Item/HB_ItemTag.h"
 #include "Item/ItemStatBinding.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
 
 namespace
 {
@@ -128,4 +129,25 @@ UGE_ItemSelfDamage::UGE_ItemSelfDamage()
 	DurationPolicy = EGameplayEffectDurationType::Instant;
 	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_HPAttribute(),
 		EGameplayModOp::Additive, ItemTag::TAG_Data_ItemEffect_Magnitude);
+}
+
+UGE_FallDamage::UGE_FallDamage()
+{
+	DurationPolicy = EGameplayEffectDurationType::Instant;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_HPAttribute(),
+		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_Damage);
+}
+
+UGE_LightLandingPassive::UGE_LightLandingPassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_FallDamageReductionAttribute(),
+		EGameplayModOp::Additive, 0.4f);
+}
+
+UGE_LightLandingAugment::UGE_LightLandingAugment()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_FallDamageReductionAttribute(),
+		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
 }

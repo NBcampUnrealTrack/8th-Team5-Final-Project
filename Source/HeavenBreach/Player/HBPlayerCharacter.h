@@ -730,6 +730,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", Units="cm/s"))
 	float LandHardSpeed = 1100.f;
 
+	/** 이 높이(cm)까지는 떨어져도 피해가 없다. 공중 최고점 − 착지 지점 */
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Movement|FallDamage", meta = (ClampMin = "0.0", Units = "cm"))
+	float FallDamageSafeHeight = 320.f;
+
+	/** 이 높이(cm) 이상이면 최대 체력 100% 피해(즉사). 사이는 직선 */
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Movement|FallDamage", meta = (ClampMin = "0.0", Units = "cm"))
+	float FallDamageLethalHeight = 1150.f;
+
+	/** 감소 수단을 다 겹쳐도 이 비율 이상은 줄지 않는다 */
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Movement|FallDamage", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FallDamageMaxReduction = 0.9f;
+
 	// 충격 1 일 때 착지 순간 줄어드는 이동 속도 비율. 0.4 면 60% 속도에서 시작해 회복.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Movement|Jump", meta=(ClampMin="0.0", ClampMax="1.0"))
 	float LandMaxSlow = 0.4f;
@@ -752,6 +764,9 @@ protected:
 	// 마지막 착지 시각(월드 시간)과 그때의 충격 0~1.
 	double LastLandedTime = -1000.0;
 	float LastLandImpact = 0.f;
+
+	/** 서버 전용. 이번 공중 상태에서 가장 높았던 Z. 공중 시작·순간이동 때 현재 Z 로 초기화 */
+	float FallApexZ = 0.f;
 
 	// 공중이거나 착지 회복 중이면 true. 이때만 틱을 켜 둔다.
 	bool NeedsJumpFeelTick() const;
@@ -865,6 +880,10 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Player|Equipment|Modular Body")
 	bool SetBaseBodyMeshes(TSoftObjectPtr<USkeletalMesh> UpperBody, TSoftObjectPtr<USkeletalMesh> LowerBody);
 
+	virtual bool TeleportTo(const FVector& DestLocation, const FRotator& DestRotation, bool bIsATest = false, bool bNoCheck = false) override;
+
+	virtual void LaunchCharacter(FVector LaunchVelocity, bool bXYOverride, bool bZOverride) override;
+
 protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player|Equipment|Helmet")
@@ -894,6 +913,12 @@ protected:
 	// 점프 감각: 공중·착지 회복 중에만 켜진다.
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void Landed(const FHitResult& Hit) override;
+
+	/** 서버 전용. 낙하 높이로 피해를 준다. 피해가 0 이면 아무것도 안 한다 */
+	void ApplyFallDamage(float FallHeight);
+
+	/** 서버 전용. 맞은 본인 화면에 카메라 흔들림·HP 바·피 효과를 보낸다 */
+	void SendHitFeedback(float ShakeScale, bool bSuppressScreenEffect);
 	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
 
 	// 나가거나 파괴될 때 아이템 동작 효과로 파티원에게 건 것을 거둔다. 안 거두면 버프가 영원히 남는다.

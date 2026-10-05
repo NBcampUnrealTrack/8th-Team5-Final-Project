@@ -17,6 +17,7 @@
 #include "Player/HBCameraMotionComponent.h"
 #include "Player/HBWeaponPresentation.h"
 #include "Player/HBJumpFeel.h"
+#include "Player/HBFallDamage.h"
 #include "Player/HBFootstepComponent.h"
 #include "Player/HBFootstepComponent.h"
 #include "Player/HBPlayerCorpseInventory.h"
@@ -710,19 +711,8 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 			*GetNameSafe(this), *GetNameSafe(GE_PlayerDamage));
 	}
 	
-	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetController()))
-	{
-		// 막았으면 약하게, 그냥 맞았으면 보통. 경직은 GA_PlayerStagger 가 더 세게 쏜다.
-		PC->ClientPlayCameraShake(CS_HitReact, bGuarded ? ShakeScale_Guard : ShakeScale_Hit);
-
-		// 혈흔 연출과 HP 바도 같은 시점에 보낸다.
-		// 복제를 기다리면 PlayerState 주기(1Hz) 때문에 쉐이크/사운드보다
-		// 최대 1초 늦게 반응한다. 여기서 보내는 값이 데미지 적용 직후의 서버 값이다
-		PC->ClientPlayHitEffect(
-			ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute()),
-			ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute()),
-			bGuarded);
-	}
+	// 막았으면 약하게, 그냥 맞았으면 보통. 경직은 GA_PlayerStagger 가 더 세게 쏜다.
+	SendHitFeedback(bGuarded ? ShakeScale_Guard : ShakeScale_Hit, bGuarded);
 
 	// 타격 연출. 큐를 쏘는 책임이 맞는 쪽에 있다.
 	//
@@ -2277,6 +2267,12 @@ void AHBPlayerCharacter::Tick(const float DeltaSeconds)
 
 	UpdateJumpFeel();
 
+	// 낙하 피해용 최고점. 공중이면 NeedsJumpFeelTick 이 true 라 틱이 켜져 있다.
+	if (HasAuthority() && GetCharacterMovement() && GetCharacterMovement()->IsFalling())
+	{
+		FallApexZ = FMath::Max(FallApexZ, GetActorLocation().Z);
+	}
+
 	// 착지 감속이 회복되는 동안은 속도를 매 프레임 다시 계산한다.
 	const bool bRecovering = GetWorld() && (GetWorld()->GetTimeSeconds() - LastLandedTime) <= LandSlowDuration;
 	if (bRecovering || LastLandImpact > 0.f)
@@ -2335,8 +2331,36 @@ void AHBPlayerCharacter::OnMovementModeChanged(const EMovementMode PrevMovementM
 
 	if (GetCharacterMovement() && GetCharacterMovement()->IsFalling())
 	{
+		// 공중이 시작된 높이에서 최고점을 다시 잰다. 공중 동안은 Tick 이 켜져 있어 갱신된다.
+		if (HasAuthority())
+		{
+			FallApexZ = GetActorLocation().Z;
+		}
 		SetActorTickEnabled(true);
 	}
+}
+
+bool AHBPlayerCharacter::TeleportTo(const FVector& DestLocation, const FRotator& DestRotation, const bool bIsATest, const bool bNoCheck)
+{
+	const bool bTeleported = Super::TeleportTo(DestLocation, DestRotation, bIsATest, bNoCheck);
+
+	// 포털·순간이동은 떨어진 게 아니다. 이전 최고점으로 낙하 피해를 받지 않게 새 위치에서 다시 잰다.
+	if (bTeleported && !bIsATest && HasAuthority())
+	{
+		FallApexZ = GetActorLocation().Z;
+	}
+	return bTeleported;
+}
+
+void AHBPlayerCharacter::LaunchCharacter(const FVector LaunchVelocity, const bool bXYOverride, const bool bZOverride)
+{
+	// 위로 솟구치게 덮어쓰는 발사(도약 강타)는 새 낙하의 시작이다. 그 전에 오른 높이(점프)를 낙하에 더하지 않는다.
+	// 수평 돌진·구르기(bZOverride=false)나 아래로 덮는 발사는 그대로 둔다 — 떨어지는 중 써서 낙하 피해를 지우는 꼼수 방지.
+	if (HasAuthority() && bZOverride && LaunchVelocity.Z > 0.f)
+	{
+		FallApexZ = GetActorLocation().Z;
+	}
+	Super::LaunchCharacter(LaunchVelocity, bXYOverride, bZOverride);
 }
 
 void AHBPlayerCharacter::Landed(const FHitResult& Hit)
@@ -2354,6 +2378,11 @@ void AHBPlayerCharacter::Landed(const FHitResult& Hit)
 
 	LastLandedTime = World->GetTimeSeconds();
 	LastLandImpact = HBJumpFeel::LandingImpact(DownSpeed, LandSoftSpeed, LandHardSpeed);
+
+	if (HasAuthority())
+	{
+		ApplyFallDamage(FallApexZ - GetActorLocation().Z);
+	}
 
 	RefreshMovementSpeed();
 	UpdateJumpFeel();
@@ -2374,6 +2403,58 @@ void AHBPlayerCharacter::Landed(const FHitResult& Hit)
 	UE_LOG(LogTemp, Log, TEXT("[Jump] 착지 %s  하강속도=%.0f  충격=%.2f  속도배율 시작=%.2f"),
 		*GetName(), DownSpeed, LastLandImpact,
 		HBJumpFeel::LandingSpeedScale(LastLandImpact, LandMaxSlow, 0.f, LandSlowDuration));
+}
+
+void AHBPlayerCharacter::SendHitFeedback(const float ShakeScale, const bool bSuppressScreenEffect)
+{
+	AHBPlayerController* PC = Cast<AHBPlayerController>(GetController());
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!PC || !ASC)
+	{
+		return;
+	}
+
+	PC->ClientPlayCameraShake(CS_HitReact, ShakeScale);
+
+	// 혈흔 연출과 HP 바도 같은 시점에 보낸다.
+	// 복제를 기다리면 PlayerState 주기(1Hz) 때문에 쉐이크/사운드보다
+	// 최대 1초 늦게 반응한다. 여기서 보내는 값이 데미지 적용 직후의 서버 값이다
+	PC->ClientPlayHitEffect(
+		ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute()),
+		ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute()),
+		bSuppressScreenEffect);
+}
+
+void AHBPlayerCharacter::ApplyFallDamage(const float FallHeight)
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!HasAuthority() || !ASC || ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		return;
+	}
+
+	const float MaxHP = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute());
+	const float Reduction = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_FallDamageReductionAttribute());
+	const float Damage = HBFallDamage::ComputeDamage(MaxHP, FallHeight, FallDamageSafeHeight, FallDamageLethalHeight, Reduction, FallDamageMaxReduction);
+	if (Damage <= 0.f)
+	{
+		return;
+	}
+
+	// 방어·방패·경직이 없는 피해라 ApplyMeleeHit 를 거치지 않고 체력을 직접 깎는다.
+	// 체력이 0 이 되면 AttributeSet 이 사망 처리를 시작한다(시체·관전).
+	const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(UGE_FallDamage::StaticClass(), 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -Damage);
+	ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+
+	UE_LOG(LogTemp, Warning, TEXT("[Fall] 낙하 피해 %s  높이=%.0fcm  감소=%.2f  피해=%.1f / 최대 %.0f"),
+		*GetName(), FallHeight, Reduction, Damage, MaxHP);
+
+	SendHitFeedback(ShakeScale_Hit, false);
 }
 
 void AHBPlayerCharacter::ApplyMovementInertia(UCharacterMovementComponent* Movement) const

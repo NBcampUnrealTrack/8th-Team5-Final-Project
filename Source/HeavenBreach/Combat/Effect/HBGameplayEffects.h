@@ -135,3 +135,30 @@ class HEAVENBREACH_API UGE_ItemSelfDamage : public UGameplayEffect
 public:
 	UGE_ItemSelfDamage();
 };
+
+/** 낙하 피해. 체력을 직접 깎는다(방어·방패·경직 없음). 양은 SetByCaller.Damage 에 음수로 */
+UCLASS()
+class HEAVENBREACH_API UGE_FallDamage : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_FallDamage();
+};
+
+/** 패시브 "가벼운 착지" 기본 효과. 낙하 피해 감소 +0.4 */
+UCLASS()
+class HEAVENBREACH_API UGE_LightLandingPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_LightLandingPassive();
+};
+
+/** "가벼운 착지 강화" 증강. 단계 값은 SetByCaller.AugmentMagnitude 로 받는다 */
+UCLASS()
+class HEAVENBREACH_API UGE_LightLandingAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_LightLandingAugment();
+};
