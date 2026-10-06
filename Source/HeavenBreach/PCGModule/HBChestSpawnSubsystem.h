@@ -10,6 +10,7 @@ class AHBChestSetupActor;
 class AHBChestSpawnPoint;
 class ULevel;
 struct FHBSpawnSelectionReport;
+struct FHBSpawnPlacementReport;
 
 struct FHBChestSpawnChoice
 {
@@ -25,6 +26,11 @@ namespace HBChestSelection
 	HEAVENBREACH_API bool SelectAndPlace(const UHBChestPlacementComponent& Config,
 		const TArray<AHBChestSpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 		TFunctionRef<bool(const FHBChestSpawnChoice&, FString&)> TryPlace,
+		TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport = nullptr);
+
+	HEAVENBREACH_API bool SelectAndPlaceWithDiagnostics(const UHBChestPlacementComponent& Config,
+		const TArray<AHBChestSpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
+		TFunctionRef<bool(const FHBChestSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
 		TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport = nullptr);
 }
 
@@ -57,7 +63,7 @@ private:
 	bool TrySpawn(const FHBChestSpawnChoice& Choice, const UHBChestPlacementComponent& Config,
 		AHBChestSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
 		const TArray<FVector>& EntryLocations, const FRoomState& State,
-		ABoxActor*& OutChest, FString& OutReason);
+		ABoxActor*& OutChest, FString& OutReason, FHBSpawnPlacementReport& PlacementReport);
 	void ClearRoom(FRoomState& State);
 	TArray<FRoomState> RoomStates;
 };

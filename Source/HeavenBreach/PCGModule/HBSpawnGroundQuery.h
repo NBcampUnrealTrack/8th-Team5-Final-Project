@@ -5,6 +5,8 @@
 class UWorld;
 struct FCollisionQueryParams;
 struct FHitResult;
+struct FHBSpawnCandidateReport;
+struct FHBSpawnPlacementReport;
 
 namespace HBSpawnGroundQuery
 {
@@ -18,4 +20,9 @@ namespace HBSpawnGroundQuery
 		const FBox& RoomBounds, float MinFloorUpDot, const FCollisionQueryParams& Query,
 		TFunctionRef<bool(const FHitResult&, FString&)> TryPlace,
 		FHitResult& OutFloor, FString& OutError);
+
+	HEAVENBREACH_API bool FindPlacementWithDiagnostics(UWorld& World, const FVector& Marker, const FQuat& MarkerRotation,
+		const FBox& RoomBounds, float MinFloorUpDot, const FCollisionQueryParams& Query,
+		TFunctionRef<bool(const FHitResult&, FString&, FHBSpawnCandidateReport&)> TryPlace,
+		FHitResult& OutFloor, FString& OutError, FHBSpawnPlacementReport& Report);
 }

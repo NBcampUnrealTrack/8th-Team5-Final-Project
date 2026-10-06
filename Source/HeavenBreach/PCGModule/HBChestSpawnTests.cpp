@@ -8,6 +8,10 @@
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
 #include "Algo/Reverse.h"
+#include "Components/BoxComponent.h"
+#include "PCGModule/HBSpawnGroundQuery.h"
+#include "PCGModule/HBRoomSpawnExclusionVolume.h"
+#include "CollisionQueryParams.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace HBChestSpawnGeometry
@@ -351,6 +355,124 @@ bool FHBChestFailureDiagnosticsTest::RunTest(const FString&)
 		TestTrue(TEXT("Optional chest report succeeds"), HBChestSelection::SelectAndPlace(*Config, Points, Seed, 11, Accept, Placed, Error, &Report));
 		TestEqual(TEXT("Chest report preserves seeded class, point and quantity draws"), Signature(Placed), Expected);
 		TestTrue(TEXT("Successful chest reuse clears aggregate failures"), Report.FailureReason == EHBSpawnFailureReason::None && Report.FailedPointId.IsNone());
+	}
+	World->DestroyWorld(false);
+	GEngine->DestroyWorldContext(World);
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestPlacementFailureDiagnosticsTest,
+	"HeavenBreach.PCGModule.ChestSpawn.PlacementFailureDiagnostics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBChestPlacementFailureDiagnosticsTest::RunTest(const FString&)
+{
+	const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
+		.RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false).ShouldSimulatePhysics(false);
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr,
+		true, ERHIFeatureLevel::Num, &Init);
+	GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+	AActor* FloorActor = World->SpawnActor<AActor>();
+	UBoxComponent* FloorBox = NewObject<UBoxComponent>(FloorActor);
+	FloorActor->SetRootComponent(FloorBox);
+	FloorBox->SetBoxExtent(FVector(500, 500, 10));
+	FloorBox->SetCollisionProfileName(TEXT("BlockAll"));
+	FloorBox->SetCanEverAffectNavigation(false);
+	FloorBox->RegisterComponent();
+	FloorActor->SetActorLocation(FVector(0, 0, -10));
+	auto* Setup = World->SpawnActor<AHBChestSetupActor>();
+	auto* Required = World->SpawnActor<AHBChestSpawnPoint>();
+	Required->PointId = TEXT("A_Required");
+	Required->bRequired = true;
+	Required->SetActorLocation(FVector(0, 0, 0.4));
+	FHBChestPlacementGroup Group;
+	Group.GroupId = TEXT("Field");
+	Group.MinCount = Group.MaxCount = 1;
+	Group.Chests = {{ABoxActor::StaticClass(), 1}};
+	Required->GroupId = Group.GroupId;
+	Setup->Placement->Groups = {Group};
+	const FBox Bounds(FVector(-500, -500, -200), FVector(500, 500, 300));
+	FString Error;
+	UHBChestSpawnSubsystem* Subsystem = World->GetSubsystem<UHBChestSpawnSubsystem>();
+	if (TestNotNull(TEXT("Chest subsystem exists in a physical room fixture"), Subsystem))
+	{
+		TestFalse(TEXT("Actual chest approach rejects a room without navigation"),
+			Subsystem->StartPlacement(1, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error));
+		TestTrue(TEXT("Actual chest navigation failures retain approach extent and exact missing prerequisite"),
+			Error.Contains(TEXT("NavProjectionFailed:25")) && Error.Contains(TEXT("Stage=ChestApproach"))
+			&& Error.Contains(TEXT("Condition=MissingSystem")) && Error.Contains(TEXT("Extent=X=100.000 Y=100.000 Z=200.000"))
+			&& Error.Contains(TEXT("ProjectionQueried=0")) && Error.Contains(TEXT("FailureReason=MinCountNotMet")));
+		TestFalse(TEXT("Actual chest entry spacing rejects before navigation"),
+			Subsystem->StartPlacement(2, 836511139, 11, World->PersistentLevel, Bounds, {FVector::ZeroVector}, Error));
+		TestTrue(TEXT("Chest entry spacing is separately counted"), Error.Contains(TEXT("EntrySpacing:25")));
+		auto* Exclusion = World->SpawnActor<AHBRoomSpawnExclusionVolume>();
+		Exclusion->Bounds->SetBoxExtent(FVector(100, 100, 200));
+		TestFalse(TEXT("Authored chest exclusion is still applied"),
+			Subsystem->StartPlacement(3, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error));
+		TestTrue(TEXT("Chest exclusion is separately counted"), Error.Contains(TEXT("ExcludedArea:25")));
+		Exclusion->SetActorLocation(FVector(10000, 0, 0));
+		Required->SetActorLocation(FVector(1000, 0, 0.4));
+		TestFalse(TEXT("Chest marker outside the room still rejects before ground search"),
+			Subsystem->StartPlacement(4, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error));
+		TestTrue(TEXT("Pre-search bounds failure does not invent 25 candidates"),
+			Error.Contains(TEXT("OutsideRoom:1")) && Error.Contains(TEXT("CandidatesChecked=0")));
+		Required->SetActorLocation(FVector(0, 0, 0.4));
+	}
+
+	// Drive the public typed selection callback with real ground queries, independent of runtime navigation.
+	UClass* RareClass = LoadClass<ABoxActor>(nullptr, TEXT("/Game/Loot/Blueprints/BP_Box_Rare.BP_Box_Rare_C"));
+	if (TestNotNull(TEXT("Existing rare chest class is available"), RareClass))
+	{
+		FloorActor->SetActorLocation(FVector(20, 0, -10));
+		FloorBox->SetBoxExtent(FVector(15, 500, 10));
+		Group.Chests.Add({RareClass, 1});
+		Setup->Placement->Groups = {Group};
+		auto* Optional = World->SpawnActor<AHBChestSpawnPoint>();
+		Optional->PointId = TEXT("Z_Optional");
+		Optional->GroupId = Group.GroupId;
+		Optional->AllowedClasses = {ABoxActor::StaticClass()};
+		FCollisionQueryParams Query(SCENE_QUERY_STAT(HBChestTypedSelectionFixture), false);
+		FHBSpawnSelectionReport Report;
+		TArray<FHBChestSpawnChoice> Placed;
+		auto TryGround = [&](const FHBChestSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport& Evidence)
+		{
+			FHitResult Floor;
+			return HBSpawnGroundQuery::FindPlacementWithDiagnostics(*World, FVector(0, 0, 0.4), FQuat::Identity,
+				Bounds, 0.7f, Query, [&](const FHitResult&, FString& CandidateReason, FHBSpawnCandidateReport& Candidate)
+				{
+					if (Choice.Point == Optional) return true;
+					Candidate.Cause = Choice.ChestClass.Get() == ABoxActor::StaticClass()
+						? EHBSpawnFailureReason::ExcludedArea : EHBSpawnFailureReason::NavProjectionFailed;
+					CandidateReason = TEXT("Opaque detail intentionally has no reason enum name");
+					return false;
+				}, Floor, Reason, Evidence);
+		};
+		TestFalse(TEXT("Required chest retains both classes' mixed ground and placement causes"),
+			HBChestSelection::SelectAndPlaceWithDiagnostics(*Setup->Placement, {Required, Optional}, 836511139, 11,
+				TryGround, Placed, Error, &Report));
+		TestTrue(TEXT("Required and minimum policy stay separate"),
+			Report.FailureReason == EHBSpawnFailureReason::RequiredPointUnfilled && Placed.Num() == 1);
+		const auto RequiredCounts = Report.CountFailureReasons(Required->PointId);
+		TestEqual(TEXT("Required chest counts floors independently for each class"), RequiredCounts.FindRef(EHBSpawnFailureReason::NoFloor), 32);
+		TestEqual(TEXT("Native chest retains its own rejection cause"), RequiredCounts.FindRef(EHBSpawnFailureReason::ExcludedArea), 9);
+		TestEqual(TEXT("Rare chest retains its own rejection cause"), RequiredCounts.FindRef(EHBSpawnFailureReason::NavProjectionFailed), 9);
+		const auto GroupCounts = Report.CountFailureReasons(NAME_None, Group.GroupId);
+		TestEqual(TEXT("Successful optional correction retains its earlier missing floor"), GroupCounts.FindRef(EHBSpawnFailureReason::NoFloor), 33);
+		TestEqual(TEXT("Successful class report is retained separately from class failures"),
+			Report.Points.FindChecked(Optional->PointId).ClassPlacements.Num(), 1);
+		TestFalse(TEXT("Required output cannot borrow optional correction counts"), Error.Contains(TEXT("NoFloor:33")));
+		for (const FHBSpawnClassFailure& Failure : Report.Points.FindChecked(Required->PointId).ClassFailures)
+		{
+			const EHBSpawnFailureReason OwnCause = Failure.ClassPath == ABoxActor::StaticClass()->GetPathName()
+				? EHBSpawnFailureReason::ExcludedArea : EHBSpawnFailureReason::NavProjectionFailed;
+			TestEqual(TEXT("Each chest class keeps its own nine placement failures"), Failure.Placement.CountFailureReasons().FindRef(OwnCause), 9);
+			TestEqual(TEXT("Each chest class keeps all 25 original candidate indices"), Failure.Placement.Candidates.Num(), 25);
+		}
+		Group.MinCount = Group.MaxCount = 2;
+		Setup->Placement->Groups = {Group};
+		TestFalse(TEXT("Typed chest minimum failure remains earlier than required validation"),
+			HBChestSelection::SelectAndPlaceWithDiagnostics(*Setup->Placement, {Required, Optional}, 836511139, 11,
+				TryGround, Placed, Error, &Report));
+		TestTrue(TEXT("Minimum error contains the exact group total including successful corrections"),
+			Report.FailureReason == EHBSpawnFailureReason::MinCountNotMet && Error.Contains(TEXT("NoFloor:33")));
 	}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);

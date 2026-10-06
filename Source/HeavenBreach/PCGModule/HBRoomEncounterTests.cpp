@@ -12,6 +12,7 @@
 #include "CollisionShape.h"
 #include "Components/BoxComponent.h"
 #include "Engine/OverlapResult.h"
+#include "PCGModule/HBRoomSpawnExclusionVolume.h"
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "PCGModule/HBDungeonModuleDefinition.h"
@@ -23,6 +24,7 @@
 #include "GameFramework/PlayerStart.h"
 #include "EngineUtils.h"
 #include "NavigationSystem.h"
+#include "NavigationData.h"
 #include "NavMesh/NavMeshBoundsVolume.h"
 #include "Components/BrushComponent.h"
 #include "PhysicsEngine/BodySetup.h"
@@ -317,7 +319,7 @@ bool FHBEncounterCapsuleBlockingDiagnosticsTest::RunTest(const FString&)
 	};
 	UBoxComponent* FloorBox = AddBox(TEXT("FixtureFloor"), FVector(0, 0, -10), FVector(500, 500, 10), TEXT("BlockAll"));
 	UBoxComponent* WallBox = AddBox(TEXT("FixtureWall"), FVector(20, 0, 60), FVector(4, 80, 60), TEXT("BlockAll"));
-	AddBox(TEXT("WallSecondary"), FVector(-20, 0, 60), FVector(4, 80, 60), TEXT("BlockAll"), WallBox->GetOwner());
+	UBoxComponent* WallSecondary = AddBox(TEXT("WallSecondary"), FVector(-20, 0, 60), FVector(4, 80, 60), TEXT("BlockAll"), WallBox->GetOwner());
 	UBoxComponent* OtherWall = AddBox(TEXT("OtherBlockingActor"), FVector(0, 25, 60), FVector(4, 4, 60), TEXT("BlockAll"));
 	UBoxComponent* TouchBox = AddBox(TEXT("TouchOnly"), FVector(-10, -15, 60), FVector(4, 4, 10), TEXT("OverlapAll"));
 	FCollisionQueryParams Query(SCENE_QUERY_STAT(HBCapsuleBlockingDiagnostics), false);
@@ -422,9 +424,19 @@ bool FHBEncounterCapsuleBlockingDiagnosticsTest::RunTest(const FString&)
 				{
 					if (Choice.Point == Optional) return true;
 					Evidence.CapsuleChecks = Choice.EnemyClass.Get() == NativeClass ? 2 : 1;
+					FHBSpawnCandidateReport& Missing = Evidence.Candidates.AddDefaulted_GetRef();
+					Missing.CandidateIndex = 0;
+					Missing.Cause = EHBSpawnFailureReason::NoFloor;
 					for (int32 Index = 0; Index < Evidence.CapsuleChecks; ++Index)
-						Evidence.CapsuleFailures.Add(HBSpawnDiagnostics::CollectCapsuleFailure(
-							*World, Marker, Floor, SpawnLocation, Rotation, Profile, Shape, Query, Index));
+					{
+						FHBSpawnCandidateReport& Candidate = Evidence.Candidates.AddDefaulted_GetRef();
+						Candidate.CandidateIndex = Index + 1;
+						Candidate.Cause = EHBSpawnFailureReason::CapsuleOverlap;
+						Candidate.CapsuleCheckIndex = Index;
+						FHBSpawnCapsuleFailure& CapsuleFailure = Evidence.CapsuleFailures.Add_GetRef(
+							HBSpawnDiagnostics::CollectCapsuleFailure(*World, Marker, Floor, SpawnLocation, Rotation, Profile, Shape, Query, Index));
+						CapsuleFailure.CandidateIndex = Candidate.CandidateIndex;
+					}
 					Reason = TEXT("Enemy capsule overlaps blocking geometry.");
 					return false;
 				}, Placed, Error, &Report));
@@ -442,6 +454,10 @@ bool FHBEncounterCapsuleBlockingDiagnosticsTest::RunTest(const FString&)
 		TestTrue(TEXT("Required failure contains classified capsule evidence and real blockers"),
 			Error.Contains(TEXT("FailureReason=RequiredPointUnfilled")) && Error.Contains(TEXT("Cause=CapsuleOverlap"))
 			&& Error.Contains(TEXT("GroundActor=FixtureFloor")) && Error.Contains(TEXT("BlockingActor=FixtureWall")));
+		TestEqual(TEXT("Required monster point aggregates both classes' missing floor counts"),
+			Report.CountFailureReasons(Required->PointId).FindRef(EHBSpawnFailureReason::NoFloor), 2);
+		TestEqual(TEXT("Monster group counts each rejected capsule candidate once"),
+			Report.CountFailureReasons(NAME_None, Group.GroupId).FindRef(EHBSpawnFailureReason::CapsuleOverlap), 3);
 
 		// Exercise the actual subsystem path: every candidate that has a safe floor is blocked by the two walls.
 		Optional->GroupId = TEXT("AnotherGroup");
@@ -461,6 +477,29 @@ bool FHBEncounterCapsuleBlockingDiagnosticsTest::RunTest(const FString&)
 			TestTrue(TEXT("Runtime retains bool failure policy and reports query agreement"),
 				Error.Contains(TEXT("FailureReason=MinCountNotMet")) && Error.Contains(TEXT("QueryMismatches=0")));
 			Subsystem->ClearGeneration(1);
+			Required->MaxCapsuleRadius = 1.f;
+			TestFalse(TEXT("Capsule size failure remains a pre-search rejection"),
+				Subsystem->StartEncounter(2, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			TestTrue(TEXT("Capsule size is typed without invented candidate failures"),
+				Error.Contains(TEXT("CapsuleSizeExceeded:1")) && Error.Contains(TEXT("CandidatesChecked=0")));
+			Required->MaxCapsuleRadius = 0.f;
+			for (UBoxComponent* Box : {WallBox, WallSecondary, OtherWall, TouchBox})
+				Box->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			TestFalse(TEXT("Missing navigation still rejects every otherwise clear candidate"),
+				Subsystem->StartEncounter(3, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			TestTrue(TEXT("Actual monster navigation diagnostics retain agent, extent and exact prerequisite"),
+				Error.Contains(TEXT("NavProjectionFailed:25")) && Error.Contains(TEXT("Condition=MissingSystem"))
+				&& Error.Contains(TEXT("Stage=EnemyGround")) && Error.Contains(TEXT("AgentRadius="))
+				&& Error.Contains(TEXT("Extent=")) && Error.Contains(TEXT("ProjectionQueried=0")));
+			TestFalse(TEXT("Actual monster entry spacing takes priority over navigation"),
+				Subsystem->StartEncounter(4, 836511139, 11, World->PersistentLevel, Bounds, {FVector::ZeroVector}, Error, true));
+			TestTrue(TEXT("Entry spacing has its own candidate counts"),
+				Error.Contains(TEXT("EntrySpacing:25")) && !Error.Contains(TEXT("Condition=MissingSystem")));
+			auto* Exclusion = World->SpawnActor<AHBRoomSpawnExclusionVolume>();
+			Exclusion->Bounds->SetBoxExtent(FVector(100, 100, 200));
+			TestFalse(TEXT("Actual authored exclusion still rejects monster candidates"),
+				Subsystem->StartEncounter(5, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			TestTrue(TEXT("Exclusion has its own counts"), Error.Contains(TEXT("ExcludedArea:25")));
 		}
 	}
 	const FString SavedBlockerPath = WallBox->GetOwner()->GetPathName();
@@ -687,18 +726,57 @@ public:
 		}
 		UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
 		bool bHasNavigablePoint = false;
+		FVector TestNavLocation = FVector::ZeroVector;
 		for (AActor* Actor : Definition->GetLevel()->Actors)
 			if (const AHBEnemySpawnPoint* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point))
 			{
 				FNavLocation OnNav;
 				if (Nav && Nav->ProjectPointToNavigation(Point->GetActorLocation(), OnNav, FVector(150, 150, 350)))
-				{ bHasNavigablePoint = true; break; }
+				{ bHasNavigablePoint = true; TestNavLocation = OnNav.Location; break; }
 			}
 		if (!bHasNavigablePoint || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World))
 		{
 			if (Elapsed < 60.) return false;
 			Test->AddError(TEXT("TestMG runtime navigation query did not become ready."));
 			return true;
+		}
+		const ANavigationData* TestNavData = Nav->GetDefaultNavDataInstance(FNavigationSystem::DontCreate);
+		if (Test->TestNotNull(TEXT("Actual NavMesh is available for projection diagnostics"), TestNavData))
+		{
+			const FNavAgentProperties* TestAgent = &TestNavData->GetConfig();
+			const FVector Extent(150, 150, 350);
+			FNavLocation Projected;
+			FHBSpawnNavCheck Check;
+			Test->TestTrue(TEXT("A valid actual navigation projection retains acceptance"),
+				HBSpawnDiagnostics::ProjectNavigation(*World, Nav, TestAgent, TestNavData,
+					TestNavLocation, Extent, -1., -1., nullptr, false, Projected, Check));
+			Test->TestTrue(TEXT("Agent and projection extent are recorded from the existing query"),
+				Check.AgentRadius == TestAgent->AgentRadius && Check.AgentHeight == TestAgent->AgentHeight
+				&& Check.ProjectionExtent.Equals(Extent) && Check.bProjectionQueried && Check.bProjectionSucceeded);
+			Test->TestFalse(TEXT("An actual projection exceeding height limits remains rejected"),
+				HBSpawnDiagnostics::ProjectNavigation(*World, Nav, TestAgent, TestNavData,
+					TestNavLocation + FVector(0, 0, 50), Extent, -1., 1., nullptr, false, Projected, Check));
+			Test->TestTrue(TEXT("Height limit is distinguished from a failed projection query"),
+				Check.Condition == EHBSpawnNavCondition::HeightExceeded && Check.bProjectionSucceeded);
+			const FBox WrongBounds(TestNavLocation + FVector(5000, 5000, -100), TestNavLocation + FVector(5100, 5100, 100));
+			Test->TestFalse(TEXT("An actual projection outside room bounds remains rejected"),
+				HBSpawnDiagnostics::ProjectNavigation(*World, Nav, TestAgent, TestNavData,
+					TestNavLocation, Extent, -1., -1., &WrongBounds, false, Projected, Check));
+			Test->TestTrue(TEXT("Navigation room bounds have a distinct condition"), Check.Condition == EHBSpawnNavCondition::OutsideRoom);
+			Test->TestFalse(TEXT("Missing agent does not execute a projection"),
+				HBSpawnDiagnostics::ProjectNavigation(*World, Nav, nullptr, TestNavData,
+					TestNavLocation, Extent, -1., -1., nullptr, false, Projected, Check));
+			Test->TestTrue(TEXT("Reused navigation record clears earlier queried/succeeded flags"),
+				Check.Condition == EHBSpawnNavCondition::MissingAgent && !Check.bProjectionQueried && !Check.bProjectionSucceeded);
+			Test->TestFalse(TEXT("Missing agent navigation data does not execute a projection"),
+				HBSpawnDiagnostics::ProjectNavigation(*World, Nav, TestAgent, nullptr,
+					TestNavLocation, Extent, -1., -1., nullptr, false, Projected, Check));
+			Test->TestTrue(TEXT("Missing NavData has its own condition"), Check.Condition == EHBSpawnNavCondition::MissingNavData);
+			Test->TestFalse(TEXT("Failed path query cannot accept its partial path"), Check.SetPathResult(false, true, true));
+			Test->TestTrue(TEXT("Failed query retains actual partial path information"),
+				Check.Condition == EHBSpawnNavCondition::PathQueryFailed && Check.bPartialPath);
+			Test->TestFalse(TEXT("Successful partial path remains disallowed"), Check.SetPathResult(true, true, true));
+			Test->TestTrue(TEXT("Partial rejection is distinguished from query failure"), Check.Condition == EHBSpawnNavCondition::PartialPath);
 		}
 		FString Error;
 		if (!Subsystem->StartEncounter(1, 12345, 7, Definition->GetLevel(), RoomBounds, Entries, Error))
@@ -809,6 +887,10 @@ public:
 			Subsystem->StartEncounter(3, 12345, 7, Definition->GetLevel(), RoomBounds, UnreachableEntries, Error, true));
 		Test->TestTrue(TEXT("Unreachable entry reports the navigation path reason"),
 			Error.Contains(TEXT("no complete navigation path")));
+		Test->TestTrue(TEXT("Actual entry path failure keeps its typed cause and failed entry projection"),
+			Error.Contains(TEXT("Cause=NoCompleteEntryPath")) && Error.Contains(TEXT("Stage=EntryPath"))
+			&& Error.Contains(TEXT("Condition=ProjectionQueryFailed"))
+			&& Error.Contains(TEXT("EntriesAvailable=1 EntriesChecked=1 Direction=PlacementToEntry")));
 		Subsystem->ClearGeneration(3);
 		for (FHBEncounterGroup& Group : Setup->Encounter->Groups) Group.bRequireEntryPath = false;
 		if (Subsystem->StartEncounter(4, 12345, 7, Definition->GetLevel(), RoomBounds, UnreachableEntries, Error, true))
