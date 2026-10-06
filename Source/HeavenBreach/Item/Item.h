@@ -130,6 +130,15 @@ struct FItemData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float ManaAmount = 0.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light", meta = (ClampMin = "0"))
+	float LightRadius = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bag", meta = (ClampMin = "0"))
+	int32 BagGridWidth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bag", meta = (ClampMin = "0"))
+	int32 BagGridHeight = 0;
+
 	// 아이템 정보 팝업(상세 정보)에 표시되는 플레이버 텍스트.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Display")
 	FString Description;

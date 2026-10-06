@@ -142,6 +142,10 @@ AHB_PlayerState::AHB_PlayerState()
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("Equipment"));
 	QuickSlot = CreateDefaultSubobject<UQuickSlotComponent>(TEXT("QuickSlot"));
+	BagInventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("BagInventory"));
+	BagInventory->SetBagStorage(true);
+	OpenedBagInventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("OpenedBagInventory"));
+	OpenedBagInventory->SetBagStorage(true);
 #pragma endregion
 
 #pragma region Shop
@@ -191,6 +195,16 @@ AHB_PlayerState::AHB_PlayerState()
 void AHB_PlayerState::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (Equipment != nullptr && BagInventory != nullptr)
+	{
+		Equipment->SetBagInventory(BagInventory);
+	}
+
+	if (Equipment != nullptr && OpenedBagInventory != nullptr)
+	{
+		Equipment->SetOpenedBagInventory(OpenedBagInventory);
+	}
 
 	if (Craft != nullptr && Stash != nullptr)
 	{
@@ -446,6 +460,10 @@ void AHB_PlayerState::HandleLoadoutLoaded(bool bSuccess, const FPlayerLoadout& I
 	if (Inventory)
 	{
 		Inventory->OnInventoryChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
+	}
+	if (BagInventory)
+	{
+		BagInventory->OnInventoryChanged.AddUniqueDynamic(this, &AHB_PlayerState::RequestSaveLoadout);
 	}
 	if (Equipment)
 	{

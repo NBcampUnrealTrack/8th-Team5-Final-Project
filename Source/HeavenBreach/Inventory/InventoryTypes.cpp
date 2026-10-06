@@ -52,6 +52,7 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.RiskOptions = ItemRow->RiskOptions;
 		OutViewData.BenefitEffects = ItemRow->BenefitEffects;
 		OutViewData.RiskEffects = ItemRow->RiskEffects;
+		OutViewData.BagGridSize = FIntPoint(FMath::Max(0, ItemRow->BagGridWidth), FMath::Max(0, ItemRow->BagGridHeight));
 		return true;
 	}
 
@@ -108,6 +109,7 @@ FString GetEquipSlotDisplayName(EEquipSlotType InSlot)
 	case EEquipSlotType::Chest:          return TEXT("상의");
 	case EEquipSlotType::Legs:           return TEXT("하의");
 	case EEquipSlotType::Accessory:      return TEXT("장신구");
+	case EEquipSlotType::Backpack:       return TEXT("가방");
 	case EEquipSlotType::None:
 	default:                             return FString();
 	}
@@ -152,6 +154,11 @@ FString BuildStatTextForItem(const FItemInstance& InItem)
 				StatText = FText::Format(BonusStatFormat,
 					FText::FromString(GeneralRow->BonusStatType),
 					FText::AsNumber(GeneralRow->BonusStatValue)).ToString();
+			}
+			if (GeneralRow->BagGridWidth > 0 && GeneralRow->BagGridHeight > 0)
+			{
+				const FString BagText = FString::Printf(TEXT("수납 공간: %d x %d"), GeneralRow->BagGridWidth, GeneralRow->BagGridHeight);
+				StatText = StatText.IsEmpty() ? BagText : StatText + TEXT("\n") + BagText;
 			}
 		}
 	}
@@ -330,4 +337,35 @@ FString BuildRiskLinesForItem(const FItemInstance& InItem, const FItemViewData& 
 	TArray<FItemOption> Options = InViewData.RiskOptions;
 	Options.Append(InItem.Engraving.Risks);
 	return ItemStats::FormatLines(Options, InViewData.RiskEffects);
+}
+
+FInventoryEntry BagItemToInventoryEntry(const FBagItemEntry& InBagItem)
+{
+	FInventoryEntry Entry;
+	Entry.Item.ItemRow = InBagItem.ItemRow;
+	Entry.Item.InstanceId = InBagItem.InstanceId.IsValid() ? InBagItem.InstanceId : FGuid::NewGuid();
+	Entry.Item.StackCount = FMath::Max(1, InBagItem.StackCount);
+	Entry.Item.OriginalOwnerId = InBagItem.OriginalOwnerId;
+	Entry.Item.bRotated = InBagItem.bRotated;
+	Entry.Item.bIsFavorite = InBagItem.bIsFavorite;
+	Entry.Item.bRevealed = true;
+	Entry.Item.CurrentDurability = InBagItem.CurrentDurability;
+	Entry.Item.Engraving = InBagItem.Engraving;
+	Entry.Position = InBagItem.Position;
+	return Entry;
+}
+
+FBagItemEntry InventoryEntryToBagItem(const FInventoryEntry& InEntry)
+{
+	FBagItemEntry BagItem;
+	BagItem.ItemRow = InEntry.Item.ItemRow;
+	BagItem.InstanceId = InEntry.Item.InstanceId;
+	BagItem.StackCount = InEntry.Item.StackCount;
+	BagItem.OriginalOwnerId = InEntry.Item.OriginalOwnerId;
+	BagItem.bRotated = InEntry.Item.bRotated;
+	BagItem.bIsFavorite = InEntry.Item.bIsFavorite;
+	BagItem.CurrentDurability = InEntry.Item.CurrentDurability;
+	BagItem.Engraving = InEntry.Item.Engraving;
+	BagItem.Position = InEntry.Position;
+	return BagItem;
 }

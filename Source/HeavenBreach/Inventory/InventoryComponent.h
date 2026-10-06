@@ -197,6 +197,15 @@ public:
 
 	void SetEntries(const TArray<FInventoryEntry>& InEntries);
 
+	bool SetEntryBagContents(FGuid InInstanceId, const TArray<FBagItemEntry>& InContents);
+
+	void SetBagStorage(bool bInBagStorage) { bIsBagStorage = bInBagStorage; }
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsBagStorage() const { return bIsBagStorage; }
+
+	bool AcceptsItem(const FItemInstance& InItem) const;
+
 	// 아직 각인이 안 발린 장비면 이 컴포넌트의 각인 표로 굴린다. 새로 발랐으면 true. 서버에서만 동작한다.
 	// 입구(TryAddItem · TryAddItemAt · SetEntries)가 알아서 부른다.
 	// 밖에서 부르는 곳은 불러오기(창고 · 로드아웃)뿐이다 — 새로 발린 게 있어야 저장을 요청할 수 있어서.
@@ -228,6 +237,9 @@ public:
 	UFUNCTION(Server, Reliable)
 	void Server_DropEquippedItem(UEquipmentComponent* InEquipment, EEquipSlotType InSlot);
 
+	UFUNCTION(Server, Reliable)
+	void Server_ToggleEquippedFavorite(UEquipmentComponent* InEquipment, EEquipSlotType InSlot);
+
 
 protected:
 
@@ -235,6 +247,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_Entries();
+
+	UFUNCTION()
+	void OnRep_GridSize();
 
 private:
 	UFUNCTION(Client, Reliable)
@@ -269,11 +284,14 @@ private:
 	 * 더 이상 없으면 타이머를 스스로 멈춘다. */
 	void RevealNextItem();
 
-	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, ReplicatedUsing = OnRep_GridSize, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
 	int32 Width = 6;
 
-	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, ReplicatedUsing = OnRep_GridSize, Category = "Inventory", meta = (ClampMin = 1, AllowPrivateAccess = "true"))
 	int32 Height = 5;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Bag", meta = (AllowPrivateAccess = "true"))
+	bool bIsBagStorage = false;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory")
 
