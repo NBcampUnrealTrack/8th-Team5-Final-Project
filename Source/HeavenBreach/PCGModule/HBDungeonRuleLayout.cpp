@@ -1,5 +1,6 @@
 #include "PCGModule/HBDungeonRuleLayout.h"
 #include "HAL/PlatformTime.h"
+DEFINE_LOG_CATEGORY_STATIC(LogHBDungeonLayout, Log, All);
 
 namespace
 {
@@ -14,6 +15,78 @@ namespace
 	{
 		return M.AllowedFloor == EHBAllowedFloor::Any || static_cast<int32>(M.AllowedFloor) == Floor;
 	}
+	const TCHAR* RoomRoleName(EHBPrototypeRoomRole Role)
+	{
+		switch (Role)
+		{
+		case EHBPrototypeRoomRole::Adventure: return TEXT("Adventure");
+		case EHBPrototypeRoomRole::Recovery: return TEXT("Recovery");
+		case EHBPrototypeRoomRole::Upgrade: return TEXT("Upgrade");
+		case EHBPrototypeRoomRole::Boss: return TEXT("Boss");
+		default: return TEXT("Unassigned");
+		}
+	}
+	const TCHAR* ConnectorRoleName(EHBDungeonConnectorRole Role)
+	{
+		switch (Role)
+		{
+		case EHBDungeonConnectorRole::None: return TEXT("None");
+		case EHBDungeonConnectorRole::BossEntrance: return TEXT("BossEntrance");
+		case EHBDungeonConnectorRole::BossSide: return TEXT("BossSide");
+		case EHBDungeonConnectorRole::DungeonSide: return TEXT("DungeonSide");
+		default: return TEXT("Unknown");
+		}
+	}
+	void LogFailureSettings(const HBConnectorLayout::FSettings& S, const FHBDungeonGenerationRules& R,
+		const TCHAR* Phase, const FString& Error)
+	{
+		UE_LOG(LogHBDungeonLayout, Warning, TEXT("[Failure] Phase=%s Seed=%d Reason=%s"), Phase, S.Seed, *Error);
+		UE_LOG(LogHBDungeonLayout, Warning, TEXT("[Settings] MainRooms=%d/%d BranchRooms=%d/%d Reuse=%s MaxAttempts=%d MaxSeconds=%.6f Origin=%s Floor2Offset=%s"),
+			R.Floor1MainRooms, R.Floor2MainRooms, R.Floor1BranchRooms, R.Floor2BranchRooms,
+			S.bAllowModuleReuse ? TEXT("true") : TEXT("false"), S.MaxSearchSteps, S.MaxSearchSeconds,
+			*S.Origin.ToString(), *R.Floor2Offset.ToString());
+		UE_LOG(LogHBDungeonLayout, Warning, TEXT("[Maps] Floor1Exit=%s Portal=%s Floor2Entry=%s Portal=%s BossCorridor=%s"),
+			*R.Floor1ExitMap.ToString(), *R.Floor1ExitPortalId.ToString(), *R.Floor2EntryMap.ToString(),
+			*R.Floor2EntryPortalId.ToString(), *R.BossCorridorMap.ToString());
+	}
+	enum class ERejection : uint8
+	{
+		Floor, Reuse, ForcedModule, Kind, BossRole, ReservedTransition, StartCandidate, BeforeCorridor,
+		SpecialQuota, AdjacentToStart, SameSpecialRole, AdventureStreak,
+		NoParents, NoCandidates, NoParentDoors, ConnectorRole, Occupancy, FinalRules, Count
+	};
+	constexpr int32 FilterReasonCount = static_cast<int32>(ERejection::NoParents);
+	constexpr int32 RejectionCount = static_cast<int32>(ERejection::Count);
+	const TCHAR* RejectionName(ERejection Reason)
+	{
+		switch (Reason)
+		{
+		case ERejection::Floor: return TEXT("FloorNotAllowed");
+		case ERejection::Reuse: return TEXT("ModuleReuseDisabled");
+		case ERejection::ForcedModule: return TEXT("ForcedModuleMismatch");
+		case ERejection::Kind: return TEXT("ModuleKindMismatch");
+		case ERejection::BossRole: return TEXT("BossRoleMismatch");
+		case ERejection::ReservedTransition: return TEXT("ReservedTransitionModule");
+		case ERejection::StartCandidate: return TEXT("NotStartCandidate");
+		case ERejection::BeforeCorridor: return TEXT("AdventureRequiredBeforeCorridor");
+		case ERejection::SpecialQuota: return TEXT("SpecialRoomQuota");
+		case ERejection::AdjacentToStart: return TEXT("SpecialRoomAdjacentToStart");
+		case ERejection::SameSpecialRole: return TEXT("SameSpecialRoleAdjacent");
+		case ERejection::AdventureStreak: return TEXT("AdventureStreakLimit");
+		case ERejection::NoParents: return TEXT("NoEligibleParentRooms");
+		case ERejection::NoCandidates: return TEXT("NoEligibleModules");
+		case ERejection::NoParentDoors: return TEXT("NoAvailableParentDoors");
+		case ERejection::ConnectorRole: return TEXT("ConnectorRoleMismatch");
+		case ERejection::Occupancy: return TEXT("OccupancyOverlap");
+		case ERejection::FinalRules: return TEXT("FinalRuleValidation");
+		default: return TEXT("Unknown");
+		}
+	}
+	struct FRejectionStats
+	{
+		int64 Count = 0;
+		FString Example; // One bounded representative per reason, formatted only on first occurrence.
+	};
 	int32 FindMap(const TArray<FHBModuleCatalogEntry>& Catalog, const TSoftObjectPtr<UWorld>& Map)
 	{
 		return Catalog.IndexOfByPredicate([&](const auto& M) { return M.Map == Map; });
@@ -54,6 +127,8 @@ namespace
 		}
 		for (const auto& M : Catalog)
 		{
+			if (M.bIsStartCandidate && (M.Kind != EHBDungeonModuleKind::Room || M.Role == EHBPrototypeRoomRole::Boss))
+				return Fail(TEXT("Only non-boss Room modules can be start candidates."));
 			if (M.Role == EHBPrototypeRoomRole::Boss && !HasRole(M, CR::BossEntrance))
 			{
 				Error = FString::Printf(TEXT("Boss module %s requires a Boss Entrance connector."), *M.ModuleId.ToString());
@@ -79,6 +154,9 @@ namespace
 			return Fail(TEXT("Not enough distinct room modules for the selected room counts while Allow Module Reuse is off."));
 		if (!Catalog.ContainsByPredicate([](const auto& M) { return M.Kind == EHBDungeonModuleKind::Room && M.Role == EHBPrototypeRoomRole::Boss && Allows(M, 2); }))
 			return Fail(TEXT("Register at least one Boss module allowed on floor 2."));
+		if (!Catalog.ContainsByPredicate([](const auto& M)
+			{ return M.Kind == EHBDungeonModuleKind::Room && M.bIsStartCandidate && Allows(M, 1); }))
+			return Fail(TEXT("Register at least one non-boss start candidate allowed on floor 1."));
 		return true;
 	}
 
@@ -116,8 +194,9 @@ namespace
 			}
 			if (!S.bAllowModuleReuse && UsedModules.Contains(R.ModuleId)) return Fail(TEXT("Module reused while reuse is disabled."));
 			UsedModules.Add(R.ModuleId);
-			if (I == 0 && (R.Floor != 1 || R.Role != EHBPrototypeRoomRole::Adventure || R.bBranch || R.bFloorExit || R.bCorridor))
-				return Fail(TEXT("Start must be an Adventure room on floor 1."));
+			if (R.bIsStartRoom != (I == 0)) return Fail(TEXT("Exactly the first room instance must be marked as the start room."));
+			if (I == 0 && (R.Floor != 1 || !M->bIsStartCandidate || R.Role == EHBPrototypeRoomRole::Boss || R.bBranch || R.bFloorExit || R.bCorridor))
+				return Fail(TEXT("Start must be a non-boss start candidate on floor 1."));
 			if (R.bBranch && (Children[I] || R.bFloorExit || R.bCorridor || R.Connection == EHBDungeonConnection::Portal))
 				return Fail(TEXT("Optional rooms must be terminal branches, not transition or corridor rooms."));
 			if (!R.bBranch && MainChildren[I] != (R.Role == EHBPrototypeRoomRole::Boss ? 0 : 1))
@@ -164,7 +243,7 @@ namespace
 					return Fail(TEXT("Exactly one floor-2 boss must directly follow the selected corridor and end the main path."));
 			}
 			if ((R.ModuleMap == Rules.Floor1ExitMap || R.ModuleMap == Rules.Floor2EntryMap)
-				&& !R.bFloorExit && R.Connection != EHBDungeonConnection::Portal)
+				&& !M->bIsStartCandidate && !R.bFloorExit && R.Connection != EHBDungeonConnection::Portal)
 				return Fail(TEXT("Transition modules are reserved for the configured endpoints."));
 			int32 Streak = 0;
 			for (int32 J = I; J != INDEX_NONE; J = Rooms[J].ParentId)
@@ -202,6 +281,11 @@ namespace
 		int32 Steps = 0, Best = 0;
 		double Start = FPlatformTime::Seconds();
 		bool bLimited = false;
+		bool bStepLimitReached = false, bTimeLimitReached = false;
+		FRejectionStats AllStats[RejectionCount], DeepestStats[RejectionCount];
+		TArray<FHBPrototypeRoom> BestRooms;
+		TArray<int32> BestChosen;
+		TArray<TArray<bool>> BestUsed;
 		FDungeonRuleSearch(const TArray<FHBModuleCatalogEntry>& C, const HBConnectorLayout::FSettings& S, const FHBDungeonGenerationRules& R)
 			: Catalog(C), Settings(S), Rules(R), Random(S.Seed)
 		{
@@ -232,23 +316,61 @@ namespace
 		}
 		bool Budget()
 		{
-			bLimited |= Steps >= Settings.MaxSearchSteps || FPlatformTime::Seconds() - Start >= Settings.MaxSearchSeconds;
+			// Preserve the original short-circuit order of the two budget checks.
+			const bool bSteps = Steps >= Settings.MaxSearchSteps;
+			const bool bSeconds = !bSteps && FPlatformTime::Seconds() - Start >= Settings.MaxSearchSeconds;
+			bStepLimitReached |= bSteps; bTimeLimitReached |= bSeconds;
+			bLimited |= bSteps || bSeconds;
 			return !bLimited;
 		}
-		bool CanUse(int32 Module, const FSlot& Slot, int32 Parent) const
+		void Record(ERejection Reason, TFunctionRef<FString()> MakeExample)
+		{
+			auto& All = AllStats[static_cast<int32>(Reason)];
+			++All.Count;
+			const bool bAtBest = Rooms.Num() == Best;
+			auto& Deep = DeepestStats[static_cast<int32>(Reason)];
+			if (bAtBest) ++Deep.Count;
+			if (All.Example.IsEmpty() || (bAtBest && Deep.Example.IsEmpty()))
+			{
+				const FString Example = MakeExample();
+				if (All.Example.IsEmpty()) All.Example = Example;
+				if (bAtBest && Deep.Example.IsEmpty()) Deep.Example = Example;
+			}
+		}
+		FString Context(int32 Module, const FSlot& Slot, int32 Parent) const
+		{
+			return FString::Printf(TEXT("Depth=%d Floor=%d Candidate=%s Map=%s Role=%s ParentRoom=%d ParentModule=%s"),
+				Rooms.Num(), Slot.Floor, *Catalog[Module].ModuleId.ToString(), *Catalog[Module].Map.ToString(),
+				RoomRoleName(Catalog[Module].Role), Parent,
+				Parent == INDEX_NONE ? TEXT("None") : *Rooms[Parent].ModuleId.ToString());
+		}
+		bool CanUse(int32 Module, const FSlot& Slot, int32 Parent)
 		{
 			const auto& M = Catalog[Module];
-			if (!Allows(M, Slot.Floor) || (!Settings.bAllowModuleReuse && Chosen.Contains(Module))) return false;
-			if (Slot.Forced != INDEX_NONE && Module != Slot.Forced) return false;
-			if (Slot.bCorridor) return M.Kind == EHBDungeonModuleKind::Corridor;
-			if (M.Kind != EHBDungeonModuleKind::Room || (M.Role == EHBPrototypeRoomRole::Boss) != Slot.bBoss) return false;
-			if (Slot.Forced == INDEX_NONE && (M.Map == Rules.Floor1ExitMap || M.Map == Rules.Floor2EntryMap)) return false;
+			auto Reject = [&](ERejection Reason)
+			{
+				Record(Reason, [&] { return Context(Module, Slot, Parent) + FString::Printf(
+					TEXT(" AllowedFloor=%d StartCandidate=%s ForcedModule=%s RoleCountOnFloor=%d"),
+					static_cast<int32>(M.AllowedFloor), M.bIsStartCandidate ? TEXT("true") : TEXT("false"),
+					Slot.Forced == INDEX_NONE ? TEXT("None") : *Catalog[Slot.Forced].ModuleId.ToString(),
+					M.Kind == EHBDungeonModuleKind::Room ? RoleCounts[Slot.Floor][static_cast<int32>(M.Role)] : 0); });
+				return false;
+			};
+			if (!Allows(M, Slot.Floor)) return Reject(ERejection::Floor);
+			if (!Settings.bAllowModuleReuse && Chosen.Contains(Module)) return Reject(ERejection::Reuse);
+			if (Slot.Forced != INDEX_NONE && Module != Slot.Forced) return Reject(ERejection::ForcedModule);
+			if (Slot.bCorridor) return M.Kind == EHBDungeonModuleKind::Corridor || Reject(ERejection::Kind);
+			if (M.Kind != EHBDungeonModuleKind::Room) return Reject(ERejection::Kind);
+			if ((M.Role == EHBPrototypeRoomRole::Boss) != Slot.bBoss) return Reject(ERejection::BossRole);
+			if (Slot.Forced == INDEX_NONE && !M.bIsStartCandidate && (M.Map == Rules.Floor1ExitMap || M.Map == Rules.Floor2EntryMap)) return Reject(ERejection::ReservedTransition);
 			const bool bBeforeCorridor = Rooms.Num() + 1 < Slots.Num() && Slots[Rooms.Num() + 1].bCorridor;
-			if ((Parent == INDEX_NONE || bBeforeCorridor) && M.Role != EHBPrototypeRoomRole::Adventure) return false;
+			if (Parent == INDEX_NONE && !M.bIsStartCandidate) return Reject(ERejection::StartCandidate);
+			if (bBeforeCorridor && M.Role != EHBPrototypeRoomRole::Adventure) return Reject(ERejection::BeforeCorridor);
 			if (M.Role == EHBPrototypeRoomRole::Recovery || M.Role == EHBPrototypeRoomRole::Upgrade)
 			{
-				if (RoleCounts[Slot.Floor][static_cast<int32>(M.Role)] >= 1
-					|| Parent == 0 || (Parent != INDEX_NONE && Rooms[Parent].Role == M.Role)) return false;
+				if (RoleCounts[Slot.Floor][static_cast<int32>(M.Role)] >= 1) return Reject(ERejection::SpecialQuota);
+				if (Parent == 0) return Reject(ERejection::AdjacentToStart);
+				if (Parent != INDEX_NONE && Rooms[Parent].Role == M.Role) return Reject(ERejection::SameSpecialRole);
 			}
 			if (M.Role == EHBPrototypeRoomRole::Adventure)
 			{
@@ -258,7 +380,7 @@ namespace
 					if (Rooms[J].Floor != Slot.Floor) break;
 					if (Rooms[J].bCorridor) continue;
 					if (Rooms[J].Role != M.Role) break;
-					if (++Streak > 3) return false;
+					if (++Streak > 3) return Reject(ERejection::AdventureStreak);
 				}
 			}
 			return true;
@@ -269,10 +391,24 @@ namespace
 			++Steps;
 			const auto& M = Catalog[Module];
 			for (int32 I = 0; I < Rooms.Num(); ++I)
-				if (HBConnectorLayout::OccupancyOverlaps(M, Transform, Catalog[Chosen[I]], Rooms[I].Transform)) return false;
+			{
+				HBConnectorLayout::FOccupancyOverlap Overlap;
+				if (HBConnectorLayout::OccupancyOverlaps(M, Transform, Catalog[Chosen[I]], Rooms[I].Transform, &Overlap))
+				{
+					Record(ERejection::Occupancy, [&] { return Context(Module, Slot, Parent) + FString::Printf(
+						TEXT(" CandidateTransform=%s ParentDoor=%s EntryDoor=%s OverlapWithRoom=%d Module=%s Map=%s BoxAIndex=%d CenterA=%s RotationA=%s HalfExtentA=%s BoxBIndex=%d CenterB=%s RotationB=%s HalfExtentB=%s"),
+						*Transform.ToString(), Port == INDEX_NONE ? TEXT("None") : *Catalog[Chosen[Parent]].Connectors[Port].ConnectorId.ToString(),
+						Entry == INDEX_NONE ? TEXT("None") : *M.Connectors[Entry].ConnectorId.ToString(),
+						I, *Rooms[I].ModuleId.ToString(), *Rooms[I].ModuleMap.ToString(), Overlap.BoxAIndex,
+						*Overlap.BoxAWorld.GetLocation().ToString(), *Overlap.BoxAWorld.Rotator().ToString(), *Overlap.ExtentA.ToString(),
+						Overlap.BoxBIndex, *Overlap.BoxBWorld.GetLocation().ToString(), *Overlap.BoxBWorld.Rotator().ToString(), *Overlap.ExtentB.ToString()); });
+					return false;
+				}
+			}
 			FHBPrototypeRoom R;
 			R.Id = Rooms.Num(); R.ParentId = Parent; R.Floor = Slot.Floor; R.Role = M.Role;
 			R.bBranch = Slot.bBranch; R.bFloorExit = Slot.bExit; R.bCorridor = Slot.bCorridor;
+			R.bIsStartRoom = Parent == INDEX_NONE;
 			R.ModuleId = M.ModuleId; R.ModuleMap = M.Map; R.Transform = Transform;
 			R.LocalBounds = M.Bounds; R.Bounds = M.Bounds.TransformBy(Transform); R.InspectionEntry = M.InspectionEntry;
 			if (Slot.bPortal)
@@ -289,7 +425,12 @@ namespace
 			Rooms.Add(R); Chosen.Add(Module); Used.AddDefaulted_GetRef().Init(false, M.Connectors.Num());
 			if (Entry != INDEX_NONE) Used.Last()[Entry] = true;
 			if (!Slot.bCorridor) ++RoleCounts[Slot.Floor][static_cast<int32>(M.Role)];
-			Best = FMath::Max(Best, Rooms.Num());
+			if (Rooms.Num() > Best)
+			{
+				Best = Rooms.Num();
+				BestRooms = Rooms; BestChosen = Chosen; BestUsed = Used;
+				for (auto& Stat : DeepestStats) Stat = FRejectionStats();
+			}
 			if (Extend()) return true;
 			if (!Slot.bCorridor) --RoleCounts[Slot.Floor][static_cast<int32>(M.Role)];
 			Rooms.Pop(); Chosen.Pop(); Used.Pop();
@@ -301,7 +442,9 @@ namespace
 			if (Rooms.Num() == Slots.Num())
 			{
 				FString Error;
-				return CheckRules(Catalog, Settings, Rules, Rooms, Error);
+				if (CheckRules(Catalog, Settings, Rules, Rooms, Error)) return true;
+				Record(ERejection::FinalRules, [&] { return FString::Printf(TEXT("Depth=%d Reason=%s"), Rooms.Num(), *Error); });
+				return false;
 			}
 			if (!Budget()) return false;
 			const FSlot Slot = Slots[Rooms.Num()];
@@ -313,14 +456,23 @@ namespace
 				Shuffle(Parents);
 			}
 			else Parents.Add(Slot.Parent);
+			if (Parents.IsEmpty()) Record(ERejection::NoParents, [&] { return FString::Printf(TEXT("Depth=%d Floor=%d Branch=%s"),
+				Rooms.Num(), Slot.Floor, Slot.bBranch ? TEXT("true") : TEXT("false")); });
 			for (int32 Parent : Parents)
 			{
 				TArray<int32> Candidates;
 				for (int32 M = 0; M < Catalog.Num(); ++M) if (CanUse(M, Slot, Parent)) Candidates.Add(M);
+				if (Candidates.IsEmpty()) Record(ERejection::NoCandidates, [&] { return FString::Printf(
+					TEXT("Depth=%d Floor=%d ParentRoom=%d ParentModule=%s ForcedModule=%s; see candidate-filter counts"),
+					Rooms.Num(), Slot.Floor, Parent, Parent == INDEX_NONE ? TEXT("None") : *Rooms[Parent].ModuleId.ToString(),
+					Slot.Forced == INDEX_NONE ? TEXT("None") : *Catalog[Slot.Forced].ModuleId.ToString()); });
+				if (Parent == INDEX_NONE)
+					Candidates.Sort([&](int32 A, int32 B) { return Catalog[A].ModuleId.LexicalLess(Catalog[B].ModuleId); });
 				Shuffle(Candidates);
 				// Upgrade is preferred on optional branches; retain random order within each priority.
 				Candidates.StableSort([&](int32 A, int32 B)
 				{
+					if (Parent == INDEX_NONE) return false; // Start roles have no priority over one another.
 					const bool UA = Catalog[A].Role == EHBPrototypeRoomRole::Upgrade, UB = Catalog[B].Role == EHBPrototypeRoomRole::Upgrade;
 					return Slot.bBranch ? UA > UB : UA < UB;
 				});
@@ -337,11 +489,21 @@ namespace
 						for (int32 I = 0; I < Used[Parent].Num(); ++I) if (!Used[Parent][I]) Ports.Add(I);
 						for (int32 I = 0; I < Catalog[Module].Connectors.Num(); ++I) Entries.Add(I);
 						Shuffle(Ports); Shuffle(Entries);
+						if (Ports.IsEmpty()) Record(ERejection::NoParentDoors, [&] { return Context(Module, Slot, Parent)
+							+ FString::Printf(TEXT(" UsedDoors=%d/%d"), Used[Parent].Num(), Catalog[Chosen[Parent]].Connectors.Num()); });
 						for (int32 Port : Ports)
 							for (int32 Entry : Entries)
 							{
 								if (!MatchesProgression(Catalog[Chosen[Parent]].Connectors[Port].Role,
-									Catalog[Module].Connectors[Entry].Role, Slot.bCorridor, Slot.bBoss)) continue;
+									Catalog[Module].Connectors[Entry].Role, Slot.bCorridor, Slot.bBoss))
+								{
+									Record(ERejection::ConnectorRole, [&] { return Context(Module, Slot, Parent) + FString::Printf(
+										TEXT(" ParentDoor=%s ParentRole=%s EntryDoor=%s EntryRole=%s Corridor=%s Boss=%s"),
+										*Catalog[Chosen[Parent]].Connectors[Port].ConnectorId.ToString(), ConnectorRoleName(Catalog[Chosen[Parent]].Connectors[Port].Role),
+										*Catalog[Module].Connectors[Entry].ConnectorId.ToString(), ConnectorRoleName(Catalog[Module].Connectors[Entry].Role),
+										Slot.bCorridor ? TEXT("true") : TEXT("false"), Slot.bBoss ? TEXT("true") : TEXT("false")); });
+									continue;
+								}
 								const FTransform PW = Catalog[Chosen[Parent]].Connectors[Port].LocalTransform * Rooms[Parent].Transform;
 								if (Place(Module, Slot, Parent, Port, Entry, HBConnectorLayout::Align(PW, Catalog[Module].Connectors[Entry].LocalTransform))) return true;
 								if (bLimited) return false;
@@ -351,6 +513,101 @@ namespace
 				}
 			}
 			return false;
+		}
+		const TCHAR* StopReason() const
+		{
+			if (bStepLimitReached) return TEXT("AttemptLimit");
+			if (bTimeLimitReached) return TEXT("TimeLimit");
+			return TEXT("Exhausted");
+		}
+		FString CountSummary(const FRejectionStats* Stats, int32 Begin, int32 End) const
+		{
+			FString Summary;
+			for (int32 I = Begin; I < End; ++I)
+				if (Stats[I].Count > 0)
+				{
+					if (!Summary.IsEmpty()) Summary += TEXT(", ");
+					Summary += FString::Printf(TEXT("%s=%lld"), RejectionName(static_cast<ERejection>(I)), Stats[I].Count);
+				}
+			return Summary.IsEmpty() ? TEXT("none") : Summary;
+		}
+		void LogStats(const TCHAR* Scope, const FRejectionStats* Stats) const
+		{
+			UE_LOG(LogHBDungeonLayout, Warning, TEXT("[CandidateFilters] Scope=%s Counts=%s (normal filtering; not placement failures)"),
+				Scope, *CountSummary(Stats, 0, FilterReasonCount));
+			UE_LOG(LogHBDungeonLayout, Warning, TEXT("[PlacementRejections] Scope=%s Counts=%s"),
+				Scope, *CountSummary(Stats, FilterReasonCount, RejectionCount));
+			// At most eight samples per scope, prioritizing placement failures over normal filters.
+			int32 Shown = 0;
+			for (int32 Pass = 0; Pass < 2; ++Pass)
+				for (int32 I = Pass == 0 ? FilterReasonCount : 0;
+					I < (Pass == 0 ? RejectionCount : FilterReasonCount) && Shown < 8; ++I)
+					if (!Stats[I].Example.IsEmpty())
+					{
+						UE_LOG(LogHBDungeonLayout, Warning, TEXT("[Example] Scope=%s Rejection=%s %s"),
+							Scope, RejectionName(static_cast<ERejection>(I)), *Stats[I].Example);
+						++Shown;
+					}
+		}
+		void LogParentSnapshot(int32 Parent) const
+		{
+			if (Parent == INDEX_NONE)
+			{
+				UE_LOG(LogHBDungeonLayout, Warning, TEXT("[ParentSnapshot] Start uses Origin; no parent door required."));
+				return;
+			}
+			const auto& M = Catalog[BestChosen[Parent]];
+			FString Doors;
+			int32 Available = 0;
+			for (int32 I = 0; I < BestUsed[Parent].Num(); ++I)
+				if (!BestUsed[Parent][I])
+				{
+					if (++Available > 8) continue;
+					const auto& Door = M.Connectors[I];
+					if (!Doors.IsEmpty()) Doors += TEXT("; ");
+					Doors += FString::Printf(TEXT("%s(%s)@%s"), *Door.ConnectorId.ToString(), ConnectorRoleName(Door.Role),
+						*(Door.LocalTransform * BestRooms[Parent].Transform).GetLocation().ToString());
+				}
+			UE_LOG(LogHBDungeonLayout, Warning, TEXT("[ParentSnapshot] Room=%d Module=%s Map=%s AvailableDoors=%d/%d FirstEight=%s"),
+				Parent, *M.ModuleId.ToString(), *M.Map.ToString(), Available, M.Connectors.Num(), Doors.IsEmpty() ? TEXT("none") : *Doors);
+		}
+		void LogFailure(const FString& Error) const
+		{
+			LogFailureSettings(Settings, Rules, TEXT("Search"), Error);
+			UE_LOG(LogHBDungeonLayout, Warning, TEXT("[Search] Stop=%s Attempts=%d/%d ElapsedSeconds=%.6f Best=%d/%d CatalogModules=%d"),
+				StopReason(), Steps, Settings.MaxSearchSteps, FPlatformTime::Seconds() - Start, Best, Slots.Num(), Catalog.Num());
+			UE_LOG(LogHBDungeonLayout, Warning, TEXT("[Deepest] Snapshot=FirstContextAtBest; Scope=Deepest aggregates all contexts at Depth=%d. Examples may belong to different branches."), Best);
+			if (Best < Slots.Num())
+			{
+				const auto& Slot = Slots[Best];
+				const TCHAR* Kind = Slot.bBranch ? TEXT("Branch") : Slot.bBoss ? TEXT("Boss") : Slot.bCorridor ? TEXT("Corridor")
+					: Slot.bPortal ? TEXT("PortalEntry") : Slot.bExit ? TEXT("FloorExit") : Best == 0 ? TEXT("Start") : TEXT("Room");
+				UE_LOG(LogHBDungeonLayout, Warning, TEXT("[NextSlot] Room=%d Floor=%d Kind=%s ParentRoom=%d ForcedModule=%s"),
+					Best, Slot.Floor, Kind, Slot.Parent, Slot.Forced == INDEX_NONE ? TEXT("None") : *Catalog[Slot.Forced].ModuleId.ToString());
+				if (Slot.bBranch)
+				{
+					int32 Parents = 0;
+					for (int32 I = 0; I < BestRooms.Num(); ++I)
+						if (BestRooms[I].Floor == Slot.Floor && !BestRooms[I].bBranch && !BestRooms[I].bCorridor && BestRooms[I].Role != EHBPrototypeRoomRole::Boss)
+							if (++Parents <= 6) LogParentSnapshot(I);
+					UE_LOG(LogHBDungeonLayout, Warning, TEXT("[ParentSnapshot] EligibleBranchParents=%d (showing up to six)."), Parents);
+				}
+				else LogParentSnapshot(Slot.Parent);
+			}
+			else UE_LOG(LogHBDungeonLayout, Warning, TEXT("[NextSlot] All slots filled; final rule validation rejected the layouts."));
+			int32 Counts[3][4] = {};
+			for (const auto& Room : BestRooms)
+				if (!Room.bCorridor) ++Counts[Room.Floor][static_cast<int32>(Room.Role)];
+			for (int32 Floor = 1; Floor <= 2; ++Floor)
+				UE_LOG(LogHBDungeonLayout, Warning, TEXT("[SnapshotRoles] Floor=%d Adventure=%d Recovery=%d Upgrade=%d Boss=%d"),
+					Floor, Counts[Floor][0], Counts[Floor][1], Counts[Floor][2], Counts[Floor][3]);
+			if (Best > 6) UE_LOG(LogHBDungeonLayout, Warning, TEXT("[RoomSnapshot] %d earlier rooms omitted; showing last six."), Best - 6);
+			for (int32 I = FMath::Max(0, Best - 6); I < Best; ++I)
+				UE_LOG(LogHBDungeonLayout, Warning, TEXT("[RoomSnapshot] Room=%d Module=%s Map=%s Floor=%d Role=%s ParentRoom=%d ParentDoor=%s EntryDoor=%s Position=%s"),
+					I, *BestRooms[I].ModuleId.ToString(), *BestRooms[I].ModuleMap.ToString(), BestRooms[I].Floor, RoomRoleName(BestRooms[I].Role),
+					BestRooms[I].ParentId, *BestRooms[I].ParentConnectorId.ToString(), *BestRooms[I].EntryConnectorId.ToString(), *BestRooms[I].Transform.GetLocation().ToString());
+			LogStats(TEXT("All"), AllStats);
+			LogStats(TEXT("Deepest"), DeepestStats);
 		}
 	};
 }
@@ -383,19 +640,33 @@ bool HBDungeonRuleLayout::Generate(const TArray<FHBModuleCatalogEntry>& Catalog,
 {
 	OutRooms.Reset(); OutError.Reset();
 	FHBDungeonGenerationRules Rules = InputRules;
-	if (!ResolvePortalIds(Catalog, Rules, OutError)) return false;
-	if (!CheckSettings(Catalog, Settings, Rules, OutError)) return false;
+	if (!ResolvePortalIds(Catalog, Rules, OutError))
+	{
+		LogFailureSettings(Settings, Rules, TEXT("PortalSelection"), OutError);
+		return false;
+	}
+	if (!CheckSettings(Catalog, Settings, Rules, OutError))
+	{
+		LogFailureSettings(Settings, Rules, TEXT("Settings"), OutError);
+		return false;
+	}
 	FDungeonRuleSearch Search(Catalog, Settings, Rules);
 	if (!Search.Extend())
 	{
-		OutError = FString::Printf(TEXT("%s: placed at most %d/%d modules in %d attempts. Check role/floor availability, portal selections, door capacity, occupancy and Floor2Offset."),
-			Search.bLimited ? TEXT("Search limit reached") : TEXT("No rule-compliant layout"), Search.Best, Search.Slots.Num(), Search.Steps);
+		OutError = FString::Printf(TEXT("%s (%s): placed at most %d/%d modules in %d attempts. Deepest placement rejections: %s. See LogHBDungeonLayout for settings, candidate filters, parent doors and representative failures."),
+			Search.bLimited ? TEXT("Search limit reached") : TEXT("No rule-compliant layout"), Search.StopReason(),
+			Search.Best, Search.Slots.Num(), Search.Steps, *Search.CountSummary(Search.DeepestStats, FilterReasonCount, RejectionCount));
+		Search.LogFailure(OutError);
 		return false;
 	}
 	for (int32 I = 0; I < Search.Rooms.Num(); ++I)
 		for (int32 C = 0; C < Search.Used[I].Num(); ++C)
 			(Search.Used[I][C] ? Search.Rooms[I].UsedConnectorIds : Search.Rooms[I].UnusedConnectorIds).Add(Catalog[Search.Chosen[I]].Connectors[C].ConnectorId);
-	if (!Validate(Catalog, Settings, Rules, Search.Rooms, OutError)) return false;
+	if (!Validate(Catalog, Settings, Rules, Search.Rooms, OutError))
+	{
+		LogFailureSettings(Settings, Rules, TEXT("FinalValidation"), OutError);
+		return false;
+	}
 	OutRooms = MoveTemp(Search.Rooms);
 	return true;
 }

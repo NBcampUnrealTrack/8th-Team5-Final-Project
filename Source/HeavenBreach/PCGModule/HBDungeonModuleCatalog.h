@@ -21,6 +21,7 @@ struct HEAVENBREACH_API FHBModuleCatalogEntry
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Module") TSoftObjectPtr<UWorld> Map;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Module") EHBDungeonModuleKind Kind = EHBDungeonModuleKind::Room;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Module") EHBPrototypeRoomRole Role = EHBPrototypeRoomRole::Unassigned;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Module") bool bIsStartCandidate = false;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Module") EHBAllowedFloor AllowedFloor = EHBAllowedFloor::Any;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Module") FBox Bounds = FBox(ForceInit);
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Module") FVector InspectionEntry = FVector::ZeroVector;

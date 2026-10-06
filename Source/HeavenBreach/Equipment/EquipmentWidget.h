@@ -51,6 +51,9 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UEquipmentSlotWidget> Slot_Accessory;
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UEquipmentSlotWidget> Slot_Backpack;
+
 private:
 
 	UPROPERTY()

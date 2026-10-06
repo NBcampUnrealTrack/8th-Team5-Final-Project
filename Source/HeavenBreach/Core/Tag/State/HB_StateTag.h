@@ -22,6 +22,9 @@ namespace StateTag
 	// 기본 공격과 스킬이 같은 근접 트레이스를 쓰기 때문에, 이 태그로 스킬 타격을 가른다.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_UsingSkill)
 
+	// 활 스킬 조준 중(관통 사격 당기기, 표식 조준). 활 기본 조준과 가르기 위한 태그.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Bow_SkillAiming)
+
 	// ----- 공격 성질. 공격하는 쪽 ASC 에 붙는다 — 공격 GA 의 Activation Owned Tags 에 넣는다 -----
 	// 맞는 쪽(AHBPlayerCharacter::ApplyMeleeHit)이 맞는 순간 공격자 태그를 보고 판단한다.
 	// 타격 소리(GameplayCue.Hit.*)를 공격자 태그로 고르는 것과 같은 방식이다.

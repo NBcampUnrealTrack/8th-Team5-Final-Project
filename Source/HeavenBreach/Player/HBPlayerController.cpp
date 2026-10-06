@@ -29,6 +29,11 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "UI/HUD/HB_SpectateWidget.h"
+#include "Player/HBNotificationThrottle.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Combat/Attack/GA_PlayerBowAttack.h"
+#include "Inventory/InventoryComponent.h"
 
 AHBPlayerController::AHBPlayerController()
 {
@@ -800,7 +805,6 @@ void AHBPlayerController::StartSpectatingTeammates()
 		return;
 	}
 
-	bSpectatingTeammates = true;
 	// 빙의가 바뀔 때 카메라를 컨트롤러로 되돌리지 않게 한다.
 	bAutoManageActiveCameraTarget = false;
 	// 폰 없는 클라는 카메라 위치를 안 보내 관련성 기준이 시체에 머문다. 서버가 뷰타깃으로 직접 계산한다.
@@ -809,11 +813,40 @@ void AHBPlayerController::StartSpectatingTeammates()
 		PlayerCameraManager->bUseClientSideCameraUpdates = false;
 	}
 
+	// 바로 넘어가지 않고 내 시체가 쓰러지는 모습을 먼저 보여 준다.
+	// 시점은 관전과 같은 복제 변수(SpectateTarget)로 보내서, 클라에서 컨트롤러로 되돌아가는 문제를 피한다.
+	APawn* Corpse = LastPossessedPawn.Get();
+	if (Corpse && DeathViewDuration > 0.f)
+	{
+		SetSpectateTarget(Corpse);
+		GetWorldTimerManager().SetTimer(DeathViewTimer, this, &AHBPlayerController::BeginTeammateSpectate, DeathViewDuration, false);
+		return;
+	}
+
+	BeginTeammateSpectate();
+}
+
+void AHBPlayerController::BeginTeammateSpectate()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	bSpectatingTeammates = true;
+
+	// 살아 있는 팀원이 없으면 null 이라 SetSpectateTarget 이 무시하고, 시체 화면에 그대로 머문다.
 	SetSpectateTarget(FindNextSpectateTarget(nullptr));
 
 	GetWorldTimerManager().SetTimer(SpectateCheckTimer, this, &AHBPlayerController::CheckSpectateTarget, 0.5f, true);
 	OnRep_SpectatingTeammates();
 	ForceNetUpdate();
+}
+
+void AHBPlayerController::OnUnPossess()
+{
+	LastPossessedPawn = GetPawn();
+	Super::OnUnPossess();
 }
 
 void AHBPlayerController::PawnLeavingGame()
@@ -934,4 +967,57 @@ void AHBPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME_CONDITION(AHBPlayerController, bSpectatingTeammates, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(AHBPlayerController, SpectateTarget, COND_OwnerOnly);
+}
+
+void AHBPlayerController::ShowHudNotification(const FText& Body)
+{
+	if (!IsLocalController() || !HUDLayer)
+	{
+		return;
+	}
+
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	if (!HBNotify::ShouldShow(LastHudNotificationText, LastHudNotificationTime, Body, Now, HudNotificationRepeatInterval))
+	{
+		return;
+	}
+
+	LastHudNotificationText = Body;
+	LastHudNotificationTime = Now;
+	HUDLayer->ShowNotification(FText::GetEmpty(), Body);
+}
+
+void AHBPlayerController::ClientShowHudNotification_Implementation(const FText& Body)
+{
+	ShowHudNotification(Body);
+}
+
+void AHBPlayerController::HBGiveArrows(const int32 Count)
+{
+	ServerGiveArrows(Count);
+}
+
+void AHBPlayerController::ServerGiveArrows_Implementation(const int32 Count)
+{
+#if !UE_BUILD_SHIPPING
+	AHBPlayerCharacter* Avatar = GetPawn<AHBPlayerCharacter>();
+	UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Avatar);
+	UInventoryComponent* Inventory = Avatar ? Avatar->GetInventory() : nullptr;
+	if (!ASC || !Inventory || Count <= 0)
+	{
+		return;
+	}
+
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		const UGA_PlayerBowAttack* Bow = Cast<UGA_PlayerBowAttack>(Spec.Ability);
+		if (Bow && !Bow->GetArrowItemRow().IsNull())
+		{
+			const bool bAdded = Inventory->AddGold(Bow->GetArrowItemRow(), Count);
+			UE_LOG(LogTemp, Warning, TEXT("[Bow] 테스트 화살 %d개 지급 %s"), Count, bAdded ? TEXT("성공") : TEXT("실패(가방 공간)"));
+			return;
+		}
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 테스트 화살 지급 실패 — 화살 행이 지정된 활 GA 가 없음"));
+#endif
 }

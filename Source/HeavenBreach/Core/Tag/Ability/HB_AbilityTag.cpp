@@ -27,4 +27,6 @@ namespace AbilityTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Common_Defense, "Augment.Common.Defense", "공통 강화 - 방어력");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Common_MoveSpeed, "Augment.Common.MoveSpeed", "공통 강화 - 이동속도 배율");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Common_MaxStamina, "Augment.Common.MaxStamina", "공통 강화 - 최대 스태미나(현재 Player_MaxMana 에 건다)");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Passive_LightLanding_Reduction, "Augment.Passive.LightLanding.Reduction", "가벼운 착지 강화 - 낙하 피해 감소 추가");
 }

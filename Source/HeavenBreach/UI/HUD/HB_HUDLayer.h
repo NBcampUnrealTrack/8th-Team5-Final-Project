@@ -41,6 +41,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI|Inventory")
 	void CloseInventory();
 
+	/** 게임 코드(컨트롤러)가 잠깐 뜨는 알림을 띄울 때. WBP_Notification 이 없으면 아무것도 안 한다 */
+	void ShowNotification(const FText& Header, const FText& Body);
+
 	UFUNCTION(BlueprintPure, Category = "UI|Inventory")
 	bool IsInventoryOpen() const;
 

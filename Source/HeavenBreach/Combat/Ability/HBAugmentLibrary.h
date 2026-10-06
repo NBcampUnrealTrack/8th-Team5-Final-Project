@@ -28,6 +28,12 @@ namespace HBAugment
 	HEAVENBREACH_API float GetTierMagnitude(const FHBSkillAugment& Augment, int32 Tier);
 
 	/**
+	 * 증강이 정한 항목의 최종값. Params 에 그 항목이 없으면 false.
+	 * TierMagnitudes 가 있으면 그 단계의 값(단계값이 최종값), 없으면 Params 값을 쓴다.
+	 */
+	HEAVENBREACH_API bool ResolveParam(const FHBSkillAugment& Augment, FGameplayTag ParamTag, int32 Tier, float& OutValue);
+
+	/**
 	 * 한 통에서 DrawCount 장을 무작위로 뽑는다. 모자라면 있는 만큼만.
 	 *
 	 * 기획서 28.1: 액티브 강화·패시브 강화·신규 패시브·공통 강화를 한 통에 섞어 뽑는다.

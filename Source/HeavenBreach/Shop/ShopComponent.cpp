@@ -162,6 +162,12 @@ bool UShopComponent::AddToSellBasket(FGuid InInstanceId)
 
 	const FItemInstance& Item = TargetStash->GetEntries()[EntryIndex].Item;
 
+	if (Item.BagContents.Num() > 0)
+	{
+		UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Error);
+		return false;
+	}
+
 	FItemViewData ViewData;
 	if (!ResolveItemViewData(Item.ItemRow, ViewData))
 	{
@@ -317,7 +323,13 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 
 	for (const FTradeBasketEntry& Entry : InBasket)
 	{
-		if (InStash->FindEntryIndexById(Entry.InstanceId) == INDEX_NONE)
+		const int32 SellIndex = InStash->FindEntryIndexById(Entry.InstanceId);
+		if (SellIndex != INDEX_NONE && InStash->GetEntries()[SellIndex].Item.BagContents.Num() > 0)
+		{
+			Client_TradeResult(false, TEXT("\uAC00\uBC29\uC744 \uBE44\uC6B4 \uB4A4 \uD310\uB9E4\uD558\uC138\uC694."));
+			return;
+		}
+		if (SellIndex == INDEX_NONE)
 		{
 			Client_TradeResult(false, TEXT("판매할 아이템을 찾을 수 없습니다."));
 			return;

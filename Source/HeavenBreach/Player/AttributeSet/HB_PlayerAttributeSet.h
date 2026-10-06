@@ -51,6 +51,7 @@ public:
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_HealingReceivedMultiplier);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_HealthRegenFlat);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_HealthRegenMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_FallDamageReduction);
 
 protected:
 	UPROPERTY(ReplicatedUsing= OnRep_HP, BlueprintReadOnly,Category="Attribute|Combat")
@@ -151,6 +152,11 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_MeleeDamageTakenMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
 	FGameplayAttributeData Player_MeleeDamageTakenMultiplier;
 
+	// 낙하 피해 감소 비율. 0 이면 그대로, 0.4 면 40% 덜 받는다. 패시브·증강 GE 가 Additive 로 올린다.
+	// 상한 0.9 — 감소 수단을 다 겹쳐도 낙하가 완전히 무해해지지 않게.
+	UPROPERTY(ReplicatedUsing = OnRep_FallDamageReduction, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_FallDamageReduction;
+
 	// 체력 회복량 배율. 1.0 이 기본. 포션·흡혈·전투 회복이 전부 AHBPlayerCharacter::ReceiveHeal 에서 이걸 곱한다.
 	UPROPERTY(ReplicatedUsing = OnRep_HealingReceivedMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
 	FGameplayAttributeData Player_HealingReceivedMultiplier;
@@ -212,6 +218,8 @@ protected:
 	void OnRep_DamageTakenMultiplier(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_MeleeDamageTakenMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_FallDamageReduction(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_HealingReceivedMultiplier(const FGameplayAttributeData& OldValue);
 	UFUNCTION()

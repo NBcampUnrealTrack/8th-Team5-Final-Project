@@ -5,6 +5,16 @@
 #include "Item.h"
 #include "Net/UnrealNetwork.h"
 
+namespace
+{
+	struct FCraftBagSource
+	{
+		FGuid BagId;
+		FGuid ItemId;
+		int32 Count = 0;
+	};
+}
+
 UCraftComponent::UCraftComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -198,6 +208,14 @@ bool UCraftComponent::HasAnyFillableIngredient() const
 			{
 				return true;
 			}
+
+			for (const FBagItemEntry& BagItem : Entry.Item.BagContents)
+			{
+				if (BagItem.ItemRow.RowName == Ingredient.ItemRow.RowName && BagItem.StackCount > 0)
+				{
+					return true;
+				}
+			}
 		}
 	}
 
@@ -291,10 +309,34 @@ void UCraftComponent::Server_AutoFillFromStash_Implementation()
 		TArray<TPair<FGuid, int32>> MatchingItems;
 		for (const FInventoryEntry& Entry : TargetStash->GetEntries())
 		{
-			if (Entry.Item.ItemRow == Ingredient.ItemRow)
+			if (Entry.Item.ItemRow == Ingredient.ItemRow && Entry.Item.BagContents.Num() == 0)
 			{
 				TotalCount += Entry.Item.StackCount;
 				MatchingItems.Add(TPair<FGuid, int32>(Entry.Item.InstanceId, Entry.Item.StackCount));
+				if (TotalCount >= Ingredient.Count)
+				{
+					break;
+				}
+			}
+		}
+
+		TArray<FCraftBagSource> BagMatches;
+		if (TotalCount < Ingredient.Count)
+		{
+			for (const FInventoryEntry& Entry : TargetStash->GetEntries())
+			{
+				for (const FBagItemEntry& BagItem : Entry.Item.BagContents)
+				{
+					if (BagItem.ItemRow == Ingredient.ItemRow && BagItem.StackCount > 0)
+					{
+						TotalCount += BagItem.StackCount;
+						BagMatches.Add({ Entry.Item.InstanceId, BagItem.InstanceId, BagItem.StackCount });
+						if (TotalCount >= Ingredient.Count)
+						{
+							break;
+						}
+					}
+				}
 				if (TotalCount >= Ingredient.Count)
 				{
 					break;
@@ -340,6 +382,59 @@ void UCraftComponent::Server_AutoFillFromStash_Implementation()
 			}
 		}
 
+		for (const FCraftBagSource& Source : BagMatches)
+		{
+			if (Remaining <= 0)
+			{
+				break;
+			}
+
+			const int32 BagIndex = TargetStash->FindEntryIndexById(Source.BagId);
+			if (BagIndex == INDEX_NONE)
+			{
+				continue;
+			}
+
+			TArray<FBagItemEntry> Contents = TargetStash->GetEntries()[BagIndex].Item.BagContents;
+			const int32 InnerIndex = Contents.IndexOfByPredicate([&Source](const FBagItemEntry& InBagItem)
+			{
+				return InBagItem.InstanceId == Source.ItemId;
+			});
+			if (InnerIndex == INDEX_NONE)
+			{
+				continue;
+			}
+
+			const int32 TakeCount = FMath::Min(Remaining, Contents[InnerIndex].StackCount);
+			if (TakeCount <= 0)
+			{
+				continue;
+			}
+
+			FItemInstance TakenItem = BagItemToInventoryEntry(Contents[InnerIndex]).Item;
+			Contents[InnerIndex].StackCount -= TakeCount;
+			if (Contents[InnerIndex].StackCount <= 0)
+			{
+				Contents.RemoveAt(InnerIndex);
+			}
+
+			if (!TargetStash->SetEntryBagContents(Source.BagId, Contents))
+			{
+				continue;
+			}
+
+			if (!bSlotInitialized)
+			{
+				SlotItem = TakenItem;
+				SlotItem.StackCount = 0;
+				bSlotInitialized = true;
+			}
+
+			SlotItem.StackCount += TakeCount;
+			Remaining -= TakeCount;
+			bAnyIngredientPlaced = true;
+		}
+
 		if (bSlotInitialized)
 		{
 			Slots[i] = SlotItem;
@@ -375,7 +470,7 @@ void UCraftComponent::Server_PlaceItem_Implementation(FGuid InInstanceId, int32 
 	const FItemInstance Placed = TargetStash->GetEntries()[EntryIndex].Item;
 	const FCraftIngredient& Required = Recipe.Ingredients[InSlotIndex];
 
-	if (Placed.ItemRow.RowName != Required.ItemRow.RowName)
+	if (Placed.ItemRow.RowName != Required.ItemRow.RowName || Placed.BagContents.Num() > 0)
 	{
 		return;
 	}

@@ -56,6 +56,9 @@ namespace AbilityTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Common_Defense);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Common_MoveSpeed);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Common_MaxStamina);
+
+	// 패시브 "가벼운 착지" 강화. 이름 규칙: Augment.Passive.<패시브>.<이름> (직업 무관 공통 패시브)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_LightLanding_Reduction);
 }
 
 // 기본공격 스킬 식별자 상수

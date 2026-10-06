@@ -16,6 +16,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon|Room")
 	EHBPrototypeRoomRole RoomRole = EHBPrototypeRoomRole::Unassigned;
 
+	/** A non-boss room may be the first room. Other instances keep their normal role. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon|Room")
+	bool bIsStartCandidate = false;
+
 	/** Allowed logical dungeon tier, independent of the module's world height. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon|Room")
 	EHBAllowedFloor AllowedFloor = EHBAllowedFloor::Any;

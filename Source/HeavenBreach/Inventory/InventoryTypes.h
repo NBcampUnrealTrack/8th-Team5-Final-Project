@@ -21,6 +21,7 @@ enum class EEquipSlotType : uint8
 	Chest			UMETA(DisplayName = "Chest"),
 	Legs			UMETA(DisplayName = "Legs"),
 	Accessory		UMETA(DisplayName = "Accessory"),
+	Backpack		UMETA(DisplayName = "Backpack"),
 	MAX				UMETA(Hidden)
 };
 
@@ -72,6 +73,11 @@ struct FItemViewData
 	float ManaAmount = 0.f;
 	bool IsConsumable() const { return HealAmount > 0.f || ManaAmount > 0.f; }
 
+	UPROPERTY(BlueprintReadOnly, Category = "Bag")
+	FIntPoint BagGridSize = FIntPoint::ZeroValue;
+
+	bool IsBag() const { return BagGridSize.X > 0 && BagGridSize.Y > 0; }
+
 	// ===== 악세서리 옵션 =====
 	// FItemData 의 같은 이름 칸을 그대로 옮겨 담는다. 무기·방패 행은 비어서 온다.
 	// 옛 Relic 칸(bIsRelic · Benefit/RiskDescription · Benefit/RiskEffect)은 유물 통합으로 지웠다.
@@ -87,6 +93,39 @@ struct FItemViewData
 
 	UPROPERTY(BlueprintReadOnly, Category = "Option")
 	TArray<FItemEffect> RiskEffects;
+};
+
+USTRUCT(BlueprintType)
+struct FBagItemEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FDataTableRowHandle ItemRow;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FGuid InstanceId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	int32 StackCount = 1;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FGuid OriginalOwnerId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	bool bRotated = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	bool bIsFavorite = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	float CurrentDurability = -1.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FItemEngraving Engraving;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	FIntPoint Position = FIntPoint::ZeroValue;
 };
 
 USTRUCT(BlueprintType)
@@ -130,6 +169,9 @@ struct FItemInstance
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	FItemEngraving Engraving;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	TArray<FBagItemEntry> BagContents;
+
 	bool IsBroken() const { return CurrentDurability == 0.f; }
 
 	bool IsValid() const;
@@ -153,6 +195,9 @@ struct FInventoryEntry
 };
 
 HEAVENBREACH_API bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutViewData);
+
+HEAVENBREACH_API FInventoryEntry BagItemToInventoryEntry(const FBagItemEntry& InBagItem);
+HEAVENBREACH_API FBagItemEntry InventoryEntryToBagItem(const FInventoryEntry& InEntry);
 
 HEAVENBREACH_API FIntPoint GetOccupiedSize(const FItemInstance& InItem, const FItemViewData& InViewData);
 

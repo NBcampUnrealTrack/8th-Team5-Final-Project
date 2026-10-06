@@ -143,32 +143,39 @@ protected:
 
 	// ----- 발동 -----
 
+	// 발동 방식에 따라 안 쓰는 아래 칸들은 에디터에서 회색으로 잠긴다 (EditCondition). 잘못 채워 놓고 왜 안 되나 헤매지 않게.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger")
 	EHBTrapTriggerMode TriggerMode = EHBTrapTriggerMode::Always;
 
 	// N초마다 모드의 주기.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger", meta = (ClampMin = "0.1"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger",
+		meta = (ClampMin = "0.1", EditCondition = "TriggerMode == EHBTrapTriggerMode::Interval"))
 	float Interval = 3.f;
 
 	// 켜지기 전 예고 시간. 밟고 나서 가시가 튀어나오기까지. 0 이면 바로 켜진다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger",
+		meta = (ClampMin = "0.0", EditCondition = "TriggerMode != EHBTrapTriggerMode::Always"))
 	float WarningDuration = 0.f;
 
 	// 켜져 있는 시간. 0 이면 Deactivate 를 부를 때까지 계속. 항상 모드는 이 값을 보지 않는다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger",
+		meta = (ClampMin = "0.0", EditCondition = "TriggerMode != EHBTrapTriggerMode::Always"))
 	float ActiveDuration = 1.f;
 
 	// 꺼진 뒤 다시 켜질 수 있기까지.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger",
+		meta = (ClampMin = "0.0", EditCondition = "TriggerMode != EHBTrapTriggerMode::Always"))
 	float RearmDelay = 2.f;
 
 	// 범위에 들어오면 모드에서, 이 태그가 붙은 충돌체에 대상이 들어오면 켜진다 (발판 · 감지 범위).
-	UPROPERTY(EditDefaultsOnly, Category = "Trap|Trigger")
+	UPROPERTY(EditDefaultsOnly, Category = "Trap|Trigger",
+		meta = (EditCondition = "TriggerMode == EHBTrapTriggerMode::Volume"))
 	FName TriggerVolumeTag = TEXT("TrapTrigger");
 
 	// 범위에 들어오면 모드에서 발판이 무엇에 반응하나. 무게면 시체가 올라가 있는 동안 계속 다시 작동한다.
 	// 판정(피해 · 상태이상)은 어느 쪽이든 살아 있는 대상만 받는다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Trap|Trigger",
+		meta = (EditCondition = "TriggerMode == EHBTrapTriggerMode::Volume"))
 	EHBTrapTriggerSense TriggerSense = EHBTrapTriggerSense::Detection;
 
 	UPROPERTY(VisibleAnywhere, Category = "Trap")

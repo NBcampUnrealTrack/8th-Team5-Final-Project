@@ -6,6 +6,8 @@
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "Misc/AutomationTest.h"
+#include "GameFramework/PlayerStart.h"
+#include "Engine/Level.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -43,12 +45,16 @@ bool FHBCatalogReadTest::RunTest(const FString&)
 {
     FCatalogFixture Fixture;
     UWorld* Recovery = Fixture.Add(TEXT("NotNamedHeal"), EHBPrototypeRoomRole::Recovery);
+    for (AActor* Actor : Recovery->PersistentLevel->Actors)
+        if (auto* Definition = Cast<AHBDungeonModuleDefinition>(Actor)) Definition->RoomInfo->bIsStartCandidate = true;
+    Recovery->SpawnActor<APlayerStart>();
     UWorld* Corridor = Fixture.Add(TEXT("Stairs"), EHBPrototypeRoomRole::Unassigned, EHBDungeonModuleKind::Corridor);
     TArray<FHBModuleCatalogEntry> Catalog;
     TArray<FString> Errors;
     TestTrue(TEXT("Read role from map component, not name or array index"), HBDungeonModuleCatalog::Build({ Recovery }, { Corridor }, Catalog, Errors));
     if (Catalog.Num() != 2) { AddError(FString::Join(Errors, TEXT(";"))); return false; }
     TestEqual(TEXT("Role is Recovery"), Catalog[0].Role, EHBPrototypeRoomRole::Recovery);
+    TestTrue(TEXT("Candidate setting comes from the room component"), Catalog[0].bIsStartCandidate);
     TestTrue(TEXT("Bounds use scaled occupancy"), Catalog[0].Bounds.Min.Equals(FVector(0,0,0)) && Catalog[0].Bounds.Max.Equals(FVector(400,600,200)));
     TestEqual(TEXT("Corridor has two connectors"), Catalog[1].ConnectorCount, 2);
     TestTrue(TEXT("Geometry preserved"), Catalog[0].Occupancy.Num() == 1 && Catalog[0].Connectors.Num() == 1);

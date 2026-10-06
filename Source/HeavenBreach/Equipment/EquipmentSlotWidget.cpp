@@ -12,6 +12,7 @@
 #include "Item/ItemInfoPopupWidget.h"
 #include "Item/ItemStatBinding.h"
 #include "InventoryWidget.h"
+#include "TimerManager.h"
 
 void UEquipmentSlotWidget::InitSlot(EEquipSlotType InSlotType, UEquipmentComponent* InEquipment, UInventoryComponent* InInventory, UInventoryWidget* InOwningInventoryWidget)
 {
@@ -25,6 +26,10 @@ FReply UEquipmentSlotWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry
 {
 	if (InMouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
 	{
+		if (InMouseEvent.IsControlDown() && OwningInventoryWidget != nullptr)
+		{
+			return FReply::Handled().SetUserFocus(OwningInventoryWidget->TakeWidget(), EFocusCause::Mouse);
+		}
 		return FReply::Handled();
 	}
 
@@ -46,6 +51,28 @@ FReply UEquipmentSlotWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, 
 		if (BoundEquipment == nullptr || BoundInventory == nullptr)
 		{
 			return FReply::Unhandled();
+		}
+
+		if (InMouseEvent.IsControlDown())
+		{
+			if (OwningInventoryWidget != nullptr && BoundEquipment->IsSlotOccupied(SlotType))
+			{
+				ClearHoverInfoPopup();
+				if (UWorld* World = GetWorld())
+				{
+					TWeakObjectPtr<UInventoryWidget> WeakOwner = OwningInventoryWidget;
+					TWeakObjectPtr<UEquipmentComponent> WeakEquipment = BoundEquipment;
+					const EEquipSlotType MenuSlot = SlotType;
+					World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([WeakOwner, WeakEquipment, MenuSlot]()
+						{
+							if (WeakOwner.IsValid() && WeakEquipment.IsValid())
+							{
+								WeakOwner->OpenEquippedItemMenu(WeakEquipment.Get(), MenuSlot);
+							}
+						}));
+				}
+			}
+			return FReply::Handled();
 		}
 
 		FItemInstance EquippedItem;

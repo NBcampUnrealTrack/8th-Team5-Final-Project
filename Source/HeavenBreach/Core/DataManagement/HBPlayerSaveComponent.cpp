@@ -188,6 +188,10 @@ void UHBPlayerSaveComponent::BindSaveTriggers()
 	{
 		Inventory->OnInventoryChanged.AddUniqueDynamic(this, &UHBPlayerSaveComponent::RequestSave);
 	}
+	if (UInventoryComponent* BagInventory = PlayerState->GetBagInventory())
+	{
+		BagInventory->OnInventoryChanged.AddUniqueDynamic(this, &UHBPlayerSaveComponent::RequestSave);
+	}
 	if (UEquipmentComponent* Equipment = PlayerState->GetEquipment())
 	{
 		Equipment->OnEquipmentChanged.AddUniqueDynamic(this, &UHBPlayerSaveComponent::RequestSave);
