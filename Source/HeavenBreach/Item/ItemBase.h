@@ -17,6 +17,27 @@ enum class EItemSourceTable : uint8
 	Shield
 };
 
+USTRUCT(BlueprintType)
+struct FItemPickupEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	FName ItemID;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	EItemSourceTable SourceTable = EItemSourceTable::Item;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (ClampMin = "1"))
+	int32 MinCount = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (ClampMin = "1"))
+	int32 MaxCount = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (ClampMin = "0.0"))
+	float Weight = 1.f;
+};
+
 UCLASS()
 class HEAVENBREACH_API AItemBase : public AActor, public IInteractableInterface
 {
@@ -86,6 +107,21 @@ public:
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Item")
 	FItemEngraving Engraving;
 
+	UPROPERTY()
+	TArray<FBagItemEntry> BagContents;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Random")
+	TArray<FItemPickupEntry> RandomCandidates;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Random")
+	bool bRandomizeItemID = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Random", meta = (ClampMin = "0"))
+	int32 RandomBundleRolls = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Item|Bundle")
+	TArray<FItemPickupEntry> BundleItems;
+
 	UFUNCTION(BlueprintCallable, Category = "Item")
 	void InitializeFromDataTable();
 
@@ -115,6 +151,20 @@ private:
 	FVector SkeletalMeshLocalOffset = FVector::ZeroVector;
 
 	bool TryPickUp(AActor* Picker);
+
+	UDataTable* GetDataTableFor(EItemSourceTable InSource) const;
+
+	void RollPickupContents();
+
+	bool GrantBundleEntry(class UInventoryComponent* Inventory, class UEquipmentComponent* Equipment, FItemPickupEntry& InOutEntry);
+
+	static bool AddWithPickupFlow(class UInventoryComponent* Inventory, class UEquipmentComponent* Equipment, const FItemInstance& InItem, EEquipSlotType InSlot, int32& OutRemainder);
+
+	static const FItemPickupEntry* PickWeighted(const TArray<FItemPickupEntry>& InEntries);
+
+	static int32 RollCount(const FItemPickupEntry& InEntry);
+
+	bool bMainItemClaimed = false;
 
 	float SpawnTime = 0.f;
 };

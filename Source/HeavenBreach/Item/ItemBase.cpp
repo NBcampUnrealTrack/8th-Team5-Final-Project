@@ -4,7 +4,45 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Inventory/InventoryComponent.h"
 #include "Player/PlayerState/HB_PlayerState.h"
+#include "Equipment/EquipmentComponent.h"
 #include "Net/UnrealNetwork.h"
+
+static UInventoryComponent* PickupResolveBagInventory(UEquipmentComponent* Equipment)
+{
+	if (Equipment != nullptr && Equipment->HasBagEquipped())
+	{
+		return Equipment->GetBagInventory();
+	}
+	return nullptr;
+}
+
+static bool PickupIsAutoEquipSlot(EEquipSlotType InSlot)
+{
+	switch (InSlot)
+	{
+	case EEquipSlotType::PrimaryWeapon:
+	case EEquipSlotType::SecondaryEquip:
+	case EEquipSlotType::Accessory:
+	case EEquipSlotType::Helmet:
+	case EEquipSlotType::Chest:
+	case EEquipSlotType::Legs:
+	case EEquipSlotType::Backpack:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool PickupTryAutoEquip(UInventoryComponent* Inventory, UEquipmentComponent* Equipment, const FItemInstance& InItem, EEquipSlotType InSlot)
+{
+	if (Inventory == nullptr || Equipment == nullptr || !PickupIsAutoEquipSlot(InSlot) || Equipment->IsSlotOccupied(InSlot))
+	{
+		return false;
+	}
+	FItemInstance ToEquip = InItem;
+	Inventory->EnsureEngraved(ToEquip);
+	return Equipment->EquipDirect(ToEquip, InSlot);
+}
 
 AItemBase::AItemBase()
 {
@@ -60,6 +98,10 @@ void AItemBase::BeginPlay()
 	// 메쉬/스케일부터 확정한 다음 물리를 켠다. 반대로 하면(물리가 이미 켜진 채로
 	// 콜리전 형태가 바뀌면) 그 프레임에 지오메트리와 겹치면서 강한 밀어내기 힘이
 	// 걸려 순간적으로 멀리 튕겨나갈 수 있다.
+	if (HasAuthority())
+	{
+		RollPickupContents();
+	}
 	InitializeFromDataTable();
 	MeshComponent->SetSimulatePhysics(true);
 
@@ -78,6 +120,7 @@ void AItemBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 	DOREPLIFETIME(AItemBase, bIsFavorite);
 	DOREPLIFETIME(AItemBase, CurrentDurability);
 	DOREPLIFETIME(AItemBase, Engraving);
+	DOREPLIFETIME(AItemBase, BundleItems);
 }
 
 void AItemBase::OnRep_ItemID()
@@ -97,6 +140,7 @@ static float GetItemCategoryScale(const FString& ItemType)
 		{TEXT("Accessory"), 0.1f},
 		{TEXT("Key"), 0.14f},
 		{TEXT("Currency"), 0.15f},
+		{TEXT("Torch"), 0.5f},
 	};
 	if (const float* Found = CategoryScales.Find(ItemType))
 	{
@@ -280,54 +324,241 @@ bool AItemBase::TryPickUp(AActor* Picker)
 		return false;
 	}
 	UInventoryComponent* Inventory = nullptr;
+	UEquipmentComponent* Equipment = nullptr;
 	if (const APawn* PickerPawn = Cast<APawn>(Picker))
 	{
 		if (AHB_PlayerState* HBPlayerState = PickerPawn->GetPlayerState<AHB_PlayerState>())
 		{
 			Inventory = HBPlayerState->GetInventory();
+			Equipment = HBPlayerState->GetEquipment();
 		}
 	}
 	if (!Inventory)
 	{
 		return false;
 	}
-	UDataTable* TargetTable = nullptr;
-	switch (SourceTable)
+	if ((ItemID.IsNone() || bMainItemClaimed) && BundleItems.IsEmpty())
 	{
-	case EItemSourceTable::Weapon:
-		TargetTable = WeaponDataTable;
-		break;
-	case EItemSourceTable::Shield:
-		TargetTable = ShieldDataTable;
-		break;
-	case EItemSourceTable::Item:
-	default:
-		TargetTable = ItemDataTable;
-		break;
-	}
-	if (!TargetTable)
-	{
-		UE_LOG(LogTemp, Error, TEXT("TryPickUp: TargetTable is NULL (SourceTable=%d, ItemID=%s)"), (int32)SourceTable, *ItemID.ToString());
 		return false;
 	}
-	FItemInstance NewItem;
-	NewItem.ItemRow.DataTable = TargetTable;
-	NewItem.ItemRow.RowName = ItemID;
-	NewItem.InstanceId = FGuid::NewGuid();
-	NewItem.StackCount = FMath::Max(1, StackCount);
-	NewItem.bIsFavorite = bIsFavorite;
-	NewItem.CurrentDurability = CurrentDurability;
-	// 버릴 때 실어 둔 각인을 되살린다.
-	// 레벨에 미리 놓인 아이템은 비어 있어서(bEngraved false) 아래 TryAddItem 입구에서 새로 굴린다.
-	NewItem.Engraving = Engraving;
-	int32 Remainder = 0;
-	const bool bAdded = Inventory->TryAddItem(NewItem, Remainder);
-	if (bAdded && Remainder == 0)
+	if (!ItemID.IsNone() && !bMainItemClaimed)
+	{
+		UDataTable* TargetTable = GetDataTableFor(SourceTable);
+		if (!TargetTable)
+		{
+			UE_LOG(LogTemp, Error, TEXT("TryPickUp: TargetTable is NULL (SourceTable=%d, ItemID=%s)"), (int32)SourceTable, *ItemID.ToString());
+			return false;
+		}
+		FItemInstance NewItem;
+		NewItem.ItemRow.DataTable = TargetTable;
+		NewItem.ItemRow.RowName = ItemID;
+		NewItem.InstanceId = FGuid::NewGuid();
+		NewItem.StackCount = FMath::Max(1, StackCount);
+		NewItem.bIsFavorite = bIsFavorite;
+		NewItem.CurrentDurability = CurrentDurability;
+		// 버릴 때 실어 둔 각인을 되살린다.
+		// 레벨에 미리 놓인 아이템은 비어 있어서(bEngraved false) 아래 TryAddItem 입구에서 새로 굴린다.
+		NewItem.Engraving = Engraving;
+		NewItem.BagContents = BagContents;
+		int32 Remainder = 0;
+		const bool bAdded = AddWithPickupFlow(Inventory, Equipment, NewItem, EquipSlotType, Remainder);
+		if (bAdded && Remainder == 0)
+		{
+			bMainItemClaimed = true;
+		}
+		else if (Remainder > 0 && Remainder < NewItem.StackCount)
+		{
+			StackCount = Remainder;
+		}
+	}
+
+	int32 BundleIndex = 0;
+	while (BundleIndex < BundleItems.Num())
+	{
+		if (GrantBundleEntry(Inventory, Equipment, BundleItems[BundleIndex]))
+		{
+			BundleItems.RemoveAt(BundleIndex);
+		}
+		else
+		{
+			++BundleIndex;
+		}
+	}
+
+	if ((ItemID.IsNone() || bMainItemClaimed) && BundleItems.IsEmpty())
 	{
 		Destroy();
 		return true;
 	}
 	return false;
+}
+
+UDataTable* AItemBase::GetDataTableFor(EItemSourceTable InSource) const
+{
+	switch (InSource)
+	{
+	case EItemSourceTable::Weapon:
+		return WeaponDataTable;
+	case EItemSourceTable::Shield:
+		return ShieldDataTable;
+	case EItemSourceTable::Item:
+	default:
+		return ItemDataTable;
+	}
+}
+
+const FItemPickupEntry* AItemBase::PickWeighted(const TArray<FItemPickupEntry>& InEntries)
+{
+	float TotalWeight = 0.f;
+	for (const FItemPickupEntry& Entry : InEntries)
+	{
+		if (!Entry.ItemID.IsNone() && Entry.Weight > 0.f)
+		{
+			TotalWeight += Entry.Weight;
+		}
+	}
+	if (TotalWeight <= 0.f)
+	{
+		return nullptr;
+	}
+
+	float Roll = FMath::FRandRange(0.f, TotalWeight);
+	const FItemPickupEntry* LastValid = nullptr;
+	for (const FItemPickupEntry& Entry : InEntries)
+	{
+		if (Entry.ItemID.IsNone() || Entry.Weight <= 0.f)
+		{
+			continue;
+		}
+		LastValid = &Entry;
+		if (Roll < Entry.Weight)
+		{
+			return &Entry;
+		}
+		Roll -= Entry.Weight;
+	}
+	return LastValid;
+}
+
+int32 AItemBase::RollCount(const FItemPickupEntry& InEntry)
+{
+	const int32 Min = FMath::Max(1, InEntry.MinCount);
+	const int32 Max = FMath::Max(Min, InEntry.MaxCount);
+	return FMath::RandRange(Min, Max);
+}
+
+void AItemBase::RollPickupContents()
+{
+	for (FItemPickupEntry& Entry : BundleItems)
+	{
+		const int32 Count = RollCount(Entry);
+		Entry.MinCount = Count;
+		Entry.MaxCount = Count;
+	}
+
+	if (RandomCandidates.IsEmpty())
+	{
+		return;
+	}
+
+	if (bRandomizeItemID)
+	{
+		if (const FItemPickupEntry* Picked = PickWeighted(RandomCandidates))
+		{
+			ItemID = Picked->ItemID;
+			SourceTable = Picked->SourceTable;
+			StackCount = RollCount(*Picked);
+
+			FDataTableRowHandle PickedRow;
+			PickedRow.DataTable = GetDataTableFor(SourceTable);
+			PickedRow.RowName = ItemID;
+			FItemViewData ViewData;
+			if (ResolveItemViewData(PickedRow, ViewData) && !ViewData.IsStackable())
+			{
+				StackCount = 1;
+			}
+		}
+	}
+
+	for (int32 Roll = 0; Roll < RandomBundleRolls; ++Roll)
+	{
+		if (const FItemPickupEntry* Picked = PickWeighted(RandomCandidates))
+		{
+			FItemPickupEntry& Added = BundleItems.Add_GetRef(*Picked);
+			const int32 Count = RollCount(*Picked);
+			Added.MinCount = Count;
+			Added.MaxCount = Count;
+		}
+	}
+
+	RandomCandidates.Reset();
+}
+
+bool AItemBase::AddWithPickupFlow(UInventoryComponent* Inventory, UEquipmentComponent* Equipment, const FItemInstance& InItem, EEquipSlotType InSlot, int32& OutRemainder)
+{
+	Inventory->TryAddItem(InItem, OutRemainder);
+	if (OutRemainder == 0)
+	{
+		return true;
+	}
+	if (OutRemainder == InItem.StackCount && PickupTryAutoEquip(Inventory, Equipment, InItem, InSlot))
+	{
+		OutRemainder = 0;
+		return true;
+	}
+	UInventoryComponent* BagInventory = PickupResolveBagInventory(Equipment);
+	if (BagInventory != nullptr && BagInventory != Inventory && BagInventory->AcceptsItem(InItem))
+	{
+		FItemInstance Rest = InItem;
+		if (OutRemainder < InItem.StackCount)
+		{
+			Rest.InstanceId = FGuid::NewGuid();
+		}
+		Rest.StackCount = OutRemainder;
+		BagInventory->TryAddItem(Rest, OutRemainder);
+	}
+	return OutRemainder == 0;
+}
+
+bool AItemBase::GrantBundleEntry(UInventoryComponent* Inventory, UEquipmentComponent* Equipment, FItemPickupEntry& InOutEntry)
+{
+	UDataTable* TargetTable = GetDataTableFor(InOutEntry.SourceTable);
+	if (!TargetTable || InOutEntry.ItemID.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("TryPickUp: invalid bundle entry '%s'"), *InOutEntry.ItemID.ToString());
+		return true;
+	}
+
+	FItemInstance Template;
+	Template.ItemRow.DataTable = TargetTable;
+	Template.ItemRow.RowName = InOutEntry.ItemID;
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(Template.ItemRow, ViewData))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("TryPickUp: could not resolve bundle entry '%s'"), *InOutEntry.ItemID.ToString());
+		return true;
+	}
+
+	int32 Remaining = FMath::Max(1, InOutEntry.MinCount);
+	const int32 BatchSize = ViewData.IsStackable() ? Remaining : 1;
+	while (Remaining > 0)
+	{
+		FItemInstance NewItem = Template;
+		NewItem.InstanceId = FGuid::NewGuid();
+		NewItem.StackCount = FMath::Min(BatchSize, Remaining);
+		int32 Remainder = 0;
+		AddWithPickupFlow(Inventory, Equipment, NewItem, ViewData.EquipSlotType, Remainder);
+		Remaining -= NewItem.StackCount - Remainder;
+		if (Remainder > 0)
+		{
+			break;
+		}
+	}
+
+	InOutEntry.MinCount = Remaining;
+	InOutEntry.MaxCount = Remaining;
+	return Remaining <= 0;
 }
 
 void AItemBase::NotifyActorBeginOverlap(AActor* OtherActor)
@@ -349,5 +580,9 @@ void AItemBase::Interact_Implementation(AActor* Interactor)
 
 FText AItemBase::GetInteractPrompt_Implementation() const
 {
+	if (BundleItems.Num() > 0)
+	{
+		return FText::FromString(FString::Printf(TEXT("%s 외 %d종"), *DisplayName, BundleItems.Num()));
+	}
 	return FText::FromString(FString::Printf(TEXT("%s"), *DisplayName));
 }

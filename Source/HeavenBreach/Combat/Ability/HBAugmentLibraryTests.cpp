@@ -1,4 +1,5 @@
 #include "Combat/Ability/HBAugmentLibrary.h"
+#include "Core/Tag/Skill/HB_SkillParamTag.h"
 #include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -198,6 +199,29 @@ bool FHBAugmentDrawTest::RunTest(const FString&)
 		}
 	}
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBAugmentResolveParamTest, "HeavenBreach.Augment.ResolveParam", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBAugmentResolveParamTest::RunTest(const FString&)
+{
+	const FGameplayTag Cooldown = SkillParamTag::TAG_SkillParam_Cooldown;
+	const FGameplayTag Damage = SkillParamTag::TAG_SkillParam_Damage;
+
+	FHBSkillAugment Tiered;
+	Tiered.Params.Add(Cooldown, 0.85f);
+	Tiered.TierMagnitudes = { 0.85f, 0.75f, 0.65f };
+	float Out = 0.f;
+	TestTrue(TEXT("Params 에 있으면 정한다"), HBAugment::ResolveParam(Tiered, Cooldown, 2, Out));
+	TestEqual(TEXT("단계값 우선"), Out, 0.75f);
+	TestTrue(TEXT("3단계"), HBAugment::ResolveParam(Tiered, Cooldown, 3, Out));
+	TestEqual(TEXT("3단계 값"), Out, 0.65f);
+	TestFalse(TEXT("Params 에 없는 항목은 정하지 않는다"), HBAugment::ResolveParam(Tiered, Damage, 1, Out));
+
+	FHBSkillAugment Flat;
+	Flat.Params.Add(Damage, 1.2f);
+	TestTrue(TEXT("단계값 없으면 Params 값"), HBAugment::ResolveParam(Flat, Damage, 3, Out));
+	TestEqual(TEXT("Params 값"), Out, 1.2f);
 	return true;
 }
 

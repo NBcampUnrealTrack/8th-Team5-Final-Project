@@ -52,6 +52,28 @@ void UInventoryComponent::OnRep_Entries()
 	OnInventoryChanged.Broadcast();
 }
 
+void UInventoryComponent::OnRep_GridSize()
+{
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+}
+
+bool UInventoryComponent::AcceptsItem(const FItemInstance& InItem) const
+{
+	if (!bIsBagStorage)
+	{
+		return true;
+	}
+
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(InItem.ItemRow, ViewData))
+	{
+		return false;
+	}
+
+	return !ViewData.IsBag();
+}
+
 void UInventoryComponent::InitializeGrid(int32 InWidth, int32 InHeight)
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -318,6 +340,11 @@ bool UInventoryComponent::TryAddItem(const FItemInstance& InItem, int32& OutRema
 		return false;
 	}
 
+	if (!AcceptsItem(InItem))
+	{
+		return false;
+	}
+
 	if (!ViewData.IsStackable() && InItem.StackCount > 1)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("TryAddItem: non-stackable item with StackCount %d"), InItem.StackCount);
@@ -351,17 +378,27 @@ bool UInventoryComponent::TryAddItem(const FItemInstance& InItem, int32& OutRema
 	}
 
 	const FIntPoint Size = GetOccupiedSize(InItem, ViewData);
+	const FIntPoint RotatedSize(Size.Y, Size.X);
 
 	while (OutRemainder > 0)
 	{
 		FIntPoint FreePosition;
+		bool bPlaceRotated = false;
 		if (!FindFirstFreeSlot(Size, FreePosition))
 		{
-			break;
+			if (Size.X == Size.Y || !FindFirstFreeSlot(RotatedSize, FreePosition))
+			{
+				break;
+			}
+			bPlaceRotated = true;
 		}
 
 		FInventoryEntry NewEntry;
 		NewEntry.Item = InItem;
+		if (bPlaceRotated)
+		{
+			NewEntry.Item.bRotated = !InItem.bRotated;
+		}
 		// 각인 입구. 새로 들어오는 장비는 여기서 발린다. 이미 발린 건 그대로 (창고 이동 · 장착 해제 등).
 		EnsureEngraved(NewEntry.Item);
 		NewEntry.Item.StackCount = FMath::Min(ViewData.MaxStack, OutRemainder);
@@ -393,6 +430,11 @@ bool UInventoryComponent::TryAddItemAt(const FItemInstance& InItem, FIntPoint In
 	}
 
 	if (!GetEntrySize(InItem, Size))
+	{
+		return false;
+	}
+
+	if (!AcceptsItem(InItem))
 	{
 		return false;
 	}
@@ -603,19 +645,17 @@ bool UInventoryComponent::CanUseItem(FGuid InInstanceId, FItemInstance& OutItem,
 		return false;
 	}
 
-	// 최대 체력 상태에서는 체력 회복 아이템을, 최대 마나 상태에서는 마나 회복 아이템을 사용할 수 없다
-	// (개발 기획 18장 남은 기능). 한 아이템이 둘 다 가질 일은 없지만 각자 자기 자원만 본다.
+	// 회복할 자원이 하나도 없을 때만 막는다(개발 기획 18장 남은 기능).
+	// 체력·마나를 같이 채우는 포션(조화)은 둘 중 하나라도 비어 있으면 쓸 수 있다.
 	if (ViewData.HealAmount > 0.f || ViewData.ManaAmount > 0.f)
 	{
 		if (const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner()))
 		{
 			if (const UHB_PlayerAttributeSet* AttribSet = OwnerPlayerState->GetPlayerAttributeSet())
 			{
-				if (ViewData.HealAmount > 0.f && AttribSet->GetPlayer_HP() >= AttribSet->GetPlayer_MaxHP())
-				{
-					return false;
-				}
-				if (ViewData.ManaAmount > 0.f && AttribSet->GetPlayer_Mana() >= AttribSet->GetPlayer_MaxMana())
+				const bool bCanHeal = ViewData.HealAmount > 0.f && AttribSet->GetPlayer_HP() < AttribSet->GetPlayer_MaxHP();
+				const bool bCanRestoreMana = ViewData.ManaAmount > 0.f && AttribSet->GetPlayer_Mana() < AttribSet->GetPlayer_MaxMana();
+				if (!bCanHeal && !bCanRestoreMana)
 				{
 					return false;
 				}
@@ -795,6 +835,11 @@ bool UInventoryComponent::TransferItemFrom(UInventoryComponent* InSource, FGuid 
 
 	SourceItem.bRotated = bInRotated;
 
+	if (!AcceptsItem(SourceItem))
+	{
+		return false;
+	}
+
 	FIntPoint Size;
 	if (!GetEntrySize(SourceItem, Size))
 	{
@@ -854,10 +899,15 @@ bool UInventoryComponent::TransferItemFromAuto(UInventoryComponent* InSource, FG
 		return false;
 	}
 
+	if (!AcceptsItem(SourceItem))
+	{
+		return false;
+	}
+
 	const FIntPoint Size = GetOccupiedSize(SourceItem, ViewData);
 
 	FIntPoint FreePosition;
-	const bool bHasFreeSlot = FindFirstFreeSlot(Size, FreePosition);
+	const bool bHasFreeSlot = FindFirstFreeSlot(Size, FreePosition) || FindFirstFreeSlot(FIntPoint(Size.Y, Size.X), FreePosition);
 	const bool bCanMerge = ViewData.IsStackable() && HasMergeableSpace(SourceItem.ItemRow.RowName, ViewData.MaxStack);
 
 	if (!bHasFreeSlot && !bCanMerge)
@@ -1116,6 +1166,9 @@ bool UInventoryComponent::SpawnDroppedItemActor(const FItemInstance& InItem)
 	NewItemActor->bIsFavorite = bWasFavorite;
 	NewItemActor->CurrentDurability = DroppedDurability;
 	NewItemActor->Engraving = DroppedEngraving;
+	NewItemActor->BagContents = InItem.BagContents;
+	NewItemActor->RandomCandidates.Reset();
+	NewItemActor->BundleItems.Reset();
 	NewItemActor->FinishSpawning(SpawnTransform);
 
 	// 던진 사람과는 한동안 충돌 무시해서 스폰 직후 캐릭터에 끼어서 튕기는 걸 방지.
@@ -1297,6 +1350,8 @@ void UInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 
 	DOREPLIFETIME(UInventoryComponent, Entries);
 	DOREPLIFETIME(UInventoryComponent, ItemCooldowns);
+	DOREPLIFETIME(UInventoryComponent, Width);
+	DOREPLIFETIME(UInventoryComponent, Height);
 }
 
 void UInventoryComponent::Server_MoveItem_Implementation(FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated)
@@ -1471,6 +1526,16 @@ void UInventoryComponent::Server_DropEquippedItem_Implementation(UEquipmentCompo
 	DropEquippedItem(InEquipment, InSlot);
 }
 
+void UInventoryComponent::Server_ToggleEquippedFavorite_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot)
+{
+	if (InEquipment == nullptr)
+	{
+		return;
+	}
+
+	InEquipment->ToggleFavoriteInSlot(InSlot);
+}
+
 void UInventoryComponent::Client_PlayActionResult_Implementation(bool bSuccess, bool bEquipment)
 {
 	UHBUIAudioLibrary::PlayForOwner(this, !bSuccess ? EHBUIAudioEvent::Error
@@ -1506,6 +1571,24 @@ void UInventoryComponent::SetEntries(const TArray<FInventoryEntry>& InEntries)
 
 	RebuildCache();
 	OnInventoryChanged.Broadcast();
+}
+
+bool UInventoryComponent::SetEntryBagContents(FGuid InInstanceId, const TArray<FBagItemEntry>& InContents)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	Entries[EntryIndex].Item.BagContents = InContents;
+	OnInventoryChanged.Broadcast();
+	return true;
 }
 
 bool UInventoryComponent::EnsureEngraved(FItemInstance& InOutItem) const

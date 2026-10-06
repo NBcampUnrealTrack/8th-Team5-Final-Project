@@ -77,6 +77,14 @@ void UItemActionMenuWidget::SetupForItem(bool bCanUse, bool bCanSplit, bool bIsF
 	}
 	}	
 
+void UItemActionMenuWidget::SetUseButtonLabel(const FText& InLabel)
+{
+	if (UseButtonText != nullptr)
+	{
+		UseButtonText->SetText(InLabel);
+	}
+}
+
 void UItemActionMenuWidget::HandleUseClicked()
 {
 	OnUseRequested.Broadcast();

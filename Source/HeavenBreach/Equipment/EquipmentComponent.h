@@ -15,6 +15,7 @@ struct FItemEffect;
 struct FWeaponData;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEquipmentChanged);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnOpenedBagChanged);
 
 UCLASS(ClassGroup = (Inventory), meta = (BlueprintSpawnableComponent))
 class HEAVENBREACH_API UEquipmentComponent : public UActorComponent
@@ -26,6 +27,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Equipment")
 	FOnEquipmentChanged OnEquipmentChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Equipment")
+	FOnOpenedBagChanged OnOpenedBagChanged;
 
 	UFUNCTION(BlueprintPure, Category = "Equipment")
 	bool IsSlotOccupied(EEquipSlotType InSlot) const;
@@ -49,6 +53,10 @@ public:
 
 	bool EquipFromInventory(UInventoryComponent* InSource, FGuid InInstanceId, EEquipSlotType InSlot);
 
+	bool EquipDirect(const FItemInstance& InItem, EEquipSlotType InSlot);
+
+	bool ToggleFavoriteInSlot(EEquipSlotType InSlot);
+
 	bool UnequipToInventory(EEquipSlotType InSlot, UInventoryComponent* InTarget);
 
 	bool UnequipToInventoryAt(EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition);
@@ -61,6 +69,36 @@ public:
 	void DebugPrintSlots() const;
 
 	void ApplyLoadedSlots(const TArray<FItemInstance>& InSlots);
+
+	void SetBagInventory(UInventoryComponent* InBagInventory);
+
+	UFUNCTION(BlueprintPure, Category = "Equipment")
+	UInventoryComponent* GetBagInventory() const { return BagInventory; }
+
+	UFUNCTION(BlueprintPure, Category = "Equipment")
+	bool HasBagEquipped() const { return IsSlotOccupied(EEquipSlotType::Backpack); }
+
+	void SetOpenedBagInventory(UInventoryComponent* InOpenedBagInventory);
+
+	UFUNCTION(BlueprintPure, Category = "Equipment")
+	UInventoryComponent* GetOpenedBagInventory() const { return OpenedBagInventory; }
+
+	UFUNCTION(BlueprintPure, Category = "Equipment")
+	bool HasOpenedBag() const { return OpenedBagId.IsValid(); }
+
+	FGuid GetOpenedBagId() const { return OpenedBagId; }
+
+	const FDataTableRowHandle& GetOpenedBagRow() const { return OpenedBagRow; }
+
+	bool OpenBagFrom(UInventoryComponent* InSource, FGuid InInstanceId);
+
+	void CloseOpenedBag();
+
+	UFUNCTION(Server, Reliable)
+	void Server_OpenBag(UInventoryComponent* InSource, FGuid InInstanceId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_CloseOpenedBag();
 
 	// OnEquipmentChanged 에 물린다. 숫자 옵션 GE 와 동작 효과 GE 를 둘 다 맞춘다. 서버 전용.
 	//
@@ -80,6 +118,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_Slots();
+
+	UFUNCTION()
+	void OnRep_OpenedBag();
 
 private:
 	static int32 SlotToIndex(EEquipSlotType InSlot) { return static_cast<int32>(InSlot); }
@@ -128,6 +169,39 @@ private:
 
 	UPROPERTY(ReplicatedUsing = OnRep_Slots)
 	TArray<FItemInstance> Slots;
+
+	void SyncBagInventory();
+
+	UFUNCTION()
+	void HandleBagInventoryChanged();
+
+	UPROPERTY()
+	TObjectPtr<UInventoryComponent> BagInventory;
+
+	FGuid MountedBagId;
+
+	bool bSyncingBag = false;
+
+	UFUNCTION()
+	void HandleOpenedBagInventoryChanged();
+
+	UFUNCTION()
+	void HandleOpenedBagSourceChanged();
+
+	void UnbindOpenedBagSource();
+
+	UPROPERTY()
+	TObjectPtr<UInventoryComponent> OpenedBagInventory;
+
+	TWeakObjectPtr<UInventoryComponent> OpenedBagSource;
+
+	UPROPERTY(ReplicatedUsing = OnRep_OpenedBag)
+	FGuid OpenedBagId;
+
+	UPROPERTY(ReplicatedUsing = OnRep_OpenedBag)
+	FDataTableRowHandle OpenedBagRow;
+
+	bool bSyncingOpenedBag = false;
 
 	// 장비 보정 GE 의 핸들. 하나만 든다 — 슬롯이 바뀌면 통째로 새로 만든다.
 	UPROPERTY()

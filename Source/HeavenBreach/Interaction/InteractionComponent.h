@@ -74,6 +74,10 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_OpenContainer(UInventoryComponent* Container);
 
+	/** 서버가 홀드 시작을 거절했다. 클라가 미리 켠 뒤지는 동작·진행 바를 끈다(클라 판단과 서버 판단이 어긋난 경우의 안전장치) */
+	UFUNCTION(Client, Reliable)
+	void Client_HoldRejected(AActor* Target);
+
 protected:
 
 	virtual void BeginPlay() override;

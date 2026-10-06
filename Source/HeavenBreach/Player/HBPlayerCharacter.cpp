@@ -9,14 +9,19 @@
 #include "Engine/DataTable.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Particles/ParticleSystemComponent.h"
+#include "Particles/ParticleSystem.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
 #include "Combat/Attack/GA_PlayerAttackRE.h"
 #include "Combat/Attack/GA_PlayerBowAttack.h"
+#include "Combat/Attack/HBHunterMark.h"
 #include "Player/HBPotionDrinkComponent.h"
 #include "Player/HBInteractAnimComponent.h"
 #include "Player/HBCameraMotionComponent.h"
 #include "Player/HBWeaponPresentation.h"
 #include "Player/HBJumpFeel.h"
+#include "Player/HBFallDamage.h"
 #include "Player/HBFootstepComponent.h"
 #include "Player/HBFootstepComponent.h"
 #include "Player/HBPlayerCorpseInventory.h"
@@ -103,6 +108,17 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	ShieldMeshComp->SetupAttachment(GetMesh(),ShieldSocketName);
 	ShieldMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	ShieldMeshComp->ComponentTags.Add(TEXT("Shield"));
+
+	TorchLightComp = CreateDefaultSubobject<UPointLightComponent>(TEXT("TorchLightComp"));
+	TorchLightComp->SetupAttachment(ShieldMeshComp);
+	TorchLightComp->SetCastShadows(false);
+	TorchLightComp->SetVisibility(false);
+
+	TorchFireComp = CreateDefaultSubobject<UParticleSystemComponent>(TEXT("TorchFireComp"));
+	TorchFireComp->SetupAttachment(ShieldMeshComp);
+	TorchFireComp->bAutoActivate = false;
+
+	TorchFireTemplate = TSoftObjectPtr<UParticleSystem>(FSoftObjectPath(TEXT("/Game/Asset/MultistoryDungeons/Effects/Torch_Fire_01.Torch_Fire_01")));
 	
 	#pragma region ModularEquipmentMesh
 	HelmetMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HelmetMeshComp"));
@@ -293,6 +309,17 @@ void AHBPlayerCharacter::Attack()
 	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead) || ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
 		return;
 
+	// 활 스킬 조준 중이면 좌클릭은 평타가 아니라 그 스킬의 입력(WaitInputPress)이다.
+	if (FGameplayAbilitySpec* AimSpec = FindActiveAimingSkillSpec())
+	{
+		if (UGameplayAbility* AimInstance = AimSpec->GetPrimaryInstance())
+		{
+			ASC->AbilitySpecInputPressed(*AimSpec);
+			ASC->InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputPressed, AimSpec->Handle, AimInstance->GetCurrentActivationInfo().GetActivationPredictionKey());
+		}
+		return;
+	}
+
 	// 공격 중이면 새로 발동하지 않고 콤보 입력으로 넘긴다.
 	// 어차피 State.Attacking 이 발동을 막으므로, 평타가 아닌 스킬 중이면 그냥 버려진다.
 	if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Attacking))
@@ -316,6 +343,22 @@ void AHBPlayerCharacter::Attack()
 void AHBPlayerCharacter::StopAttack()
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 활 스킬 조준 중이면 뗌도 그 스킬로 보낸다(Attack 의 누름과 짝).
+	if (FGameplayAbilitySpec* AimSpec = FindActiveAimingSkillSpec())
+	{
+		if (UGameplayAbility* AimInstance = AimSpec->GetPrimaryInstance())
+		{
+			ASC->AbilitySpecInputReleased(*AimSpec);
+			ASC->InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, AimSpec->Handle, AimInstance->GetCurrentActivationInfo().GetActivationPredictionKey());
+		}
+		return;
+	}
+
 	UGA_PlayerBowAttack* Bow = UGA_PlayerBowAttack::FindActive(ASC);
 	if (!Bow)
 	{
@@ -398,6 +441,11 @@ const FShieldData* AHBPlayerCharacter::GetEquippedShieldData() const
 		return nullptr;
 	}
 
+	if (!ShieldItem.ItemRow.DataTable || ShieldItem.ItemRow.DataTable->GetRowStruct() != FShieldData::StaticStruct())
+	{
+		return nullptr;
+	}
+
 	return ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("GetEquippedShieldData"));
 }
 
@@ -414,6 +462,13 @@ void AHBPlayerCharacter::TryParry()
 		return;
 	}
 
+	// 활 스킬 조준 중 우클릭은 조준 취소. 방패 검사보다 먼저다(활 직업은 방패가 없다).
+	if (const FGameplayAbilitySpec* AimSpec = FindActiveAimingSkillSpec())
+	{
+		ASC->CancelAbilityHandle(AimSpec->Handle);
+		return;
+	}
+
 	// 방패가 없으면 아무 일도 일어나지 않는다. 별도 실패 피드백을 두지 않는다 —
 	// 방패 슬롯이 비어 있다는 것은 HUD 에서 이미 보인다.
 	//
@@ -427,6 +482,29 @@ void AHBPlayerCharacter::TryParry()
 	StopSprint();
 
 	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_Parry));
+}
+
+FGameplayAbilitySpec* AHBPlayerCharacter::FindActiveAimingSkillSpec() const
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || !ASC->HasMatchingGameplayTag(StateTag::TAG_State_Bow_SkillAiming))
+	{
+		return nullptr;
+	}
+
+	for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (!Spec.IsActive())
+		{
+			continue;
+		}
+		const UHBPlayerActiveGABase* Skill = Cast<UHBPlayerActiveGABase>(Spec.GetPrimaryInstance());
+		if (Skill && Skill->WantsAimInput())
+		{
+			return &Spec;
+		}
+	}
+	return nullptr;
 }
 
 void AHBPlayerCharacter::ReleaseParryInput()
@@ -710,19 +788,8 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 			*GetNameSafe(this), *GetNameSafe(GE_PlayerDamage));
 	}
 	
-	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetController()))
-	{
-		// 막았으면 약하게, 그냥 맞았으면 보통. 경직은 GA_PlayerStagger 가 더 세게 쏜다.
-		PC->ClientPlayCameraShake(CS_HitReact, bGuarded ? ShakeScale_Guard : ShakeScale_Hit);
-
-		// 혈흔 연출과 HP 바도 같은 시점에 보낸다.
-		// 복제를 기다리면 PlayerState 주기(1Hz) 때문에 쉐이크/사운드보다
-		// 최대 1초 늦게 반응한다. 여기서 보내는 값이 데미지 적용 직후의 서버 값이다
-		PC->ClientPlayHitEffect(
-			ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute()),
-			ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute()),
-			bGuarded);
-	}
+	// 막았으면 약하게, 그냥 맞았으면 보통. 경직은 GA_PlayerStagger 가 더 세게 쏜다.
+	SendHitFeedback(bGuarded ? ShakeScale_Guard : ShakeScale_Hit, bGuarded);
 
 	// 타격 연출. 큐를 쏘는 책임이 맞는 쪽에 있다.
 	//
@@ -1103,6 +1170,14 @@ float AHBPlayerCharacter::ModifyOutgoingDamage(AActor* Target, float Damage)
 		}
 	}
 
+	// 사냥꾼의 표식: 대상이 표식 상태면 +%. 팀원 공격에도 적용(설계 2장 3).
+	if (const UAbilitySystemComponent* MarkTargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target))
+	{
+		FGameplayTagContainer TargetTags;
+		MarkTargetASC->GetOwnedGameplayTags(TargetTags);
+		Damage *= 1.f + HBHunterMark::DamageBonus(TargetTags);
+	}
+
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_Revenge)
 		&& LastDamageInstigator.Get() == Target && GetWorld()
 		&& GetWorld()->GetTimeSeconds() - LastDamageReceivedTime <= 5.0)
@@ -1259,6 +1334,11 @@ bool AHBPlayerCharacter::HasAugment(FGameplayTag AugmentTag) const
 	// 보유 판정의 주인은 PlayerState 다. 폰이 죽고 다시 스폰돼도 유지돼야 하므로
 	// 캐릭터에 들고 있으면 안 된다.
 	return HB_PlayerState->HasAugment(AugmentTag);
+}
+
+int32 AHBPlayerCharacter::GetAugmentTier(FGameplayTag AugmentTag) const
+{
+	return HB_PlayerState ? HB_PlayerState->GetAugmentTier(AugmentTag) : 0;
 }
 
 bool AHBPlayerCharacter::FindAugmentInfo(FGameplayTag AugmentTag, FHBSkillAugment& Out) const
@@ -1506,7 +1586,13 @@ float AHBPlayerCharacter::GetSkillManaCost(const FName SkillId) const
 	}
 
 	// 발동 때와 같은 깔때기를 태운다. 카드 숫자와 실제 차감이 어긋날 수 없다.
-	// 스킬은 빈 태그를 넘긴다. GetFinalManaCostFrom 과 같은 값이어야 한다.
+	// 스킬 증강(SkillParam.ManaCost)까지 반영하려고 GA 의 계산을 그대로 쓴다. CDO 라도 ActorInfo 로 플레이어를 찾는다.
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (ASC && ASC->AbilityActorInfo.IsValid())
+	{
+		return ActiveCDO->GetFinalManaCostForActor(ASC->AbilityActorInfo.Get());
+	}
+	// ActorInfo 가 아직 없으면 스킬 증강 없이 전역 보정만. GetFinalManaCostFrom 과 같은 깔때기다.
 	return ModifyManaCost(FGameplayTag(), ActiveCDO->GetBaseManaCost());
 }
 
@@ -2301,6 +2387,12 @@ void AHBPlayerCharacter::Tick(const float DeltaSeconds)
 
 	UpdateJumpFeel();
 
+	// 낙하 피해용 최고점. 공중이면 NeedsJumpFeelTick 이 true 라 틱이 켜져 있다.
+	if (HasAuthority() && GetCharacterMovement() && GetCharacterMovement()->IsFalling())
+	{
+		FallApexZ = FMath::Max(FallApexZ, GetActorLocation().Z);
+	}
+
 	// 착지 감속이 회복되는 동안은 속도를 매 프레임 다시 계산한다.
 	const bool bRecovering = GetWorld() && (GetWorld()->GetTimeSeconds() - LastLandedTime) <= LandSlowDuration;
 	if (bRecovering || LastLandImpact > 0.f)
@@ -2359,8 +2451,36 @@ void AHBPlayerCharacter::OnMovementModeChanged(const EMovementMode PrevMovementM
 
 	if (GetCharacterMovement() && GetCharacterMovement()->IsFalling())
 	{
+		// 공중이 시작된 높이에서 최고점을 다시 잰다. 공중 동안은 Tick 이 켜져 있어 갱신된다.
+		if (HasAuthority())
+		{
+			FallApexZ = GetActorLocation().Z;
+		}
 		SetActorTickEnabled(true);
 	}
+}
+
+bool AHBPlayerCharacter::TeleportTo(const FVector& DestLocation, const FRotator& DestRotation, const bool bIsATest, const bool bNoCheck)
+{
+	const bool bTeleported = Super::TeleportTo(DestLocation, DestRotation, bIsATest, bNoCheck);
+
+	// 포털·순간이동은 떨어진 게 아니다. 이전 최고점으로 낙하 피해를 받지 않게 새 위치에서 다시 잰다.
+	if (bTeleported && !bIsATest && HasAuthority())
+	{
+		FallApexZ = GetActorLocation().Z;
+	}
+	return bTeleported;
+}
+
+void AHBPlayerCharacter::LaunchCharacter(const FVector LaunchVelocity, const bool bXYOverride, const bool bZOverride)
+{
+	// 위로 솟구치게 덮어쓰는 발사(도약 강타)는 새 낙하의 시작이다. 그 전에 오른 높이(점프)를 낙하에 더하지 않는다.
+	// 수평 돌진·구르기(bZOverride=false)나 아래로 덮는 발사는 그대로 둔다 — 떨어지는 중 써서 낙하 피해를 지우는 꼼수 방지.
+	if (HasAuthority() && bZOverride && LaunchVelocity.Z > 0.f)
+	{
+		FallApexZ = GetActorLocation().Z;
+	}
+	Super::LaunchCharacter(LaunchVelocity, bXYOverride, bZOverride);
 }
 
 void AHBPlayerCharacter::Landed(const FHitResult& Hit)
@@ -2378,6 +2498,11 @@ void AHBPlayerCharacter::Landed(const FHitResult& Hit)
 
 	LastLandedTime = World->GetTimeSeconds();
 	LastLandImpact = HBJumpFeel::LandingImpact(DownSpeed, LandSoftSpeed, LandHardSpeed);
+
+	if (HasAuthority())
+	{
+		ApplyFallDamage(FallApexZ - GetActorLocation().Z);
+	}
 
 	RefreshMovementSpeed();
 	UpdateJumpFeel();
@@ -2398,6 +2523,58 @@ void AHBPlayerCharacter::Landed(const FHitResult& Hit)
 	UE_LOG(LogTemp, Log, TEXT("[Jump] 착지 %s  하강속도=%.0f  충격=%.2f  속도배율 시작=%.2f"),
 		*GetName(), DownSpeed, LastLandImpact,
 		HBJumpFeel::LandingSpeedScale(LastLandImpact, LandMaxSlow, 0.f, LandSlowDuration));
+}
+
+void AHBPlayerCharacter::SendHitFeedback(const float ShakeScale, const bool bSuppressScreenEffect)
+{
+	AHBPlayerController* PC = Cast<AHBPlayerController>(GetController());
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!PC || !ASC)
+	{
+		return;
+	}
+
+	PC->ClientPlayCameraShake(CS_HitReact, ShakeScale);
+
+	// 혈흔 연출과 HP 바도 같은 시점에 보낸다.
+	// 복제를 기다리면 PlayerState 주기(1Hz) 때문에 쉐이크/사운드보다
+	// 최대 1초 늦게 반응한다. 여기서 보내는 값이 데미지 적용 직후의 서버 값이다
+	PC->ClientPlayHitEffect(
+		ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_HPAttribute()),
+		ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute()),
+		bSuppressScreenEffect);
+}
+
+void AHBPlayerCharacter::ApplyFallDamage(const float FallHeight)
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!HasAuthority() || !ASC || ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		return;
+	}
+
+	const float MaxHP = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute());
+	const float Reduction = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_FallDamageReductionAttribute());
+	const float Damage = HBFallDamage::ComputeDamage(MaxHP, FallHeight, FallDamageSafeHeight, FallDamageLethalHeight, Reduction, FallDamageMaxReduction);
+	if (Damage <= 0.f)
+	{
+		return;
+	}
+
+	// 방어·방패·경직이 없는 피해라 ApplyMeleeHit 를 거치지 않고 체력을 직접 깎는다.
+	// 체력이 0 이 되면 AttributeSet 이 사망 처리를 시작한다(시체·관전).
+	const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(UGE_FallDamage::StaticClass(), 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -Damage);
+	ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+
+	UE_LOG(LogTemp, Warning, TEXT("[Fall] 낙하 피해 %s  높이=%.0fcm  감소=%.2f  피해=%.1f / 최대 %.0f"),
+		*GetName(), FallHeight, Reduction, Damage, MaxHP);
+
+	SendHitFeedback(ShakeScale_Hit, false);
 }
 
 void AHBPlayerCharacter::ApplyMovementInertia(UCharacterMovementComponent* Movement) const
@@ -2560,19 +2737,114 @@ void AHBPlayerCharacter::RefreshShieldVisual()
 	}
 	
 	FItemInstance ShieldItem;
-	if (GetVisualItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem))
+	if (GetVisualItemInSlot(EEquipSlotType::SecondaryEquip, ShieldItem) && ShieldItem.ItemRow.DataTable)
 	{
-		if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("RefreshShieldVisual")))
+		const UScriptStruct* RowStruct = ShieldItem.ItemRow.DataTable->GetRowStruct();
+		if (RowStruct == FShieldData::StaticStruct())
 		{
-			if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*ShieldData->EquipMeshPath))
+			if (const FShieldData* ShieldData = ShieldItem.ItemRow.GetRow<FShieldData>(TEXT("RefreshShieldVisual")))
 			{
-				ShieldMeshComp->SetStaticMesh(WeaponMesh);
-				return;
+				if (UStaticMesh* WeaponMesh = LoadObject<UStaticMesh>(nullptr,*ShieldData->EquipMeshPath))
+				{
+					ShieldMeshComp->SetStaticMesh(WeaponMesh);
+					ApplySecondaryEquipTransform(false);
+					RefreshTorchLight(0.f);
+					return;
+				}
+			}
+		}
+		else if (RowStruct == FItemData::StaticStruct())
+		{
+			if (const FItemData* TorchData = ShieldItem.ItemRow.GetRow<FItemData>(TEXT("RefreshShieldVisual")))
+			{
+				if (UStaticMesh* TorchMesh = LoadObject<UStaticMesh>(nullptr, *TorchData->WorldMeshPath))
+				{
+					ShieldMeshComp->SetStaticMesh(TorchMesh);
+					ApplySecondaryEquipTransform(true);
+					RefreshTorchLight(TorchData->LightRadius);
+					return;
+				}
 			}
 		}
 	}
 	
 	ShieldMeshComp->SetStaticMesh(nullptr);
+	ApplySecondaryEquipTransform(false);
+	RefreshTorchLight(0.f);
+}
+
+void AHBPlayerCharacter::ApplySecondaryEquipTransform(bool bTorch)
+{
+	if (!ShieldMeshComp)
+	{
+		return;
+	}
+
+	if (!bShieldBaseTransformCaptured)
+	{
+		ShieldBaseRelativeTransform = ShieldMeshComp->GetRelativeTransform();
+		bShieldBaseTransformCaptured = true;
+	}
+
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	const bool bUseTorchSocket = bTorch && CharacterMesh && CharacterMesh->DoesSocketExist(TorchSocketName);
+	const FName TargetSocket = bUseTorchSocket ? TorchSocketName : ShieldSocketName;
+	if (CharacterMesh && (ShieldMeshComp->GetAttachParent() != CharacterMesh || ShieldMeshComp->GetAttachSocketName() != TargetSocket))
+	{
+		ShieldMeshComp->AttachToComponent(CharacterMesh, FAttachmentTransformRules::KeepRelativeTransform, TargetSocket);
+	}
+
+	if (bTorch)
+	{
+		const FTransform TorchBase = bUseTorchSocket ? FTransform::Identity : ShieldBaseRelativeTransform;
+		ShieldMeshComp->SetRelativeLocationAndRotation(TorchBase.GetLocation() + TorchHandOffset,
+			(TorchBase.GetRotation() * TorchHandRotation.Quaternion()).Rotator());
+		ShieldMeshComp->SetRelativeScale3D(FVector(TorchHandScale));
+	}
+	else
+	{
+		ShieldMeshComp->SetRelativeTransform(ShieldBaseRelativeTransform);
+	}
+}
+
+void AHBPlayerCharacter::RefreshTorchLight(float InLightRadius)
+{
+	const bool bLit = InLightRadius > 0.f;
+
+	if (TorchLightComp)
+	{
+		if (bLit)
+		{
+			TorchLightComp->SetRelativeLocation(TorchFlameOffset);
+			TorchLightComp->SetAttenuationRadius(InLightRadius);
+			TorchLightComp->SetIntensity(TorchLightIntensity);
+			TorchLightComp->SetLightColor(TorchLightColor);
+		}
+		TorchLightComp->SetVisibility(bLit);
+	}
+
+	if (TorchFireComp)
+	{
+		if (bLit)
+		{
+			if (UParticleSystem* FireTemplate = TorchFireTemplate.LoadSynchronous())
+			{
+				TorchFireComp->SetRelativeLocation(TorchFlameOffset);
+				if (TorchFireComp->Template != FireTemplate)
+				{
+					TorchFireComp->SetTemplate(FireTemplate);
+				}
+				if (!TorchFireComp->IsActive())
+				{
+					TorchFireComp->Activate(true);
+				}
+			}
+		}
+		else if (TorchFireComp->IsActive())
+		{
+			TorchFireComp->DeactivateImmediate();
+		}
+	}
 }
 
 void AHBPlayerCharacter::RefreshHelmetVisual()
