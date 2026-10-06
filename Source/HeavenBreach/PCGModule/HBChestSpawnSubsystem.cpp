@@ -1,4 +1,5 @@
-#include "PCGModule/HBChestSpawnSubsystem.h"
+﻿#include "PCGModule/HBChestSpawnSubsystem.h"
+#include "PCGModule/HBSpawnGroundQuery.h"
 #include "PCGModule/HBChestSetupActor.h"
 #include "PCGModule/HBChestSpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
@@ -346,96 +347,102 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 	for (const TWeakObjectPtr<ABoxActor>& Other : State.SpawnedChests)
 		if (IsValid(Other.Get())) FloorQuery.AddIgnoredActor(Other.Get());
 	FHitResult Floor;
-	if (!World->LineTraceSingleByChannel(Floor, Marker + FVector(0, 0, 100),
-		Marker - FVector(0, 0, 200), ECC_WorldStatic, FloorQuery)
-		|| Floor.ImpactNormal.Z < Config.MinFloorUpDot)
-	{
-		OutReason = TEXT("No safe floor below the chest point.");
-		return false;
-	}
-	const FVector Ground = Floor.ImpactPoint;
-	if (!RoomBounds.IsInsideOrOn(Ground))
-	{
-		OutReason = TEXT("Chest floor is outside the room bounds.");
-		return false;
-	}
-	for (const FVector& Entry : EntryLocations)
-		if (FVector::Dist2D(Marker, Entry) < Config.MinEntryDistance)
+	if (!HBSpawnGroundQuery::FindPlacement(*World, Marker, Choice.Point->GetActorQuat(), RoomBounds,
+		Config.MinFloorUpDot, FloorQuery,
+		[&](const FHitResult& CandidateFloor, FString& Reason)
 		{
-			OutReason = TEXT("Chest is too close to a room entry or player start.");
-			return false;
-		}
-	for (const TWeakObjectPtr<ABoxActor>& Other : State.SpawnedChests)
-		if (IsValid(Other.Get()) && FVector::Dist2D(Marker, Other->GetActorLocation()) < Config.MinChestSpacing)
-		{
-			OutReason = TEXT("Chest is too close to another chest.");
-			return false;
-		}
-	for (AActor* Actor : RoomLevel.Actors)
-		if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion)
-			&& Exclusion->Bounds->Bounds.GetBox().ExpandBy(FVector(60, 60, 100)).IsInsideOrOn(Marker))
-		{
-			OutReason = TEXT("Chest overlaps an authored spawn exclusion region.");
-			return false;
-		}
-	UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
-	const AGameModeBase* Mode = World->GetAuthGameMode();
-	const ACharacter* PlayerDefaults = Mode && Mode->DefaultPawnClass
-		? Cast<ACharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
-	const UCharacterMovementComponent* Movement = PlayerDefaults ? PlayerDefaults->GetCharacterMovement() : nullptr;
-	const FNavAgentProperties* Agent = Movement ? &Movement->GetNavAgentPropertiesRef() : nullptr;
-	const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, Ground) : nullptr;
-	if (!NavData || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World))
-	{
-		OutReason = TEXT("Player navigation is not ready for this chest.");
-		return false;
-	}
-	const FVector Approach = Ground + Choice.Point->GetActorForwardVector() * 120.f;
-	FNavLocation ApproachOnNav;
-	if (!Nav->ProjectPointToNavigation(Approach, ApproachOnNav, FVector(100, 100, 200), NavData)
-		|| FVector::Dist2D(Approach, ApproachOnNav.Location) > Config.MaxNavProjectionDistance
-		|| FMath::Abs(Approach.Z - ApproachOnNav.Location.Z) > Config.MaxNavProjectionHeight
-		|| !RoomBounds.IsInsideOrOn(ApproachOnNav.Location))
-	{
-		OutReason = TEXT("No nearby navigation surface at the chest approach.");
-		return false;
-	}
-	if (Choice.bRequireEntryPath)
-	{
-		bool bReachable = false;
-		for (const FVector& Entry : EntryLocations)
-		{
-			FNavLocation EntryOnNav;
-			if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(100, 100, 200), NavData)) continue;
-			FPathFindingQuery PathQuery(this, *NavData, EntryOnNav.Location, ApproachOnNav.Location);
-			PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
-			const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
-			if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
+			const FVector Ground = CandidateFloor.ImpactPoint;
+			const FVector CandidateMarker(Ground.X, Ground.Y, Marker.Z);
+			if (!RoomBounds.IsInsideOrOn(Ground))
 			{
-				bReachable = true;
-				break;
+				Reason = TEXT("Chest floor is outside the room bounds.");
+				return false;
 			}
-		}
-		if (!bReachable)
-		{
-			OutReason = TEXT("Player has no complete navigation path to the chest approach.");
-			return false;
-		}
-	}
-	FActorSpawnParameters Params;
-	Params.Owner = &Setup;
-	Params.OverrideLevel = &RoomLevel;
-	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
-	FTransform SpawnTransform;
-	if (!HBChestSpawnGeometry::MakeGroundedTransform(Choice.ChestClass.Get(),
-		Choice.Point->GetActorTransform(), Ground.Z, SpawnTransform, OutReason)) return false;
-	OutChest = World->SpawnActor<ABoxActor>(Choice.ChestClass, SpawnTransform, Params);
-	if (!IsValid(OutChest))
-	{
-		OutReason = FString::Printf(TEXT("Box %s at %s was blocked after floor alignment (floor Z=%.1f)."),
-			*GetNameSafe(Choice.ChestClass.Get()), *SpawnTransform.GetLocation().ToString(), Ground.Z);
-		return false;
-	}
+			for (const FVector& Entry : EntryLocations)
+				if (FVector::Dist2D(CandidateMarker, Entry) < Config.MinEntryDistance)
+				{
+					Reason = TEXT("Chest is too close to a room entry or player start.");
+					return false;
+				}
+			for (const TWeakObjectPtr<ABoxActor>& Other : State.SpawnedChests)
+				if (IsValid(Other.Get()) && FVector::Dist2D(CandidateMarker, Other->GetActorLocation()) < Config.MinChestSpacing)
+				{
+					Reason = TEXT("Chest is too close to another chest.");
+					return false;
+				}
+			for (AActor* Actor : RoomLevel.Actors)
+				if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion)
+					&& Exclusion->Bounds->Bounds.GetBox().ExpandBy(FVector(60, 60, 100)).IsInsideOrOn(CandidateMarker))
+				{
+					Reason = TEXT("Chest overlaps an authored spawn exclusion region.");
+					return false;
+				}
+			UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+			const AGameModeBase* Mode = World->GetAuthGameMode();
+			const ACharacter* PlayerDefaults = Mode && Mode->DefaultPawnClass
+				? Cast<ACharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
+			const UCharacterMovementComponent* Movement = PlayerDefaults ? PlayerDefaults->GetCharacterMovement() : nullptr;
+			const FNavAgentProperties* Agent = Movement ? &Movement->GetNavAgentPropertiesRef() : nullptr;
+			const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, Ground) : nullptr;
+			if (!NavData || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World))
+			{
+				Reason = TEXT("Player navigation is not ready for this chest.");
+				return false;
+			}
+			const FVector Approach = Ground + Choice.Point->GetActorForwardVector() * 120.f;
+			FNavLocation ApproachOnNav;
+			if (!Nav->ProjectPointToNavigation(Approach, ApproachOnNav, FVector(100, 100, 200), NavData)
+				|| FVector::Dist2D(Approach, ApproachOnNav.Location) > Config.MaxNavProjectionDistance
+				|| FMath::Abs(Approach.Z - ApproachOnNav.Location.Z) > Config.MaxNavProjectionHeight
+				|| !RoomBounds.IsInsideOrOn(ApproachOnNav.Location))
+			{
+				Reason = TEXT("No nearby navigation surface at the chest approach.");
+				return false;
+			}
+			if (Choice.bRequireEntryPath)
+			{
+				bool bReachable = false;
+				for (const FVector& Entry : EntryLocations)
+				{
+					FNavLocation EntryOnNav;
+					if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(100, 100, 200), NavData)) continue;
+					FPathFindingQuery PathQuery(this, *NavData, EntryOnNav.Location, ApproachOnNav.Location);
+					PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
+					const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
+					if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
+					{
+						bReachable = true;
+						break;
+					}
+				}
+				if (!bReachable)
+				{
+					Reason = TEXT("Player has no complete navigation path to the chest approach.");
+					return false;
+				}
+			}
+			FActorSpawnParameters Params;
+			Params.Owner = &Setup;
+			Params.OverrideLevel = &RoomLevel;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
+			FTransform PointTransform = Choice.Point->GetActorTransform();
+			PointTransform.SetLocation(CandidateMarker);
+			FTransform SpawnTransform;
+			if (!HBChestSpawnGeometry::MakeGroundedTransform(Choice.ChestClass.Get(),
+				PointTransform, Ground.Z, SpawnTransform, Reason)) return false;
+			OutChest = World->SpawnActor<ABoxActor>(Choice.ChestClass, SpawnTransform, Params);
+			if (!IsValid(OutChest))
+			{
+				Reason = FString::Printf(TEXT("Box %s at %s was blocked after floor alignment (floor Z=%.1f)."),
+					*GetNameSafe(Choice.ChestClass.Get()), *SpawnTransform.GetLocation().ToString(), Ground.Z);
+				return false;
+			}
+			return true;
+		}, Floor, OutReason)) return false;
+	if (FVector::Dist2D(Marker, Floor.ImpactPoint) > KINDA_SMALL_NUMBER)
+		UE_LOG(LogHBChestSpawn, Display, TEXT("Room %d point %s floor adjusted %.1f cm: marker=%s ground=%s actor=%s component=%s."),
+			State.RoomId, *Choice.PointId.ToString(), FVector::Dist2D(Marker, Floor.ImpactPoint),
+			*Marker.ToString(), *Floor.ImpactPoint.ToString(), *GetNameSafe(Floor.GetActor()), *GetNameSafe(Floor.GetComponent()));
 	if (!OutChest->GetIsReplicated() || OutChest->bOnlyRelevantToOwner || OutChest->GetLevel() != &RoomLevel)
 	{
 		OutChest->Destroy();

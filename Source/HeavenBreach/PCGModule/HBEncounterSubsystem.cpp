@@ -1,4 +1,5 @@
-#include "PCGModule/HBEncounterSubsystem.h"
+﻿#include "PCGModule/HBEncounterSubsystem.h"
+#include "PCGModule/HBSpawnGroundQuery.h"
 #include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
@@ -380,92 +381,101 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 	const FVector Marker = Choice.Point->GetActorLocation();
 	FCollisionQueryParams Query(SCENE_QUERY_STAT(HBEnemyFloor), false);
 	Query.AddIgnoredActor(Choice.Point);
+	FCollisionQueryParams FloorQuery = Query;
+	for (const TWeakObjectPtr<AEnemyCharacterBase>& Other : State.SpawnedEnemies)
+		if (IsValid(Other.Get())) FloorQuery.AddIgnoredActor(Other.Get());
 	FHitResult Floor;
-	if (!World->LineTraceSingleByChannel(Floor, Marker + FVector(0, 0, 100), Marker - FVector(0, 0, 200), ECC_WorldStatic, Query)
-		|| Floor.ImpactNormal.Z < Config.MinFloorUpDot)
-	{
-		OutReason = TEXT("No safe floor or floor slope is too steep.");
-		return false;
-	}
+	if (!HBSpawnGroundQuery::FindPlacement(*World, Marker, Choice.Point->GetActorQuat(), RoomBounds,
+		Config.MinFloorUpDot, FloorQuery,
+		[&](const FHitResult& CandidateFloor, FString& Reason)
+		{
+			const FVector Ground = CandidateFloor.ImpactPoint;
+			const FVector SpawnLocation = Ground + FVector(0, 0, HalfHeight + 2.f);
+			if (!RoomBounds.IsInsideOrOn(SpawnLocation))
+			{
+				Reason = TEXT("Projected spawn is outside the room bounds.");
+				return false;
+			}
+			for (const FVector& Entry : EntryLocations)
+				if (FVector::Dist2D(Ground, Entry) < Config.MinEntryDistance + Radius)
+				{
+					Reason = TEXT("Spawn blocks a room entry or player start.");
+					return false;
+				}
+			for (const TWeakObjectPtr<AEnemyCharacterBase>& OtherPtr : State.SpawnedEnemies)
+				if (AEnemyCharacterBase* Other = OtherPtr.Get())
+				{
+					const UCapsuleComponent* OtherCapsule = Other->GetCapsuleComponent();
+					const float OtherRadius = OtherCapsule->GetScaledCapsuleRadius();
+					const float OtherHalfHeight = OtherCapsule->GetScaledCapsuleHalfHeight();
+					if (HBEncounterPlacement::AreCapsulesTooClose(SpawnLocation, Radius, HalfHeight,
+						Other->GetActorLocation(), OtherRadius, OtherHalfHeight, Config.MinMonsterSpacing))
+					{
+						Reason = TEXT("Spawn is too close to another monster.");
+						return false;
+					}
+				}
+			for (AActor* Actor : RoomLevel.Actors)
+				if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion))
+				{
+					const FBox Box = Exclusion->Bounds->Bounds.GetBox().ExpandBy(FVector(Radius, Radius, HalfHeight));
+					if (Box.IsInsideOrOn(SpawnLocation))
+					{
+						Reason = TEXT("Spawn overlaps an authored exclusion region.");
+						return false;
+					}
+				}
+			if (World->OverlapBlockingTestByProfile(SpawnLocation, Choice.Point->GetActorQuat(), Capsule->GetCollisionProfileName(),
+				FCollisionShape::MakeCapsule(Radius, HalfHeight), Query))
+			{
+				Reason = TEXT("Enemy capsule overlaps blocking geometry.");
+				return false;
+			}
+			UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+			const UCharacterMovementComponent* Movement = Defaults->GetCharacterMovement();
+			const FNavAgentProperties* Agent = Movement ? &Movement->GetNavAgentPropertiesRef() : nullptr;
+			const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, SpawnLocation) : nullptr;
+			FNavLocation OnNav;
+			if (!NavData || !Nav->ProjectPointToNavigation(Ground, OnNav, FVector(Radius, Radius, HalfHeight), NavData)
+				|| FVector::Dist2D(Ground, OnNav.Location) > Config.MaxNavProjectionDistance
+				|| FMath::Abs(Ground.Z - OnNav.Location.Z) > Config.MaxNavProjectionHeight
+				|| !RoomBounds.IsInsideOrOn(OnNav.Location))
+			{
+				Reason = TEXT("No nearby navigation surface for this enemy's agent.");
+				return false;
+			}
+			if (Choice.bRequireEntryPath)
+			{
+				bool bReachable = false;
+				for (const FVector& Entry : EntryLocations)
+				{
+					FNavLocation EntryOnNav;
+					if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(Radius, Radius, HalfHeight), NavData)
+						|| FVector::Dist2D(Entry, EntryOnNav.Location) > Config.MaxNavProjectionDistance * 2.f
+						|| FMath::Abs(Entry.Z - EntryOnNav.Location.Z) > Config.MaxNavProjectionHeight * 2.f) continue;
+					FPathFindingQuery PathQuery(this, *NavData, OnNav.Location, EntryOnNav.Location);
+					PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
+					const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
+					if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
+					{
+						bReachable = true;
+						break;
+					}
+				}
+				if (!bReachable)
+				{
+					Reason = TEXT("Enemy has no complete navigation path to a room entry.");
+					return false;
+				}
+			}
+			return true;
+		}, Floor, OutReason)) return false;
 	const FVector Ground = Floor.ImpactPoint;
 	const FVector SpawnLocation = Ground + FVector(0, 0, HalfHeight + 2.f);
-	if (!RoomBounds.IsInsideOrOn(SpawnLocation))
-	{
-		OutReason = TEXT("Projected spawn is outside the room bounds.");
-		return false;
-	}
-	for (const FVector& Entry : EntryLocations)
-		if (FVector::Dist2D(Ground, Entry) < Config.MinEntryDistance + Radius)
-		{
-			OutReason = TEXT("Spawn blocks a room entry or player start.");
-			return false;
-		}
-	for (const TWeakObjectPtr<AEnemyCharacterBase>& OtherPtr : State.SpawnedEnemies)
-		if (AEnemyCharacterBase* Other = OtherPtr.Get())
-		{
-			const UCapsuleComponent* OtherCapsule = Other->GetCapsuleComponent();
-			const float OtherRadius = OtherCapsule->GetScaledCapsuleRadius();
-			const float OtherHalfHeight = OtherCapsule->GetScaledCapsuleHalfHeight();
-			if (HBEncounterPlacement::AreCapsulesTooClose(SpawnLocation, Radius, HalfHeight,
-				Other->GetActorLocation(), OtherRadius, OtherHalfHeight, Config.MinMonsterSpacing))
-			{
-				OutReason = TEXT("Spawn is too close to another monster.");
-				return false;
-			}
-		}
-	for (AActor* Actor : RoomLevel.Actors)
-		if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion))
-		{
-			const FBox Box = Exclusion->Bounds->Bounds.GetBox().ExpandBy(FVector(Radius, Radius, HalfHeight));
-			if (Box.IsInsideOrOn(SpawnLocation))
-			{
-				OutReason = TEXT("Spawn overlaps an authored exclusion region.");
-				return false;
-			}
-		}
-	if (World->OverlapBlockingTestByProfile(SpawnLocation, Choice.Point->GetActorQuat(), Capsule->GetCollisionProfileName(),
-		FCollisionShape::MakeCapsule(Radius, HalfHeight), Query))
-	{
-		OutReason = TEXT("Enemy capsule overlaps blocking geometry.");
-		return false;
-	}
-	UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
-	const UCharacterMovementComponent* Movement = Defaults->GetCharacterMovement();
-	const FNavAgentProperties* Agent = Movement ? &Movement->GetNavAgentPropertiesRef() : nullptr;
-	const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, SpawnLocation) : nullptr;
-	FNavLocation OnNav;
-	if (!NavData || !Nav->ProjectPointToNavigation(Ground, OnNav, FVector(Radius, Radius, HalfHeight), NavData)
-		|| FVector::Dist2D(Ground, OnNav.Location) > Config.MaxNavProjectionDistance
-		|| FMath::Abs(Ground.Z - OnNav.Location.Z) > Config.MaxNavProjectionHeight
-		|| !RoomBounds.IsInsideOrOn(OnNav.Location))
-	{
-		OutReason = TEXT("No nearby navigation surface for this enemy's agent.");
-		return false;
-	}
-	if (Choice.bRequireEntryPath)
-	{
-		bool bReachable = false;
-		for (const FVector& Entry : EntryLocations)
-		{
-			FNavLocation EntryOnNav;
-			if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(Radius, Radius, HalfHeight), NavData)
-				|| FVector::Dist2D(Entry, EntryOnNav.Location) > Config.MaxNavProjectionDistance * 2.f
-				|| FMath::Abs(Entry.Z - EntryOnNav.Location.Z) > Config.MaxNavProjectionHeight * 2.f) continue;
-			FPathFindingQuery PathQuery(this, *NavData, OnNav.Location, EntryOnNav.Location);
-			PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
-			const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
-			if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
-			{
-				bReachable = true;
-				break;
-			}
-		}
-		if (!bReachable)
-		{
-			OutReason = TEXT("Enemy has no complete navigation path to a room entry.");
-			return false;
-		}
-	}
+	if (FVector::Dist2D(Marker, Ground) > KINDA_SMALL_NUMBER)
+		UE_LOG(LogHBEncounterSubsystem, Display, TEXT("Room %d point %s floor adjusted %.1f cm: marker=%s ground=%s actor=%s component=%s."),
+			State.RoomId, *Choice.PointId.ToString(), FVector::Dist2D(Marker, Ground),
+			*Marker.ToString(), *Ground.ToString(), *GetNameSafe(Floor.GetActor()), *GetNameSafe(Floor.GetComponent()));
 	FActorSpawnParameters Params;
 	Params.Owner = &Setup;
 	Params.OverrideLevel = &RoomLevel;
