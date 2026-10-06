@@ -109,13 +109,22 @@ bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 	}
 	FRandomStream Random(MakeRoomSeed(DungeonSeed, RoomId));
 	TSet<FName> UsedIds;
+	TMap<FName, int32> PlacedByGroup;
 	FString LastFailure;
 	for (EHBEncounterGrade Grade : {EHBEncounterGrade::Boss, EHBEncounterGrade::Elite, EHBEncounterGrade::Common})
 	{
 		for (const FHBEncounterGroup& Group : Config.Groups)
 		{
 			if (Group.Grade != Grade) continue;
-			const int32 Target = Random.RandRange(Group.MinCount, Group.MaxCount);
+			int32 Target = 0;
+			const bool bConditionSpawned = !Group.ConditionGroupId.IsNone() && PlacedByGroup.FindRef(Group.ConditionGroupId) > 0;
+			if (bConditionSpawned)
+			{
+				if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, EHBSpawnCountSelectionMode::Weighted,
+					Group.CountWeightsIfConditionSpawned, Random, Target, OutError)) return false;
+			}
+			else if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, Group.CountSelectionMode,
+				Group.CountWeights, Random, Target, OutError)) return false;
 			TArray<AHBEnemySpawnPoint*> Required;
 			TArray<AHBEnemySpawnPoint*> Optional;
 			for (AHBEnemySpawnPoint* Point : SortedPoints)
@@ -139,6 +148,7 @@ bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 					++Placed;
 				}
 			}
+			PlacedByGroup.Add(Group.GroupId, Placed);
 			if (Placed < Group.MinCount)
 			{
 				OutError = FString::Printf(TEXT("Room %d group %s placed %d of required %d. %s"),

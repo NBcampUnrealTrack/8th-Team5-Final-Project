@@ -151,9 +151,17 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 		}
 		if (Setup && IsValid(Setup->Encounter))
 		{
+			int64 MinimumMonsters = 0;
+			bool bHasWeightedCounts = false;
 			for (const FHBEncounterGroup& Group : Setup->Encounter->Groups)
 			{
+				int32 SelectableMinimum = 0, SelectableMaximum = 0;
+				bHasWeightedCounts |= Group.CountSelectionMode == EHBSpawnCountSelectionMode::Weighted;
+				if (!HBSpawnCountSelection::GetSelectableRange(Group.MinCount, Group.MaxCount,
+					Group.CountSelectionMode, Group.CountWeights, SelectableMinimum, SelectableMaximum)) continue;
+				MinimumMonsters += SelectableMinimum;
 				int32 Eligible = 0;
+				int32 DedicatedRequired = 0;
 				for (AActor* Actor : Level->Actors)
 					if (const auto* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point)
 						&& (Point->GroupId.IsNone() || Point->GroupId == Group.GroupId))
@@ -161,6 +169,7 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 						const bool bGrade = Group.Grade == EHBEncounterGrade::Common ? Point->bAllowCommon
 							: Group.Grade == EHBEncounterGrade::Elite ? Point->bAllowElite : Point->bAllowBoss;
 						if (!bGrade) continue;
+						if (Point->bRequired && Point->GroupId == Group.GroupId) ++DedicatedRequired;
 						if (Group.Monsters.ContainsByPredicate([Point](const FHBEncounterMonsterOption& Option)
 						{
 							return Option.EnemyClass && (Point->AllowedClasses.IsEmpty()
@@ -171,6 +180,19 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 					AddIssue(OutIssues, TEXT("EncounterPoints"), Setup,
 						FString::Printf(TEXT("Group %s needs %d usable points but has %d."),
 							*Group.GroupId.ToString(), Group.MinCount, Eligible));
+				if (Group.CountSelectionMode == EHBSpawnCountSelectionMode::Weighted && DedicatedRequired > SelectableMinimum)
+					AddIssue(OutIssues, TEXT("EncounterRequiredCount"), Setup,
+						FString::Printf(TEXT("Group %s has %d required points but can select only %d monsters."),
+							*Group.GroupId.ToString(), DedicatedRequired, SelectableMinimum));
+			}
+			if (bHasWeightedCounts)
+			{
+				int32 RequiredCount = 0;
+				for (AActor* Actor : Level->Actors)
+					if (const auto* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point) && Point->bRequired) ++RequiredCount;
+				if (RequiredCount > MinimumMonsters)
+					AddIssue(OutIssues, TEXT("EncounterRequiredCount"), Setup,
+						TEXT("Required enemy points exceed the combined minimum selectable monster count."));
 			}
 		}
 		else if (SpawnPointCount > 0)
@@ -224,7 +246,10 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 				int64 MinimumChests = 0;
 				for (const FHBChestPlacementGroup& Group : ChestSetup->Placement->Groups)
 				{
-					MinimumChests += FMath::Max(0, Group.MinCount);
+					int32 SelectableMinimum = 0, SelectableMaximum = 0;
+					if (!HBSpawnCountSelection::GetSelectableRange(Group.MinCount, Group.MaxCount,
+						Group.CountSelectionMode, Group.CountWeights, SelectableMinimum, SelectableMaximum)) continue;
+					MinimumChests += SelectableMinimum;
 					int32 Eligible = 0;
 					int32 DedicatedRequired = 0;
 					for (const AHBChestSpawnPoint* Point : ChestPoints)
@@ -237,14 +262,14 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 									|| Point->AllowedClasses.Contains(Option.ChestClass));
 							})) ++Eligible;
 					}
-					if (Eligible < Group.MinCount || (Group.MaxCount > 0 && Eligible == 0))
+					if (Eligible < Group.MinCount || (SelectableMaximum > 0 && Eligible == 0))
 						AddIssue(OutIssues, TEXT("ChestPlacementPoints"), ChestSetup,
 							FString::Printf(TEXT("Chest group %s needs usable points; %d are eligible for a minimum of %d."),
 								*Group.GroupId.ToString(), Eligible, Group.MinCount));
-					if (DedicatedRequired > Group.MinCount)
+					if (DedicatedRequired > SelectableMinimum)
 						AddIssue(OutIssues, TEXT("ChestRequiredCount"), ChestSetup,
-							FString::Printf(TEXT("Chest group %s has %d required points but its minimum count is %d."),
-								*Group.GroupId.ToString(), DedicatedRequired, Group.MinCount));
+							FString::Printf(TEXT("Chest group %s has %d required points but can select only %d chests."),
+								*Group.GroupId.ToString(), DedicatedRequired, SelectableMinimum));
 				}
 				int32 RequiredCount = 0;
 				for (const AHBChestSpawnPoint* Point : ChestPoints)
@@ -253,7 +278,10 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 						++RequiredCount;
 						if (!ChestSetup->Placement->Groups.ContainsByPredicate([Point](const FHBChestPlacementGroup& Group)
 						{
-							return Group.MaxCount > 0 && (Point->GroupId.IsNone() || Point->GroupId == Group.GroupId)
+							int32 Minimum = 0, Maximum = 0;
+							return HBSpawnCountSelection::GetSelectableRange(Group.MinCount, Group.MaxCount,
+								Group.CountSelectionMode, Group.CountWeights, Minimum, Maximum)
+								&& Maximum > 0 && (Point->GroupId.IsNone() || Point->GroupId == Group.GroupId)
 								&& Group.Chests.ContainsByPredicate([Point](const FHBChestClassOption& Option)
 								{
 									return Option.ChestClass && (Point->AllowedClasses.IsEmpty()
@@ -265,7 +293,7 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 					}
 				if (RequiredCount > MinimumChests)
 					AddIssue(OutIssues, TEXT("ChestRequiredCount"), ChestSetup,
-						TEXT("Required chest points exceed the combined minimum chest count."));
+						TEXT("Required chest points exceed the combined minimum selectable chest count."));
 			}
 		}
 		else if (!ChestPoints.IsEmpty())
