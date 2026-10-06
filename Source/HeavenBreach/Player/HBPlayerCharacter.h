@@ -392,6 +392,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Augment")
 	bool HasAugment(FGameplayTag AugmentTag) const;
 
+	// 증강의 현재 단계. 못 골랐거나 PlayerState 가 없으면 0.
+	UFUNCTION(BlueprintPure, Category = "Augment")
+	int32 GetAugmentTier(FGameplayTag AugmentTag) const;
+
 	// 태그 하나로 증강 정보를 되찾는다. UI 가 툴팁이나 목록을 그릴 때 쓴다.
 	// 직업 카탈로그 전체를 뒤진다. 장착을 풀어도 고른 기록은 남아야 하기 때문이다.
 	UFUNCTION(BlueprintPure, Category = "Augment")
@@ -549,6 +553,10 @@ protected:
 
 
 private:
+	// 조준 입력을 받는 활성 스킬의 스펙. State.Bow.SkillAiming 이 붙어 있고
+	// UHBPlayerActiveGABase::WantsAimInput() 이 true 인 활성 스펙. 없으면 nullptr.
+	struct FGameplayAbilitySpec* FindActiveAimingSkillSpec() const;
+
 	// 타격 연출을 쏜다. 막힘·패링이면 그에 맞는 큐로, 아니면 무기 성질 판정에 맡긴다.
 	//
 	// 왜 맞는 쪽이 쏘나: 막았는지는 여기서만 안다. 때리는 쪽은 무기 성질밖에 모른다.

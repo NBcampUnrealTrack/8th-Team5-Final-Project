@@ -162,3 +162,102 @@ class HEAVENBREACH_API UGE_LightLandingAugment : public UGameplayEffect
 public:
 	UGE_LightLandingAugment();
 };
+
+/** 스킬 마나 비용. 즉발, 양은 SetByCaller.ManaCost 에 음수로 (UHBPlayerActiveGABase::ApplyCost) */
+UCLASS()
+class HEAVENBREACH_API UGE_SkillManaCost : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_SkillManaCost();
+};
+
+/** 관통 사격 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.PiercingArrow 부여 */
+UCLASS()
+class HEAVENBREACH_API UGE_BowPiercingCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_BowPiercingCooldown();
+};
+
+/** 사냥꾼의 표식 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.TrackingMark 부여 */
+UCLASS()
+class HEAVENBREACH_API UGE_BowHunterMarkCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_BowHunterMarkCooldown();
+};
+
+/** 회피 사격 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.EvasiveShot 부여 */
+UCLASS()
+class HEAVENBREACH_API UGE_BowEvasiveCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_BowEvasiveCooldown();
+};
+
+/** 표식 상태. 시간은 SetByCaller.Duration, State.Archer.Tracked 부여(단계 태그는 스펙의 DynamicGrantedTags) */
+UCLASS()
+class HEAVENBREACH_API UGE_HunterMark : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_HunterMark();
+};
+
+/** 패시브 "민첩한 발걸음". 이동속도 배율 +0.10 */
+UCLASS()
+class HEAVENBREACH_API UGE_SwiftStepPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_SwiftStepPassive();
+};
+
+/** "민첩한 발걸음 강화" 증강. 값은 SetByCaller.AugmentMagnitude */
+UCLASS()
+class HEAVENBREACH_API UGE_SwiftStepAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_SwiftStepAugment();
+};
+
+/** 패시브 "급소 포착". 헤드샷 피해 +0.30 */
+UCLASS()
+class HEAVENBREACH_API UGE_WeakPointPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WeakPointPassive();
+};
+
+/** "급소 포착 강화" 증강. 값은 SetByCaller.AugmentMagnitude */
+UCLASS()
+class HEAVENBREACH_API UGE_WeakPointAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WeakPointAugment();
+};
+
+/** 패시브 "사냥꾼의 호흡". 달리기 마나 소모 -0.30, 마나 회복 +0.20 */
+UCLASS()
+class HEAVENBREACH_API UGE_HunterBreathPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_HunterBreathPassive();
+};
+
+/** "사냥꾼의 호흡 강화" 증강. 달리기 소모 배율에 SetByCaller.AugmentMagnitude(음수) */
+UCLASS()
+class HEAVENBREACH_API UGE_HunterBreathAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_HunterBreathAugment();
+};

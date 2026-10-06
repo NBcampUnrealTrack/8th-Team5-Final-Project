@@ -39,6 +39,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Skill")
 	float GetBaseManaCost() const { return ManaCost; }
 
+	// UI 용 최종 마나 코스트(스킬 증강 SkillParam.ManaCost + 전역 보정). 발동 때 CheckCost·ApplyCost 와 같은 값이다.
+	// CDO 에서 불러도 된다 — 플레이어는 인스턴스가 아니라 넘긴 ActorInfo 의 AvatarActor 에서 읽는다.
+	float GetFinalManaCostForActor(const FGameplayAbilityActorInfo* ActorInfo) const { return GetFinalManaCostFrom(ActorInfo); }
+
 	// 재생할 몽타주. 자식 클래스에서 증강에따라 몽타주가변경된다면? 이거로 확인
 	UFUNCTION(BlueprintPure, Category = "Skill")
 	float GetBaseBuffDuration() const { return BuffDuration; }
@@ -48,6 +52,11 @@ public:
 	TSubclassOf<UGameplayEffect> GetSelfBuffEffect() const { return SelfBuffEffect; }
 
 	virtual UAnimMontage* GetMontageToPlay() const { return Montage; }
+
+	// 발동 중 좌클릭 누름/뗌을 이 스킬이 직접 받고 싶은가. 조준 스킬이 true 로 오버라이드한다.
+	// 캐릭터는 State.Bow.SkillAiming 이 붙어 있고 이 값이 true 인 활성 스킬 하나에만 입력을 넘긴다.
+	// 그 스킬은 UAbilityTask_WaitInputPress/Release 로 받고, 우클릭은 캐릭터가 CancelAbility 로 처리한다.
+	virtual bool WantsAimInput() const { return false; }
 
 protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;

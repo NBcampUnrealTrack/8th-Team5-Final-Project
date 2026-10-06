@@ -12,6 +12,7 @@
 #include "Combat/Attack/GA_PlayerAttack.h"
 #include "Combat/Attack/GA_PlayerAttackRE.h"
 #include "Combat/Attack/GA_PlayerBowAttack.h"
+#include "Combat/Attack/HBHunterMark.h"
 #include "Player/HBPotionDrinkComponent.h"
 #include "Player/HBInteractAnimComponent.h"
 #include "Player/HBCameraMotionComponent.h"
@@ -294,6 +295,17 @@ void AHBPlayerCharacter::Attack()
 	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead) || ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking))
 		return;
 
+	// 활 스킬 조준 중이면 좌클릭은 평타가 아니라 그 스킬의 입력(WaitInputPress)이다.
+	if (FGameplayAbilitySpec* AimSpec = FindActiveAimingSkillSpec())
+	{
+		if (UGameplayAbility* AimInstance = AimSpec->GetPrimaryInstance())
+		{
+			ASC->AbilitySpecInputPressed(*AimSpec);
+			ASC->InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputPressed, AimSpec->Handle, AimInstance->GetCurrentActivationInfo().GetActivationPredictionKey());
+		}
+		return;
+	}
+
 	// 공격 중이면 새로 발동하지 않고 콤보 입력으로 넘긴다.
 	// 어차피 State.Attacking 이 발동을 막으므로, 평타가 아닌 스킬 중이면 그냥 버려진다.
 	if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_Attacking))
@@ -317,6 +329,22 @@ void AHBPlayerCharacter::Attack()
 void AHBPlayerCharacter::StopAttack()
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 활 스킬 조준 중이면 뗌도 그 스킬로 보낸다(Attack 의 누름과 짝).
+	if (FGameplayAbilitySpec* AimSpec = FindActiveAimingSkillSpec())
+	{
+		if (UGameplayAbility* AimInstance = AimSpec->GetPrimaryInstance())
+		{
+			ASC->AbilitySpecInputReleased(*AimSpec);
+			ASC->InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, AimSpec->Handle, AimInstance->GetCurrentActivationInfo().GetActivationPredictionKey());
+		}
+		return;
+	}
+
 	UGA_PlayerBowAttack* Bow = UGA_PlayerBowAttack::FindActive(ASC);
 	if (!Bow)
 	{
@@ -415,6 +443,13 @@ void AHBPlayerCharacter::TryParry()
 		return;
 	}
 
+	// 활 스킬 조준 중 우클릭은 조준 취소. 방패 검사보다 먼저다(활 직업은 방패가 없다).
+	if (const FGameplayAbilitySpec* AimSpec = FindActiveAimingSkillSpec())
+	{
+		ASC->CancelAbilityHandle(AimSpec->Handle);
+		return;
+	}
+
 	// 방패가 없으면 아무 일도 일어나지 않는다. 별도 실패 피드백을 두지 않는다 —
 	// 방패 슬롯이 비어 있다는 것은 HUD 에서 이미 보인다.
 	//
@@ -428,6 +463,29 @@ void AHBPlayerCharacter::TryParry()
 	StopSprint();
 
 	ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(AbilityTag::TAG_Ability_Parry));
+}
+
+FGameplayAbilitySpec* AHBPlayerCharacter::FindActiveAimingSkillSpec() const
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || !ASC->HasMatchingGameplayTag(StateTag::TAG_State_Bow_SkillAiming))
+	{
+		return nullptr;
+	}
+
+	for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (!Spec.IsActive())
+		{
+			continue;
+		}
+		const UHBPlayerActiveGABase* Skill = Cast<UHBPlayerActiveGABase>(Spec.GetPrimaryInstance());
+		if (Skill && Skill->WantsAimInput())
+		{
+			return &Spec;
+		}
+	}
+	return nullptr;
 }
 
 void AHBPlayerCharacter::ReleaseParryInput()
@@ -1093,6 +1151,14 @@ float AHBPlayerCharacter::ModifyOutgoingDamage(AActor* Target, float Damage)
 		}
 	}
 
+	// 사냥꾼의 표식: 대상이 표식 상태면 +%. 팀원 공격에도 적용(설계 2장 3).
+	if (const UAbilitySystemComponent* MarkTargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target))
+	{
+		FGameplayTagContainer TargetTags;
+		MarkTargetASC->GetOwnedGameplayTags(TargetTags);
+		Damage *= 1.f + HBHunterMark::DamageBonus(TargetTags);
+	}
+
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_Revenge)
 		&& LastDamageInstigator.Get() == Target && GetWorld()
 		&& GetWorld()->GetTimeSeconds() - LastDamageReceivedTime <= 5.0)
@@ -1249,6 +1315,11 @@ bool AHBPlayerCharacter::HasAugment(FGameplayTag AugmentTag) const
 	// 보유 판정의 주인은 PlayerState 다. 폰이 죽고 다시 스폰돼도 유지돼야 하므로
 	// 캐릭터에 들고 있으면 안 된다.
 	return HB_PlayerState->HasAugment(AugmentTag);
+}
+
+int32 AHBPlayerCharacter::GetAugmentTier(FGameplayTag AugmentTag) const
+{
+	return HB_PlayerState ? HB_PlayerState->GetAugmentTier(AugmentTag) : 0;
 }
 
 bool AHBPlayerCharacter::FindAugmentInfo(FGameplayTag AugmentTag, FHBSkillAugment& Out) const
@@ -1496,7 +1567,13 @@ float AHBPlayerCharacter::GetSkillManaCost(const FName SkillId) const
 	}
 
 	// 발동 때와 같은 깔때기를 태운다. 카드 숫자와 실제 차감이 어긋날 수 없다.
-	// 스킬은 빈 태그를 넘긴다. GetFinalManaCostFrom 과 같은 값이어야 한다.
+	// 스킬 증강(SkillParam.ManaCost)까지 반영하려고 GA 의 계산을 그대로 쓴다. CDO 라도 ActorInfo 로 플레이어를 찾는다.
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (ASC && ASC->AbilityActorInfo.IsValid())
+	{
+		return ActiveCDO->GetFinalManaCostForActor(ASC->AbilityActorInfo.Get());
+	}
+	// ActorInfo 가 아직 없으면 스킬 증강 없이 전역 보정만. GetFinalManaCostFrom 과 같은 깔때기다.
 	return ModifyManaCost(FGameplayTag(), ActiveCDO->GetBaseManaCost());
 }
 

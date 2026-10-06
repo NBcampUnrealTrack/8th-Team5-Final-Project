@@ -18,6 +18,21 @@
 #include "Player/HBPlayerCharacter.h"
 #include "Player/HBPlayerController.h"
 
+UProjectileMovementComponent::EHandleBlockingHitResult UHBArrowMovementComponent::HandleBlockingHit(const FHitResult& Hit, const float TimeTick, const FVector& MoveDelta, float& SubTickTimeRemaining)
+{
+	// 보통은 컴포넌트 Hit 이벤트(OnHit)가 이동 중에 먼저 불려 관통 처리를 끝내 둔다. 여기선 그 결과를 다시 묻는다.
+	// (bSimulationUseScopedMovement 를 켜 Hit 이벤트가 늦게 오더라도 여기서 먼저 처리된다.)
+	AHBPlayerArrow* Arrow = Cast<AHBPlayerArrow>(GetOwner());
+	if (Arrow && Arrow->TryPierce(Hit))
+	{
+		// 튕김·멈춤 없이 남은 시간만큼 원래 속도로 계속 간다. 그 Pawn 은 이미 무시 등록됐다.
+		SubTickTimeRemaining = TimeTick * (1.f - Hit.Time);
+		return EHandleBlockingHitResult::AdvanceNextSubstep;
+	}
+
+	return Super::HandleBlockingHit(Hit, TimeTick, MoveDelta, SubTickTimeRemaining);
+}
+
 AHBPlayerArrow::AHBPlayerArrow()
 {
 	bReplicates = true;
@@ -36,7 +51,8 @@ AHBPlayerArrow::AHBPlayerArrow()
 	MeshComp->SetupAttachment(CollisionComp);
 	MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-	MovementComp = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("Movement"));
+	// 관통 화살이 Pawn 을 지나가게 하려고 막힘 처리를 가로챈 이동 컴포넌트를 쓴다(이름은 그대로).
+	MovementComp = CreateDefaultSubobject<UHBArrowMovementComponent>(TEXT("Movement"));
 	MovementComp->UpdatedComponent = CollisionComp;
 	MovementComp->bRotationFollowsVelocity = true;
 	MovementComp->bShouldBounce = false;
@@ -63,11 +79,13 @@ void AHBPlayerArrow::PostInitializeComponents()
 	PickupSphere->SetSphereRadius(PickupRadius);
 }
 
-void AHBPlayerArrow::Launch(AHBPlayerCharacter* InShooter, const float InSpeed, const float InDamageCoef, const FDataTableRowHandle& InAmmoRow)
+void AHBPlayerArrow::Launch(AHBPlayerCharacter* InShooter, const float InSpeed, const float InDamageCoef, const FDataTableRowHandle& InAmmoRow, const FHBArrowLaunchOptions& Options)
 {
 	Shooter = InShooter;
 	DamageCoef = InDamageCoef;
 	AmmoItemRow = InAmmoRow;
+	PierceRemaining = FMath::Max(Options.MaxPierceCount, 0);
+	bSkillArrow = Options.bSkillArrow;
 	SetLifeSpan(ArrowLifeSpan);
 
 	if (InShooter)
@@ -102,17 +120,73 @@ void AHBPlayerArrow::OnHit(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveC
 	{
 		return;
 	}
+
+	// 관통 화살이 뚫고 지나가는 Pawn 이면 여기서 끝. 이동 컴포넌트가 멈추지 않고 계속 날린다.
+	if (TryPierce(Hit))
+	{
+		return;
+	}
+
 	bHasHit = true;
 
 	UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살 명중  대상=%s  컴포넌트=%s  본=%s"),
 		*GetNameSafe(OtherActor), *GetNameSafe(Hit.GetComponent()), *Hit.BoneName.ToString());
 
-	if (OtherActor && OtherActor != Shooter)
+	// 관통으로 이미 맞은 대상은 다시 피해를 주지 않는다.
+	if (OtherActor && OtherActor != Shooter && !HitActors.Contains(OtherActor))
 	{
+		HitActors.Add(OtherActor);
 		ApplyArrowDamage(OtherActor, Hit);
 	}
 
 	StickTo(OtherActor, Hit);
+}
+
+bool AHBPlayerArrow::TryPierce(const FHitResult& Hit)
+{
+	if (!HasAuthority() || bHasHit)
+	{
+		return false;
+	}
+
+	APawn* HitPawn = Cast<APawn>(Hit.GetActor());
+	if (!HitPawn || HitPawn == Shooter)
+	{
+		return false;
+	}
+
+	// 이미 뚫은 Pawn(OnHit 과 이동 컴포넌트가 같은 충돌로 두 번 부름 등) — 계속 지나간다.
+	if (PiercedActors.Contains(HitPawn))
+	{
+		return true;
+	}
+
+	if (PierceRemaining <= 0)
+	{
+		return false;
+	}
+
+	// 피해를 받을 수 있는 Pawn 만 관통 횟수를 쓴다. 시체·사망자처럼 피해를 거부하는 Pawn 은 횟수 없이 지나간다.
+	// 아군도 Damageable 이고 CanBeDamaged 가 true 면(팀킬 허용) 횟수를 쓴다.
+	const bool bCountsTowardLimit = Shooter && HitPawn->Implements<UDamageableInterface>()
+		&& IDamageableInterface::Execute_CanBeDamaged(HitPawn, Shooter);
+	if (bCountsTowardLimit)
+	{
+		--PierceRemaining;
+	}
+	PiercedActors.Add(HitPawn);
+
+	// 이 Pawn 의 모든 컴포넌트(캡슐·메시)를 이후 이동에서 무시한다. 남은 이동 시간은 같은 방향으로 계속 간다.
+	CollisionComp->IgnoreActorWhenMoving(HitPawn, true);
+
+	if (!HitActors.Contains(HitPawn))
+	{
+		HitActors.Add(HitPawn);
+		ApplyArrowDamage(HitPawn, Hit);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 화살 관통  대상=%s  남은 관통=%d  횟수소모=%d"), *GetNameSafe(HitPawn), PierceRemaining, bCountsTowardLimit ? 1 : 0);
+	return true;
 }
 
 void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
@@ -132,6 +206,11 @@ void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 	// 근접 판정과 같은 순서: 공격력 × 계수 → 패시브 보정 → 맞는 쪽에 수치만 넘김.
 	// 헤드샷은 맞는 쪽이 Hit 의 본으로 판단한다.
 	float FinalDamage = Shooter->GetAttackPower() * DamageCoef;
+	// 스킬 화살은 스킬 피해 배율(옵션)을 패시브 보정 전에 곱한다.
+	if (bSkillArrow)
+	{
+		FinalDamage *= Shooter->GetSkillDamageMultiplier();
+	}
 	FinalDamage = Shooter->ModifyOutgoingDamage(Target, FinalDamage);
 
 	IDamageableInterface::Execute_ApplyMeleeHit(Target, Shooter, FinalDamage, Hit, EHBDamageSource::Ranged);
@@ -141,7 +220,12 @@ void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 	const bool bKilled = TargetASC && TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
 	Shooter->NotifyDamageDealt(Target, FinalDamage, bKilled);
 
-	// 한 발이 맞으면 내구도 1. 빗나가면 안 닳는다(근접 헛스윙과 같다).
+	// 한 발이 맞으면 내구도 1. 빗나가면 안 닳는다(근접 헛스윙과 같다). 관통으로 여러 명 맞아도 한 발에 1.
+	if (bDurabilitySpent)
+	{
+		return;
+	}
+	bDurabilitySpent = true;
 	if (UEquipmentComponent* Equipment = Shooter->GetEquipment())
 	{
 		bool bJustBroke = false;

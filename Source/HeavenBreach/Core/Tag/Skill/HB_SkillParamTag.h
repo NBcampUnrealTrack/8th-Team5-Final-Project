@@ -42,6 +42,11 @@ namespace SkillParamTag
 	// 방패 강타 - 방어력의 몇 배를 공격력에 얹는가.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_ShieldRatio);
 
+	// 활 스킬 - 피해 배율, 범위(cm 최종값), 표식 받는 피해 증가(최종값).
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_Damage);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_Radius);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_MarkBonus);
+
 	// 패링 - 성공 시 대상이 받는 피해 증가율과 그 지속시간.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_MitigateBreak);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_MitigateTime);

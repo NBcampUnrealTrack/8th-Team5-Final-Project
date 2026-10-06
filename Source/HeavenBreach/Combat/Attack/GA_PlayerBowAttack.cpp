@@ -6,15 +6,13 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Combat/Attack/HBBowDraw.h"
+#include "Combat/Attack/HBBowShot.h"
 #include "Combat/Attack/HBPlayerArrow.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "EquipmentComponent.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/HBWeaponPresentation.h"
-#include "Camera/CameraComponent.h"
-#include "Inventory/InventoryComponent.h"
-#include "Player/HBPlayerController.h"
 #include "TimerManager.h"
 
 UGA_PlayerBowAttack::UGA_PlayerBowAttack()
@@ -74,23 +72,9 @@ void UGA_PlayerBowAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	}
 
 	// 화살이 없으면 당기지 않는다. 클라가 먼저 막고 안내를 띄우고, 서버도 같은 검사를 한다.
-	if (Player && !HasArrow(Player))
+	if (Player && !HBBowShot::HasArrow(Player, ArrowItemRow))
 	{
-		if (ActorInfo->IsLocallyControlled())
-		{
-			if (AHBPlayerController* PC = Player->GetController<AHBPlayerController>())
-			{
-				PC->ShowHudNotification(NoArrowMessage);
-			}
-		}
-		else if (ActorInfo->IsNetAuthority())
-		{
-			// 클라가 복제 지연으로 화살이 있다고 예측했다가 서버가 거절한 경우 — 소유 클라에 안내한다.
-			if (AHBPlayerController* PC = Player->GetController<AHBPlayerController>())
-			{
-				PC->ClientShowHudNotification(NoArrowMessage);
-			}
-		}
+		HBBowShot::NotifyNoArrow(Player, NoArrowMessage);
 		UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살 없음 — 당기기 취소  Auth=%d"), ActorInfo->IsNetAuthority() ? 1 : 0);
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
@@ -179,52 +163,17 @@ void UGA_PlayerBowAttack::OnReleased(const float TimeHeld)
 		AHBPlayerCharacter* Shooter = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
 
 		// 당기는 사이에 화살을 버렸으면 쏘지 않는다. 취소 동작으로 마무리.
-		if (!ConsumeArrow(Shooter))
+		if (!HBBowShot::ConsumeArrow(Shooter, ArrowItemRow))
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Bow] 발사 직전 화살 없음 — 취소"));
 			PlayFinishAndEnd(ActiveCancelMontage);
 			return;
 		}
 
-		SpawnArrow(Shooter, Shot.Speed, Shot.DamageCoef);
+		HBBowShot::SpawnArrow(Shooter, ArrowClass, Shot.Speed, Shot.DamageCoef, ArrowItemRow, AimTraceDistance, SpawnForwardOffset);
 	}
 
 	PlayFinishAndEnd(ActiveReleaseMontage);
-}
-
-void UGA_PlayerBowAttack::SpawnArrow(AHBPlayerCharacter* Player, const float Speed, const float DamageCoef)
-{
-	UWorld* World = GetWorld();
-	if (!Player || !World || !ArrowClass)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살을 만들 수 없음 (Player=%s ArrowClass=%s)"), *GetNameSafe(Player), *GetNameSafe(ArrowClass));
-		return;
-	}
-
-	// 화면 중앙(카메라)에서 조준점으로. 서버도 몸 포즈를 매 틱 갱신하므로(AlwaysTickPoseAndRefreshBones)
-	// 머리 뼈에 붙은 카메라 위치를 그대로 쓸 수 있다. 눈 높이(캡슐 기준)를 쓰면 화면과 어긋난다.
-	const UCameraComponent* Camera = Player->GetFirstPersonCamera();
-	const FVector CameraLocation = Camera ? Camera->GetComponentLocation() : Player->GetPawnViewLocation();
-	const FVector AimPoint = Player->ComputeAimPoint(AimTraceDistance);
-	const FVector AimDirection = (AimPoint - CameraLocation).GetSafeNormal();
-	if (AimDirection.IsNearlyZero())
-	{
-		return;
-	}
-	const FRotator EyeRotation = AimDirection.Rotation();
-
-	const FTransform SpawnTransform(EyeRotation, CameraLocation + AimDirection * SpawnForwardOffset);
-
-	AHBPlayerArrow* Arrow = World->SpawnActorDeferred<AHBPlayerArrow>(ArrowClass, SpawnTransform, Player, Player, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-	if (!Arrow)
-	{
-		return;
-	}
-	Arrow->FinishSpawning(SpawnTransform);
-	Arrow->Launch(Player, Speed, DamageCoef, ArrowItemRow);
-
-	UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살 스폰 %s  위치=%s  방향=%s"),
-		*GetNameSafe(Arrow), *SpawnTransform.GetLocation().ToCompactString(), *EyeRotation.ToCompactString());
 }
 
 void UGA_PlayerBowAttack::PlayFinishAndEnd(UAnimMontage* Montage)
@@ -311,28 +260,4 @@ void UGA_PlayerBowAttack::RemoveAttackSlow(const FGameplayAbilityActorInfo* Acto
 		ASC->RemoveActiveGameplayEffect(SlowHandle);
 	}
 	SlowHandle.Invalidate();
-}
-
-bool UGA_PlayerBowAttack::HasArrow(const AHBPlayerCharacter* Player) const
-{
-	if (ArrowItemRow.IsNull())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Bow] ArrowItemRow 가 비어 있어 화살을 쓰지 않음 (BP 에서 DT_Item/Arrow 지정)"));
-		return true;
-	}
-
-	const UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
-	return Inventory && Inventory->GetTotalGold(ArrowItemRow.RowName) > 0;
-}
-
-bool UGA_PlayerBowAttack::ConsumeArrow(AHBPlayerCharacter* Player) const
-{
-	if (ArrowItemRow.IsNull())
-	{
-		return true;
-	}
-
-	// 이름은 Gold 지만 아무 행이나 개수만큼 뺀다(서버 전용).
-	UInventoryComponent* Inventory = Player ? Player->GetInventory() : nullptr;
-	return Inventory && Inventory->ConsumeGold(ArrowItemRow, 1);
 }

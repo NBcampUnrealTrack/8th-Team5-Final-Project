@@ -29,6 +29,9 @@ public:
 	/** 가방에서 쓰는 화살 아이템 행. 비어 있으면 화살을 쓰지 않는다(무한) */
 	const FDataTableRowHandle& GetArrowItemRow() const { return ArrowItemRow; }
 
+	/** 쏘는 화살 클래스. 활 스킬이 자기 값이 비어 있을 때 이것을 빌려 쓴다(HBBowShot::ResolveArrowDefaults) */
+	TSubclassOf<AHBPlayerArrow> GetArrowClass() const { return ArrowClass; }
+
 protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
@@ -102,14 +105,7 @@ protected:
 	TSubclassOf<UGameplayEffect> AttackSlowEffect;
 
 private:
-	/** 가방에 화살이 1개 이상 있는지. 행이 비어 있으면 항상 true */
-	bool HasArrow(const AHBPlayerCharacter* Player) const;
-
-	/** 서버 전용. 화살 1개를 쓴다. 행이 비어 있으면 아무것도 안 쓰고 true */
-	bool ConsumeArrow(AHBPlayerCharacter* Player) const;
-
-	/** 서버 전용. 시선 방향으로 화살을 만든다 */
-	void SpawnArrow(AHBPlayerCharacter* Player, float Speed, float DamageCoef);
+	// 화살 확인·소모·발사는 활 스킬과 같이 쓰도록 HBBowShot 으로 옮겼다.
 
 	/** 발사·취소 뒤 마무리. 몽타주가 있으면 끝날 때, 없으면 ReleaseRecoveryTime 뒤에 끝낸다 */
 	void PlayFinishAndEnd(UAnimMontage* Montage);

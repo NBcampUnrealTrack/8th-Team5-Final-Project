@@ -6,14 +6,44 @@
 #include "Combat/Attack/HBArrowStuck.h"
 #include "Engine/DataTable.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/ProjectileMovementComponent.h"
 #include "Interaction/InteractableInterface.h"
 #include "HBPlayerArrow.generated.h"
 
 class USphereComponent;
 class UStaticMeshComponent;
-class UProjectileMovementComponent;
 class UNiagaraComponent;
 class AHBPlayerCharacter;
+
+/** 화살을 쏠 때 정하는 추가 옵션. 기본값은 활 기본공격(관통 없음, 스킬 아님)과 같다 */
+USTRUCT()
+struct FHBArrowLaunchOptions
+{
+	GENERATED_BODY()
+
+	/** 0 이면 첫 Pawn 에 박힌다. N 이면 Pawn 을 N 명까지 뚫고(그 N 명 모두 피해) 그 뒤 첫 충돌에 박힌다 */
+	UPROPERTY()
+	int32 MaxPierceCount = 0;
+
+	/** 스킬 화살: 피해에 GetSkillDamageMultiplier 를 곱한다 */
+	UPROPERTY()
+	bool bSkillArrow = false;
+};
+
+/**
+ * 화살 이동. 관통할 Pawn 에 막혔을 때 멈추거나 튕기지 않고 그대로 지나가게 한다.
+ * 엔진은 막힘 처리(HandleBlockingHit) 안에서 튕김 이벤트 뒤에 HandleDeflection 을 부르는데,
+ * 튕김 이벤트에서 속도를 원래대로 돌려도 "면을 파고드는 속도"로 보고 면을 따라 미끄러지게 바꾼다.
+ * 그래서 막힘 처리 자체를 가로채 AdvanceNextSubstep(이번 충돌 무시, 남은 시간 계속 이동)으로 넘긴다.
+ */
+UCLASS()
+class HEAVENBREACH_API UHBArrowMovementComponent : public UProjectileMovementComponent
+{
+	GENERATED_BODY()
+
+protected:
+	virtual EHandleBlockingHitResult HandleBlockingHit(const FHitResult& Hit, float TimeTick, const FVector& MoveDelta, float& SubTickTimeRemaining) override;
+};
 
 /**
  * 활 기본공격 화살. 서버가 스폰하고 서버만 피해를 준다.
@@ -31,8 +61,8 @@ public:
 
 	virtual void PostInitializeComponents() override;
 
-	/** 서버 전용. 쏜 사람·속도·피해 계수·회수 시 돌려줄 아이템 행을 정하고 날린다 */
-	void Launch(AHBPlayerCharacter* InShooter, float InSpeed, float InDamageCoef, const FDataTableRowHandle& InAmmoRow);
+	/** 서버 전용. 쏜 사람·속도·피해 계수·회수 시 돌려줄 아이템 행·관통/스킬 옵션을 정하고 날린다 */
+	void Launch(AHBPlayerCharacter* InShooter, float InSpeed, float InDamageCoef, const FDataTableRowHandle& InAmmoRow, const FHBArrowLaunchOptions& Options = FHBArrowLaunchOptions());
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -44,6 +74,13 @@ public:
 protected:
 	UFUNCTION()
 	void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
+
+	/**
+	 * 서버 전용. 이 충돌을 관통으로 처리할지 정하고, 처음 뚫는 Pawn 이면 피해·무시 등록까지 한다.
+	 * OnHit(컴포넌트 Hit 이벤트)과 이동 컴포넌트의 막힘 처리가 둘 다 부른다. 같은 충돌에 몇 번 불려도 피해는 한 번이다.
+	 * true 면 화살은 멈추지 않고 계속 날아간다.
+	 */
+	bool TryPierce(const FHitResult& Hit);
 
 	/** 대상에 피해를 준다. 벽·바닥이면 아무 일도 없다 */
 	void ApplyArrowDamage(AActor* Target, const FHitResult& Hit);
@@ -66,6 +103,8 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UProjectileMovementComponent> MovementComp;
+
+	friend class UHBArrowMovementComponent;
 
 	/** 날아가는 궤적. 에셋은 BP 에서 넣는다(비어 있으면 아무것도 안 보임). 박히면 꺼진다 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
@@ -119,6 +158,21 @@ private:
 
 	/** 한 발 = 한 번 명중. 같은 프레임에 두 번 들어와도 한 번만 처리한다 */
 	bool bHasHit = false;
+
+	/** 아직 더 뚫을 수 있는 Pawn 수. Launch 에서 Options.MaxPierceCount 로 정한다 */
+	int32 PierceRemaining = 0;
+
+	/** 스킬 화살이면 피해에 스킬 피해 배율을 곱한다 */
+	bool bSkillArrow = false;
+
+	/** 이미 피해를 준 대상. 캡슐·메시에 두 번 막혀도 한 번만 맞는다 */
+	TSet<TWeakObjectPtr<AActor>> HitActors;
+
+	/** 관통으로 지나간 Pawn. 다시 막혀도(같은 충돌로 두 번 불림 등) 계속 지나간다 */
+	TSet<TWeakObjectPtr<AActor>> PiercedActors;
+
+	/** 무기 내구도는 한 발에 한 번만 깎는다(관통으로 여러 명 맞아도) */
+	bool bDurabilitySpent = false;
 
 	/** 두 사람이 같은 프레임에 주워도 한 번만 준다 */
 	bool bPickedUp = false;
