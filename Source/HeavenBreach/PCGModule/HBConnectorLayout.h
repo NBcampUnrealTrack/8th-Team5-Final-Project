@@ -26,6 +26,13 @@ namespace HBConnectorLayout
 	HEAVENBREACH_API bool Validate(const TArray<FHBModuleCatalogEntry>& Catalog,
 		const TArray<FHBPrototypeRoom>& Rooms, FString& OutError);
 	HEAVENBREACH_API FTransform Align(const FTransform& ParentConnectorWorld, const FTransform& ChildConnectorLocal);
+	/** First overlapping pair in the existing box iteration order. Extents are half-sizes along the box axes. */
+	struct FOccupancyOverlap
+	{
+		int32 BoxAIndex = INDEX_NONE, BoxBIndex = INDEX_NONE;
+		FTransform BoxAWorld = FTransform::Identity, BoxBWorld = FTransform::Identity;
+		FVector ExtentA = FVector::ZeroVector, ExtentB = FVector::ZeroVector;
+	};
 	HEAVENBREACH_API bool OccupancyOverlaps(const FHBModuleCatalogEntry& A, const FTransform& TransformA,
-		const FHBModuleCatalogEntry& B, const FTransform& TransformB);
+		const FHBModuleCatalogEntry& B, const FTransform& TransformB, FOccupancyOverlap* OutOverlap = nullptr);
 }

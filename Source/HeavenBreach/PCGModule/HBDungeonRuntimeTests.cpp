@@ -43,10 +43,15 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     TArray<FHBPrototypeRoom> Rooms;
     TestFalse(TEXT("Empty layout rejected"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
     FHBPrototypeRoom Room;
-    Room.Id = 0; Room.ModuleId = TEXT("TestModule");
+    Room.Id = 0; Room.ModuleId = TEXT("TestModule"); Room.bIsStartRoom = true;
     Room.ModuleMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Engine/Maps/Entry.Entry")));
     Rooms.Add(Room);
     TestTrue(TEXT("Minimal authoritative layout accepted without catalog/rules"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[0].bIsStartRoom = false;
+    TestFalse(TEXT("Snapshot must identify the actual start"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[0] = Room; Rooms[0].Role = EHBPrototypeRoomRole::Boss;
+    TestFalse(TEXT("Snapshot cannot identify a boss as the start"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[0] = Room;
     Rooms[0].Id = 2;
     TestFalse(TEXT("Non-contiguous ID rejected before stream indexing"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
     Rooms[0] = Room; Rooms[0].ParentId = 0;
@@ -57,10 +62,13 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     TestFalse(TEXT("Root portal rejected before parent stream indexing"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
     Rooms[0] = Room;
     FHBPrototypeRoom Child = Room;
-    Child.Id = 1; Child.ParentId = 0; Child.Connection = EHBDungeonConnection::Portal;
+    Child.Id = 1; Child.ParentId = 0; Child.Connection = EHBDungeonConnection::Portal; Child.bIsStartRoom = false;
     Child.ParentPortalId = TEXT("Exit"); Child.EntryPortalId = TEXT("Entry");
     Rooms.Add(Child);
     TestTrue(TEXT("Distinct room portal endpoints accepted"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[1].bIsStartRoom = true;
+    TestFalse(TEXT("Snapshot cannot contain two actual start instances"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+    Rooms[1] = Child;
     Child.Id = 2; Rooms.Add(Child);
     TestFalse(TEXT("Reusing a parent portal endpoint rejected"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
     Rooms.SetNum(1);
@@ -82,6 +90,7 @@ bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
     TestTrue(TEXT("Authority publishes validated snapshot"), SnapshotState->PublishDungeonLayout(1, 42, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     Rooms[0].ModuleId = TEXT("ChangedAfterPublication");
     TestEqual(TEXT("Snapshot owns its room data"), SnapshotState->GetDungeonSnapshot().Rooms[0].ModuleId, Room.ModuleId);
+    TestTrue(TEXT("Snapshot retains the server-selected start instance"), SnapshotState->GetDungeonSnapshot().Rooms[0].bIsStartRoom);
     TestFalse(TEXT("Published generation is immutable"), SnapshotState->PublishDungeonLayout(1, 99, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     TestFalse(TEXT("Old generation rejected"), SnapshotState->PublishDungeonLayout(0, 99, Rooms, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     auto* Driver = NewObject<UIpNetDriver>(World);
@@ -147,7 +156,7 @@ bool FHBDungeonLoadAckTest::RunTest(const FString&)
     World->AddController(Player); // This fixture does not run engine player initialization.
     Player->PlayerState = World->SpawnActor<APlayerState>();
     FHBPrototypeRoom Room;
-    Room.Id = 0; Room.ModuleId = TEXT("TestModule");
+    Room.Id = 0; Room.ModuleId = TEXT("TestModule"); Room.bIsStartRoom = true;
     Room.ModuleMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Engine/Maps/Entry.Entry")));
     TestTrue(TEXT("Publish generation"), Source->PublishDungeonLayout(1, 42, {Room}, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     TestFalse(TEXT("Unknown controller rejected"), Mode->ReportDungeonLoaded(nullptr, 1, true));
@@ -213,7 +222,7 @@ bool FHBDungeonLifecycleBoundaryTest::RunTest(const FString&)
     auto* Source = World->SpawnActor<AHeavenBreachGameState>();
     World->SetGameState(Source);
     FHBPrototypeRoom Room;
-    Room.Id = 0; Room.ModuleId = TEXT("LifecycleModule");
+    Room.Id = 0; Room.ModuleId = TEXT("LifecycleModule"); Room.bIsStartRoom = true;
     Room.ModuleMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Engine/Maps/Entry.Entry")));
     TestTrue(TEXT("Publish the first lifecycle generation"), Source->PublishDungeonLayout(1, 42, {Room}, AHBDungeonDoorSeal::StaticClass(), FVector(30, 160, 220)));
     const FHBDungeonSnapshot OldLayout = Source->GetDungeonSnapshot();

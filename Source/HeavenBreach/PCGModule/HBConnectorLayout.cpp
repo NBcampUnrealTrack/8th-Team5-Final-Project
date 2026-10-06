@@ -214,12 +214,26 @@ bool HBConnectorLayout::ValidateCatalog(const TArray<FHBModuleCatalogEntry>& Cat
 }
 
 bool HBConnectorLayout::OccupancyOverlaps(const FHBModuleCatalogEntry& A, const FTransform& TransformA,
-	const FHBModuleCatalogEntry& B, const FTransform& TransformB)
+	const FHBModuleCatalogEntry& B, const FTransform& TransformB, FOccupancyOverlap* OutOverlap)
 {
+	if (OutOverlap) *OutOverlap = FOccupancyOverlap();
 	if (!A.Bounds.TransformBy(TransformA).Intersect(B.Bounds.TransformBy(TransformB))) { return false; }
-	for (const auto& BoxA : A.Occupancy)
-		for (const auto& BoxB : B.Occupancy)
-			if (BoxesOverlap(WorldBox(BoxA,TransformA), WorldBox(BoxB,TransformB))) { return true; }
+	for (int32 IndexA = 0; IndexA < A.Occupancy.Num(); ++IndexA)
+		for (int32 IndexB = 0; IndexB < B.Occupancy.Num(); ++IndexB)
+		{
+			const auto& BoxA = A.Occupancy[IndexA]; const auto& BoxB = B.Occupancy[IndexB];
+			if (BoxesOverlap(WorldBox(BoxA,TransformA), WorldBox(BoxB,TransformB)))
+			{
+				if (OutOverlap)
+				{
+					OutOverlap->BoxAIndex = IndexA; OutOverlap->BoxBIndex = IndexB;
+					OutOverlap->BoxAWorld = BoxA.LocalTransform * TransformA;
+					OutOverlap->BoxBWorld = BoxB.LocalTransform * TransformB;
+					OutOverlap->ExtentA = BoxA.Extent; OutOverlap->ExtentB = BoxB.Extent;
+				}
+				return true;
+			}
+		}
 	return false;
 }
 
