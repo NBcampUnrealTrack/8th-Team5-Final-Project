@@ -1,5 +1,6 @@
 #include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBEncounterSetupActor.h"
+#include "PCGModule/HBSpawnDiagnostics.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "AI/EnemyCharacterBase.h"
 #include "Engine/World.h"
@@ -275,6 +276,138 @@ bool FHBEncounterSelectionTest::RunTest(const FString&)
 	{
 		TestEqual(TEXT("Boss point ID"), Placed[0].PointId, Points.Last()->PointId);
 		TestEqual(TEXT("Boss grade"), Placed[0].Grade, EHBEncounterGrade::Boss);
+	}
+	World->DestroyWorld(false);
+	GEngine->DestroyWorldContext(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterFailureDiagnosticsTest,
+	"HeavenBreach.PCGModule.Encounter.FailureDiagnostics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBEncounterFailureDiagnosticsTest::RunTest(const FString&)
+{
+	UClass* NativeClass = AEnemyCharacterBase::StaticClass();
+	UClass* BladeClass = LoadClass<AEnemyCharacterBase>(nullptr,
+		TEXT("/Game/Monsters/Remnant_Blade/Blueprint/BP_Remnant_Blade.BP_Remnant_Blade_C"));
+	if (!TestNotNull(TEXT("Existing blade class is available for class attribution"), BladeClass)) return false;
+	const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(false)
+		.RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr,
+		true, ERHIFeatureLevel::Num, &Init);
+	GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+	TArray<AHBEnemySpawnPoint*> Points;
+	for (const TCHAR* Id : {TEXT("A_Required"), TEXT("B_Required"), TEXT("C_FirstFill"), TEXT("D_LastFill")})
+	{
+		auto* Point = World->SpawnActor<AHBEnemySpawnPoint>();
+		Point->PointId = FName(Id);
+		Point->GroupId = Points.Num() == 0 || Points.Num() == 2 ? TEXT("First") : TEXT("Last");
+		Point->bRequired = Points.Num() < 2;
+		if (!Points.IsEmpty()) Point->AllowedClasses.Add(NativeClass);
+		Points.Add(Point);
+	}
+	UHBEncounterComponent* Config = NewObject<UHBEncounterComponent>(GetTransientPackage());
+	FHBEncounterGroup First;
+	First.GroupId = TEXT("First");
+	First.MinCount = First.MaxCount = 1;
+	First.Monsters = {{NativeClass, 1}, {BladeClass, 2}};
+	FHBEncounterGroup Last = First;
+	Last.GroupId = TEXT("Last");
+	Config->Groups = {First, Last};
+	TArray<FString> ConfigErrors;
+	if (!TestTrue(TEXT("Diagnostic fixture has valid monster settings"), Config->Validate(ConfigErrors)))
+	{
+		AddError(FString::Join(ConfigErrors, TEXT("; ")));
+		World->DestroyWorld(false);
+		GEngine->DestroyWorldContext(World);
+		return false;
+	}
+	TArray<FHBEncounterSpawnChoice> Placed;
+	FString Error;
+	FHBSpawnSelectionReport Report;
+	int32 Calls = 0;
+	bool bRejectB = true;
+	auto RejectRequired = [&](const FHBEncounterSpawnChoice& Choice, FString& Reason)
+	{
+		++Calls;
+		if (Choice.Point == Points[0])
+		{
+			Reason = Choice.EnemyClass.Get() == NativeClass ? TEXT("A-native-floor") : TEXT("A-blade-capsule");
+			return false;
+		}
+		if (bRejectB && Choice.Point == Points[1]) { Reason = TEXT("B-unreachable-entry"); return false; }
+		return true;
+	};
+	TestFalse(TEXT("A remains required after other points fill both group minima"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestTrue(TEXT("Required failure is separate from minimum failure"),
+		Report.FailureReason == EHBSpawnFailureReason::RequiredPointUnfilled && Report.FailedPointId == Points[0]->PointId);
+	TestEqual(TEXT("Recording failures adds no placement attempts"), Calls, 5);
+	TestEqual(TEXT("Other points satisfy both group minima"), Placed.Num(), 2);
+	TestTrue(TEXT("A keeps both of its class failures"), Error.Contains(TEXT("A-native-floor")) && Error.Contains(TEXT("A-blade-capsule")));
+	TestFalse(TEXT("A's final failure does not borrow B's reason"), Error.Contains(TEXT("B-unreachable-entry")));
+	TestEqual(TEXT("A has one record for each attempted class"), Report.Points.FindChecked(Points[0]->PointId).ClassFailures.Num(), 2);
+	TestTrue(TEXT("Class paths identify both failures"), Error.Contains(NativeClass->GetPathName()) && Error.Contains(BladeClass->GetPathName()));
+	bRejectB = false;
+	Calls = 0;
+	TestFalse(TEXT("A's failure also survives B succeeding"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestEqual(TEXT("Report is reset on reuse"), Report.Points.FindChecked(Points[1]->PointId).ClassFailures.Num(), 0);
+	TestEqual(TEXT("A retries each configured class only once"), Calls, 4);
+
+	auto RejectLastGroup = [&](const FHBEncounterSpawnChoice& Choice, FString& Reason)
+	{
+		if (Choice.Point->GroupId == Last.GroupId) { Reason = TEXT("Last-group-spacing"); return false; }
+		return RejectRequired(Choice, Reason);
+	};
+	TestFalse(TEXT("A later group's minimum failure keeps the original failure priority"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectLastGroup, Placed, Error, &Report));
+	TestTrue(TEXT("Minimum failure names its group instead of a required point"),
+		Report.FailureReason == EHBSpawnFailureReason::MinCountNotMet && Report.FailedGroupId == Last.GroupId && Report.FailedPointId.IsNone());
+	TestTrue(TEXT("Minimum failure contains only this group's details"), Error.Contains(TEXT("Last-group-spacing")) && !Error.Contains(TEXT("A-native-floor")));
+	TestTrue(TEXT("Minimum, target and placed counts are recorded"),
+		Report.Groups.Last().MinCount == 1 && Report.Groups.Last().Target == 1 && Report.Groups.Last().Placed == 0);
+
+	Config->Groups[0].Monsters = {{NativeClass, 1}};
+	Points[0]->AllowedClasses = {BladeClass};
+	Calls = 0;
+	TestFalse(TEXT("A with no compatible class remains unfilled"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestTrue(TEXT("No compatible class is reported without guessing a placement reason"), Error.Contains(TEXT("NoCompatibleClass")) && !Error.Contains(TEXT("A-native-floor")));
+	TestEqual(TEXT("An incompatible point never invokes placement"), Calls, 2);
+	TestTrue(TEXT("No class attempt is invented"), Report.Points.FindChecked(Points[0]->PointId).ClassFailures.IsEmpty());
+	Points[0]->AllowedClasses.Reset();
+	Points[0]->GroupId = TEXT("MissingGroup");
+	TestFalse(TEXT("A required point with no matching group fails"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestTrue(TEXT("Group filtering explains a point not attempted"), Error.Contains(TEXT("GroupMismatch")));
+	Points[0]->GroupId = First.GroupId;
+	Points[0]->bAllowCommon = false;
+	TestFalse(TEXT("A required point with no allowed grade fails"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestTrue(TEXT("Grade filtering explains a point not attempted"), Error.Contains(TEXT("GradeMismatch")));
+	Points[0]->bAllowCommon = true;
+	Points[2]->bRequired = true;
+	auto Accept = [](const FHBEncounterSpawnChoice&, FString&) { return true; };
+	TestFalse(TEXT("Reaching target does not waive another required point"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 11, Accept, Placed, Error, &Report));
+	TestTrue(TEXT("Target-skipped required point is identified"), Error.Contains(TEXT("TargetReached")));
+	TestTrue(TEXT("Target-skipped point has no invented placement failure"), Report.Points.FindChecked(Report.FailedPointId).ClassFailures.IsEmpty());
+	Points[2]->bRequired = false;
+	Config->Groups[0] = First;
+	auto Signature = [](const TArray<FHBEncounterSpawnChoice>& Choices)
+	{
+		FString Result;
+		for (const auto& Choice : Choices) Result += Choice.PointId.ToString() + TEXT(":") + Choice.EnemyClass->GetPathName() + TEXT("|");
+		return Result;
+	};
+	for (int32 Seed = 1; Seed <= 8; ++Seed)
+	{
+		TestTrue(TEXT("Legacy call without a report succeeds"), HBEncounterSelection::SelectAndPlace(*Config, Points, Seed, 11, Accept, Placed, Error));
+		const FString Expected = Signature(Placed);
+		TestTrue(TEXT("Optional report call succeeds"), HBEncounterSelection::SelectAndPlace(*Config, Points, Seed, 11, Accept, Placed, Error, &Report));
+		TestEqual(TEXT("Optional report preserves class, point and quantity draws"), Signature(Placed), Expected);
+		TestTrue(TEXT("Successful reuse clears the aggregate failure"), Report.FailureReason == EHBSpawnFailureReason::None && Report.FailedPointId.IsNone());
 	}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);

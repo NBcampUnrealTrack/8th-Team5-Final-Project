@@ -1,5 +1,6 @@
 #include "PCGModule/HBChestSpawnSubsystem.h"
 #include "PCGModule/HBChestSetupActor.h"
+#include "PCGModule/HBSpawnDiagnostics.h"
 #include "PCGModule/HBChestSpawnPoint.h"
 #include "Loot/BoxActor.h"
 #include "Components/StaticMeshComponent.h"
@@ -226,6 +227,130 @@ bool FHBChestSpawnSelectionTest::RunTest(const FString&)
 		TestFalse(TEXT("Duplicate point IDs are rejected"),
 			HBChestSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
 		TestTrue(TEXT("Duplicate ID explains the failure"), Error.Contains(TEXT("unique")));
+	}
+	World->DestroyWorld(false);
+	GEngine->DestroyWorldContext(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestFailureDiagnosticsTest,
+	"HeavenBreach.PCGModule.ChestSpawn.FailureDiagnostics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBChestFailureDiagnosticsTest::RunTest(const FString&)
+{
+	UClass* NativeClass = ABoxActor::StaticClass();
+	UClass* RareClass = LoadClass<ABoxActor>(nullptr, TEXT("/Game/Loot/Blueprints/BP_Box_Rare.BP_Box_Rare_C"));
+	if (!TestNotNull(TEXT("Existing rare class is available for class attribution"), RareClass)) return false;
+	const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(false)
+		.RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr,
+		true, ERHIFeatureLevel::Num, &Init);
+	GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+	TArray<AHBChestSpawnPoint*> Points;
+	for (const TCHAR* Id : {TEXT("A_Required"), TEXT("B_Required"), TEXT("C_FirstFill"), TEXT("D_LastFill")})
+	{
+		auto* Point = World->SpawnActor<AHBChestSpawnPoint>();
+		Point->PointId = FName(Id);
+		Point->GroupId = Points.Num() == 0 || Points.Num() == 2 ? TEXT("First") : TEXT("Last");
+		Point->bRequired = Points.Num() < 2;
+		if (!Points.IsEmpty()) Point->AllowedClasses.Add(NativeClass);
+		Points.Add(Point);
+	}
+	UHBChestPlacementComponent* Config = NewObject<UHBChestPlacementComponent>(GetTransientPackage());
+	FHBChestPlacementGroup First;
+	First.GroupId = TEXT("First");
+	First.MinCount = First.MaxCount = 1;
+	First.Chests = {{NativeClass, 1}, {RareClass, 2}};
+	FHBChestPlacementGroup Last = First;
+	Last.GroupId = TEXT("Last");
+	Config->Groups = {First, Last};
+	TArray<FString> ConfigErrors;
+	if (!TestTrue(TEXT("Diagnostic fixture has valid chest settings"), Config->Validate(ConfigErrors)))
+	{
+		AddError(FString::Join(ConfigErrors, TEXT("; ")));
+		World->DestroyWorld(false);
+		GEngine->DestroyWorldContext(World);
+		return false;
+	}
+	TArray<FHBChestSpawnChoice> Placed;
+	FString Error;
+	FHBSpawnSelectionReport Report;
+	int32 Calls = 0;
+	bool bRejectB = true;
+	auto RejectRequired = [&](const FHBChestSpawnChoice& Choice, FString& Reason)
+	{
+		++Calls;
+		if (Choice.Point == Points[0])
+		{
+			Reason = Choice.ChestClass.Get() == NativeClass ? TEXT("A-native-floor") : TEXT("A-rare-collision");
+			return false;
+		}
+		if (bRejectB && Choice.Point == Points[1]) { Reason = TEXT("B-approach-path"); return false; }
+		return true;
+	};
+	TestFalse(TEXT("Other chest points cannot substitute for required A"),
+		HBChestSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestTrue(TEXT("Required chest failure has its own typed reason"),
+		Report.FailureReason == EHBSpawnFailureReason::RequiredPointUnfilled && Report.FailedPointId == Points[0]->PointId);
+	TestEqual(TEXT("Chest diagnostics add no placement attempts"), Calls, 5);
+	TestEqual(TEXT("Other chests satisfy both group minima"), Placed.Num(), 2);
+	TestTrue(TEXT("Required chest error contains both of A's class failures"), Error.Contains(TEXT("A-native-floor")) && Error.Contains(TEXT("A-rare-collision")));
+	TestFalse(TEXT("A never borrows B's chest error"), Error.Contains(TEXT("B-approach-path")));
+	TestEqual(TEXT("Chest class failures remain associated with A"), Report.Points.FindChecked(Points[0]->PointId).ClassFailures.Num(), 2);
+	TestTrue(TEXT("Both chest class paths are reported"), Error.Contains(NativeClass->GetPathName()) && Error.Contains(RareClass->GetPathName()));
+	bRejectB = false;
+	Calls = 0;
+	TestFalse(TEXT("Required A still reports its cause after B succeeds"),
+		HBChestSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestEqual(TEXT("Reused chest report drops B's old failure"), Report.Points.FindChecked(Points[1]->PointId).ClassFailures.Num(), 0);
+	TestEqual(TEXT("Each rejected chest class is attempted once"), Calls, 4);
+	auto RejectLastGroup = [&](const FHBChestSpawnChoice& Choice, FString& Reason)
+	{
+		if (Choice.Point->GroupId == Last.GroupId) { Reason = TEXT("Last-group-spacing"); return false; }
+		return RejectRequired(Choice, Reason);
+	};
+	TestFalse(TEXT("Chest minimum failure keeps priority over final required checks"),
+		HBChestSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectLastGroup, Placed, Error, &Report));
+	TestTrue(TEXT("Chest minimum failure identifies its own group"),
+		Report.FailureReason == EHBSpawnFailureReason::MinCountNotMet && Report.FailedGroupId == Last.GroupId && Report.FailedPointId.IsNone());
+	TestTrue(TEXT("Chest group failure excludes other groups' details"), Error.Contains(TEXT("Last-group-spacing")) && !Error.Contains(TEXT("A-native-floor")));
+	TestTrue(TEXT("Chest minimum, target and placed counts are recorded"),
+		Report.Groups.Last().MinCount == 1 && Report.Groups.Last().Target == 1 && Report.Groups.Last().Placed == 0);
+	Config->Groups[0].Chests = {{NativeClass, 1}};
+	Points[0]->AllowedClasses = {RareClass};
+	Calls = 0;
+	TestFalse(TEXT("An incompatible required chest stays unfilled"),
+		HBChestSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestTrue(TEXT("No compatible chest class is explicit"), Error.Contains(TEXT("NoCompatibleClass")) && !Error.Contains(TEXT("A-native-floor")));
+	TestEqual(TEXT("No placement call is made for an incompatible chest point"), Calls, 2);
+	TestTrue(TEXT("No chest attempt is fabricated"), Report.Points.FindChecked(Points[0]->PointId).ClassFailures.IsEmpty());
+	Points[0]->AllowedClasses.Reset();
+	Points[0]->GroupId = TEXT("MissingGroup");
+	TestFalse(TEXT("A mismatched required chest group fails"),
+		HBChestSelection::SelectAndPlace(*Config, Points, 12345, 11, RejectRequired, Placed, Error, &Report));
+	TestTrue(TEXT("Unattempted chest group mismatch is explicit"), Error.Contains(TEXT("GroupMismatch")));
+	Points[0]->GroupId = First.GroupId;
+	Points[2]->bRequired = true;
+	auto Accept = [](const FHBChestSpawnChoice&, FString&) { return true; };
+	TestFalse(TEXT("Chest target does not waive required points"),
+		HBChestSelection::SelectAndPlace(*Config, Points, 12345, 11, Accept, Placed, Error, &Report));
+	TestTrue(TEXT("A target-skipped required chest is explicit"), Error.Contains(TEXT("TargetReached")));
+	TestTrue(TEXT("No failure is invented for an unattempted chest"), Report.Points.FindChecked(Report.FailedPointId).ClassFailures.IsEmpty());
+	Points[2]->bRequired = false;
+	Config->Groups[0] = First;
+	auto Signature = [](const TArray<FHBChestSpawnChoice>& Choices)
+	{
+		FString Result;
+		for (const auto& Choice : Choices) Result += Choice.PointId.ToString() + TEXT(":") + Choice.ChestClass->GetPathName() + TEXT("|");
+		return Result;
+	};
+	for (int32 Seed = 1; Seed <= 8; ++Seed)
+	{
+		TestTrue(TEXT("Legacy chest call succeeds"), HBChestSelection::SelectAndPlace(*Config, Points, Seed, 11, Accept, Placed, Error));
+		const FString Expected = Signature(Placed);
+		TestTrue(TEXT("Optional chest report succeeds"), HBChestSelection::SelectAndPlace(*Config, Points, Seed, 11, Accept, Placed, Error, &Report));
+		TestEqual(TEXT("Chest report preserves seeded class, point and quantity draws"), Signature(Placed), Expected);
+		TestTrue(TEXT("Successful chest reuse clears aggregate failures"), Report.FailureReason == EHBSpawnFailureReason::None && Report.FailedPointId.IsNone());
 	}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);

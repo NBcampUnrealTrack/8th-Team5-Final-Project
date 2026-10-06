@@ -1,5 +1,6 @@
 ﻿#include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBSpawnGroundQuery.h"
+#include "PCGModule/HBSpawnDiagnostics.h"
 #include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
@@ -58,12 +59,14 @@ namespace
 
 	bool TryOptionsAtPoint(const AHBEnemySpawnPoint& Point, const FHBEncounterGroup& Group,
 		FRandomStream& Random, TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
-		FHBEncounterSpawnChoice& OutChoice, FString& LastFailure)
+		FHBEncounterSpawnChoice& OutChoice, FHBSpawnSelectionReport& Report)
 	{
 		TArray<FHBEncounterMonsterOption> Remaining;
 		for (const FHBEncounterMonsterOption& Option : Group.Monsters)
 			if (Option.EnemyClass && Option.Weight > 0 && AllowsClass(Point, Option.EnemyClass.Get()))
 				Remaining.Add(Option);
+		if (Remaining.IsEmpty())
+			Report.RecordSkip(Point.PointId, Group.GroupId, EHBSpawnFailureReason::NoCompatibleClass);
 		while (!Remaining.IsEmpty())
 		{
 			int32 TotalWeight = 0;
@@ -80,7 +83,7 @@ namespace
 			Remaining.RemoveAt(Pick);
 			FString Reason;
 			if (TryPlace(Choice, Reason)) { OutChoice = Choice; return true; }
-			LastFailure = FString::Printf(TEXT("Point %s: %s"), *Point.PointId.ToString(), *Reason);
+			Report.RecordClassFailure(Point.PointId, Group.GroupId, Choice.EnemyClass->GetPathName(), Reason);
 		}
 		return false;
 	}
@@ -89,14 +92,20 @@ namespace
 bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 	const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 	TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
-	TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError)
+	TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport)
 {
 	OutPlaced.Reset();
 	OutError.Reset();
+	FHBSpawnSelectionReport LocalReport;
+	FHBSpawnSelectionReport& Report = OutReport ? *OutReport : LocalReport;
+	Report = FHBSpawnSelectionReport();
+	Report.RoomId = RoomId;
+	Report.DungeonSeed = DungeonSeed;
 	TArray<FString> ConfigErrors;
 	if (!Config.Validate(ConfigErrors))
 	{
 		OutError = FString::Join(ConfigErrors, TEXT("; "));
+		Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
 		return false;
 	}
 	TArray<AHBEnemySpawnPoint*> SortedPoints = Points;
@@ -111,14 +120,15 @@ bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 		if (Point->PointId.IsNone() || AllIds.Contains(Point->PointId))
 		{
 			OutError = TEXT("Spawn Point IDs must be nonempty and unique within the room instance.");
+			Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
 			return false;
 		}
 		AllIds.Add(Point->PointId);
+		Report.AddPoint(Point->PointId, Point->bRequired);
 	}
 	FRandomStream Random(MakeRoomSeed(DungeonSeed, RoomId));
 	TSet<FName> UsedIds;
 	TMap<FName, int32> PlacedByGroup;
-	FString LastFailure;
 	for (EHBEncounterGrade Grade : {EHBEncounterGrade::Boss, EHBEncounterGrade::Elite, EHBEncounterGrade::Common})
 	{
 		for (const FHBEncounterGroup& Group : Config.Groups)
@@ -129,50 +139,83 @@ bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 			if (bConditionSpawned)
 			{
 				if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, EHBSpawnCountSelectionMode::Weighted,
-					Group.CountWeightsIfConditionSpawned, Random, Target, OutError)) return false;
+					Group.CountWeightsIfConditionSpawned, Random, Target, OutError))
+				{
+					Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
+					return false;
+				}
 			}
 			else if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, Group.CountSelectionMode,
-				Group.CountWeights, Random, Target, OutError)) return false;
+				Group.CountWeights, Random, Target, OutError))
+			{
+				Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
+				return false;
+			}
+			FHBSpawnGroupReport& GroupReport = Report.Groups.AddDefaulted_GetRef();
+			GroupReport.GroupId = Group.GroupId;
+			GroupReport.MinCount = Group.MinCount;
+			GroupReport.Target = Target;
 			TArray<AHBEnemySpawnPoint*> Required;
 			TArray<AHBEnemySpawnPoint*> Optional;
 			for (AHBEnemySpawnPoint* Point : SortedPoints)
 			{
-				if (UsedIds.Contains(Point->PointId) || !AllowsGrade(*Point, Grade)
-					|| (!Point->GroupId.IsNone() && Point->GroupId != Group.GroupId)) continue;
+				if (UsedIds.Contains(Point->PointId)) continue;
+				if (!AllowsGrade(*Point, Grade))
+				{
+					Report.RecordSkip(Point->PointId, Group.GroupId, EHBSpawnFailureReason::GradeMismatch);
+					continue;
+				}
+				if (!Point->GroupId.IsNone() && Point->GroupId != Group.GroupId)
+				{
+					Report.RecordSkip(Point->PointId, Group.GroupId, EHBSpawnFailureReason::GroupMismatch);
+					continue;
+				}
 				(Point->bRequired ? Required : Optional).Add(Point);
 			}
 			ShufflePoints(Required, Random);
 			ShufflePoints(Optional, Random);
 			Required.Append(Optional);
 			int32 Placed = 0;
-			for (AHBEnemySpawnPoint* Point : Required)
+			for (int32 PointIndex = 0; PointIndex < Required.Num(); ++PointIndex)
 			{
-				if (Placed >= Target) break;
+				if (Placed >= Target)
+				{
+					for (int32 SkippedIndex = PointIndex; SkippedIndex < Required.Num(); ++SkippedIndex)
+						Report.RecordSkip(Required[SkippedIndex]->PointId, Group.GroupId, EHBSpawnFailureReason::TargetReached);
+					break;
+				}
+				AHBEnemySpawnPoint* Point = Required[PointIndex];
 				FHBEncounterSpawnChoice Choice;
-				if (TryOptionsAtPoint(*Point, Group, Random, TryPlace, Choice, LastFailure))
+				if (TryOptionsAtPoint(*Point, Group, Random, TryPlace, Choice, Report))
 				{
 					OutPlaced.Add(Choice);
 					UsedIds.Add(Choice.PointId);
+					Report.RecordPlaced(Choice.PointId);
 					++Placed;
 				}
 			}
 			PlacedByGroup.Add(Group.GroupId, Placed);
+			GroupReport.Placed = Placed;
 			if (Placed < Group.MinCount)
 			{
-				OutError = FString::Printf(TEXT("Room %d group %s placed %d of required %d. %s"),
-					RoomId, *Group.GroupId.ToString(), Placed, Group.MinCount, *LastFailure);
+				Report.FailureReason = GroupReport.FailureReason = EHBSpawnFailureReason::MinCountNotMet;
+				Report.FailedGroupId = Group.GroupId;
+				OutError = FString::Printf(TEXT("Room %d group %s placed %d of required %d. FailureReason=MinCountNotMet Target=%d Seed=%d %s"),
+					RoomId, *Group.GroupId.ToString(), Placed, Group.MinCount, Target, DungeonSeed,
+					*Report.FormatGroupResults(Group.GroupId));
 				return false;
 			}
 			if (Placed < Target)
 				UE_LOG(LogHBEncounterSubsystem, Warning, TEXT("Room %d group %s placed %d of selected %d. %s"),
-					RoomId, *Group.GroupId.ToString(), Placed, Target, *LastFailure);
+					RoomId, *Group.GroupId.ToString(), Placed, Target, *Report.FormatGroupResults(Group.GroupId));
 		}
 	}
 	for (const AHBEnemySpawnPoint* Point : SortedPoints)
 		if (Point->bRequired && !UsedIds.Contains(Point->PointId))
 		{
-			OutError = FString::Printf(TEXT("Room %d required point %s was not filled. %s"),
-				RoomId, *Point->PointId.ToString(), *LastFailure);
+			Report.FailureReason = EHBSpawnFailureReason::RequiredPointUnfilled;
+			Report.FailedPointId = Point->PointId;
+			OutError = Report.FormatRequiredFailure(Point->PointId, false);
 			return false;
 		}
 	return true;

@@ -9,6 +9,7 @@ class AEnemyCharacterBase;
 class AHBEnemySpawnPoint;
 class AHBEncounterSetupActor;
 class ULevel;
+struct FHBSpawnSelectionReport;
 
 struct FHBEncounterSpawnChoice
 {
@@ -25,7 +26,7 @@ namespace HBEncounterSelection
 	HEAVENBREACH_API bool SelectAndPlace(const UHBEncounterComponent& Config,
 		const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 		TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
-		TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError);
+		TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport = nullptr);
 }
 
 namespace HBEncounterPlacement

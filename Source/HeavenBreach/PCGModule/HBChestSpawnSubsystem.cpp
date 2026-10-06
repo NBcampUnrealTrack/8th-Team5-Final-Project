@@ -1,5 +1,6 @@
 ﻿#include "PCGModule/HBChestSpawnSubsystem.h"
 #include "PCGModule/HBSpawnGroundQuery.h"
+#include "PCGModule/HBSpawnDiagnostics.h"
 #include "PCGModule/HBChestSetupActor.h"
 #include "PCGModule/HBChestSpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
@@ -68,12 +69,14 @@ namespace
 
 	bool TryOptionsAtPoint(const AHBChestSpawnPoint& Point, const FHBChestPlacementGroup& Group,
 		FRandomStream& Random, TFunctionRef<bool(const FHBChestSpawnChoice&, FString&)> TryPlace,
-		FHBChestSpawnChoice& OutChoice, FString& LastFailure)
+		FHBChestSpawnChoice& OutChoice, FHBSpawnSelectionReport& Report)
 	{
 		TArray<FHBChestClassOption> Remaining;
 		for (const FHBChestClassOption& Option : Group.Chests)
 			if (Option.ChestClass && Option.Weight > 0 && AllowsClass(Point, Option.ChestClass.Get()))
 				Remaining.Add(Option);
+		if (Remaining.IsEmpty())
+			Report.RecordSkip(Point.PointId, Group.GroupId, EHBSpawnFailureReason::NoCompatibleClass);
 		while (!Remaining.IsEmpty())
 		{
 			int32 TotalWeight = 0;
@@ -90,7 +93,7 @@ namespace
 			Remaining.RemoveAt(Pick);
 			FString Reason;
 			if (TryPlace(Choice, Reason)) { OutChoice = Choice; return true; }
-			LastFailure = FString::Printf(TEXT("Point %s: %s"), *Point.PointId.ToString(), *Reason);
+			Report.RecordClassFailure(Point.PointId, Group.GroupId, Choice.ChestClass->GetPathName(), Reason);
 		}
 		return false;
 	}
@@ -99,14 +102,20 @@ namespace
 bool HBChestSelection::SelectAndPlace(const UHBChestPlacementComponent& Config,
 	const TArray<AHBChestSpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 	TFunctionRef<bool(const FHBChestSpawnChoice&, FString&)> TryPlace,
-	TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError)
+	TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport)
 {
 	OutPlaced.Reset();
 	OutError.Reset();
+	FHBSpawnSelectionReport LocalReport;
+	FHBSpawnSelectionReport& Report = OutReport ? *OutReport : LocalReport;
+	Report = FHBSpawnSelectionReport();
+	Report.RoomId = RoomId;
+	Report.DungeonSeed = DungeonSeed;
 	TArray<FString> ConfigErrors;
 	if (!Config.Validate(ConfigErrors))
 	{
 		OutError = FString::Join(ConfigErrors, TEXT("; "));
+		Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
 		return false;
 	}
 	TArray<AHBChestSpawnPoint*> SortedPoints = Points;
@@ -121,9 +130,11 @@ bool HBChestSelection::SelectAndPlace(const UHBChestPlacementComponent& Config,
 		if (Point->PointId.IsNone() || AllIds.Contains(Point->PointId))
 		{
 			OutError = TEXT("Chest Spawn Point IDs must be nonempty and unique within the room instance.");
+			Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
 			return false;
 		}
 		AllIds.Add(Point->PointId);
+		Report.AddPoint(Point->PointId, Point->bRequired);
 	}
 	FRandomStream Random(MakeChestRoomSeed(DungeonSeed, RoomId));
 	TSet<FName> UsedIds;
@@ -131,46 +142,69 @@ bool HBChestSelection::SelectAndPlace(const UHBChestPlacementComponent& Config,
 	{
 		int32 Target = 0;
 		if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, Group.CountSelectionMode,
-			Group.CountWeights, Random, Target, OutError)) return false;
+			Group.CountWeights, Random, Target, OutError))
+		{
+			Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
+			return false;
+		}
+		FHBSpawnGroupReport& GroupReport = Report.Groups.AddDefaulted_GetRef();
+		GroupReport.GroupId = Group.GroupId;
+		GroupReport.MinCount = Group.MinCount;
+		GroupReport.Target = Target;
 		TArray<AHBChestSpawnPoint*> Required;
 		TArray<AHBChestSpawnPoint*> Optional;
 		for (AHBChestSpawnPoint* Point : SortedPoints)
 		{
-			if (UsedIds.Contains(Point->PointId)
-				|| (!Point->GroupId.IsNone() && Point->GroupId != Group.GroupId)) continue;
+			if (UsedIds.Contains(Point->PointId)) continue;
+			if (!Point->GroupId.IsNone() && Point->GroupId != Group.GroupId)
+			{
+				Report.RecordSkip(Point->PointId, Group.GroupId, EHBSpawnFailureReason::GroupMismatch);
+				continue;
+			}
 			(Point->bRequired ? Required : Optional).Add(Point);
 		}
 		ShufflePoints(Required, Random);
 		ShufflePoints(Optional, Random);
 		Required.Append(Optional);
 		int32 Placed = 0;
-		FString LastFailure;
-		for (AHBChestSpawnPoint* Point : Required)
+		for (int32 PointIndex = 0; PointIndex < Required.Num(); ++PointIndex)
 		{
-			if (Placed >= Target) break;
+			if (Placed >= Target)
+			{
+				for (int32 SkippedIndex = PointIndex; SkippedIndex < Required.Num(); ++SkippedIndex)
+					Report.RecordSkip(Required[SkippedIndex]->PointId, Group.GroupId, EHBSpawnFailureReason::TargetReached);
+				break;
+			}
+			AHBChestSpawnPoint* Point = Required[PointIndex];
 			FHBChestSpawnChoice Choice;
-			if (TryOptionsAtPoint(*Point, Group, Random, TryPlace, Choice, LastFailure))
+			if (TryOptionsAtPoint(*Point, Group, Random, TryPlace, Choice, Report))
 			{
 				OutPlaced.Add(Choice);
 				UsedIds.Add(Choice.PointId);
+				Report.RecordPlaced(Choice.PointId);
 				++Placed;
 			}
 		}
+		GroupReport.Placed = Placed;
 		if (Placed < Group.MinCount)
 		{
-			OutError = FString::Printf(TEXT("Room %d chest group %s placed %d of required %d. %s"),
-				RoomId, *Group.GroupId.ToString(), Placed, Group.MinCount, *LastFailure);
+			Report.FailureReason = GroupReport.FailureReason = EHBSpawnFailureReason::MinCountNotMet;
+			Report.FailedGroupId = Group.GroupId;
+			OutError = FString::Printf(TEXT("Room %d chest group %s placed %d of required %d. FailureReason=MinCountNotMet Target=%d Seed=%d %s"),
+				RoomId, *Group.GroupId.ToString(), Placed, Group.MinCount, Target, DungeonSeed,
+				*Report.FormatGroupResults(Group.GroupId));
 			return false;
 		}
 		if (Placed < Target)
 			UE_LOG(LogHBChestSpawn, Warning, TEXT("Room %d chest group %s placed %d of selected %d. %s"),
-				RoomId, *Group.GroupId.ToString(), Placed, Target, *LastFailure);
+				RoomId, *Group.GroupId.ToString(), Placed, Target, *Report.FormatGroupResults(Group.GroupId));
 	}
 	for (const AHBChestSpawnPoint* Point : SortedPoints)
 		if (Point->bRequired && !UsedIds.Contains(Point->PointId))
 		{
-			OutError = FString::Printf(TEXT("Room %d required chest point %s was not filled."),
-				RoomId, *Point->PointId.ToString());
+			Report.FailureReason = EHBSpawnFailureReason::RequiredPointUnfilled;
+			Report.FailedPointId = Point->PointId;
+			OutError = Report.FormatRequiredFailure(Point->PointId, true);
 			return false;
 		}
 	return true;

@@ -9,6 +9,7 @@ class ABoxActor;
 class AHBChestSetupActor;
 class AHBChestSpawnPoint;
 class ULevel;
+struct FHBSpawnSelectionReport;
 
 struct FHBChestSpawnChoice
 {
@@ -24,7 +25,7 @@ namespace HBChestSelection
 	HEAVENBREACH_API bool SelectAndPlace(const UHBChestPlacementComponent& Config,
 		const TArray<AHBChestSpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 		TFunctionRef<bool(const FHBChestSpawnChoice&, FString&)> TryPlace,
-		TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError);
+		TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport = nullptr);
 }
 
 /** One per world. Only the authority world may choose or spawn room chests. */
