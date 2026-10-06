@@ -74,6 +74,7 @@ bool HBDungeonModuleCatalog::Build(const TArray<TSoftObjectPtr<UWorld>>& RoomMap
             FHBModuleCatalogEntry Entry;
             Entry.Map = Map; Entry.ModuleId = Definition->ModuleId; Entry.Kind = ExpectedKind;
             Entry.AllowedFloor = Definition->RoomInfo->AllowedFloor;
+            Entry.bIsStartCandidate = Definition->RoomInfo->bIsStartCandidate;
             if (ExpectedKind == EHBDungeonModuleKind::Room)
                 Entry.Role = Definition->FindComponentByClass<UHBRoomInfoComponent>()->RoomRole;
             if (!Definition->ReadModuleGeometry(FTransform::Identity, Entry.Connectors, Entry.Occupancy, Issues))

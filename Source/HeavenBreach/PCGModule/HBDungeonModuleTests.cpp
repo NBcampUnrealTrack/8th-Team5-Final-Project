@@ -17,6 +17,7 @@
 #include "Loot/BoxActor.h"
 #include "Components/BoxComponent.h"
 #include "Misc/AutomationTest.h"
+#include "GameFramework/PlayerStart.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -115,6 +116,36 @@ bool FHBModuleValidationTest::RunTest(const FString&)
 	Fixture.MakeRoom();
 	TestFalse(TEXT("Duplicate definitions rejected"), AHBDungeonModuleDefinition::ValidateLevel(Room->GetLevel(), Issues));
 	TestTrue(TEXT("Duplicate definition diagnostic"), HasIssue(Issues, TEXT("DefinitionCount")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBStartCandidateAuthoringTest, "HeavenBreach.PCGModule.StartRoom.Authoring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBStartCandidateAuthoringTest::RunTest(const FString&)
+{
+	FModuleTestWorld Fixture;
+	auto* Definition = Fixture.MakeRoom();
+	TArray<FHBDungeonModuleIssue> Issues;
+	TestTrue(TEXT("Ordinary room needs no PlayerStart"), AHBDungeonModuleDefinition::ValidateLevel(Definition->GetLevel(), Issues));
+	Definition->RoomInfo->bIsStartCandidate = true;
+	TestFalse(TEXT("Candidate without a PlayerStart rejected"), AHBDungeonModuleDefinition::ValidateLevel(Definition->GetLevel(), Issues));
+	TestTrue(TEXT("Missing start diagnostic"), HasIssue(Issues, TEXT("StartCandidatePlayerStart")));
+	ULevel* ForeignLevel = NewObject<ULevel>(Fixture.World, TEXT("ForeignStartLevel"));
+	ForeignLevel->OwningWorld = Fixture.World;
+	FActorSpawnParameters Params; Params.OverrideLevel = ForeignLevel;
+	Fixture.World->SpawnActor<APlayerStart>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+	TestFalse(TEXT("A foreign level cannot satisfy the candidate requirement"), AHBDungeonModuleDefinition::ValidateLevel(Definition->GetLevel(), Issues));
+	auto* Start = Fixture.World->SpawnActor<APlayerStart>();
+	TestTrue(TEXT("No PlayerStart tag is needed"), Start->PlayerStartTag.IsNone());
+	Fixture.World->SpawnActor<APlayerStart>();
+	for (auto Role : {EHBPrototypeRoomRole::Adventure, EHBPrototypeRoomRole::Recovery, EHBPrototypeRoomRole::Upgrade})
+	{
+		Definition->RoomInfo->RoomRole = Role;
+		TestTrue(TEXT("Every non-boss room role accepts multiple starts"), AHBDungeonModuleDefinition::ValidateLevel(Definition->GetLevel(), Issues));
+	}
+	Definition->RoomInfo->RoomRole = EHBPrototypeRoomRole::Boss;
+	TestFalse(TEXT("Boss candidate rejected"), AHBDungeonModuleDefinition::ValidateLevel(Definition->GetLevel(), Issues));
+	TestTrue(TEXT("Boss candidate diagnostic"), HasIssue(Issues, TEXT("StartCandidateRole")));
 	return true;
 }
 

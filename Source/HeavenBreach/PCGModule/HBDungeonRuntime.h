@@ -40,8 +40,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search", meta=(ClampMin="5")) float LoadTimeoutSeconds = 120;
     /** Separate upper bound for navigation readiness and room encounter preparation. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search", meta=(ClampMin="1")) float EncounterTimeoutSeconds = 30;
-    /** Each possible starting room must contain exactly one PlayerStart with this tag. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay") FName SpawnTag = TEXT("DungeonSpawn");
+    /** Compatibility with older maps/Blueprints. PlayerStart selection no longer filters by this tag. */
+    UPROPERTY(BlueprintReadOnly, Category="Dungeon Gameplay", meta=(DeprecatedProperty, DeprecationMessage="Use RoomInfo start candidates; PlayerStart tags are no longer required."))
+    FName SpawnTag = TEXT("DungeonSpawn");
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay") TSubclassOf<AHBDungeonDoorSeal> DoorSealClass;
     /** Half-size in cm; connectors mark the floor center, with +X pointing out. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay", meta=(ClampMin="1")) FVector DoorSealExtent = FVector(30, 160, 220);
@@ -80,6 +81,7 @@ private:
     void LoadLocalRooms();
     bool PrepareServerGameplay(FString& Error);
     bool PrepareClientGameplay(FString& Error);
+    bool PrepareRoomPlayerStarts(TArray<APlayerStart*>& OutStarts, FString& Error);
     bool SpawnDoorSeals(const FHBPrototypeRoom& Room, const TArray<FHBDungeonConnectorDefinition>& Connectors, FString& Error);
     bool PrepareEncounters(FString& Error);
     bool CreateDungeonNavigationBounds(FString& Error);
