@@ -25,6 +25,7 @@ public:
 	virtual void NativeOnFocusLost(const FFocusEvent& InFocusEvent) override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 	void SetupForItem(bool bCanUse, bool bCanSplit, bool bIsFavorite);
+	void SetUseButtonLabel(const FText& InLabel);
 	FOnContextMenuUseRequested OnUseRequested;
 	FOnContextMenuSplitRequested OnSplitRequested;
 	FOnContextMenuInfoRequested OnInfoRequested;
@@ -46,6 +47,8 @@ protected:
 	TObjectPtr<UButton> FavoriteButton;
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> FavoriteButtonText;
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> UseButtonText;
 
 private:
 	void CloseMenu();

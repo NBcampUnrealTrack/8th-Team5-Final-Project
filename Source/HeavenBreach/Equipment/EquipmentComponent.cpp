@@ -57,11 +57,277 @@ void UEquipmentComponent::HandleEquipmentChanged()
 {
 	RefreshEquipmentStats();
 	RefreshItemEffects();
+	SyncBagInventory();
 }
 
 void UEquipmentComponent::OnRep_Slots()
 {
 	OnEquipmentChanged.Broadcast();
+}
+
+void UEquipmentComponent::OnRep_OpenedBag()
+{
+	OnOpenedBagChanged.Broadcast();
+}
+
+void UEquipmentComponent::SetBagInventory(UInventoryComponent* InBagInventory)
+{
+	if (BagInventory == InBagInventory)
+	{
+		return;
+	}
+
+	if (BagInventory != nullptr)
+	{
+		BagInventory->OnInventoryChanged.RemoveDynamic(this, &UEquipmentComponent::HandleBagInventoryChanged);
+	}
+
+	BagInventory = InBagInventory;
+	MountedBagId.Invalidate();
+
+	if (BagInventory != nullptr)
+	{
+		BagInventory->SetBagStorage(true);
+		BagInventory->OnInventoryChanged.AddUniqueDynamic(this, &UEquipmentComponent::HandleBagInventoryChanged);
+	}
+
+	SyncBagInventory();
+}
+
+void UEquipmentComponent::SyncBagInventory()
+{
+	if (BagInventory == nullptr || GetOwner() == nullptr || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	FItemInstance BagItem;
+	const bool bHasBag = GetItemInSlot(EEquipSlotType::Backpack, BagItem);
+	const FGuid NewBagId = bHasBag ? BagItem.InstanceId : FGuid();
+
+	if (NewBagId == MountedBagId)
+	{
+		return;
+	}
+
+	MountedBagId.Invalidate();
+	bSyncingBag = true;
+
+	if (bHasBag)
+	{
+		FItemViewData ViewData;
+		ResolveItemViewData(BagItem.ItemRow, ViewData);
+		BagInventory->SetGridSize(FMath::Max(1, ViewData.BagGridSize.X), FMath::Max(1, ViewData.BagGridSize.Y));
+
+		TArray<FInventoryEntry> Contents;
+		Contents.Reserve(BagItem.BagContents.Num());
+		for (const FBagItemEntry& BagEntry : BagItem.BagContents)
+		{
+			Contents.Add(BagItemToInventoryEntry(BagEntry));
+		}
+		BagInventory->SetEntries(Contents);
+	}
+	else
+	{
+		BagInventory->ClearAll();
+	}
+
+	bSyncingBag = false;
+	MountedBagId = NewBagId;
+}
+
+void UEquipmentComponent::HandleBagInventoryChanged()
+{
+	if (bSyncingBag || BagInventory == nullptr || !MountedBagId.IsValid())
+	{
+		return;
+	}
+
+	if (GetOwner() == nullptr || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	const int32 SlotIndex = SlotToIndex(EEquipSlotType::Backpack);
+	if (!Slots.IsValidIndex(SlotIndex) || Slots[SlotIndex].InstanceId != MountedBagId)
+	{
+		return;
+	}
+
+	TArray<FBagItemEntry>& Contents = Slots[SlotIndex].BagContents;
+	Contents.Reset();
+	for (const FInventoryEntry& Entry : BagInventory->GetEntries())
+	{
+		Contents.Add(InventoryEntryToBagItem(Entry));
+	}
+}
+
+void UEquipmentComponent::SetOpenedBagInventory(UInventoryComponent* InOpenedBagInventory)
+{
+	if (OpenedBagInventory == InOpenedBagInventory)
+	{
+		return;
+	}
+
+	if (OpenedBagInventory != nullptr)
+	{
+		OpenedBagInventory->OnInventoryChanged.RemoveDynamic(this, &UEquipmentComponent::HandleOpenedBagInventoryChanged);
+	}
+
+	OpenedBagInventory = InOpenedBagInventory;
+
+	if (OpenedBagInventory != nullptr)
+	{
+		OpenedBagInventory->SetBagStorage(true);
+		OpenedBagInventory->OnInventoryChanged.AddUniqueDynamic(this, &UEquipmentComponent::HandleOpenedBagInventoryChanged);
+	}
+}
+
+bool UEquipmentComponent::OpenBagFrom(UInventoryComponent* InSource, FGuid InInstanceId)
+{
+	if (OpenedBagInventory == nullptr || InSource == nullptr || GetOwner() == nullptr || !GetOwner()->HasAuthority())
+	{
+		return false;
+	}
+
+	if (InSource == OpenedBagInventory || InSource == BagInventory)
+	{
+		return false;
+	}
+
+	const int32 EntryIndex = InSource->FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FItemInstance BagItem = InSource->GetEntries()[EntryIndex].Item;
+	FItemViewData ViewData;
+	if (!ResolveItemViewData(BagItem.ItemRow, ViewData) || !ViewData.IsBag())
+	{
+		return false;
+	}
+
+	if (OpenedBagSource.Get() == InSource && OpenedBagId == InInstanceId)
+	{
+		return true;
+	}
+
+	CloseOpenedBag();
+
+	bSyncingOpenedBag = true;
+	OpenedBagInventory->SetGridSize(FMath::Max(1, ViewData.BagGridSize.X), FMath::Max(1, ViewData.BagGridSize.Y));
+
+	TArray<FInventoryEntry> Contents;
+	Contents.Reserve(BagItem.BagContents.Num());
+	for (const FBagItemEntry& BagEntry : BagItem.BagContents)
+	{
+		Contents.Add(BagItemToInventoryEntry(BagEntry));
+	}
+	OpenedBagInventory->SetEntries(Contents);
+	bSyncingOpenedBag = false;
+
+	OpenedBagSource = InSource;
+	OpenedBagId = InInstanceId;
+	OpenedBagRow = BagItem.ItemRow;
+	InSource->OnInventoryChanged.AddUniqueDynamic(this, &UEquipmentComponent::HandleOpenedBagSourceChanged);
+
+	OnOpenedBagChanged.Broadcast();
+	return true;
+}
+
+void UEquipmentComponent::CloseOpenedBag()
+{
+	if (GetOwner() == nullptr || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	if (!OpenedBagId.IsValid() && !OpenedBagSource.IsValid())
+	{
+		return;
+	}
+
+	UnbindOpenedBagSource();
+	OpenedBagId.Invalidate();
+	OpenedBagRow = FDataTableRowHandle();
+
+	if (OpenedBagInventory != nullptr)
+	{
+		bSyncingOpenedBag = true;
+		OpenedBagInventory->ClearAll();
+		bSyncingOpenedBag = false;
+	}
+
+	OnOpenedBagChanged.Broadcast();
+}
+
+void UEquipmentComponent::UnbindOpenedBagSource()
+{
+	if (UInventoryComponent* Source = OpenedBagSource.Get())
+	{
+		Source->OnInventoryChanged.RemoveDynamic(this, &UEquipmentComponent::HandleOpenedBagSourceChanged);
+	}
+	OpenedBagSource.Reset();
+}
+
+void UEquipmentComponent::HandleOpenedBagInventoryChanged()
+{
+	if (bSyncingOpenedBag || OpenedBagInventory == nullptr || !OpenedBagId.IsValid())
+	{
+		return;
+	}
+
+	if (GetOwner() == nullptr || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	TArray<FBagItemEntry> Contents;
+	Contents.Reserve(OpenedBagInventory->GetEntries().Num());
+	for (const FInventoryEntry& Entry : OpenedBagInventory->GetEntries())
+	{
+		Contents.Add(InventoryEntryToBagItem(Entry));
+	}
+
+	UInventoryComponent* Source = OpenedBagSource.Get();
+	bSyncingOpenedBag = true;
+	const bool bWritten = Source != nullptr && Source->SetEntryBagContents(OpenedBagId, Contents);
+	bSyncingOpenedBag = false;
+
+	if (!bWritten)
+	{
+		CloseOpenedBag();
+	}
+}
+
+void UEquipmentComponent::HandleOpenedBagSourceChanged()
+{
+	if (bSyncingOpenedBag || !OpenedBagId.IsValid())
+	{
+		return;
+	}
+
+	if (GetOwner() == nullptr || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	UInventoryComponent* Source = OpenedBagSource.Get();
+	if (Source == nullptr || Source->FindEntryIndexById(OpenedBagId) == INDEX_NONE)
+	{
+		CloseOpenedBag();
+	}
+}
+
+void UEquipmentComponent::Server_OpenBag_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)
+{
+	OpenBagFrom(InSource, InInstanceId);
+}
+
+void UEquipmentComponent::Server_CloseOpenedBag_Implementation()
+{
+	CloseOpenedBag();
 }
 
 float UEquipmentComponent::SumArmorDefense() const
@@ -690,6 +956,63 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 	return true;
 }
 
+bool UEquipmentComponent::EquipDirect(const FItemInstance& InItem, EEquipSlotType InSlot)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (!CanEquip(InItem, InSlot) || IsSlotOccupied(InSlot))
+	{
+		return false;
+	}
+
+	if (InSlot == EEquipSlotType::SecondaryEquip && IsSecondarySlotLockedByWeapon())
+	{
+		return false;
+	}
+
+	if (InSlot == EEquipSlotType::PrimaryWeapon && IsSlotOccupied(EEquipSlotType::SecondaryEquip))
+	{
+		if (const FWeaponData* NewWeaponData = InItem.ItemRow.GetRow<FWeaponData>(TEXT("EquipDirect")))
+		{
+			if (IsShieldIncompatibleWeaponType(NewWeaponData->WeaponType))
+			{
+				return false;
+			}
+		}
+	}
+
+	FItemInstance NewItem = InItem;
+	NewItem.bRotated = false;
+	Slots[SlotToIndex(InSlot)] = NewItem;
+
+	OnEquipmentChanged.Broadcast();
+
+	return true;
+}
+
+bool UEquipmentComponent::ToggleFavoriteInSlot(EEquipSlotType InSlot)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (!IsSlotOccupied(InSlot))
+	{
+		return false;
+	}
+
+	FItemInstance& SlotItem = Slots[SlotToIndex(InSlot)];
+	SlotItem.bIsFavorite = !SlotItem.bIsFavorite;
+
+	OnEquipmentChanged.Broadcast();
+
+	return true;
+}
+
 bool UEquipmentComponent::UnequipToInventory(EEquipSlotType InSlot, UInventoryComponent* InTarget)
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -769,6 +1092,8 @@ void UEquipmentComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(UEquipmentComponent, Slots);
+	DOREPLIFETIME_CONDITION(UEquipmentComponent, OpenedBagId, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UEquipmentComponent, OpenedBagRow, COND_OwnerOnly);
 }
 
 void UEquipmentComponent::DebugPrintSlots() const

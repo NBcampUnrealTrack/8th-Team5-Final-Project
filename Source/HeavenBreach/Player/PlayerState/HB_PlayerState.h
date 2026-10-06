@@ -376,6 +376,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	UQuickSlotComponent* GetQuickSlot() const { return QuickSlot; }
 
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	UInventoryComponent* GetBagInventory() const { return BagInventory; }
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	UInventoryComponent* GetOpenedBagInventory() const { return OpenedBagInventory; }
+
 	UFUNCTION(BlueprintCallable, Category = "Loadout")
 	void SaveLoadout();
 
@@ -405,6 +411,12 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UQuickSlotComponent> QuickSlot;
+
+	UPROPERTY()
+	TObjectPtr<UInventoryComponent> BagInventory;
+
+	UPROPERTY()
+	TObjectPtr<UInventoryComponent> OpenedBagInventory;
 
 	UPROPERTY()
 	TObjectPtr<UHBPlayerSaveComponent> SaveComponent;

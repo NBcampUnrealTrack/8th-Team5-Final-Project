@@ -28,6 +28,8 @@
 	#include "Engine/GameViewportClient.h"
 	#include "Player/PlayerState/HB_PlayerState.h"
 	#include "TimerManager.h"
+	#include "Components/SizeBox.h"
+	#include "Inventory/OpenedBagWindowWidget.h"
 
 	UInventoryWidget::UInventoryWidget()
 	{
@@ -211,6 +213,7 @@
 
 	void UInventoryWidget::PrepareForHide()
 	{
+		RequestCloseOpenedBag();
 		ClearHoveredCell();
 		ClearHoverInfoPopup();
 		ClearPlacementPreview();
@@ -250,6 +253,15 @@
 		if (LinkedShop != nullptr)
 		{
 			LinkedShop->OnBasketChanged.RemoveDynamic(this, &UInventoryWidget::HandleInventoryChanged);
+		}
+		if (BagSourceEquipment != nullptr)
+		{
+			BagSourceEquipment->OnEquipmentChanged.RemoveDynamic(this, &UInventoryWidget::HandleBagEquipmentChanged);
+		}
+		if (OpenedBagEquipment != nullptr)
+		{
+			RequestCloseOpenedBag();
+			OpenedBagEquipment->OnOpenedBagChanged.RemoveDynamic(this, &UInventoryWidget::HandleOpenedBagChanged);
 		}
 		if (FSlateApplication::IsInitialized() && FSlateApplication::Get().IsDragDropping())
 		{
@@ -414,6 +426,11 @@
 		{
 			return;
 		}
+		if (USizeBox* GridSizeBox = Cast<USizeBox>(GridCanvas->GetParent()))
+		{
+			GridSizeBox->SetWidthOverride(BoundInventory->GetGridSize().X * CellSize);
+			GridSizeBox->SetHeightOverride(GetVisibleRowCount() * CellSize);
+		}
 		BuildBackground();
 		BuildItems();
 	}
@@ -423,6 +440,190 @@
 		if (EquipmentPanel != nullptr)
 		{
 			EquipmentPanel->BindToEquipment(InEquipment, BoundInventory, this);
+		}
+
+		if (BagPanel != nullptr)
+		{
+			if (BagSourceEquipment != nullptr)
+			{
+				BagSourceEquipment->OnEquipmentChanged.RemoveDynamic(this, &UInventoryWidget::HandleBagEquipmentChanged);
+			}
+			BagSourceEquipment = InEquipment;
+			if (BagSourceEquipment != nullptr)
+			{
+				BagSourceEquipment->OnEquipmentChanged.AddUniqueDynamic(this, &UInventoryWidget::HandleBagEquipmentChanged);
+			}
+			RefreshBagPanel();
+		}
+
+		if (OpenedBagEquipment != nullptr)
+		{
+			OpenedBagEquipment->OnOpenedBagChanged.RemoveDynamic(this, &UInventoryWidget::HandleOpenedBagChanged);
+		}
+		OpenedBagEquipment = InEquipment;
+		if (OpenedBagEquipment != nullptr)
+		{
+			OpenedBagEquipment->OnOpenedBagChanged.AddUniqueDynamic(this, &UInventoryWidget::HandleOpenedBagChanged);
+		}
+	}
+
+	void UInventoryWidget::HandleOpenedBagChanged()
+	{
+		EnsureOpenedBagWindow();
+	}
+
+	UOpenedBagWindowWidget* UInventoryWidget::FindOpenedBagWindow() const
+	{
+		UWorld* World = GetWorld();
+		if (World == nullptr)
+		{
+			return nullptr;
+		}
+
+		TArray<UUserWidget*> FoundWidgets;
+		UWidgetBlueprintLibrary::GetAllWidgetsOfClass(World, FoundWidgets, UOpenedBagWindowWidget::StaticClass(), true);
+		for (UUserWidget* Found : FoundWidgets)
+		{
+			if (Found != nullptr && Found->GetOwningPlayer() == GetOwningPlayer())
+			{
+				return Cast<UOpenedBagWindowWidget>(Found);
+			}
+		}
+		return nullptr;
+	}
+
+	void UInventoryWidget::EnsureOpenedBagWindow()
+	{
+		if (OpenedBagEquipment == nullptr || !OpenedBagEquipment->HasOpenedBag())
+		{
+			return;
+		}
+
+		if (OpenedBagWindowClass == nullptr)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[OpenedBag] OpenedBagWindowClass is not set on %s"), *GetName());
+			return;
+		}
+
+		if (FindOpenedBagWindow() != nullptr)
+		{
+			return;
+		}
+
+		UOpenedBagWindowWidget* Window = CreateWidget<UOpenedBagWindowWidget>(GetOwningPlayer(), OpenedBagWindowClass);
+		if (Window == nullptr)
+		{
+			return;
+		}
+
+		Window->AddToViewport(50);
+		Window->Setup(OpenedBagEquipment, BoundInventory);
+		Window->PlaceNear(UWidgetLayoutLibrary::GetMousePositionOnViewport(this));
+	}
+
+	void UInventoryWidget::RequestCloseOpenedBag()
+	{
+		if (UOpenedBagWindowWidget* Window = FindOpenedBagWindow())
+		{
+			Window->CloseWindow();
+		}
+		if (OpenedBagEquipment != nullptr && OpenedBagEquipment->HasOpenedBag())
+		{
+			OpenedBagEquipment->Server_CloseOpenedBag();
+		}
+	}
+
+	UInventoryComponent* UInventoryWidget::FindOpenedBagInventory() const
+	{
+		const AHB_PlayerState* OwnerPlayerState = GetOwningPlayerState<AHB_PlayerState>();
+		const UEquipmentComponent* OwnerEquipment = OwnerPlayerState != nullptr ? OwnerPlayerState->GetEquipment() : nullptr;
+		if (OwnerEquipment == nullptr || !OwnerEquipment->HasOpenedBag())
+		{
+			return nullptr;
+		}
+		return OwnerEquipment->GetOpenedBagInventory();
+	}
+
+	bool UInventoryWidget::TryOpenBagItem(const FItemInstance& InItem)
+	{
+		if (BoundInventory == nullptr || BoundInventory->IsBagStorage() || !InItem.bRevealed)
+		{
+			return false;
+		}
+
+		FItemViewData ViewData;
+		if (!ResolveItemViewData(InItem.ItemRow, ViewData) || !ViewData.IsBag())
+		{
+			return false;
+		}
+
+		AHB_PlayerState* OwnerPlayerState = GetOwningPlayerState<AHB_PlayerState>();
+		UEquipmentComponent* OwnerEquipment = OwnerPlayerState != nullptr ? OwnerPlayerState->GetEquipment() : nullptr;
+		if (OwnerEquipment == nullptr)
+		{
+			return false;
+		}
+
+		OwnerEquipment->Server_OpenBag(BoundInventory, InItem.InstanceId);
+		return true;
+	}
+
+	void UInventoryWidget::HandleBagEquipmentChanged()
+	{
+		RefreshBagPanel();
+	}
+
+	void UInventoryWidget::RefreshBagPanel()
+	{
+		if (BagPanel == nullptr)
+		{
+			return;
+		}
+
+		UInventoryComponent* BagInventory = BagSourceEquipment != nullptr ? BagSourceEquipment->GetBagInventory() : nullptr;
+		FItemInstance BagItem;
+		const bool bHasBag = BagInventory != nullptr && BagSourceEquipment->GetItemInSlot(EEquipSlotType::Backpack, BagItem);
+		if (!bHasBag)
+		{
+			BagPanel->SetVisibility(ESlateVisibility::Collapsed);
+			if (BagSection != nullptr)
+			{
+				BagSection->SetVisibility(ESlateVisibility::Collapsed);
+			}
+			return;
+		}
+
+		BagPanel->BindToInventory(BagInventory);
+		BagPanel->SetOwningInventory(BoundInventory);
+		BagPanel->SetLinkedEquipment(BagSourceEquipment);
+		BagPanel->SetEquipmentPanelVisible(false);
+		BagPanel->SetVisibility(ESlateVisibility::Visible);
+
+		if (BagSection != nullptr)
+		{
+			BagSection->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+
+		FItemViewData BagView;
+		ResolveItemViewData(BagItem.ItemRow, BagView);
+
+		if (BagTitleText != nullptr)
+		{
+			BagTitleText->SetText(FText::FromString(FString::Printf(TEXT("%s (%d x %d)"),
+				*BagView.DisplayName, BagView.BagGridSize.X, BagView.BagGridSize.Y)));
+		}
+
+		if (BagIcon != nullptr)
+		{
+			if (BagView.Icon != nullptr)
+			{
+				BagIcon->SetBrushFromTexture(BagView.Icon);
+				BagIcon->SetVisibility(ESlateVisibility::HitTestInvisible);
+			}
+			else
+			{
+				BagIcon->SetVisibility(ESlateVisibility::Collapsed);
+			}
 		}
 	}
 
@@ -756,7 +957,8 @@
 			TargetPosition = DropCell - Operation->GrabOffset;
 		}
 
-		const bool bCanPlace = BoundInventory->CanPlaceAt(ItemSize, TargetPosition, IgnoredEntryIndex);
+		const bool bCanPlace = BoundInventory->AcceptsItem(DraggedItem)
+			&& BoundInventory->CanPlaceAt(ItemSize, TargetPosition, IgnoredEntryIndex);
 
 		const EInventoryCellVisualState PreviewState = bCanPlace
 			? EInventoryCellVisualState::PlacementValid
@@ -923,7 +1125,8 @@
 		{
 			return false;
 		}
-		RequestSender->Server_EquipItem(LinkedEquipment, Item.InstanceId, ViewData.EquipSlotType);
+		UInventoryComponent* EquipSource = BoundInventory->IsBagStorage() ? BoundInventory.Get() : RequestSender;
+		EquipSource->Server_EquipItem(LinkedEquipment, Item.InstanceId, ViewData.EquipSlotType);
 		return true;
 	}
 
@@ -942,6 +1145,7 @@
 		}
 		if (ItemContextMenuClass == nullptr)
 		{
+			UE_LOG(LogTemp, Warning, TEXT("[ContextMenu] ItemContextMenuClass is not set on %s"), *GetName());
 			return false;
 		}
 
@@ -961,16 +1165,31 @@
 		{
 			return false;
 		}
-		const bool bCanUse = ViewData.IsConsumable();
+		const bool bCanOpenBag = ViewData.IsBag() && !BoundInventory->IsBagStorage() && Item.bRevealed;
+		const bool bCanUse = ViewData.IsConsumable() || bCanOpenBag;
 		const bool bCanSplit = Item.StackCount > 1;
 		ActiveContextMenu->SetupForItem(bCanUse, bCanSplit, Item.bIsFavorite);
+		if (bCanOpenBag)
+		{
+			ActiveContextMenu->SetUseButtonLabel(FText::FromString(TEXT("\uC5F4\uAE30")));
+		}
 		const FGuid InstanceId = Item.InstanceId;
-		ActiveContextMenu->OnUseRequested.AddLambda([this, InstanceId]()
+		ActiveContextMenu->OnUseRequested.AddLambda([this, InstanceId, bCanOpenBag]()
 			{
-				if (BoundInventory != nullptr)
+				if (BoundInventory == nullptr)
 				{
-					BoundInventory->Server_UseItem(InstanceId);
+					return;
 				}
+				if (bCanOpenBag)
+				{
+					const int32 BagIndex = BoundInventory->FindEntryIndexById(InstanceId);
+					if (BagIndex != INDEX_NONE)
+					{
+						TryOpenBagItem(BoundInventory->GetEntries()[BagIndex].Item);
+					}
+					return;
+				}
+				BoundInventory->Server_UseItem(InstanceId);
 			});
 		ActiveContextMenu->OnSplitRequested.AddLambda([this, InstanceId, StackCount = Item.StackCount]()
 			{
@@ -1018,6 +1237,75 @@
 				if (BoundInventory != nullptr)
 				{
 					BoundInventory->Server_ToggleFavorite(InstanceId);
+				}
+			});
+		ActiveContextMenu->OnCloseRequested.AddLambda([this]()
+			{
+				if (LinkedContainer == nullptr)
+				{
+					if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+					{
+						PC->RequestCloseInventory();
+					}
+				}
+			});
+		ActiveContextMenu->OnMenuClosed.AddLambda([this]()
+			{
+				ActiveContextMenu = nullptr;
+				if (LinkedContainer == nullptr)
+				{
+					if (UWorld* World = GetWorld())
+					{
+						World->GetTimerManager().SetTimerForNextTick(this, &UInventoryWidget::TryReclaimFocus);
+					}
+				}
+			});
+		ActiveContextMenu->AddToViewport(100);
+		ActiveContextMenu->SetKeyboardFocus();
+		const FVector2D ViewportPosition = UWidgetLayoutLibrary::GetMousePositionOnViewport(this);
+		ActiveContextMenu->SetPositionInViewport(ViewportPosition + FVector2D(0.f, 4.f), false);
+		return true;
+	}
+
+	bool UInventoryWidget::OpenEquippedItemMenu(UEquipmentComponent* InEquipment, EEquipSlotType InSlot)
+	{
+		if (InEquipment == nullptr || BoundInventory == nullptr || ItemContextMenuClass == nullptr)
+		{
+			return false;
+		}
+
+		FItemInstance EquippedItem;
+		if (!InEquipment->GetItemInSlot(InSlot, EquippedItem))
+		{
+			return false;
+		}
+
+		if (ActiveContextMenu != nullptr)
+		{
+			ActiveContextMenu->RemoveFromParent();
+			ActiveContextMenu = nullptr;
+		}
+
+		ActiveContextMenu = CreateWidget<UItemActionMenuWidget>(GetOwningPlayer(), ItemContextMenuClass);
+		if (ActiveContextMenu == nullptr)
+		{
+			return false;
+		}
+
+		ActiveContextMenu->SetupForItem(false, false, EquippedItem.bIsFavorite);
+		TWeakObjectPtr<UEquipmentComponent> WeakEquipment = InEquipment;
+		ActiveContextMenu->OnDiscardRequested.AddLambda([this, WeakEquipment, InSlot]()
+			{
+				if (BoundInventory != nullptr && WeakEquipment.IsValid())
+				{
+					BoundInventory->Server_DropEquippedItem(WeakEquipment.Get(), InSlot);
+				}
+			});
+		ActiveContextMenu->OnFavoriteRequested.AddLambda([this, WeakEquipment, InSlot]()
+			{
+				if (BoundInventory != nullptr && WeakEquipment.IsValid())
+				{
+					BoundInventory->Server_ToggleEquippedFavorite(WeakEquipment.Get(), InSlot);
 				}
 			});
 		ActiveContextMenu->OnCloseRequested.AddLambda([this]()
@@ -1206,6 +1494,7 @@
 		}
 		PressedCell = Cell;
 		bPressedWithCtrl = InMouseEvent.IsControlDown();
+		bPressedWithShift = InMouseEvent.IsShiftDown();
 		bHasValidPress = true;
 		ScreenToLocal(InMouseEvent.GetScreenSpacePosition(), PressedLocalPosition);
 		PressedScreenPosition = InMouseEvent.GetScreenSpacePosition();
@@ -1232,7 +1521,63 @@
 		{
 			return HandleContextMenu(PressedCell) ? FReply::Handled() : FReply::Unhandled();
 		}
+		if (bPressedWithShift && HandleQuickMove(PressedCell))
+		{
+			return FReply::Handled();
+		}
 		return HandleRightClick(PressedCell) ? FReply::Handled() : FReply::Unhandled();
+	}
+
+	UInventoryComponent* UInventoryWidget::ResolveQuickMoveTarget() const
+	{
+		if (BoundInventory == nullptr)
+		{
+			return nullptr;
+		}
+		if (BoundInventory->IsBagStorage() && OwningInventory != nullptr && OwningInventory != BoundInventory)
+		{
+			return OwningInventory;
+		}
+		if (UInventoryComponent* OpenedBagInventory = FindOpenedBagInventory())
+		{
+			if (OpenedBagInventory != BoundInventory)
+			{
+				return OpenedBagInventory;
+			}
+		}
+		if (BagPanel != nullptr && BagPanel->IsVisible() && BagPanel->BoundInventory != nullptr && BagPanel->BoundInventory != BoundInventory)
+		{
+			return BagPanel->BoundInventory;
+		}
+		return nullptr;
+	}
+
+	bool UInventoryWidget::HandleQuickMove(FIntPoint InCell)
+	{
+		UInventoryComponent* Target = ResolveQuickMoveTarget();
+		if (Target == nullptr)
+		{
+			return false;
+		}
+		const int32 EntryIndex = BoundInventory->GetEntryIndexAt(InCell);
+		if (EntryIndex == INDEX_NONE)
+		{
+			return false;
+		}
+		const FItemInstance& Item = BoundInventory->GetEntries()[EntryIndex].Item;
+		if (!Item.bRevealed || !Target->AcceptsItem(Item))
+		{
+			return false;
+		}
+		if (Target->IsBagStorage())
+		{
+			Target->Server_TransferItemFromAuto(BoundInventory, Item.InstanceId);
+		}
+		else
+		{
+			BoundInventory->Server_TransferItemAuto(Target, Item.InstanceId);
+		}
+		return true;
 	}
 
 	bool UInventoryWidget::HandleDoubleClick(FIntPoint InCell)
@@ -1247,6 +1592,10 @@
 			return false;
 		}
 		const FItemInstance Item = BoundInventory->GetEntries()[EntryIndex].Item;
+		if (TryOpenBagItem(Item))
+		{
+			return true;
+		}
 		BoundInventory->Server_UseItem(Item.InstanceId);
 		return true;
 	}
@@ -1455,13 +1804,22 @@
 			RefocusAfterDrop();
 			return true;
 		}
-		if (Operation->SourceInventory == RequestSender)
+		UInventoryComponent* SourceInventory = Operation->SourceInventory;
+		if (SourceInventory == RequestSender)
 		{
 			RequestSender->Server_TransferItem(BoundInventory, Operation->InstanceId, TargetPosition, Operation->bRotated);
 		}
+		else if (BoundInventory != RequestSender && SourceInventory != nullptr && SourceInventory->IsBagStorage())
+		{
+			SourceInventory->Server_TransferItem(BoundInventory, Operation->InstanceId, TargetPosition, Operation->bRotated);
+		}
+		else if (BoundInventory != RequestSender && BoundInventory->IsBagStorage())
+		{
+			BoundInventory->Server_TransferItemFrom(SourceInventory, Operation->InstanceId, TargetPosition, Operation->bRotated);
+		}
 		else
 		{
-			RequestSender->Server_TransferItemFrom(Operation->SourceInventory, Operation->InstanceId, TargetPosition, Operation->bRotated);
+			RequestSender->Server_TransferItemFrom(SourceInventory, Operation->InstanceId, TargetPosition, Operation->bRotated);
 		}
 		RefocusAfterDrop();
 		return true;

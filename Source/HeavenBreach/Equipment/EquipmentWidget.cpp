@@ -20,6 +20,10 @@ void UEquipmentWidget::EnsureSlotMapInitialized()
 	SlotMap.Add(EEquipSlotType::PrimaryWeapon, Slot_PrimaryWeapon);
 	SlotMap.Add(EEquipSlotType::SecondaryEquip, Slot_SecondaryEquip);
 	SlotMap.Add(EEquipSlotType::Accessory, Slot_Accessory);
+	if (Slot_Backpack != nullptr)
+	{
+		SlotMap.Add(EEquipSlotType::Backpack, Slot_Backpack);
+	}
 }
 
 void UEquipmentWidget::BindToEquipment(UEquipmentComponent* InEquipment, UInventoryComponent* InInventory, UInventoryWidget* InOwningInventoryWidget)

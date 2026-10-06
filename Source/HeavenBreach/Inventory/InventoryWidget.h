@@ -17,6 +17,9 @@ class UInventoryCellWidget;
 class UInventoryItemWidget;
 class UInventoryDragDropOperation;
 class UShopComponent;
+class UTextBlock;
+class UImage;
+class UOpenedBagWindowWidget;
 struct FItemInstance;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScrollChanged);
@@ -66,6 +69,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetEquipmentPanelVisible(bool bVisible);
+
+	bool OpenEquippedItemMenu(UEquipmentComponent* InEquipment, EEquipSlotType InSlot);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetShopComponent(UShopComponent* InShop);
@@ -139,6 +144,21 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UEquipmentWidget> EquipmentPanel;
 
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UInventoryWidget> BagPanel;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> BagSection;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> BagTitleText;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> BagIcon;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Bag")
+	TSubclassOf<UOpenedBagWindowWidget> OpenedBagWindowClass;
+
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnScrollChanged OnScrollChanged;
 
@@ -156,6 +176,10 @@ private:
 	bool HandleRightClick(FIntPoint InCell);
 	bool HandleContextMenu(FIntPoint InCell);
 	bool HandleDoubleClick(FIntPoint InCell);
+
+	bool HandleQuickMove(FIntPoint InCell);
+
+	UInventoryComponent* ResolveQuickMoveTarget() const;
 	bool HandleQuickSlotRegister(int32 InSlotIndex);
 	void RefocusAfterDrop();
 	void TryReclaimFocus();
@@ -182,9 +206,34 @@ private:
 	UPROPERTY()
 	TObjectPtr<UEquipmentComponent> LinkedEquipment;
 
+	UFUNCTION()
+	void HandleBagEquipmentChanged();
+
+	void RefreshBagPanel();
+
+	UPROPERTY()
+	TObjectPtr<UEquipmentComponent> BagSourceEquipment;
+
+	UFUNCTION()
+	void HandleOpenedBagChanged();
+
+	void EnsureOpenedBagWindow();
+
+	UOpenedBagWindowWidget* FindOpenedBagWindow() const;
+
+	UInventoryComponent* FindOpenedBagInventory() const;
+
+	void RequestCloseOpenedBag();
+
+	bool TryOpenBagItem(const FItemInstance& InItem);
+
+	UPROPERTY()
+	TObjectPtr<UEquipmentComponent> OpenedBagEquipment;
+
 	FIntPoint PressedCell = FIntPoint::ZeroValue;
 	FVector2D PressedLocalPosition = FVector2D::ZeroVector;
 	bool bPressedWithCtrl = false;
+	bool bPressedWithShift = false;
 	bool bHasValidPress = false;
 
 	bool bSuppressDropOnCancel = false;
