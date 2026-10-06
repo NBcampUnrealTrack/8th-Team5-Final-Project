@@ -44,7 +44,6 @@
 |---|---|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 브랜치 · 커밋 · PR · 언리얼 전용 협업 규칙 |
 | [PR 템플릿](.github/pull_request_template.md) | PR 작성 양식 |
-| [Docs/](Docs/) | 작업 인계 문서 (활 애니메이션, 전투 애니메이션 설정 등) |
 
 ---
 
