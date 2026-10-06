@@ -47,6 +47,10 @@ struct FHBChestPlacementGroup
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement")
 	TArray<FHBChestClassOption> Chests;
+
+	/** Require a complete player navigation path from a room entry to the chest approach before spawning. Disable for groups behind locked doors; local navigation and placement safety checks still apply. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Safety")
+	bool bRequireEntryPath = true;
 };
 
 /** LD-authored room settings only. Selection and spawning will belong to a world subsystem. */

@@ -120,6 +120,17 @@ bool FHBChestSpawnSelectionTest::RunTest(const FString&)
 			HBChestSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
 		TestEqual(TEXT("The same dungeon seed and room replay point and class draws"),
 			Signature(Placed), FirstSignature);
+		TestTrue(TEXT("Existing chest groups require entry paths by default"), Config->Groups[0].bRequireEntryPath);
+		TestFalse(TEXT("Default policy reaches every chest choice"),
+			Placed.ContainsByPredicate([](const FHBChestSpawnChoice& Choice) { return !Choice.bRequireEntryPath; }));
+		Config->Groups[0].bRequireEntryPath = false;
+		TestTrue(TEXT("A locked-area chest group can skip entry paths"),
+			HBChestSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
+		TestEqual(TEXT("Changing path policy preserves seeded count, point and class draws"),
+			Signature(Placed), FirstSignature);
+		TestFalse(TEXT("Disabled policy reaches every choice in that group"),
+			Placed.ContainsByPredicate([](const FHBChestSpawnChoice& Choice) { return Choice.bRequireEntryPath; }));
+		Config->Groups[0].bRequireEntryPath = true;
 		Algo::Reverse(Points);
 		TSet<FString> RoomSignatures;
 		for (int32 RoomId = 0; RoomId < 8; ++RoomId)
@@ -178,12 +189,17 @@ bool FHBChestSpawnSelectionTest::RunTest(const FString&)
 		Bonus.GroupId = TEXT("Bonus");
 		Bonus.MinCount = Bonus.MaxCount = 1;
 		Bonus.Chests.Add({CommonClass, 1});
+		Bonus.bRequireEntryPath = false;
 		Config->Groups.Add(Bonus);
 		TestTrue(TEXT("Two groups can share room points"),
 			HBChestSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
 		TSet<FName> UsedPointIds;
 		for (const FHBChestSpawnChoice& Choice : Placed) UsedPointIds.Add(Choice.PointId);
 		TestEqual(TEXT("No spawn point is used twice across groups"), UsedPointIds.Num(), 4);
+		TestEqual(TEXT("Only the group configured to skip entry paths does so"),
+			Placed.FilterByPredicate([](const FHBChestSpawnChoice& Choice) { return !Choice.bRequireEntryPath; }).Num(), 1);
+		TestEqual(TEXT("The other group retains its entry path requirement"),
+			Placed.FilterByPredicate([](const FHBChestSpawnChoice& Choice) { return Choice.bRequireEntryPath; }).Num(), 3);
 		Config->Groups.Pop();
 		Points[1]->GroupId = TEXT("OtherGroup");
 		TestTrue(TEXT("Another group's point is excluded"),

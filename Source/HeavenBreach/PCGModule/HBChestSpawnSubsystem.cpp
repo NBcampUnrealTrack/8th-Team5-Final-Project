@@ -85,7 +85,7 @@ namespace
 				if (Roll <= 0) break;
 			}
 			FHBChestSpawnChoice Choice{Point.PointId, const_cast<AHBChestSpawnPoint*>(&Point),
-				Remaining[Pick].ChestClass};
+				Remaining[Pick].ChestClass, Group.bRequireEntryPath};
 			Remaining.RemoveAt(Pick);
 			FString Reason;
 			if (TryPlace(Choice, Reason)) { OutChoice = Choice; return true; }
@@ -400,24 +400,27 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 		OutReason = TEXT("No nearby navigation surface at the chest approach.");
 		return false;
 	}
-	bool bReachable = false;
-	for (const FVector& Entry : EntryLocations)
+	if (Choice.bRequireEntryPath)
 	{
-		FNavLocation EntryOnNav;
-		if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(100, 100, 200), NavData)) continue;
-		FPathFindingQuery PathQuery(this, *NavData, EntryOnNav.Location, ApproachOnNav.Location);
-		PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
-		const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
-		if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
+		bool bReachable = false;
+		for (const FVector& Entry : EntryLocations)
 		{
-			bReachable = true;
-			break;
+			FNavLocation EntryOnNav;
+			if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(100, 100, 200), NavData)) continue;
+			FPathFindingQuery PathQuery(this, *NavData, EntryOnNav.Location, ApproachOnNav.Location);
+			PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
+			const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
+			if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
+			{
+				bReachable = true;
+				break;
+			}
 		}
-	}
-	if (!bReachable)
-	{
-		OutReason = TEXT("Player has no complete navigation path to the chest approach.");
-		return false;
+		if (!bReachable)
+		{
+			OutReason = TEXT("Player has no complete navigation path to the chest approach.");
+			return false;
+		}
 	}
 	FActorSpawnParameters Params;
 	Params.Owner = &Setup;

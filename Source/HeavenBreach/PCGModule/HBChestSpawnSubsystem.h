@@ -15,6 +15,7 @@ struct FHBChestSpawnChoice
 	FName PointId;
 	AHBChestSpawnPoint* Point = nullptr;
 	TSubclassOf<ABoxActor> ChestClass;
+	bool bRequireEntryPath = true;
 };
 
 namespace HBChestSelection
