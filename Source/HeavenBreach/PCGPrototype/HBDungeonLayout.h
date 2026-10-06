@@ -23,6 +23,8 @@ struct FHBPrototypeRoom
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bBranch = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bFloorExit = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bCorridor = false;
+	/** Server-selected instance, independent of the source map's candidate setting. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bIsStartRoom = false;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) EHBDungeonConnection Connection = EHBDungeonConnection::Door;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FName ParentPortalId;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FName EntryPortalId;

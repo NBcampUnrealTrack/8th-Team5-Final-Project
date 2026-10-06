@@ -89,6 +89,19 @@ bool FHBConnectorOccupancyTest::RunTest(const FString&)
 	B.Occupancy = {{FTransform::Identity,FVector(40)}}; Rebound(B);
 	TestFalse(TEXT("Empty space between multiple boxes remains usable"), HBConnectorLayout::OccupancyOverlaps(A,FTransform::Identity,B,FTransform::Identity));
 	TestTrue(TEXT("Either occupancy box blocks placement"), HBConnectorLayout::OccupancyOverlaps(A,FTransform::Identity,B,FTransform(FVector(200,0,0))));
+	HBConnectorLayout::FOccupancyOverlap Overlap;
+	const FTransform RoomA(FRotator(0, 35, 0), FVector(1200, -700, 300));
+	const FTransform RoomB = FTransform(FRotator(0, 20, 0), FVector(200, 0, 0)) * RoomA;
+	TestTrue(TEXT("Collision details do not change rotated collision result"), HBConnectorLayout::OccupancyOverlaps(A, RoomA, B, RoomB, &Overlap));
+	TestEqual(TEXT("First overlapping A box index"), Overlap.BoxAIndex, 1);
+	TestEqual(TEXT("First overlapping B box index"), Overlap.BoxBIndex, 0);
+	TestTrue(TEXT("A box world transform is retained"), Overlap.BoxAWorld.Equals(A.Occupancy[1].LocalTransform * RoomA, 0.001));
+	TestTrue(TEXT("B box world transform is retained"), Overlap.BoxBWorld.Equals(B.Occupancy[0].LocalTransform * RoomB, 0.001));
+	TestTrue(TEXT("Reported extents are box half-sizes"), Overlap.ExtentA.Equals(FVector(50)) && Overlap.ExtentB.Equals(FVector(40)));
+	TestFalse(TEXT("Non-collision with optional details remains non-collision"), HBConnectorLayout::OccupancyOverlaps(A, RoomA, B, RoomA, &Overlap));
+	TestEqual(TEXT("No-hit resets A index rather than retaining previous collision"), Overlap.BoxAIndex, INDEX_NONE);
+	TestEqual(TEXT("No-hit resets B index"), Overlap.BoxBIndex, INDEX_NONE);
+	TestTrue(TEXT("No-hit resets box details"), Overlap.BoxAWorld.Equals(FTransform::Identity) && Overlap.ExtentA.IsZero());
 	return true;
 }
 

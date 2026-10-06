@@ -3,6 +3,7 @@
 #include "PCGModule/HBDungeonPortal.h"
 #include "PCGModule/HBDungeonDoorSeal.h"
 #include "PCGModule/HBDungeonModuleDefinition.h"
+#include "PCGModule/HBRoomInfoComponent.h"
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
@@ -62,7 +63,7 @@ void AHBDungeonRuntime::RefreshModuleCatalog()
 {
     if (GetWorld() && GetWorld()->IsGameWorld()) return;
     const bool bValid = HBDungeonModuleCatalog::Build(ModuleMaps, ModuleCatalog, CatalogErrors);
-    Status = bValid ? TEXT("Catalog validated. Configure transitions and DungeonSpawn PlayerStarts.") : FString::Join(CatalogErrors, TEXT("\n"));
+    Status = bValid ? TEXT("Catalog validated. Configure transitions and non-boss start candidates with PlayerStarts.") : FString::Join(CatalogErrors, TEXT("\n"));
 }
 void AHBDungeonRuntime::StartGeneration()
 {
@@ -144,7 +145,6 @@ bool AHBDungeonRuntime::ResetGeneration()
 bool AHBDungeonRuntime::ValidateLocalSettings(FString& Error) const
 {
     if (GetNetMode() != NM_Client && !AHBDungeonDoorSeal::ValidateSettings(DoorSealClass, DoorSealExtent, Error)) return false;
-    if (SpawnTag.IsNone()) { Error = TEXT("Configure a dungeon spawn tag."); return false; }
     if (!FMath::IsFinite(LoadTimeoutSeconds) || LoadTimeoutSeconds <= 0)
     { Error = TEXT("Load timeout must be positive and finite."); return false; }
     return true;
@@ -238,7 +238,14 @@ bool AHBDungeonRuntime::PrepareClientGameplay(FString& Error)
         { Error = TEXT("Loaded client room does not match the authoritative module."); return false; }
         if (!SpawnDoorSeals(Room, Connectors, Error)) return false;
     }
-    return true;
+    TArray<APlayerStart*> Starts;
+    return PrepareRoomPlayerStarts(Starts, Error);
+}
+bool AHBDungeonRuntime::PrepareRoomPlayerStarts(TArray<APlayerStart*>& OutStarts, FString& Error)
+{
+    TArray<ULevel*> Levels;
+    for (const auto& Room : Rooms) Levels.Add(GetLoadedRoomLevel(Room.Id));
+    return HBDungeonRuntimeValidation::PreparePlayerStarts(Rooms, Levels, OutStarts, Error);
 }
 bool AHBDungeonRuntime::PrepareServerGameplay(FString& Error)
 {
@@ -254,6 +261,7 @@ bool AHBDungeonRuntime::PrepareServerGameplay(FString& Error)
         TArray<FHBDungeonOccupancyDefinition> Occupancy;
         TArray<FHBDungeonModuleIssue> Issues;
         if (!Module || !Definition || Definition->ModuleId != Room.ModuleId
+            || !Definition->RoomInfo || Definition->RoomInfo->bIsStartCandidate != Module->bIsStartCandidate
             || !Definition->ReadModuleGeometry(Room.Transform, Connectors, Occupancy, Issues)
             || Connectors.Num() != Module->Connectors.Num() || Occupancy.Num() != Module->Occupancy.Num())
         { Error = FString::Printf(TEXT("Room %d no longer matches the source module."), Room.Id); return false; }
@@ -269,27 +277,23 @@ bool AHBDungeonRuntime::PrepareServerGameplay(FString& Error)
         if (!SpawnDoorSeals(Room, Connectors, Error)) return false;
     }
     if (!HBDungeonRuntimeValidation::LinkPortals(Rooms, ModuleCatalog, Streams, LinkedPortals, Error)) return false;
-    for (AActor* Actor : Streams[0]->GetLoadedLevel()->Actors)
-        if (auto* Start = Cast<APlayerStart>(Actor); Start && Start->PlayerStartTag == SpawnTag)
-        {
-            if (StartPoint) { Error = TEXT("Starting room contains multiple PlayerStarts with the configured spawn tag."); return false; }
-            StartPoint = Start;
-        }
-    if (!StartPoint) { Error = TEXT("Starting room needs one PlayerStart tagged DungeonSpawn (or the configured SpawnTag). No fallback to world origin."); return false; }
+    TArray<APlayerStart*> Starts;
+    if (!PrepareRoomPlayerStarts(Starts, Error)) return false;
     const auto* Mode = GetWorld()->GetAuthGameMode();
     const auto* Character = Mode && Mode->DefaultPawnClass ? Cast<ACharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
     if (!Character) { Error = TEXT("Gameplay dungeon requires a Character default pawn."); return false; }
     const auto* Capsule = Character->GetCapsuleComponent();
     const FCollisionShape Shape = FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(), Capsule->GetScaledCapsuleHalfHeight());
-    FCollisionQueryParams Query(SCENE_QUERY_STAT(HBDungeonSpawn), false);
-    Query.AddIgnoredActor(StartPoint);
-    if (GetWorld()->OverlapBlockingTestByProfile(StartPoint->GetActorLocation(), StartPoint->GetActorQuat(), Capsule->GetCollisionProfileName(), Shape, Query))
-    { Error = TEXT("DungeonSpawn is blocked for the gameplay character capsule."); return false; }
-    FHitResult Ground;
-    if (!GetWorld()->LineTraceSingleByChannel(Ground, StartPoint->GetActorLocation(),
-        StartPoint->GetActorLocation() - FVector(0, 0, Capsule->GetScaledCapsuleHalfHeight() + 100), ECC_WorldStatic, Query))
-    { Error = TEXT("DungeonSpawn has no blocking floor beneath it."); return false; }
-    return true;
+    StartPoint = HBDungeonRuntimeValidation::SelectPlayerStart(Starts, ActiveSeed, [&](const APlayerStart& Start)
+    {
+        FCollisionQueryParams Query(SCENE_QUERY_STAT(HBDungeonSpawn), false);
+        for (const APlayerStart* Point : Starts) Query.AddIgnoredActor(Point);
+        if (GetWorld()->OverlapBlockingTestByProfile(Start.GetActorLocation(), Start.GetActorQuat(), Capsule->GetCollisionProfileName(), Shape, Query)) return false;
+        FHitResult Ground;
+        return GetWorld()->LineTraceSingleByChannel(Ground, Start.GetActorLocation(),
+            Start.GetActorLocation() - FVector(0, 0, Capsule->GetScaledCapsuleHalfHeight() + 100), ECC_WorldStatic, Query);
+    }, Error);
+    return StartPoint != nullptr;
 }
 APlayerStart* AHBDungeonRuntime::GetPlayerStart() const { return IsReady() ? StartPoint.Get() : nullptr; }
 ULevel* AHBDungeonRuntime::GetLoadedRoomLevel(int32 RoomId) const
@@ -453,7 +457,7 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
         {
             if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal) && IsValid(Portal->TargetPortal))
                 Entries.Add(Portal->Arrival->GetComponentLocation());
-            if (const auto* Start = Cast<APlayerStart>(Actor); IsValid(Start) && Start->PlayerStartTag == SpawnTag)
+            if (const auto* Start = Cast<APlayerStart>(Actor); Room.bIsStartRoom && IsValid(Start) && !Start->IsActorBeingDestroyed())
                 Entries.Add(Start->GetActorLocation());
         }
         for (AActor* Actor : Level->Actors)

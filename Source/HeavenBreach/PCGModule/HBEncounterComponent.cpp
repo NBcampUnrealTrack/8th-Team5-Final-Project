@@ -26,6 +26,34 @@ bool UHBEncounterComponent::Validate(TArray<FString>& OutErrors) const
 		int32 SelectableMinimum = 0, SelectableMaximum = 0;
 		HBSpawnCountSelection::GetSelectableRange(Group.MinCount, Group.MaxCount,
 			Group.CountSelectionMode, Group.CountWeights, SelectableMinimum, SelectableMaximum);
+		if (!Group.ConditionGroupId.IsNone())
+		{
+			const int32 ConditionIndex = Groups.IndexOfByPredicate(
+				[&Group](const FHBEncounterGroup& Other) { return Other.GroupId == Group.ConditionGroupId; });
+			if (Group.ConditionGroupId == Group.GroupId || ConditionIndex == INDEX_NONE)
+				OutErrors.Add(Label + TEXT(" ConditionGroupId must name another group in this encounter."));
+			else
+			{
+				const FHBEncounterGroup& Condition = Groups[ConditionIndex];
+				const bool bPlacedEarlier = static_cast<uint8>(Condition.Grade) > static_cast<uint8>(Group.Grade)
+					|| (Condition.Grade == Group.Grade && ConditionIndex < GroupIndex);
+				if (!bPlacedEarlier)
+					OutErrors.Add(Label + TEXT(" ConditionGroupId must be placed earlier: use a higher grade, or the same grade listed above."));
+			}
+			if (Group.CountWeightsIfConditionSpawned.IsEmpty())
+				OutErrors.Add(Label + TEXT(" needs CountWeightsIfConditionSpawned when ConditionGroupId is set."));
+			else
+			{
+				TArray<FString> ConditionErrors;
+				HBSpawnCountSelection::Validate(Group.MinCount, Group.MaxCount, EHBSpawnCountSelectionMode::Weighted,
+					Group.CountWeightsIfConditionSpawned, ConditionErrors);
+				for (const FString& Error : ConditionErrors) OutErrors.Add(Label + TEXT(" condition ") + Error);
+				int32 ConditionMinimum = 0, ConditionMaximum = 0;
+				HBSpawnCountSelection::GetSelectableRange(Group.MinCount, Group.MaxCount, EHBSpawnCountSelectionMode::Weighted,
+					Group.CountWeightsIfConditionSpawned, ConditionMinimum, ConditionMaximum);
+				SelectableMaximum = FMath::Max(SelectableMaximum, ConditionMaximum);
+			}
+		}
 		if (SelectableMaximum > 0)
 		{
 			bSpawnsAnything = true;

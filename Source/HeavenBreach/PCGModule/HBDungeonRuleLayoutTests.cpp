@@ -17,8 +17,22 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "IpNetDriver.h"
 #include "Engine/ChildConnection.h"
+#include "Misc/OutputDevice.h"
+#include "Misc/OutputDeviceRedirector.h"
 namespace
 {
+	struct FLayoutLogCapture : FOutputDevice
+	{
+		TArray<FString> Messages;
+		FLayoutLogCapture() { GLog->FlushThreadedLogs(); GLog->AddOutputDevice(this); }
+		~FLayoutLogCapture() { GLog->FlushThreadedLogs(); GLog->RemoveOutputDevice(this); }
+		void Serialize(const TCHAR* Text, ELogVerbosity::Type, const FName& Category) override
+		{
+			if (Category == FName(TEXT("LogHBDungeonLayout"))) Messages.Add(Text);
+		}
+		void Reset() { GLog->FlushThreadedLogs(); Messages.Reset(); }
+		FString Text() { GLog->FlushThreadedLogs(); return FString::Join(Messages, TEXT("\n")); }
+	};
 	FHBModuleCatalogEntry MakeModule(const TCHAR* Name, EHBPrototypeRoomRole Role, EHBAllowedFloor Floor = EHBAllowedFloor::Any)
 	{
 		FHBModuleCatalogEntry M;
@@ -48,6 +62,7 @@ namespace
 				MakeModule(TEXT("FinalRoom"), EHBPrototypeRoomRole::Boss, EHBAllowedFloor::Floor2),
 				MakeModule(TEXT("UserChosenHall"), EHBPrototypeRoomRole::Unassigned, EHBAllowedFloor::Floor2)};
 			Modules[6].Kind = EHBDungeonModuleKind::Corridor;
+			Modules[0].bIsStartCandidate = true;
 			for (auto& C : Modules[5].Connectors) C.Role = EHBDungeonConnectorRole::BossEntrance;
 			Modules[6].Connectors[0].Role = EHBDungeonConnectorRole::DungeonSide;
 			Modules[6].Connectors[2].Role = EHBDungeonConnectorRole::BossSide;
@@ -65,7 +80,7 @@ namespace
 	{
 		FString S = HBDungeonLayout::Signature(Rooms);
 		for (const auto& R : Rooms) S += R.ModuleId.ToString() + R.ParentConnectorId.ToString() + R.EntryConnectorId.ToString()
-			+ R.ParentPortalId.ToString() + R.EntryPortalId.ToString();
+			+ R.ParentPortalId.ToString() + R.EntryPortalId.ToString() + (R.bIsStartRoom ? TEXT("Start") : TEXT("Ordinary"));
 		return S;
 	}
 }
@@ -242,6 +257,157 @@ bool FHBRuleRejectionTest::RunTest(const FString&)
 	TestTrue(TEXT("Search budget diagnostic"), Error.Contains(TEXT("Search limit")));
 	C.Settings.MaxSearchSteps = 200000; C.Settings.bAllowModuleReuse = false;
 	Reject(TEXT("Insufficient distinct modules"), C.Modules, C.Rules);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBStartCandidateLayoutTest, "HeavenBreach.PCGModule.Rules.StartCandidates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBStartCandidateLayoutTest::RunTest(const FString&)
+{
+	FCatalog C;
+	C.Modules[1].bIsStartCandidate = C.Modules[2].bIsStartCandidate = true;
+	TSet<EHBPrototypeRoomRole> StartRoles;
+	bool bRepeatedCandidate = false, bSeveralCandidates = false;
+	FString Error;
+	TArray<FHBPrototypeRoom> Rooms, Replay;
+	for (int32 Seed = 0; Seed < 32; ++Seed)
+	{
+		C.Settings.Seed = Seed;
+		if (!HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error)) { AddError(Error); return false; }
+		TestTrue(TEXT("Replay succeeds"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Replay, Error));
+		TestEqual(TEXT("Start instance and layout replay"), RuleLayoutSignature(Rooms), RuleLayoutSignature(Replay));
+		TestTrue(TEXT("First instance is the actual start"), Rooms[0].bIsStartRoom);
+		StartRoles.Add(Rooms[0].Role);
+		TSet<FName> CandidateIds;
+		int32 StartCount = 0;
+		for (const auto& Room : Rooms)
+		{
+			StartCount += Room.bIsStartRoom ? 1 : 0;
+			const auto* Module = C.Modules.FindByPredicate([&](const auto& M) { return M.ModuleId == Room.ModuleId; });
+			if (Module->bIsStartCandidate)
+			{
+				bRepeatedCandidate |= CandidateIds.Contains(Room.ModuleId);
+				CandidateIds.Add(Room.ModuleId);
+			}
+		}
+		bSeveralCandidates |= CandidateIds.Num() > 1;
+		TestEqual(TEXT("Only one instance is the actual start"), StartCount, 1);
+	}
+	TestEqual(TEXT("Adventure, Recovery and Upgrade can all start"), StartRoles.Num(), 3);
+	TestTrue(TEXT("Several candidate maps can occur in one dungeon"), bSeveralCandidates);
+	TestTrue(TEXT("A candidate map can occur more than once"), bRepeatedCandidate);
+	Replay = Rooms; Replay[1].bIsStartRoom = true;
+	TestFalse(TEXT("Two actual starts rejected"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, Replay, Error));
+	Replay = Rooms; Replay[0].bIsStartRoom = false;
+	TestFalse(TEXT("Missing actual start rejected"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, Replay, Error));
+
+	for (auto& M : C.Modules) M.bIsStartCandidate = false;
+	TestFalse(TEXT("Missing candidates rejected"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	TestTrue(TEXT("Missing candidate diagnostic"), Error.Contains(TEXT("start candidate")));
+	C.Modules[5].bIsStartCandidate = true;
+	TestFalse(TEXT("Boss cannot be a candidate"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	C.Modules[5].bIsStartCandidate = false;
+	C.Modules[4].bIsStartCandidate = true;
+	TestFalse(TEXT("No first-floor candidate rejected"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+
+	// A transition map may also author a start candidate. Its ordinary copies do not acquire transition roles.
+	C.Modules[4].bIsStartCandidate = false;
+	C.Modules[3].bIsStartCandidate = true;
+	if (!HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error)) { AddError(Error); return false; }
+	TestEqual(TEXT("Transition map can be selected as the start"), Rooms[0].ModuleMap, C.Rules.Floor1ExitMap);
+	TestFalse(TEXT("Start copy is not the floor-exit instance"), Rooms[0].bFloorExit);
+	TestTrue(TEXT("The separate exit instance retains the configured map"), Rooms.ContainsByPredicate([&](const auto& R)
+		{ return R.bFloorExit && R.ModuleMap == C.Rules.Floor1ExitMap && !R.bIsStartRoom; }));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBRuleFailureDiagnosticsTest, "HeavenBreach.PCGModule.Rules.FailureDiagnostics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBRuleFailureDiagnosticsTest::RunTest(const FString&)
+{
+	FCatalog C;
+	FLayoutLogCapture Capture;
+	TArray<FHBPrototypeRoom> Rooms, Replay;
+	FString Error;
+	if (!TestTrue(TEXT("Valid layout still generates"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error)))
+	{ AddError(Error); return false; }
+	TestTrue(TEXT("Successful search emits no failure diagnostics"), Capture.Text().IsEmpty());
+	TestTrue(TEXT("Successful search still replays"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Replay, Error));
+	TestEqual(TEXT("Diagnostics preserve seeded replay"), RuleLayoutSignature(Rooms), RuleLayoutSignature(Replay));
+
+	Capture.Reset(); C.Settings.MaxSearchSteps = 1;
+	TestFalse(TEXT("Attempt limit fails"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	FString Log = Capture.Text();
+	TestTrue(TEXT("Attempt limit distinguished"), Log.Contains(TEXT("Stop=AttemptLimit")) && Error.Contains(TEXT("AttemptLimit")));
+	TestTrue(TEXT("Settings include the seed and reuse policy"), Log.Contains(TEXT("Seed=12345")) && Log.Contains(TEXT("Reuse=true")));
+	TestTrue(TEXT("Next slot and its parent retained after backtracking"), Log.Contains(TEXT("[NextSlot] Room=1 Floor=1 Kind=Room ParentRoom=0"))
+		&& Log.Contains(TEXT("[ParentSnapshot] Room=0 Module=Ordinary")) && Log.Contains(TEXT("AvailableDoors=4/4")));
+	TestTrue(TEXT("Normal candidate filtering is separately labeled"), Log.Contains(TEXT("[CandidateFilters]"))
+		&& Log.Contains(TEXT("normal filtering; not placement failures")));
+	TestTrue(TEXT("Failed generation returns no partial rooms"), Rooms.IsEmpty());
+	TestTrue(TEXT("Failure summary remains bounded"), Capture.Messages.Num() <= 48);
+
+	Capture.Reset(); C = FCatalog(); C.Settings.MaxSearchSeconds = 1.e-12;
+	TestFalse(TEXT("Time limit fails"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	Log = Capture.Text();
+	TestTrue(TEXT("Time limit distinguished without a fixed wait"), Log.Contains(TEXT("Stop=TimeLimit")) && Error.Contains(TEXT("TimeLimit")));
+	TestTrue(TEXT("No attempted placement falsely reported"), Log.Contains(TEXT("Attempts=0/200000")) && Log.Contains(TEXT("Best=0/12")));
+
+	Capture.Reset(); C = FCatalog();
+	C.Rules.Floor1MainRooms = 3; C.Rules.Floor2MainRooms = 4;
+	C.Rules.Floor1BranchRooms = 0; C.Rules.Floor2BranchRooms = 1;
+	C.Modules[0].Connectors.SetNum(1); C.Modules[0].ConnectorCount = 1;
+	TestFalse(TEXT("One-door chain cannot extend"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	Log = Capture.Text();
+	TestTrue(TEXT("Exhaustion distinguished from budget limits"), Log.Contains(TEXT("Stop=Exhausted")));
+	TestTrue(TEXT("Deepest door shortage reported"), Log.Contains(TEXT("Scope=Deepest Rejection=NoAvailableParentDoors"))
+		&& Log.Contains(TEXT("ParentRoom=1 ParentModule=Ordinary")) && Log.Contains(TEXT("UsedDoors=1/1")));
+	TestTrue(TEXT("Door snapshot is retained"), Log.Contains(TEXT("[ParentSnapshot] Room=1 Module=Ordinary")) && Log.Contains(TEXT("AvailableDoors=0/1")));
+
+	Capture.Reset(); C = FCatalog(); C.Settings.MaxSearchSteps = 1000;
+	C.Modules[5].Occupancy[0].Extent = FVector(10000, 10000, 100);
+	C.Modules[5].Bounds = FBox(FVector(-10000, -10000, 0), FVector(10000, 10000, 200));
+	TestFalse(TEXT("Oversized boss occupancy prevents completion"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	Log = Capture.Text();
+	TestTrue(TEXT("Deepest collision identifies the proposed module"), Log.Contains(TEXT("Scope=Deepest Rejection=OccupancyOverlap Depth=8 Floor=2 Candidate=FinalRoom")));
+	TestTrue(TEXT("Collision includes existing room and both box details"), Log.Contains(TEXT("OverlapWithRoom=")) && Log.Contains(TEXT("BoxAIndex=0 CenterA="))
+		&& Log.Contains(TEXT("RotationA=")) && Log.Contains(TEXT("HalfExtentA=")) && Log.Contains(TEXT("BoxBIndex=0 CenterB=")) && Log.Contains(TEXT("HalfExtentB=")));
+	TestTrue(TEXT("Door role mismatch is counted separately"), Log.Contains(TEXT("ConnectorRoleMismatch=")));
+	TestTrue(TEXT("Summary distinguishes a snapshot from aggregated contexts"), Log.Contains(TEXT("Snapshot=FirstContextAtBest"))
+		&& Log.Contains(TEXT("Examples may belong to different branches")));
+	TestTrue(TEXT("Many attempts produce a bounded log"), Capture.Messages.Num() <= 48);
+
+	// Exhaust all available Adventure maps, so the sole remaining branch is Recovery.
+	// Two Adventures tie two Recoveries: CheckRules must retain its original final error.
+	Capture.Reset(); C = FCatalog(); C.Settings.bAllowModuleReuse = false;
+	C.Rules.Floor1MainRooms = 2; C.Rules.Floor2MainRooms = 3;
+	C.Rules.Floor1BranchRooms = 0; C.Rules.Floor2BranchRooms = 1;
+	C.Modules[0].bIsStartCandidate = false; C.Modules[1].bIsStartCandidate = true;
+	C.Modules[4].Role = EHBPrototypeRoomRole::Upgrade;
+	C.Modules.Add(MakeModule(TEXT("BranchRest"), EHBPrototypeRoomRole::Recovery, EHBAllowedFloor::Floor2));
+	for (int32 I : {0, 1, 3, 4, 5, 7})
+	{
+		const int32 Doors = (I == 0 || I == 4) ? 2 : 1;
+		if (Doors == 2) C.Modules[I].Connectors[1] = C.Modules[I].Connectors[2];
+		C.Modules[I].Connectors.SetNum(Doors); C.Modules[I].ConnectorCount = Doors;
+	}
+	C.Modules[6].Connectors[1] = C.Modules[6].Connectors[2];
+	C.Modules[6].Connectors.SetNum(2); C.Modules[6].ConnectorCount = 2;
+	TestFalse(TEXT("All completed layouts violate the role balance"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	Log = Capture.Text();
+	TestTrue(TEXT("Final-rule rejection retains the original reason"), Log.Contains(TEXT("Scope=Deepest Rejection=FinalRuleValidation Depth=7 Reason=Adventure must be the most common role.")));
+	TestTrue(TEXT("Completed but rejected layouts are distinguished"), Log.Contains(TEXT("Best=7/7")) && Log.Contains(TEXT("All slots filled; final rule validation rejected")));
+	TestTrue(TEXT("Final-rule reason appears in the returned failure summary"), Error.Contains(TEXT("FinalRuleValidation=")));
+	TestTrue(TEXT("Reuse rejection recorded when reuse is disabled"), Log.Contains(TEXT("ModuleReuseDisabled=")));
+
+	Capture.Reset(); C = FCatalog(); C.Rules.Floor2BranchRooms = C.Rules.Floor1BranchRooms;
+	TestFalse(TEXT("Invalid settings fail before searching"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	Log = Capture.Text();
+	TestTrue(TEXT("Settings failure has its own phase and original error"), Log.Contains(TEXT("Phase=Settings")) && Log.Contains(Error));
+	TestFalse(TEXT("Preflight failure emits no search report"), Log.Contains(TEXT("[Search]")));
+	Capture.Reset(); C = FCatalog(); C.Rules.Floor2EntryPortalId = TEXT("Missing");
+	TestFalse(TEXT("Invalid portal selection fails"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	TestTrue(TEXT("Portal failure has its own phase and original error"), Capture.Text().Contains(TEXT("Phase=PortalSelection")) && Capture.Text().Contains(Error));
 	return true;
 }
 

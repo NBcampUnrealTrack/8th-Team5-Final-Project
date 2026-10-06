@@ -14,6 +14,8 @@
 #include "Loot/BoxActor.h"
 #include "Components/BoxComponent.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerStart.h"
 #include "Logging/MessageLog.h"
 #include "Misc/UObjectToken.h"
 
@@ -327,6 +329,18 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 		}
 		if (Info.Num() == 1)
 		{
+			if (Info[0]->bIsStartCandidate)
+			{
+				if (Definition->ModuleKind != EHBDungeonModuleKind::Room || Info[0]->RoomRole == EHBPrototypeRoomRole::Boss)
+					AddIssue(OutIssues, TEXT("StartCandidateRole"), Info[0], TEXT("Only non-boss Room modules can be start candidates."));
+				// Runtime instances remove starts from ordinary copies; source maps must author at least one.
+				if (Level->GetWorld() && !Level->GetWorld()->IsGameWorld()
+					&& !Level->Actors.ContainsByPredicate([Level](const AActor* Actor)
+					{
+						return IsValid(Actor) && Actor->GetLevel() == Level && Actor->IsA<APlayerStart>();
+					}))
+					AddIssue(OutIssues, TEXT("StartCandidatePlayerStart"), Info[0], TEXT("A start candidate map needs at least one PlayerStart. No tag is required."));
+			}
 			if (static_cast<uint8>(Info[0]->AllowedFloor) > 2)
 				AddIssue(OutIssues, TEXT("AllowedFloor"), Info[0], TEXT("Select Any, Floor1 or Floor2."));
 			if (Definition->ModuleKind == EHBDungeonModuleKind::Room && Info[0]->RoomRole == EHBPrototypeRoomRole::Boss

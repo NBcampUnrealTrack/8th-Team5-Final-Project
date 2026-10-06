@@ -3,6 +3,9 @@
 #include "Components/BoxComponent.h"
 #include "Components/ArrowComponent.h"
 #include "Engine/LevelStreamingDynamic.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerStart.h"
 #include "Misc/PackageName.h"
 
 bool HBDungeonRuntimeValidation::ValidateLayoutForLoading(const TArray<FHBPrototypeRoom>& Rooms, FString& Error)
@@ -14,6 +17,9 @@ bool HBDungeonRuntimeValidation::ValidateLayoutForLoading(const TArray<FHBProtot
     for (int32 Index = 0; Index < Rooms.Num(); ++Index)
     {
         const auto& R = Rooms[Index];
+        if (R.bIsStartRoom != (Index == 0)
+            || (R.bIsStartRoom && (R.Role == EHBPrototypeRoomRole::Boss || R.bCorridor || R.bBranch || R.Floor != 1)))
+        { Error = TEXT("Exactly the first non-boss room on floor 1 must be marked as the start room."); return false; }
         if (R.Id != Index || R.ModuleId.IsNone() || R.ModuleMap.IsNull() ||
             !FPackageName::IsValidLongPackageName(R.ModuleMap.ToSoftObjectPath().GetLongPackageName()) ||
             !R.Transform.IsValid() || !R.Transform.GetScale3D().Equals(FVector::OneVector, 0.0001) ||
@@ -43,6 +49,58 @@ bool HBDungeonRuntimeValidation::ValidateLayoutForLoading(const TArray<FHBProtot
         }
     }
     return true;
+}
+
+bool HBDungeonRuntimeValidation::PreparePlayerStarts(const TArray<FHBPrototypeRoom>& Rooms,
+    const TArray<ULevel*>& Levels, TArray<APlayerStart*>& OutStarts, FString& Error)
+{
+    OutStarts.Reset();
+    if (!ValidateLayoutForLoading(Rooms, Error)) return false;
+    if (Levels.Num() != Rooms.Num()) { Error = TEXT("Missing room levels for PlayerStart preparation."); return false; }
+    UWorld* World = IsValid(Levels[0]) ? Levels[0]->GetWorld() : nullptr;
+    if (!World || !World->IsGameWorld()) { Error = TEXT("PlayerStart preparation only operates on runtime room instances."); return false; }
+    TSet<ULevel*> Seen;
+    TArray<APlayerStart*> Remove;
+    for (int32 Index = 0; Index < Levels.Num(); ++Index)
+    {
+        ULevel* Level = Levels[Index];
+        if (!IsValid(Level) || Level->GetWorld() != World || Level == World->PersistentLevel || Seen.Contains(Level))
+        { OutStarts.Reset(); Error = TEXT("PlayerStarts require distinct generated levels in the same game world."); return false; }
+        Seen.Add(Level);
+        for (AActor* Actor : Level->Actors)
+            if (auto* Start = Cast<APlayerStart>(Actor); IsValid(Start) && !Start->IsActorBeingDestroyed() && Start->GetLevel() == Level)
+            {
+                if (Rooms[Index].bIsStartRoom) OutStarts.Add(Start);
+                else Remove.Add(Start);
+            }
+    }
+    if (OutStarts.IsEmpty()) { Error = TEXT("The actual start room needs at least one PlayerStart. No tag is required."); return false; }
+    // Gather first: Destroy may change the level's actor array. Validate every level before removing anything.
+    for (APlayerStart* Start : Remove)
+        if (!Start->Destroy())
+        { OutStarts.Reset(); Error = TEXT("Could not remove a PlayerStart from a non-start room instance."); return false; }
+    OutStarts.Sort([](const APlayerStart& A, const APlayerStart& B) { return A.GetFName().LexicalLess(B.GetFName()); });
+    return true;
+}
+
+APlayerStart* HBDungeonRuntimeValidation::SelectPlayerStart(const TArray<APlayerStart*>& Starts, int32 DungeonSeed,
+    TFunctionRef<bool(const APlayerStart&)> IsUsable, FString& Error)
+{
+    Error.Reset();
+    if (Starts.IsEmpty()) { Error = TEXT("The actual start room has no PlayerStart."); return nullptr; }
+    UWorld* World = IsValid(Starts[0]) ? Starts[0]->GetWorld() : nullptr;
+    if (!World || !World->IsGameWorld() || World->GetNetMode() == NM_Client)
+    { Error = TEXT("PlayerStart selection requires the server game world."); return nullptr; }
+    TArray<APlayerStart*> Candidates = Starts;
+    for (const APlayerStart* Start : Candidates)
+        if (!IsValid(Start) || Start->IsActorBeingDestroyed() || Start->GetWorld() != World || Start->GetLevel() != Starts[0]->GetLevel())
+        { Error = TEXT("PlayerStart choices must belong to the same actual start room."); return nullptr; }
+    Candidates.Sort([](const APlayerStart& A, const APlayerStart& B) { return A.GetFName().LexicalLess(B.GetFName()); });
+    FRandomStream Random(static_cast<int32>(HashCombineFast(GetTypeHash(DungeonSeed), 0x48425354u)));
+    for (int32 Index = Candidates.Num() - 1; Index > 0; --Index) Candidates.Swap(Index, Random.RandRange(0, Index));
+    for (APlayerStart* Start : Candidates) if (IsUsable(*Start)) return Start;
+    Error = TEXT("Every PlayerStart in the actual start room is blocked or has no floor for the gameplay character.");
+    return nullptr;
 }
 
 bool HBDungeonRuntimeValidation::ValidateLocalPortalInstances(const TArray<FHBPrototypeRoom>& Rooms,
