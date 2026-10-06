@@ -38,6 +38,7 @@ UHB_PlayerAttributeSet::UHB_PlayerAttributeSet()
 	InitPlayer_HeadshotDamageBonus(0.f);
 	InitPlayer_DamageTakenMultiplier(1.f);
 	InitPlayer_MeleeDamageTakenMultiplier(1.f);
+	InitPlayer_FallDamageReduction(0.f);
 	InitPlayer_HealingReceivedMultiplier(1.f);
 	InitPlayer_HealthRegenFlat(0.f);
 	InitPlayer_HealthRegenMultiplier(1.f);
@@ -70,6 +71,7 @@ void UHB_PlayerAttributeSet::GetLifetimeReplicatedProps(TArray<class FLifetimePr
 	DOREPLIFETIME(ThisClass,Player_HeadshotDamageBonus);
 	DOREPLIFETIME(ThisClass,Player_DamageTakenMultiplier);
 	DOREPLIFETIME(ThisClass,Player_MeleeDamageTakenMultiplier);
+	DOREPLIFETIME(ThisClass,Player_FallDamageReduction);
 	DOREPLIFETIME(ThisClass,Player_HealingReceivedMultiplier);
 	DOREPLIFETIME(ThisClass,Player_HealthRegenFlat);
 	DOREPLIFETIME(ThisClass,Player_HealthRegenMultiplier);
@@ -150,6 +152,11 @@ void UHB_PlayerAttributeSet::PreAttributeChange(const FGameplayAttribute& Attrib
 		// 하한이 없으면 -50% 옵션 두 개로 무적이 된다.
 		// 쳐낼 조건: 받는 피해 옵션을 방어력 곡선 안으로 옮기면 이 칸째로 지운다.
 		NewValue = FMath::Clamp(NewValue, 0.5f, 2.f);
+	}
+	else if (Attribute == GetPlayer_FallDamageReductionAttribute())
+	{
+		// 1 이면 낙하가 완전히 무해해진다. 포션까지 겹쳐도 0.9 에서 멈춘다.
+		NewValue = FMath::Clamp(NewValue, 0.f, 0.9f);
 	}
 }
 
@@ -366,6 +373,11 @@ void UHB_PlayerAttributeSet::OnRep_DamageTakenMultiplier(const FGameplayAttribut
 void UHB_PlayerAttributeSet::OnRep_MeleeDamageTakenMultiplier(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_MeleeDamageTakenMultiplier, OldValue);
+}
+
+void UHB_PlayerAttributeSet::OnRep_FallDamageReduction(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_FallDamageReduction, OldValue);
 }
 
 void UHB_PlayerAttributeSet::OnRep_HealingReceivedMultiplier(const FGameplayAttributeData& OldValue)

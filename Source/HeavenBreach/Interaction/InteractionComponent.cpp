@@ -145,6 +145,13 @@ void UInteractionComponent::BeginHold()
 		return;
 	}
 
+	// 클라가 알 수 있는 조건(열쇠 등)으로 먼저 거른다. 안 되면 동작·진행 바를 켜지 않는다.
+	// 서버도 OnHoldBegin 으로 다시 판정하므로 여기를 속여도 문은 안 열린다.
+	if (!IInteractableInterface::Execute_CanBeginHold(FocusedInteractable, GetOwnerPawn()))
+	{
+		return;
+	}
+
 	HeldTarget = FocusedInteractable;
 	HoldDuration = HoldSeconds;
 	HoldStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
@@ -176,6 +183,16 @@ void UInteractionComponent::EndHold()
 	}
 
 	Server_EndHold();
+}
+
+void UInteractionComponent::Client_HoldRejected_Implementation(AActor* Target)
+{
+	// 그사이 다른 대상을 누르기 시작했으면 그건 건드리지 않는다.
+	if (HeldTarget == nullptr || HeldTarget != Target)
+	{
+		return;
+	}
+	AbortHold();
 }
 
 void UInteractionComponent::AbortHold()
@@ -244,6 +261,7 @@ void UInteractionComponent::Server_BeginHold_Implementation(AActor* Target)
 
 	if (!IsTargetInteractable(Target))
 	{
+		Client_HoldRejected(Target);
 		return;
 	}
 
@@ -260,6 +278,7 @@ void UInteractionComponent::Server_BeginHold_Implementation(AActor* Target)
 	// 대상이 거절하면 홀드를 시작하지 않는다. 봉인문은 필요한 열쇠가 없으면 여기서 거절한다.
 	if (!IInteractableInterface::Execute_OnHoldBegin(Target, Pawn))
 	{
+		Client_HoldRejected(Target);
 		return;
 	}
 

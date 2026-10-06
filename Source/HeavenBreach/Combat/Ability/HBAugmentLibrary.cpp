@@ -60,6 +60,17 @@ namespace HBAugment
 		return Augment.TierMagnitudes.IsValidIndex(Index) ? Augment.TierMagnitudes[Index] : 0.f;
 	}
 
+	bool ResolveParam(const FHBSkillAugment& Augment, const FGameplayTag ParamTag, const int32 Tier, float& OutValue)
+	{
+		float ParamValue = 0.f;
+		if (!Augment.FindParam(ParamTag, ParamValue))
+		{
+			return false;   // 이 증강은 그 항목을 안 정했다
+		}
+		OutValue = Augment.TierMagnitudes.Num() > 0 ? GetTierMagnitude(Augment, Tier) : ParamValue;
+		return true;
+	}
+
 	void DrawCandidates(
 		TArray<FHBUpgradeCandidate>& Pool,
 		const int32 DrawCount,

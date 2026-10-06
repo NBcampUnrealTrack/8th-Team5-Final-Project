@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Abilities/GameplayAbility.h"
+#include "Engine/DataTable.h"
 #include "GA_PlayerBowAttack.generated.h"
 
 class AHBPlayerArrow;
@@ -25,6 +26,12 @@ public:
 
 	static UGA_PlayerBowAttack* FindActive(UAbilitySystemComponent* ASC);
 
+	/** 가방에서 쓰는 화살 아이템 행. 비어 있으면 화살을 쓰지 않는다(무한) */
+	const FDataTableRowHandle& GetArrowItemRow() const { return ArrowItemRow; }
+
+	/** 쏘는 화살 클래스. 활 스킬이 자기 값이 비어 있을 때 이것을 빌려 쓴다(HBBowShot::ResolveArrowDefaults) */
+	TSubclassOf<AHBPlayerArrow> GetArrowClass() const { return ArrowClass; }
+
 protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
@@ -40,6 +47,14 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Bow")
 	TSubclassOf<AHBPlayerArrow> ArrowClass;
+
+	/** 쏠 때마다 가방에서 1개씩 쓰는 화살 아이템(DT_Item / Arrow). 비어 있으면 무한 */
+	UPROPERTY(EditDefaultsOnly, Category = "Bow|Ammo")
+	FDataTableRowHandle ArrowItemRow;
+
+	/** 화살이 없어서 당기지 못할 때 화면에 띄우는 문구 */
+	UPROPERTY(EditDefaultsOnly, Category = "Bow|Ammo")
+	FText NoArrowMessage = NSLOCTEXT("PlayerBow", "NoArrow", "화살이 없습니다");
 
 	/**
 	 * 당기기. 마지막 포즈에서 멈추게(auto blend-out 끔) 만든다. 비어 있어도 동작한다.
@@ -62,10 +77,10 @@ protected:
 	float MaxDrawTime = 1.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Bow|Draw", meta = (ClampMin = "0.0", Units = "cm/s"))
-	float MinArrowSpeed = 1500.f;
+	float MinArrowSpeed = 1000.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Bow|Draw", meta = (ClampMin = "0.0", Units = "cm/s"))
-	float MaxArrowSpeed = 4000.f;
+	float MaxArrowSpeed = 2500.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Bow|Draw", meta = (ClampMin = "0.0"))
 	float MinDamageCoef = 0.5f;
@@ -90,8 +105,7 @@ protected:
 	TSubclassOf<UGameplayEffect> AttackSlowEffect;
 
 private:
-	/** 서버 전용. 시선 방향으로 화살을 만든다 */
-	void SpawnArrow(AHBPlayerCharacter* Player, float Speed, float DamageCoef);
+	// 화살 확인·소모·발사는 활 스킬과 같이 쓰도록 HBBowShot 으로 옮겼다.
 
 	/** 발사·취소 뒤 마무리. 몽타주가 있으면 끝날 때, 없으면 ReleaseRecoveryTime 뒤에 끝낸다 */
 	void PlayFinishAndEnd(UAnimMontage* Montage);

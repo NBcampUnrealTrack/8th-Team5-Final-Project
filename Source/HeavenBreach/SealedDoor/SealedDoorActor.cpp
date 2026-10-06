@@ -164,6 +164,13 @@ bool ASealedDoorActor::HasRequiredKey(AActor* Interactor) const
 	return FindMatchingKey(GetInteractorInventory(Interactor), GradeData->RequiredKeyRowName, UnusedId);
 }
 
+bool ASealedDoorActor::CanBeginHold_Implementation(AActor* Interactor) const
+{
+	// 서버의 OnHoldBegin 과 같은 조건이지만 상태를 바꾸지 않는다. 클라는 자기 인벤토리를 갖고 있어 판단할 수 있다.
+	const bool bOpenable = DoorState == ESealedDoorState::Sealed || DoorState == ESealedDoorState::Opening;
+	return bOpenable && HasRequiredKey(Interactor);
+}
+
 bool ASealedDoorActor::OnHoldBegin_Implementation(AActor* Interactor)
 {
 	if (!HasAuthority())

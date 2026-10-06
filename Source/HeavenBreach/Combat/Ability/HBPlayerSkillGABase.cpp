@@ -1,6 +1,7 @@
 #include "Combat/Ability/HBPlayerSkillGABase.h"
 
 #include "AbilitySystemComponent.h"
+#include "Combat/Ability/HBAugmentLibrary.h"
 #include "Player/HBPlayerCharacter.h"
 
 UHBPlayerSkillGABase::UHBPlayerSkillGABase()
@@ -61,16 +62,17 @@ float UHBPlayerSkillGABase::GetAugmentParamFrom(const FGameplayAbilityActorInfo*
 	// 캐릭터에 물으면 어느 스킬의 증강인지 몰라 값을 정할 수 없다.
 	for (const FHBSkillAugment& Augment : Augments)
 	{
-		float Value = 0.f;
-		if (!Augment.FindParam(ParamTag, Value))
-		{
-			continue;   // 이 증강은 그 항목을 안 정했다
-		}
 		if (!HasAugmentFrom(ActorInfo, Augment.AugmentTag))
 		{
 			continue;   // 아직 안 골랐다
 		}
-		return Value;   // 먼저 찾은 것을 쓴다
+		const AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
+		const int32 Tier = Player ? FMath::Max(1, Player->GetAugmentTier(Augment.AugmentTag)) : 1;
+		float Value = 0.f;
+		if (HBAugment::ResolveParam(Augment, ParamTag, Tier, Value))
+		{
+			return Value;   // 먼저 찾은 것을 쓴다. 단계값이 있으면 그 단계의 최종값
+		}
 	}
 
 	return Default;

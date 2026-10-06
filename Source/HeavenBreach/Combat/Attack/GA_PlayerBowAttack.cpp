@@ -6,13 +6,13 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Combat/Attack/HBBowDraw.h"
+#include "Combat/Attack/HBBowShot.h"
 #include "Combat/Attack/HBPlayerArrow.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "EquipmentComponent.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/HBWeaponPresentation.h"
-#include "Camera/CameraComponent.h"
 #include "TimerManager.h"
 
 UGA_PlayerBowAttack::UGA_PlayerBowAttack()
@@ -69,6 +69,15 @@ void UGA_PlayerBowAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 				return;
 			}
 		}
+	}
+
+	// 화살이 없으면 당기지 않는다. 클라가 먼저 막고 안내를 띄우고, 서버도 같은 검사를 한다.
+	if (Player && !HBBowShot::HasArrow(Player, ArrowItemRow))
+	{
+		HBBowShot::NotifyNoArrow(Player, NoArrowMessage);
+		UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살 없음 — 당기기 취소  Auth=%d"), ActorInfo->IsNetAuthority() ? 1 : 0);
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+		return;
 	}
 
 	// 기본공격이라 마나를 쓰지 않는다.
@@ -151,45 +160,20 @@ void UGA_PlayerBowAttack::OnReleased(const float TimeHeld)
 	const FGameplayAbilityActorInfo* ActorInfo = GetCurrentActorInfo();
 	if (ActorInfo && ActorInfo->IsNetAuthority())
 	{
-		SpawnArrow(Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()), Shot.Speed, Shot.DamageCoef);
+		AHBPlayerCharacter* Shooter = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get());
+
+		// 당기는 사이에 화살을 버렸으면 쏘지 않는다. 취소 동작으로 마무리.
+		if (!HBBowShot::ConsumeArrow(Shooter, ArrowItemRow))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Bow] 발사 직전 화살 없음 — 취소"));
+			PlayFinishAndEnd(ActiveCancelMontage);
+			return;
+		}
+
+		HBBowShot::SpawnArrow(Shooter, ArrowClass, Shot.Speed, Shot.DamageCoef, ArrowItemRow, AimTraceDistance, SpawnForwardOffset);
 	}
 
 	PlayFinishAndEnd(ActiveReleaseMontage);
-}
-
-void UGA_PlayerBowAttack::SpawnArrow(AHBPlayerCharacter* Player, const float Speed, const float DamageCoef)
-{
-	UWorld* World = GetWorld();
-	if (!Player || !World || !ArrowClass)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살을 만들 수 없음 (Player=%s ArrowClass=%s)"), *GetNameSafe(Player), *GetNameSafe(ArrowClass));
-		return;
-	}
-
-	// 화면 중앙(카메라)에서 조준점으로. 서버도 몸 포즈를 매 틱 갱신하므로(AlwaysTickPoseAndRefreshBones)
-	// 머리 뼈에 붙은 카메라 위치를 그대로 쓸 수 있다. 눈 높이(캡슐 기준)를 쓰면 화면과 어긋난다.
-	const UCameraComponent* Camera = Player->GetFirstPersonCamera();
-	const FVector CameraLocation = Camera ? Camera->GetComponentLocation() : Player->GetPawnViewLocation();
-	const FVector AimPoint = Player->ComputeAimPoint(AimTraceDistance);
-	const FVector AimDirection = (AimPoint - CameraLocation).GetSafeNormal();
-	if (AimDirection.IsNearlyZero())
-	{
-		return;
-	}
-	const FRotator EyeRotation = AimDirection.Rotation();
-
-	const FTransform SpawnTransform(EyeRotation, CameraLocation + AimDirection * SpawnForwardOffset);
-
-	AHBPlayerArrow* Arrow = World->SpawnActorDeferred<AHBPlayerArrow>(ArrowClass, SpawnTransform, Player, Player, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-	if (!Arrow)
-	{
-		return;
-	}
-	Arrow->FinishSpawning(SpawnTransform);
-	Arrow->Launch(Player, Speed, DamageCoef);
-
-	UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살 스폰 %s  위치=%s  방향=%s"),
-		*GetNameSafe(Arrow), *SpawnTransform.GetLocation().ToCompactString(), *EyeRotation.ToCompactString());
 }
 
 void UGA_PlayerBowAttack::PlayFinishAndEnd(UAnimMontage* Montage)

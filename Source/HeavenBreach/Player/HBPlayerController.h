@@ -43,6 +43,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	UHB_HUDLayer* GetHUDLayer() const { return HUDLayer; }
 
+	/** 로컬 화면에 잠깐 뜨는 알림. 같은 문구는 HudNotificationRepeatInterval 안에 다시 띄우지 않는다 */
+	void ShowHudNotification(const FText& Body);
+
+	/** 서버가 이 플레이어 화면에만 알림을 띄울 때 */
+	UFUNCTION(Client, Reliable)
+	void ClientShowHudNotification(const FText& Body);
+
+	/** 개발용 콘솔 명령. 활 평타 GA 의 화살 행으로 가방에 화살을 넣는다. 예: HBGiveArrows 30 */
+	UFUNCTION(Exec)
+	void HBGiveArrows(int32 Count = 30);
+
+	UFUNCTION(Server, Reliable)
+	void ServerGiveArrows(int32 Count);
+
 	UFUNCTION(BlueprintCallable, Category = "Player|UI")
 	void ToggleSkillAugment();
 
@@ -57,7 +71,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Player|UI")
 	bool IsContainerOpen() const { return ContainerScreen != nullptr; }
 
-	// 서버 전용. 빙의를 푼 뒤 부른다. 살아 있는 팀원 시점으로 넘어간다.
+	// 서버 전용. 빙의를 푼 뒤 부른다. 시체를 DeathViewDuration 동안 보여 준 뒤 살아 있는 팀원 시점으로 넘어간다.
 	void StartSpectatingTeammates();
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -65,6 +79,21 @@ public:
 protected:
 	// 접속이 끊기면 Logout 보다 먼저 불려 폰을 지운다. 살아 있던 사람은 여기서 시체로 남긴다.
 	virtual void PawnLeavingGame() override;
+
+	// 빙의가 풀리는 순간 방금까지 조종하던 폰(사망이면 시체)을 기억한다. 사망 시점 연출에 쓴다.
+	virtual void OnUnPossess() override;
+
+	// 죽은 뒤 팀원 관전으로 넘어가기 전에 자기 시체(쓰러지는 모습)를 보여 주는 시간. 0 이면 바로 관전.
+	// 카메라는 시체 머리 뼈에 붙은 1인칭 카메라 그대로라 몸이 쓰러지는 대로 화면도 쓰러진다.
+	UPROPERTY(EditDefaultsOnly, Category = "Player|Spectate", meta = (ClampMin = "0.0", Units = "s"))
+	float DeathViewDuration = 2.5f;
+
+	TWeakObjectPtr<APawn> LastPossessedPawn;
+
+	FTimerHandle DeathViewTimer;
+
+	// 서버. 사망 시점이 끝나면 실제 팀원 관전을 시작한다.
+	void BeginTeammateSpectate();
 
 	UPROPERTY(ReplicatedUsing = OnRep_SpectatingTeammates)
 	bool bSpectatingTeammates = false;
@@ -278,6 +307,12 @@ private:
 	bool bWasQuickSlot2Pressed = false;
 	bool bWasQuickSlot3Pressed = false;
 	bool bWasQuickSlot4Pressed = false;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Player|UI", meta = (ClampMin = "0.0", Units = "s"))
+	float HudNotificationRepeatInterval = 1.5f;
+
+	FText LastHudNotificationText;
+	double LastHudNotificationTime = -1.0e9;
 	
 #pragma region CameraShake
 public:
