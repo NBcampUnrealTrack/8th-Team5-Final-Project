@@ -27,6 +27,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Point")
 	TArray<TSubclassOf<ABoxActor>> AllowedClasses;
 
+	/** When disabled only the authored position is checked. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Position Correction")
+	bool bAllowPositionCorrection = true;
+
+	/** Opt in to the selected root mesh's scaled horizontal footprint; otherwise retain 10/20/30 cm rings. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Position Correction", meta=(EditCondition="bAllowPositionCorrection"))
+	bool bUseMeshBasedCorrection = false;
+
+	/** Maximum horizontal adjustment = horizontal mesh bounding radius * multiplier. Zero checks only the marker. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Position Correction", meta=(ClampMin="0", UIMax="4", EditCondition="bAllowPositionCorrection && bUseMeshBasedCorrection"))
+	float CorrectionRadiusMultiplier = 2.f;
+
 	/** A required point must be filled during placement. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Point")
 	bool bRequired = false;

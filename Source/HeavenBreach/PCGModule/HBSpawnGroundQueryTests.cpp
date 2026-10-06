@@ -7,6 +7,7 @@
 #include "CollisionShape.h"
 #include "PCGModule/HBSpawnDiagnostics.h"
 #include "Misc/AutomationTest.h"
+#include <limits>
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -249,6 +250,151 @@ bool FHBSpawnGroundFailureDiagnosticsTest::RunTest(const FString&)
 			Query, Accept, Floor, Error, Report));
 	TestTrue(TEXT("Invalid search configuration has a terminal typed reason"),
 		Report.FailureReason == EHBSpawnFailureReason::InvalidConfiguration && Report.Candidates.IsEmpty());
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBSpawnShapeCorrectionTest,
+	"HeavenBreach.PCGModule.SpawnGround.ShapeBasedCorrection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBSpawnShapeCorrectionTest::RunTest(const FString&)
+{
+	FGroundQueryWorld TestWorld;
+	const FVector Marker(0, 0, 0.4);
+	const FBox Bounds(FVector(-500, -500, -200), FVector(500, 500, 300));
+	FCollisionQueryParams Query(SCENE_QUERY_STAT(HBShapeCorrectionTest), false);
+	FHitResult Floor;
+	FString Error;
+	FHBSpawnPlacementReport Report, Legacy;
+	int32 Calls = 0;
+	auto Accept = [&](const FHitResult&, FString&, FHBSpawnCandidateReport&) { ++Calls; return true; };
+	HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+		Query, Accept, Floor, Error, Legacy);
+	FHBSpawnGroundSearchSettings Settings;
+	Settings.ShapeRadius = 400.;
+	Settings.RadiusMultiplier = 100.;
+	TestFalse(TEXT("Legacy mode ignores shape size and keeps the original search"),
+		HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+			Query, Accept, Floor, Error, Report, Settings));
+	TestEqual(TEXT("Legacy candidate count remains exactly 25"), Report.Candidates.Num(), 25);
+	for (int32 Index = 0; Index < Legacy.Candidates.Num(); ++Index)
+		TestTrue(TEXT("Every legacy candidate retains its coordinate and order"),
+			Report.Candidates[Index].CandidateLocation.Equals(Legacy.Candidates[Index].CandidateLocation));
+
+	Settings.Basis = EHBSpawnCorrectionBasis::EnemyCapsule;
+	Settings.ShapeRadius = 40.;
+	Settings.RadiusMultiplier = 2.;
+	Settings.ShapeHalfExtents = FVector(40, 40, 88);
+	TestFalse(TEXT("Capsule-sized search still rejects an empty physical world"),
+		HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+			Query, Accept, Floor, Error, Report, Settings));
+	TestEqual(TEXT("Capsule search has a bounded 33-candidate budget"), Report.Candidates.Num(), 33);
+	TestEqual(TEXT("Capsule radius times multiplier is the exact search radius"), Report.Correction.SearchRadius, 80.);
+	TestEqual(TEXT("No physical floor is fabricated by shape correction"), Report.CountFailureReasons().FindRef(EHBSpawnFailureReason::NoFloor), 33);
+	for (int32 Ring = 0; Ring < 4; ++Ring)
+		TestTrue(TEXT("Default multiplier uses half, one, one-and-half and two capsule radii"),
+			Report.Candidates[1 + Ring * 8].CandidateLocation.Equals(Marker + FVector(20. * (Ring + 1), 0, 0)));
+	for (const auto& Candidate : Report.Candidates)
+		TestTrue(TEXT("Every candidate stays within the derived horizontal radius"),
+			FVector::Dist2D(Marker, Candidate.CandidateLocation) <= 80. + KINDA_SMALL_NUMBER);
+	const FQuat TiltedYaw = FRotator(45, 90, 30).Quaternion();
+	HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, TiltedYaw, Bounds, 0.7f,
+		Query, Accept, Floor, Error, Report, Settings);
+	TestTrue(TEXT("Marker yaw rotates the first shape offset"),
+		Report.Candidates[1].CandidateLocation.Equals(Marker + FVector(0, 20, 0), 0.001));
+	for (const auto& Candidate : Report.Candidates)
+		TestTrue(TEXT("Pitch and roll cannot move shape candidates to a different height"),
+			FMath::IsNearlyEqual(Candidate.CandidateLocation.Z, Marker.Z, 0.001));
+	Settings.ShapeRadius = 80.;
+	HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+		Query, Accept, Floor, Error, Report, Settings);
+	TestEqual(TEXT("Larger body doubles the correction radius"), Report.Correction.SearchRadius, 160.);
+	TestEqual(TEXT("Larger body does not increase query budget"), Report.Candidates.Num(), 33);
+	Settings.ShapeRadius = 40.;
+	Settings.RadiusMultiplier = 1.;
+	HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+		Query, Accept, Floor, Error, Report, Settings);
+	TestEqual(TEXT("Point multiplier controls the maximum radius directly"), Report.Correction.SearchRadius, 40.);
+	Settings.RadiusMultiplier = 2.;
+
+	// This floor is outside legacy correction and lies on the outer capsule-sized ring.
+	TestWorld.AddBox(FVector(80, 0, -10), FVector(5, 150, 10));
+	TestFalse(TEXT("A default point cannot reach floor 80 cm away"),
+		HBSpawnGroundQuery::FindPlacement(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f, Query,
+			[](const FHitResult&, FString&) { return true; }, Floor, Error));
+	for (int32 Replay = 0; Replay < 3; ++Replay)
+	{
+		TestTrue(TEXT("Shape opt-in deterministically reaches the floor outside 30 cm"),
+			HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+				Query, Accept, Floor, Error, Report, Settings));
+		TestEqual(TEXT("The outer +X candidate is selected in fixed order"), Report.AcceptedCandidateIndex, 25);
+		TestTrue(TEXT("Shape recovery selects the same physical position on replay"), Floor.ImpactPoint.Equals(FVector(80, 0, 0), 0.01));
+	}
+	UBoxComponent* Blocker = TestWorld.AddBox(FVector(80, 0, 90), FVector(5, 40, 90));
+	Query.AddIgnoredActor(Blocker->GetOwner());
+	TestFalse(TEXT("A larger search never bypasses actual capsule collision"),
+		HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f, Query,
+			[&](const FHitResult& Hit, FString& Reason, FHBSpawnCandidateReport& Candidate)
+			{
+				FCollisionQueryParams CapsuleQuery(SCENE_QUERY_STAT(HBShapeCorrectionCollision), false);
+				if (TestWorld.World->OverlapBlockingTestByProfile(Hit.ImpactPoint + FVector(0, 0, 90), FQuat::Identity,
+					TEXT("BlockAll"), FCollisionShape::MakeCapsule(40.f, 88.f), CapsuleQuery))
+				{
+					Candidate.Cause = EHBSpawnFailureReason::CapsuleOverlap;
+					Reason = TEXT("Physical blocker remains authoritative");
+					return false;
+				}
+				return true;
+			}, Floor, Error, Report, Settings));
+	TestEqual(TEXT("Rejected physical candidate has its own collision cause"), Report.CountFailureReasons().FindRef(EHBSpawnFailureReason::CapsuleOverlap), 1);
+	const FBox NarrowBounds(FVector(-30, -30, -200), FVector(30, 30, 300));
+	TestFalse(TEXT("Expanded correction cannot use floor outside the room"),
+		HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, NarrowBounds, 0.7f,
+			Query, Accept, Floor, Error, Report, Settings));
+	TestEqual(TEXT("Expanded candidates still enforce XY room bounds"), Report.CountFailureReasons().FindRef(EHBSpawnFailureReason::OutsideRoom), 20);
+	TestFalse(TEXT("Expanded horizontal correction keeps original vertical trace limits"),
+		HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, FVector(0, 0, 1000), FQuat::Identity, Bounds, 0.7f,
+			Query, Accept, Floor, Error, Report, Settings));
+	TestEqual(TEXT("A far-below floor is still absent for all shape candidates"), Report.CountFailureReasons().FindRef(EHBSpawnFailureReason::NoFloor), 33);
+
+	Settings.bAllowPositionCorrection = false;
+	TestFalse(TEXT("Disabled correction checks only the original missing floor"),
+		HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+			Query, Accept, Floor, Error, Report, Settings));
+	TestEqual(TEXT("Disabled correction records exactly one candidate"), Report.Candidates.Num(), 1);
+	TestEqual(TEXT("Disabled correction has zero effective radius"), Report.Correction.SearchRadius, 0.);
+	Settings.bAllowPositionCorrection = true;
+	Settings.RadiusMultiplier = 0.;
+	HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+		Query, Accept, Floor, Error, Report, Settings);
+	TestEqual(TEXT("Zero multiplier checks the original position once"), Report.Candidates.Num(), 1);
+	for (double BadMultiplier : {-1., std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()})
+	{
+		Settings.RadiusMultiplier = BadMultiplier;
+		TestFalse(TEXT("Invalid active correction multiplier is rejected before any physical queries"),
+			HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+				Query, Accept, Floor, Error, Report, Settings));
+		TestTrue(TEXT("Invalid multiplier is a configuration failure without fabricated candidates"),
+			Report.FailureReason == EHBSpawnFailureReason::InvalidConfiguration && Report.Candidates.IsEmpty());
+	}
+	Settings.RadiusMultiplier = 2.;
+	Settings.ShapeRadius = std::numeric_limits<double>::max();
+	TestFalse(TEXT("Overflowing shape-derived radius is rejected safely"),
+		HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+			Query, Accept, Floor, Error, Report, Settings));
+	TestTrue(TEXT("Overflow is diagnosed without issuing candidate queries"), Report.Candidates.IsEmpty()
+		&& Report.FailureReason == EHBSpawnFailureReason::InvalidConfiguration);
+	Settings.ShapeRadius = 1000000.;
+	HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+		Query, Accept, Floor, Error, Report, Settings);
+	TestEqual(TEXT("A very large radius still has a fixed 33-candidate budget"), Report.Candidates.Num(), 33);
+	TestEqual(TEXT("Very large offsets are discarded by room bounds"), Report.CountFailureReasons().FindRef(EHBSpawnFailureReason::OutsideRoom), 32);
+
+	TestWorld.AddBox(FVector(0, 0, -10), FVector(10, 10, 10));
+	Settings.ShapeRadius = 40.;
+	TestTrue(TEXT("A valid original marker is preserved even with shape correction enabled"),
+		HBSpawnGroundQuery::FindPlacementWithDiagnostics(*TestWorld.World, Marker, FQuat::Identity, Bounds, 0.7f,
+			Query, Accept, Floor, Error, Report, Settings));
+	TestTrue(TEXT("The valid original stops immediately and retains shape metadata"),
+		Report.AcceptedCandidateIndex == 0 && Report.Candidates.Num() == 1 && Report.Correction.CandidateBudget == 33);
 	return true;
 }
 #endif

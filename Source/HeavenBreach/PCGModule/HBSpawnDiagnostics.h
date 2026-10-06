@@ -42,6 +42,21 @@ enum class EHBSpawnFailureReason : uint8
 };
 
 enum class EHBSpawnNavStage : uint8 { EnemyGround, ChestApproach, EntryPath };
+enum class EHBSpawnCorrectionBasis : uint8 { LegacyFixed, EnemyCapsule, ChestMesh };
+
+struct HEAVENBREACH_API FHBSpawnCorrectionReport
+{
+	bool bInitialized = false;
+	bool bAllowPositionCorrection = true;
+	EHBSpawnCorrectionBasis Basis = EHBSpawnCorrectionBasis::LegacyFixed;
+	double ShapeRadius = 0.;
+	FVector ShapeHalfExtents = FVector::ZeroVector;
+	double RadiusMultiplier = 2.;
+	double SearchRadius = 0.;
+	int32 CandidateBudget = 0;
+
+	FString Format() const;
+};
 enum class EHBSpawnNavCondition : uint8
 {
 	None, MissingSystem, MissingAgent, MissingNavData, NavigationBuildingOrLocked,
@@ -129,6 +144,7 @@ struct HEAVENBREACH_API FHBSpawnCapsuleFailure
 
 struct HEAVENBREACH_API FHBSpawnPlacementReport
 {
+	FHBSpawnCorrectionReport Correction;
 	/** Pre/post-search failure; an exhausted search uses PlacementRejected, with causes in Candidates. */
 	EHBSpawnFailureReason FailureReason = EHBSpawnFailureReason::None;
 	FString FailureDetails;

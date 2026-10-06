@@ -9,6 +9,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/StaticMesh.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/GameModeBase.h"
@@ -20,6 +21,52 @@ DEFINE_LOG_CATEGORY_STATIC(LogHBChestSpawn, Log, All);
 
 namespace HBChestSpawnGeometry
 {
+	/** Radius of the transformed local bounds' XY projection, independent of translation and yaw. */
+	bool GetCorrectionFootprint(const UClass* ChestClass, const FTransform& PointTransform,
+		double& OutRadius, FVector& OutHalfExtents, FString& OutError)
+	{
+		OutRadius = 0.;
+		OutHalfExtents = FVector::ZeroVector;
+		OutError.Reset();
+		const ABoxActor* Defaults = ChestClass ? ChestClass->GetDefaultObject<ABoxActor>() : nullptr;
+		const UStaticMeshComponent* Mesh = Defaults ? Cast<UStaticMeshComponent>(Defaults->GetRootComponent()) : nullptr;
+		if (!Mesh || !Mesh->GetStaticMesh())
+		{
+			OutError = TEXT("Mesh-based correction needs a static mesh on the box's root component.");
+			return false;
+		}
+		const FBox LocalBounds = Mesh->GetStaticMesh()->GetBoundingBox();
+		const FTransform MeshTransform = Mesh->GetRelativeTransform() * PointTransform;
+		if (!LocalBounds.IsValid || LocalBounds.Min.ContainsNaN() || LocalBounds.Max.ContainsNaN() || MeshTransform.ContainsNaN())
+		{
+			OutError = TEXT("Mesh-based correction needs valid finite mesh bounds and transform.");
+			return false;
+		}
+		FVector Corners[8];
+		LocalBounds.GetVertices(Corners);
+		FBox TransformedOffsets(ForceInit);
+		double Radius = 0.;
+		for (const FVector& Corner : Corners)
+		{
+			const FVector Offset = MeshTransform.TransformVector(Corner - LocalBounds.GetCenter());
+			if (Offset.ContainsNaN())
+			{
+				OutError = TEXT("Mesh-based correction produced non-finite scaled bounds.");
+				return false;
+			}
+			TransformedOffsets += Offset;
+			Radius = FMath::Max(Radius, Offset.Size2D());
+		}
+		if (!FMath::IsFinite(Radius) || Radius <= 0.)
+		{
+			OutError = TEXT("Mesh-based correction needs a positive finite horizontal mesh radius.");
+			return false;
+		}
+		OutRadius = Radius;
+		OutHalfExtents = TransformedOffsets.GetExtent();
+		return true;
+	}
+
 	bool MakeGroundedTransform(const UClass* ChestClass, const FTransform& PointTransform,
 		float FloorZ, FTransform& OutTransform, FString& OutError)
 	{
@@ -394,6 +441,23 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 		PlacementReport.RecordFailure(EHBSpawnFailureReason::OutsideRoom, OutReason);
 		return false;
 	}
+	FHBSpawnGroundSearchSettings SearchSettings;
+	SearchSettings.bAllowPositionCorrection = Choice.Point->bAllowPositionCorrection;
+	SearchSettings.Basis = Choice.Point->bUseMeshBasedCorrection
+		? EHBSpawnCorrectionBasis::ChestMesh : EHBSpawnCorrectionBasis::LegacyFixed;
+	SearchSettings.RadiusMultiplier = Choice.Point->CorrectionRadiusMultiplier;
+	// Disabled/zero correction never needs mesh dimensions. Invalid multipliers are diagnosed by ground search.
+	if (SearchSettings.bAllowPositionCorrection && Choice.Point->bUseMeshBasedCorrection
+		&& FMath::IsFinite(SearchSettings.RadiusMultiplier) && SearchSettings.RadiusMultiplier > 0.
+		&& !HBChestSpawnGeometry::GetCorrectionFootprint(Choice.ChestClass.Get(), Choice.Point->GetActorTransform(),
+			SearchSettings.ShapeRadius, SearchSettings.ShapeHalfExtents, OutReason))
+	{
+		PlacementReport.Correction.bInitialized = true;
+		PlacementReport.Correction.Basis = SearchSettings.Basis;
+		PlacementReport.Correction.RadiusMultiplier = SearchSettings.RadiusMultiplier;
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidConfiguration, OutReason);
+		return false;
+	}
 	FCollisionQueryParams FloorQuery(SCENE_QUERY_STAT(HBChestFloor), false);
 	FloorQuery.AddIgnoredActor(Choice.Point);
 	for (const TWeakObjectPtr<ABoxActor>& Other : State.SpawnedChests)
@@ -510,7 +574,7 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 				return false;
 			}
 			return true;
-		}, Floor, OutReason, PlacementReport)) return false;
+		}, Floor, OutReason, PlacementReport, SearchSettings)) return false;
 	if (FVector::Dist2D(Marker, Floor.ImpactPoint) > KINDA_SMALL_NUMBER)
 		UE_LOG(LogHBChestSpawn, Display, TEXT("Room %d point %s floor adjusted %.1f cm: marker=%s ground=%s actor=%s component=%s."),
 			State.RoomId, *Choice.PointId.ToString(), FVector::Dist2D(Marker, Floor.ImpactPoint),

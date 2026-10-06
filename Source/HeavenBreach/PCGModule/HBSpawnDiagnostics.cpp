@@ -199,6 +199,16 @@ FString FHBSpawnCandidateReport::Format() const
 		CapsuleCheckIndex, *Details, *FString::Join(Nav, TEXT("; ")));
 }
 
+FString FHBSpawnCorrectionReport::Format() const
+{
+	if (!bInitialized) return TEXT("SearchNotInitialized=1");
+	const TCHAR* BasisName = Basis == EHBSpawnCorrectionBasis::EnemyCapsule ? TEXT("EnemyCapsule")
+		: Basis == EHBSpawnCorrectionBasis::ChestMesh ? TEXT("ChestMesh") : TEXT("LegacyFixed");
+	return FString::Printf(TEXT("CorrectionEnabled=%d CorrectionBasis=%s ShapeRadius=%.3f ShapeHalfExtents=%s RadiusMultiplier=%.3f SearchRadius=%.3f CandidateBudget=%d"),
+		bAllowPositionCorrection ? 1 : 0, BasisName, ShapeRadius, *ShapeHalfExtents.ToString(),
+		RadiusMultiplier, SearchRadius, CandidateBudget);
+}
+
 void FHBSpawnPlacementReport::RecordFailure(EHBSpawnFailureReason Reason, const FString& Details)
 {
 	FailureReason = Reason;
@@ -231,8 +241,9 @@ FString FHBSpawnPlacementReport::FormatFailureSummary() const
 		}
 	}
 	// Keep every detailed candidate in the typed report; logs show exact indices/counts and representative queries.
-	return FString::Printf(TEXT("FailureReason=%s CandidatesChecked=%d AcceptedCandidateIndex=%d FailureCounts=[%s] TerminalDetail={%s} CandidateCauses=[%s] FirstFailureByCause=[%s] LastCandidate={%s}"),
+	return FString::Printf(TEXT("FailureReason=%s CandidatesChecked=%d AcceptedCandidateIndex=%d FailureCounts=[%s] Correction={%s} TerminalDetail={%s} CandidateCauses=[%s] FirstFailureByCause=[%s] LastCandidate={%s}"),
 		ReasonName(FailureReason), Candidates.Num(), AcceptedCandidateIndex, *FormatReasonCounts(CountFailureReasons()),
+		*Correction.Format(),
 		FailureReason == EHBSpawnFailureReason::PlacementRejected ? TEXT("") : *FailureDetails,
 		*FString::Join(Causes, TEXT(", ")), *FString::Join(Examples, TEXT("; ")),
 		Candidates.IsEmpty() ? TEXT("") : *Candidates.Last().Format());

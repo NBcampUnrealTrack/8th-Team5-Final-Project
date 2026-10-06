@@ -11,6 +11,7 @@
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
 #include "Components/BoxComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Engine/OverlapResult.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 
@@ -491,6 +492,53 @@ bool FHBEncounterCapsuleBlockingDiagnosticsTest::RunTest(const FString&)
 				Error.Contains(TEXT("NavProjectionFailed:25")) && Error.Contains(TEXT("Condition=MissingSystem"))
 				&& Error.Contains(TEXT("Stage=EnemyGround")) && Error.Contains(TEXT("AgentRadius="))
 				&& Error.Contains(TEXT("Extent=")) && Error.Contains(TEXT("ProjectionQueried=0")));
+			const AHBEnemySpawnPoint* PointDefaults = GetDefault<AHBEnemySpawnPoint>();
+			TestTrue(TEXT("Existing enemy points default to legacy correction"), PointDefaults->bAllowPositionCorrection
+				&& !PointDefaults->bUseCapsuleBasedCorrection && PointDefaults->CorrectionRadiusMultiplier == 2.f);
+			Required->bUseCapsuleBasedCorrection = true;
+			TestFalse(TEXT("Capsule correction still enforces real monster navigation"),
+				Subsystem->StartEncounter(20, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			const float NativeRadius = NativeClass->GetDefaultObject<AEnemyCharacterBase>()->GetCapsuleComponent()->GetScaledCapsuleRadius();
+			TestTrue(TEXT("Runtime uses the exact capsule radius from the selected class"),
+				Error.Contains(FString::Printf(TEXT("CorrectionBasis=EnemyCapsule ShapeRadius=%.3f"), NativeRadius))
+				&& Error.Contains(FString::Printf(TEXT("SearchRadius=%.3f CandidateBudget=33"), NativeRadius * 2.))
+				&& Error.Contains(TEXT("NavProjectionFailed:33")));
+			Group.Monsters = {{NativeClass, 1}, {BladeClass, 1}};
+			Setup->Encounter->Groups = {Group};
+			TestFalse(TEXT("Each rejected enemy class gets its own capsule-sized search"),
+				Subsystem->StartEncounter(21, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			for (UClass* EnemyClass : {NativeClass, BladeClass})
+			{
+				const int32 ClassStart = Error.Find(TEXT("Class=") + EnemyClass->GetPathName());
+				if (TestTrue(TEXT("Each enemy class retains a distinct diagnostic section"), ClassStart != INDEX_NONE))
+				{
+					const int32 NextClass = Error.Find(TEXT("; Group="), ESearchCase::CaseSensitive, ESearchDir::FromStart, ClassStart);
+					const FString Section = Error.Mid(ClassStart, NextClass == INDEX_NONE ? MAX_int32 : NextClass - ClassStart);
+					const float ClassRadius = EnemyClass->GetDefaultObject<AEnemyCharacterBase>()->GetCapsuleComponent()->GetScaledCapsuleRadius();
+					TestTrue(TEXT("Enemy classes cannot borrow another class's shape radius"),
+						Section.Contains(FString::Printf(TEXT("CorrectionBasis=EnemyCapsule ShapeRadius=%.3f"), ClassRadius))
+						&& Section.Contains(TEXT("CandidateBudget=33")));
+				}
+			}
+			Group.Monsters = {{NativeClass, 1}};
+			Setup->Encounter->Groups = {Group};
+			Required->bAllowPositionCorrection = false;
+			TestFalse(TEXT("Disabled enemy correction does not bypass original navigation checks"),
+				Subsystem->StartEncounter(22, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			TestTrue(TEXT("Disabled enemy correction performs one original candidate"),
+				Error.Contains(TEXT("NavProjectionFailed:1")) && Error.Contains(TEXT("SearchRadius=0.000 CandidateBudget=1")));
+			Required->bAllowPositionCorrection = true;
+			Required->CorrectionRadiusMultiplier = 0.f;
+			TestFalse(TEXT("Zero enemy multiplier still runs original safety checks"),
+				Subsystem->StartEncounter(23, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			TestTrue(TEXT("Zero enemy multiplier performs one original candidate"), Error.Contains(TEXT("NavProjectionFailed:1")));
+			Required->CorrectionRadiusMultiplier = -1.f;
+			TestFalse(TEXT("Invalid enemy correction multiplier fails before candidate queries"),
+				Subsystem->StartEncounter(24, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			TestTrue(TEXT("Invalid enemy correction is reported as configuration failure"),
+				Error.Contains(TEXT("InvalidConfiguration:1")) && Error.Contains(TEXT("CandidatesChecked=0")));
+			Required->bUseCapsuleBasedCorrection = false;
+			Required->CorrectionRadiusMultiplier = 2.f;
 			TestFalse(TEXT("Actual monster entry spacing takes priority over navigation"),
 				Subsystem->StartEncounter(4, 836511139, 11, World->PersistentLevel, Bounds, {FVector::ZeroVector}, Error, true));
 			TestTrue(TEXT("Entry spacing has its own candidate counts"),

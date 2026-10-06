@@ -440,6 +440,13 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 		return false;
 	}
 	const FVector Marker = Choice.Point->GetActorLocation();
+	FHBSpawnGroundSearchSettings SearchSettings;
+	SearchSettings.bAllowPositionCorrection = Choice.Point->bAllowPositionCorrection;
+	SearchSettings.Basis = Choice.Point->bUseCapsuleBasedCorrection
+		? EHBSpawnCorrectionBasis::EnemyCapsule : EHBSpawnCorrectionBasis::LegacyFixed;
+	SearchSettings.ShapeRadius = Radius;
+	SearchSettings.ShapeHalfExtents = FVector(Radius, Radius, HalfHeight);
+	SearchSettings.RadiusMultiplier = Choice.Point->CorrectionRadiusMultiplier;
 	FCollisionQueryParams Query(SCENE_QUERY_STAT(HBEnemyFloor), false);
 	Query.AddIgnoredActor(Choice.Point);
 	FCollisionQueryParams FloorQuery = Query;
@@ -557,7 +564,7 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 				}
 			}
 			return true;
-		}, Floor, OutReason, PlacementReport)) return false;
+		}, Floor, OutReason, PlacementReport, SearchSettings)) return false;
 	const FVector Ground = Floor.ImpactPoint;
 	const FVector SpawnLocation = Ground + FVector(0, 0, HalfHeight + 2.f);
 	if (FVector::Dist2D(Marker, Ground) > KINDA_SMALL_NUMBER)

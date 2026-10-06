@@ -18,6 +18,8 @@ namespace HBChestSpawnGeometry
 {
 	bool MakeGroundedTransform(const UClass* ChestClass, const FTransform& PointTransform,
 		float FloorZ, FTransform& OutTransform, FString& OutError);
+	bool GetCorrectionFootprint(const UClass* ChestClass, const FTransform& PointTransform,
+		double& OutRadius, FVector& OutHalfExtents, FString& OutError);
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestGroundedTransformTest,
@@ -421,6 +423,48 @@ bool FHBChestPlacementFailureDiagnosticsTest::RunTest(const FString&)
 	UClass* RareClass = LoadClass<ABoxActor>(nullptr, TEXT("/Game/Loot/Blueprints/BP_Box_Rare.BP_Box_Rare_C"));
 	if (TestNotNull(TEXT("Existing rare chest class is available"), RareClass))
 	{
+		if (Subsystem)
+		{
+			const AHBChestSpawnPoint* PointDefaults = GetDefault<AHBChestSpawnPoint>();
+			TestTrue(TEXT("Existing chest points default to legacy correction"), PointDefaults->bAllowPositionCorrection
+				&& !PointDefaults->bUseMeshBasedCorrection && PointDefaults->CorrectionRadiusMultiplier == 2.f);
+			Group.Chests = {{RareClass, 1}};
+			Setup->Placement->Groups = {Group};
+			Required->bUseMeshBasedCorrection = true;
+			double MeshRadius = 0.;
+			FVector MeshHalfExtents;
+			FString FootprintError;
+			TestTrue(TEXT("Actual runtime chest class has a valid scaled footprint"),
+				HBChestSpawnGeometry::GetCorrectionFootprint(RareClass, Required->GetActorTransform(), MeshRadius, MeshHalfExtents, FootprintError));
+			TestFalse(TEXT("Mesh correction still enforces real chest navigation"),
+				Subsystem->StartPlacement(20, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error));
+			TestTrue(TEXT("Runtime chest correction uses the selected root mesh footprint"),
+				Error.Contains(FString::Printf(TEXT("CorrectionBasis=ChestMesh ShapeRadius=%.3f"), MeshRadius))
+				&& Error.Contains(FString::Printf(TEXT("SearchRadius=%.3f CandidateBudget=33"), MeshRadius * 2.))
+				&& Error.Contains(TEXT("Condition=MissingSystem")) && Error.Contains(TEXT("CandidatesChecked=33")));
+			Required->bAllowPositionCorrection = false;
+			TestFalse(TEXT("Disabled chest correction still checks navigation at the original position"),
+				Subsystem->StartPlacement(21, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error));
+			TestTrue(TEXT("Disabled chest correction checks one candidate"), Error.Contains(TEXT("NavProjectionFailed:1")));
+			Required->bAllowPositionCorrection = true;
+			Required->CorrectionRadiusMultiplier = 0.f;
+			TestFalse(TEXT("Zero chest multiplier still enforces original safety checks"),
+				Subsystem->StartPlacement(22, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error));
+			TestTrue(TEXT("Zero chest multiplier checks one candidate"), Error.Contains(TEXT("SearchRadius=0.000 CandidateBudget=1")));
+			Required->CorrectionRadiusMultiplier = -1.f;
+			TestFalse(TEXT("Invalid chest multiplier fails before mesh or ground queries"),
+				Subsystem->StartPlacement(23, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error));
+			TestTrue(TEXT("Invalid chest multiplier has a typed configuration cause"),
+				Error.Contains(TEXT("InvalidConfiguration:1")) && Error.Contains(TEXT("CandidatesChecked=0")));
+			Required->CorrectionRadiusMultiplier = 2.f;
+			Group.Chests = {{ABoxActor::StaticClass(), 1}};
+			Setup->Placement->Groups = {Group};
+			TestFalse(TEXT("A class without a root mesh cannot invent a correction capsule"),
+				Subsystem->StartPlacement(24, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error));
+			TestTrue(TEXT("Missing mesh is diagnosed before searching"),
+				Error.Contains(TEXT("InvalidConfiguration:1")) && Error.Contains(TEXT("Mesh-based correction needs a static mesh")));
+			Required->bUseMeshBasedCorrection = false;
+		}
 		FloorActor->SetActorLocation(FVector(20, 0, -10));
 		FloorBox->SetBoxExtent(FVector(15, 500, 10));
 		Group.Chests.Add({RareClass, 1});
@@ -476,6 +520,53 @@ bool FHBChestPlacementFailureDiagnosticsTest::RunTest(const FString&)
 	}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestShapeCorrectionTest,
+	"HeavenBreach.PCGModule.ChestSpawn.ShapeBasedCorrection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBChestShapeCorrectionTest::RunTest(const FString&)
+{
+	UClass* RareClass = LoadClass<ABoxActor>(nullptr, TEXT("/Game/Loot/Blueprints/BP_Box_Rare.BP_Box_Rare_C"));
+	if (!TestNotNull(TEXT("Existing chest root mesh is available"), RareClass)) return false;
+	FString Error;
+	double Radius = 0.;
+	FVector Extents;
+	const FTransform Identity = FTransform::Identity;
+	if (!TestTrue(TEXT("Mesh correction derives a radius from actual root mesh bounds"),
+		HBChestSpawnGeometry::GetCorrectionFootprint(RareClass, Identity, Radius, Extents, Error))) return false;
+	TestTrue(TEXT("Mesh correction has nonzero horizontal dimensions"), Radius > 0. && Extents.X > 0. && Extents.Y > 0.);
+	double RotatedRadius = 0.;
+	FVector RotatedExtents;
+	TestTrue(TEXT("Yaw-rotated root mesh has a valid footprint"),
+		HBChestSpawnGeometry::GetCorrectionFootprint(RareClass, FTransform(FRotator(0, 45, 0), FVector(10000, -20000, 1000)),
+			RotatedRadius, RotatedExtents, Error));
+	TestTrue(TEXT("Yaw and world translation do not inflate a chest's horizontal radius"),
+		FMath::IsNearlyEqual(Radius, RotatedRadius, 0.001));
+	double ScaledRadius = 0.;
+	FVector ScaledExtents;
+	TestTrue(TEXT("Scaled mesh footprint uses the actual point transform"),
+		HBChestSpawnGeometry::GetCorrectionFootprint(RareClass, FTransform(FQuat::Identity, FVector::ZeroVector, FVector(2)),
+			ScaledRadius, ScaledExtents, Error));
+	TestTrue(TEXT("Uniform scale doubles footprint radius and dimensions"),
+		FMath::IsNearlyEqual(ScaledRadius, Radius * 2., 0.001) && ScaledExtents.Equals(Extents * 2., 0.001));
+	double NonUniformRadius = 0.;
+	FVector NonUniformExtents;
+	TestTrue(TEXT("Nonuniform scale is included in mesh correction dimensions"),
+		HBChestSpawnGeometry::GetCorrectionFootprint(RareClass, FTransform(FQuat::Identity, FVector::ZeroVector, FVector(2, 3, 1)),
+			NonUniformRadius, NonUniformExtents, Error));
+	TestTrue(TEXT("Each horizontal axis scales independently"),
+		FMath::IsNearlyEqual(NonUniformExtents.X, Extents.X * 2., 0.001)
+		&& FMath::IsNearlyEqual(NonUniformExtents.Y, Extents.Y * 3., 0.001));
+	double MirroredRadius = 0.;
+	FVector MirroredExtents;
+	TestTrue(TEXT("Mirrored scale still has a positive physical footprint"),
+		HBChestSpawnGeometry::GetCorrectionFootprint(RareClass, FTransform(FQuat::Identity, FVector::ZeroVector, FVector(-2, 2, 2)),
+			MirroredRadius, MirroredExtents, Error));
+	TestTrue(TEXT("Mirroring does not change horizontal footprint size"), FMath::IsNearlyEqual(MirroredRadius, ScaledRadius, 0.001));
+	TestFalse(TEXT("Missing root mesh cannot create a synthetic chest capsule"),
+		HBChestSpawnGeometry::GetCorrectionFootprint(ABoxActor::StaticClass(), Identity, Radius, Extents, Error));
+	TestTrue(TEXT("Failed mesh lookup clears earlier successful dimensions"), Radius == 0. && Extents.IsZero());
 	return true;
 }
 #endif
