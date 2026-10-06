@@ -56,6 +56,14 @@ struct FHBEncounterGroup
 		meta=(EditCondition="CountSelectionMode == EHBSpawnCountSelectionMode::Weighted", EditConditionHides, TitleProperty="Count"))
 	TArray<FHBSpawnCountWeight> CountWeights;
 
+	/** Optional group placed before this one (higher grade, or same grade listed above). When it placed at least one monster, CountWeightsIfConditionSpawned replaces the normal count draw. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Condition")
+	FName ConditionGroupId;
+
+	/** Weighted counts used when ConditionGroupId placed at least one monster. Counts must stay inside MinCount / MaxCount. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Condition", meta=(TitleProperty="Count"))
+	TArray<FHBSpawnCountWeight> CountWeightsIfConditionSpawned;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter")
 	TArray<FHBEncounterMonsterOption> Monsters;
 };
