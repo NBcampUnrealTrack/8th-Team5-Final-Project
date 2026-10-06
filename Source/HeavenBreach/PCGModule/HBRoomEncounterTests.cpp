@@ -8,6 +8,10 @@
 #include "Engine/Level.h"
 #include "Misc/AutomationTest.h"
 #include "Algo/Reverse.h"
+#include "CollisionQueryParams.h"
+#include "CollisionShape.h"
+#include "Components/BoxComponent.h"
+#include "Engine/OverlapResult.h"
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "PCGModule/HBDungeonModuleDefinition.h"
@@ -279,6 +283,190 @@ bool FHBEncounterSelectionTest::RunTest(const FString&)
 	}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterCapsuleBlockingDiagnosticsTest,
+	"HeavenBreach.PCGModule.Encounter.CapsuleBlockingDiagnostics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBEncounterCapsuleBlockingDiagnosticsTest::RunTest(const FString&)
+{
+	const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
+		.RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false).ShouldSimulatePhysics(false);
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr,
+		true, ERHIFeatureLevel::Num, &Init);
+	GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+	auto AddBox = [&](const TCHAR* Name, const FVector& Location, const FVector& Extent,
+		FName Profile, AActor* Owner = nullptr)
+	{
+		if (!Owner)
+		{
+			FActorSpawnParameters Params;
+			Params.Name = FName(Name);
+			Owner = World->SpawnActor<AActor>(AActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
+		}
+		UBoxComponent* Box = NewObject<UBoxComponent>(Owner, FName(Name));
+		if (Owner->GetRootComponent()) Box->SetupAttachment(Owner->GetRootComponent());
+		else Owner->SetRootComponent(Box);
+		Box->SetBoxExtent(Extent);
+		Box->SetCollisionProfileName(Profile);
+		Box->SetCanEverAffectNavigation(false);
+		Box->RegisterComponent();
+		Box->SetWorldLocation(Location);
+		return Box;
+	};
+	UBoxComponent* FloorBox = AddBox(TEXT("FixtureFloor"), FVector(0, 0, -10), FVector(500, 500, 10), TEXT("BlockAll"));
+	UBoxComponent* WallBox = AddBox(TEXT("FixtureWall"), FVector(20, 0, 60), FVector(4, 80, 60), TEXT("BlockAll"));
+	AddBox(TEXT("WallSecondary"), FVector(-20, 0, 60), FVector(4, 80, 60), TEXT("BlockAll"), WallBox->GetOwner());
+	UBoxComponent* OtherWall = AddBox(TEXT("OtherBlockingActor"), FVector(0, 25, 60), FVector(4, 4, 60), TEXT("BlockAll"));
+	UBoxComponent* TouchBox = AddBox(TEXT("TouchOnly"), FVector(-10, -15, 60), FVector(4, 4, 10), TEXT("OverlapAll"));
+	FCollisionQueryParams Query(SCENE_QUERY_STAT(HBCapsuleBlockingDiagnostics), false);
+	const FVector Marker(0, 0, 0.4);
+	FHitResult Floor;
+	if (!TestTrue(TEXT("Fixture floor is found by the original floor trace"),
+		World->LineTraceSingleByChannel(Floor, Marker + FVector(0, 0, 100), Marker - FVector(0, 0, 200), ECC_WorldStatic, Query)))
+	{
+		World->DestroyWorld(false);
+		GEngine->DestroyWorldContext(World);
+		return false;
+	}
+	TestEqual(TEXT("The floor trace identifies the floor, not a wall"), Floor.GetActor(), FloorBox->GetOwner());
+	const FVector SpawnLocation = Floor.ImpactPoint + FVector(0, 0, 90);
+	const FQuat Rotation = FRotator(0, 30, 0).Quaternion();
+	const FCollisionShape Shape = FCollisionShape::MakeCapsule(34.f, 88.f);
+	const FName Profile(TEXT("Pawn"));
+	const bool bOriginalBlocked = World->OverlapBlockingTestByProfile(SpawnLocation, Rotation, Profile, Shape, Query);
+	if (!TestTrue(TEXT("Original Pawn capsule query is blocked by fixture geometry"), bOriginalBlocked))
+	{
+		World->DestroyWorld(false);
+		GEngine->DestroyWorldContext(World);
+		return false;
+	}
+	const FHBSpawnCapsuleFailure Failure = HBSpawnDiagnostics::CollectCapsuleFailure(
+		*World, Marker, Floor, SpawnLocation, Rotation, Profile, Shape, Query, 0);
+	TestTrue(TEXT("Multi collection agrees with the original blocking test"), Failure.bMultiHasBlocking && !Failure.HasQueryMismatch());
+	TestEqual(TEXT("Two wall components and another actor are all reported"), Failure.BlockingTargets.Num(), 3);
+	TestEqual(TEXT("Ground actor path remains distinct from blockers"), Failure.GroundActorPath, FloorBox->GetOwner()->GetPathName());
+	TestEqual(TEXT("Ground component path is retained"), Failure.GroundComponentPath, FloorBox->GetPathName());
+	TestTrue(TEXT("Capsule size, rotation, profile and locations match the original query"),
+		Failure.Radius == 34.f && Failure.HalfHeight == 88.f && Failure.Profile == Profile
+		&& Failure.Rotation.Equals(Rotation) && Failure.SpawnLocation.Equals(SpawnLocation) && Failure.Marker.Equals(Marker));
+	TestFalse(TEXT("Neither ground nor touch-only objects are attributed as blockers"),
+		Failure.BlockingTargets.ContainsByPredicate([&](const FHBSpawnBlockingTarget& Target)
+		{ return Target.ActorPath == FloorBox->GetOwner()->GetPathName() || Target.ActorPath == TouchBox->GetOwner()->GetPathName(); }));
+	TArray<FOverlapResult> RawOverlaps;
+	TestTrue(TEXT("Raw multi query reports a blocking hit"), World->OverlapMultiByProfile(RawOverlaps, SpawnLocation, Rotation, Profile, Shape, Query));
+	TestTrue(TEXT("Fixture includes a real nonblocking touch result"),
+		RawOverlaps.ContainsByPredicate([&](const FOverlapResult& Overlap) { return Overlap.GetActor() == TouchBox->GetOwner() && !Overlap.bBlockingHit; }));
+	TArray<FOverlapResult> RepeatedOverlaps = RawOverlaps;
+	Algo::Reverse(RepeatedOverlaps);
+	RepeatedOverlaps.Append(RawOverlaps);
+	FHBSpawnCapsuleFailure Repeated = Failure;
+	Repeated.SetOverlaps(true, RepeatedOverlaps);
+	TestEqual(TEXT("Repeated component results do not inflate blocker counts"), Repeated.BlockingTargets.Num(), 3);
+	TestEqual(TEXT("Query return order and duplicates do not change diagnostic output"), Repeated.Format(), Failure.Format());
+	FHBSpawnPlacementReport Placement;
+	Placement.CapsuleChecks = 2;
+	Placement.CapsuleFailures = {Failure, Repeated};
+	Placement.CapsuleFailures.Last().CapsuleCheckIndex = 1;
+	const FString Summary = Placement.FormatBlockingSummary();
+	TestTrue(TEXT("An actor with multiple components counts once per rejected check"),
+		Summary.Contains(WallBox->GetOwner()->GetPathName() + TEXT(":2")) && !Summary.Contains(WallBox->GetOwner()->GetPathName() + TEXT(":4")));
+	TestTrue(TEXT("Components are independently counted once per rejected check"), Summary.Contains(WallBox->GetPathName() + TEXT(":2")));
+	TestTrue(TEXT("Summary explains multiple blockers and distinguishes capsule checks"),
+		Summary.Contains(TEXT("CapsuleChecks=2 CapsuleOverlapRejects=2")) && Summary.Contains(TEXT("MultipleBlockersPerCheck=1")));
+	FCollisionQueryParams IgnoredQuery = Query;
+	IgnoredQuery.AddIgnoredActor(WallBox->GetOwner());
+	TestTrue(TEXT("Original query still sees the unignored blocking actor"), World->OverlapBlockingTestByProfile(SpawnLocation, Rotation, Profile, Shape, IgnoredQuery));
+	const FHBSpawnCapsuleFailure Ignored = HBSpawnDiagnostics::CollectCapsuleFailure(
+		*World, Marker, Floor, SpawnLocation, Rotation, Profile, Shape, IgnoredQuery, 2);
+	TestTrue(TEXT("Collection preserves the capsule query's exact ignore list"),
+		Ignored.BlockingTargets.Num() == 1 && Ignored.BlockingTargets[0].ActorPath == OtherWall->GetOwner()->GetPathName() && !Ignored.HasQueryMismatch());
+	IgnoredQuery.AddIgnoredActor(OtherWall->GetOwner());
+	TestFalse(TEXT("Touch-only overlap cannot make the original query blocking"), World->OverlapBlockingTestByProfile(SpawnLocation, Rotation, Profile, Shape, IgnoredQuery));
+	FHBSpawnCapsuleFailure Mismatch = Failure;
+	Mismatch.SetOverlaps(false, {});
+	TestTrue(TEXT("A failed diagnostic requery is explicitly marked as a mismatch"), Mismatch.HasQueryMismatch() && Mismatch.Format().Contains(TEXT("QueryMismatch=1")));
+	TestTrue(TEXT("A missing blocker is not replaced with the ground actor"), Mismatch.BlockingTargets.IsEmpty());
+	FOverlapResult Unresolved;
+	Unresolved.bBlockingHit = true;
+	Mismatch.SetOverlaps(true, {Unresolved});
+	TestTrue(TEXT("Unresolved blocking objects are explicit without guessing the floor as a blocker"),
+		Mismatch.UnresolvedBlockingResults == 1 && Mismatch.BlockingTargets.IsEmpty()
+		&& Mismatch.Format().Contains(TEXT("UnresolvedBlockingResults=1")));
+	TestEqual(TEXT("Collection leaves the original collision decision unchanged"),
+		World->OverlapBlockingTestByProfile(SpawnLocation, Rotation, Profile, Shape, Query), bOriginalBlocked);
+
+	UClass* NativeClass = AEnemyCharacterBase::StaticClass();
+	UClass* BladeClass = LoadClass<AEnemyCharacterBase>(nullptr,
+		TEXT("/Game/Monsters/Remnant_Blade/Blueprint/BP_Remnant_Blade.BP_Remnant_Blade_C"));
+	if (TestNotNull(TEXT("Existing second enemy class loads"), BladeClass))
+	{
+		auto* Required = World->SpawnActor<AHBEnemySpawnPoint>();
+		Required->PointId = TEXT("A_Required");
+		Required->bRequired = true;
+		auto* Optional = World->SpawnActor<AHBEnemySpawnPoint>();
+		Optional->PointId = TEXT("Z_Optional");
+		UHBEncounterComponent* Config = NewObject<UHBEncounterComponent>(GetTransientPackage());
+		FHBEncounterGroup Group;
+		Group.GroupId = TEXT("Field");
+		Group.MinCount = Group.MaxCount = 1;
+		Group.Monsters = {{NativeClass, 1}, {BladeClass, 1}};
+		Config->Groups = {Group};
+		TArray<FHBEncounterSpawnChoice> Placed;
+		FString Error;
+		FHBSpawnSelectionReport Report;
+		TestFalse(TEXT("Typed capsule evidence remains attached to its required point"),
+			HBEncounterSelection::SelectAndPlaceWithDiagnostics(*Config, {Required, Optional}, 836511139, 11,
+				[&](const FHBEncounterSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport& Evidence)
+				{
+					if (Choice.Point == Optional) return true;
+					Evidence.CapsuleChecks = Choice.EnemyClass.Get() == NativeClass ? 2 : 1;
+					for (int32 Index = 0; Index < Evidence.CapsuleChecks; ++Index)
+						Evidence.CapsuleFailures.Add(HBSpawnDiagnostics::CollectCapsuleFailure(
+							*World, Marker, Floor, SpawnLocation, Rotation, Profile, Shape, Query, Index));
+					Reason = TEXT("Enemy capsule overlaps blocking geometry.");
+					return false;
+				}, Placed, Error, &Report));
+		const FHBSpawnPointReport* PointReport = Report.Points.Find(Required->PointId);
+		if (TestNotNull(TEXT("Required point has its own diagnostic report"), PointReport))
+		{
+			TestEqual(TEXT("Both enemy classes retain independent query reports"), PointReport->ClassFailures.Num(), 2);
+			for (const FHBSpawnClassFailure& ClassFailure : PointReport->ClassFailures)
+			{
+				const int32 Expected = ClassFailure.ClassPath == NativeClass->GetPathName() ? 2 : 1;
+				TestEqual(TEXT("Capsule checks are never combined across classes"), ClassFailure.Placement.CapsuleChecks, Expected);
+				TestEqual(TEXT("Capsule failures are never combined across classes"), ClassFailure.Placement.CapsuleFailures.Num(), Expected);
+			}
+		}
+		TestTrue(TEXT("Required failure contains classified capsule evidence and real blockers"),
+			Error.Contains(TEXT("FailureReason=RequiredPointUnfilled")) && Error.Contains(TEXT("Cause=CapsuleOverlap"))
+			&& Error.Contains(TEXT("GroundActor=FixtureFloor")) && Error.Contains(TEXT("BlockingActor=FixtureWall")));
+
+		// Exercise the actual subsystem path: every candidate that has a safe floor is blocked by the two walls.
+		Optional->GroupId = TEXT("AnotherGroup");
+		Required->GroupId = Group.GroupId;
+		auto* Setup = World->SpawnActor<AHBEncounterSetupActor>();
+		Group.Monsters = {{NativeClass, 1}};
+		Setup->Encounter->Groups = {Group};
+		const FBox Bounds(FVector(-500, -500, -200), FVector(500, 500, 300));
+		UHBEncounterSubsystem* Subsystem = World->GetSubsystem<UHBEncounterSubsystem>();
+		if (TestNotNull(TEXT("Actual encounter subsystem exists in the fixture"), Subsystem))
+		{
+			TestFalse(TEXT("Actual runtime still rejects blocked capsules"),
+				Subsystem->StartEncounter(1, 836511139, 11, World->PersistentLevel, Bounds, {FVector(400, 400, 0)}, Error, true));
+			TestTrue(TEXT("Runtime failure records actual floor and blocking components before cleanup"),
+				Error.Contains(TEXT("Cause=CapsuleOverlap")) && Error.Contains(TEXT("GroundActor=FixtureFloor"))
+				&& Error.Contains(TEXT("BlockingActor=FixtureWall")) && Error.Contains(TEXT("BlockingComponent=")));
+			TestTrue(TEXT("Runtime retains bool failure policy and reports query agreement"),
+				Error.Contains(TEXT("FailureReason=MinCountNotMet")) && Error.Contains(TEXT("QueryMismatches=0")));
+			Subsystem->ClearGeneration(1);
+		}
+	}
+	const FString SavedBlockerPath = WallBox->GetOwner()->GetPathName();
+	World->DestroyWorld(false);
+	GEngine->DestroyWorldContext(World);
+	TestTrue(TEXT("Diagnostic strings survive world and actor cleanup"), Failure.Format().Contains(SavedBlockerPath));
 	return true;
 }
 

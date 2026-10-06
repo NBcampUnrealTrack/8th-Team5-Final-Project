@@ -10,6 +10,7 @@ class AHBEnemySpawnPoint;
 class AHBEncounterSetupActor;
 class ULevel;
 struct FHBSpawnSelectionReport;
+struct FHBSpawnPlacementReport;
 
 struct FHBEncounterSpawnChoice
 {
@@ -26,6 +27,11 @@ namespace HBEncounterSelection
 	HEAVENBREACH_API bool SelectAndPlace(const UHBEncounterComponent& Config,
 		const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 		TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
+		TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport = nullptr);
+	/** Runtime callback can attach typed placement evidence; the legacy callback above remains supported. */
+	HEAVENBREACH_API bool SelectAndPlaceWithDiagnostics(const UHBEncounterComponent& Config,
+		const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
+		TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
 		TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport = nullptr);
 }
 
@@ -72,7 +78,7 @@ private:
 	bool TrySpawn(const FHBEncounterSpawnChoice& Choice, const UHBEncounterComponent& Config,
 		AHBEncounterSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
 		const TArray<FVector>& EntryLocations, const FRoomState& State,
-		AEnemyCharacterBase*& OutEnemy, FString& OutReason);
+		AEnemyCharacterBase*& OutEnemy, FString& OutReason, FHBSpawnPlacementReport& PlacementReport);
 	void HandleEnemyDied(AEnemyCharacterBase* Enemy);
 	void ClearRoom(FRoomState& State);
 	TArray<FRoomState> RoomStates;

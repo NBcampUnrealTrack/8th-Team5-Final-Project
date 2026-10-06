@@ -58,7 +58,7 @@ namespace
 	}
 
 	bool TryOptionsAtPoint(const AHBEnemySpawnPoint& Point, const FHBEncounterGroup& Group,
-		FRandomStream& Random, TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
+		FRandomStream& Random, TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
 		FHBEncounterSpawnChoice& OutChoice, FHBSpawnSelectionReport& Report)
 	{
 		TArray<FHBEncounterMonsterOption> Remaining;
@@ -82,8 +82,9 @@ namespace
 				Remaining[Pick].EnemyClass, Group.Grade, Group.bRequireEntryPath};
 			Remaining.RemoveAt(Pick);
 			FString Reason;
-			if (TryPlace(Choice, Reason)) { OutChoice = Choice; return true; }
-			Report.RecordClassFailure(Point.PointId, Group.GroupId, Choice.EnemyClass->GetPathName(), Reason);
+			FHBSpawnPlacementReport PlacementReport;
+			if (TryPlace(Choice, Reason, PlacementReport)) { OutChoice = Choice; return true; }
+			Report.RecordClassFailure(Point.PointId, Group.GroupId, Choice.EnemyClass->GetPathName(), Reason, &PlacementReport);
 		}
 		return false;
 	}
@@ -92,6 +93,16 @@ namespace
 bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 	const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 	TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
+	TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport)
+{
+	return SelectAndPlaceWithDiagnostics(Config, Points, DungeonSeed, RoomId,
+		[&](const FHBEncounterSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport&)
+		{ return TryPlace(Choice, Reason); }, OutPlaced, OutError, OutReport);
+}
+
+bool HBEncounterSelection::SelectAndPlaceWithDiagnostics(const UHBEncounterComponent& Config,
+	const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
+	TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
 	TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport)
 {
 	OutPlaced.Reset();
@@ -296,11 +307,11 @@ bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed
 	State.DungeonSeed = DungeonSeed;
 	State.bDeferActivation = bDeferActivation;
 	TArray<FHBEncounterSpawnChoice> Placed;
-	const bool bSucceeded = HBEncounterSelection::SelectAndPlace(*Setup->Encounter, Points, DungeonSeed, RoomId,
-		[&](const FHBEncounterSpawnChoice& Choice, FString& Reason)
+	const bool bSucceeded = HBEncounterSelection::SelectAndPlaceWithDiagnostics(*Setup->Encounter, Points, DungeonSeed, RoomId,
+		[&](const FHBEncounterSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport& PlacementReport)
 		{
 			AEnemyCharacterBase* Enemy = nullptr;
-			if (!TrySpawn(Choice, *Setup->Encounter, *Setup, *RoomLevel, RoomBounds, EntryLocations, State, Enemy, Reason)) return false;
+			if (!TrySpawn(Choice, *Setup->Encounter, *Setup, *RoomLevel, RoomBounds, EntryLocations, State, Enemy, Reason, PlacementReport)) return false;
 			State.SpawnedEnemies.Add(Enemy);
 			Enemy->OnDied.AddUObject(this, &UHBEncounterSubsystem::HandleEnemyDied);
 			++State.AliveCount;
@@ -402,7 +413,7 @@ int32 UHBEncounterSubsystem::GetAliveCount(int32 GenerationId, int32 RoomId, con
 bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, const UHBEncounterComponent& Config,
 	AHBEncounterSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
 	const TArray<FVector>& EntryLocations, const FRoomState& State,
-	AEnemyCharacterBase*& OutEnemy, FString& OutReason)
+	AEnemyCharacterBase*& OutEnemy, FString& OutReason, FHBSpawnPlacementReport& PlacementReport)
 {
 	OutEnemy = nullptr;
 	UWorld* World = GetWorld();
@@ -468,9 +479,18 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 						return false;
 					}
 				}
-			if (World->OverlapBlockingTestByProfile(SpawnLocation, Choice.Point->GetActorQuat(), Capsule->GetCollisionProfileName(),
-				FCollisionShape::MakeCapsule(Radius, HalfHeight), Query))
+			const int32 CapsuleCheckIndex = PlacementReport.CapsuleChecks++;
+			const FQuat CapsuleRotation = Choice.Point->GetActorQuat();
+			const FName CapsuleProfile = Capsule->GetCollisionProfileName();
+			const FCollisionShape CapsuleShape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+			if (World->OverlapBlockingTestByProfile(SpawnLocation, CapsuleRotation, CapsuleProfile, CapsuleShape, Query))
 			{
+				const FHBSpawnCapsuleFailure& Failure = PlacementReport.CapsuleFailures.Add_GetRef(
+					HBSpawnDiagnostics::CollectCapsuleFailure(*World, Marker, CandidateFloor, SpawnLocation,
+						CapsuleRotation, CapsuleProfile, CapsuleShape, Query, CapsuleCheckIndex));
+				UE_LOG(LogHBEncounterSubsystem, Verbose, TEXT("GenerationId=%d Seed=%d Room=%d Point=%s Class=%s %s"),
+					State.GenerationId, State.DungeonSeed, State.RoomId, *Choice.PointId.ToString(),
+					*Choice.EnemyClass->GetPathName(), *Failure.Format());
 				Reason = TEXT("Enemy capsule overlaps blocking geometry.");
 				return false;
 			}
