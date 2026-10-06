@@ -66,6 +66,10 @@ struct FHBEncounterGroup
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter")
 	TArray<FHBEncounterMonsterOption> Monsters;
+
+	/** Require a complete navigation path to a room entry before spawning. Disable for groups behind locked doors; local navigation and placement safety checks still apply. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Safety")
+	bool bRequireEntryPath = true;
 };
 
 /** LD-authored room encounter data. Runtime selection and spawning belong to the world subsystem. */

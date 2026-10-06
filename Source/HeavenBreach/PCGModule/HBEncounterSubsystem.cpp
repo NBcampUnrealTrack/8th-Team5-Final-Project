@@ -75,7 +75,7 @@ namespace
 				if (Roll <= 0) break;
 			}
 			FHBEncounterSpawnChoice Choice{Point.PointId, const_cast<AHBEnemySpawnPoint*>(&Point),
-				Remaining[Pick].EnemyClass, Group.Grade};
+				Remaining[Pick].EnemyClass, Group.Grade, Group.bRequireEntryPath};
 			Remaining.RemoveAt(Pick);
 			FString Reason;
 			if (TryPlace(Choice, Reason)) { OutChoice = Choice; return true; }
@@ -442,26 +442,29 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 		OutReason = TEXT("No nearby navigation surface for this enemy's agent.");
 		return false;
 	}
-	bool bReachable = false;
-	for (const FVector& Entry : EntryLocations)
+	if (Choice.bRequireEntryPath)
 	{
-		FNavLocation EntryOnNav;
-		if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(Radius, Radius, HalfHeight), NavData)
-			|| FVector::Dist2D(Entry, EntryOnNav.Location) > Config.MaxNavProjectionDistance * 2.f
-			|| FMath::Abs(Entry.Z - EntryOnNav.Location.Z) > Config.MaxNavProjectionHeight * 2.f) continue;
-		FPathFindingQuery PathQuery(this, *NavData, OnNav.Location, EntryOnNav.Location);
-		PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
-		const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
-		if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
+		bool bReachable = false;
+		for (const FVector& Entry : EntryLocations)
 		{
-			bReachable = true;
-			break;
+			FNavLocation EntryOnNav;
+			if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(Radius, Radius, HalfHeight), NavData)
+				|| FVector::Dist2D(Entry, EntryOnNav.Location) > Config.MaxNavProjectionDistance * 2.f
+				|| FMath::Abs(Entry.Z - EntryOnNav.Location.Z) > Config.MaxNavProjectionHeight * 2.f) continue;
+			FPathFindingQuery PathQuery(this, *NavData, OnNav.Location, EntryOnNav.Location);
+			PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
+			const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
+			if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
+			{
+				bReachable = true;
+				break;
+			}
 		}
-	}
-	if (!bReachable)
-	{
-		OutReason = TEXT("Enemy has no complete navigation path to a room entry.");
-		return false;
+		if (!bReachable)
+		{
+			OutReason = TEXT("Enemy has no complete navigation path to a room entry.");
+			return false;
+		}
 	}
 	FActorSpawnParameters Params;
 	Params.Owner = &Setup;

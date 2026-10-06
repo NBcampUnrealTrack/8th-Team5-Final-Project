@@ -109,6 +109,32 @@ bool FHBEncounterSelectionTest::RunTest(const FString&)
 	TestTrue(TEXT("Reordered actor enumeration accepted"),
 		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
 	TestEqual(TEXT("Same seed and room yield the same placement"), Signature(Placed), FirstSignature);
+	{
+		const TArray<FHBEncounterGroup> SavedGroups = Config->Groups;
+		TestTrue(TEXT("Existing groups require entry paths by default"), Config->Groups[0].bRequireEntryPath);
+		TestTrue(TEXT("Default entry path policy reaches every spawn choice"),
+			!Placed.ContainsByPredicate([](const FHBEncounterSpawnChoice& Choice) { return !Choice.bRequireEntryPath; }));
+		Config->Groups[0].bRequireEntryPath = false;
+		TestTrue(TEXT("A locked-area group can disable the entry path requirement"),
+			HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
+		TestEqual(TEXT("Changing path policy does not consume seed draws"), Signature(Placed), FirstSignature);
+		TestFalse(TEXT("Disabled policy reaches every choice in that group"),
+			Placed.ContainsByPredicate([](const FHBEncounterSpawnChoice& Choice) { return Choice.bRequireEntryPath; }));
+
+		Config->Groups = SavedGroups;
+		FHBEncounterGroup Locked = Common;
+		Locked.GroupId = TEXT("Locked");
+		Locked.MinCount = Locked.MaxCount = 1;
+		Locked.bRequireEntryPath = false;
+		Config->Groups.Add(Locked);
+		TestTrue(TEXT("Open and locked groups can share unassigned points"),
+			HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
+		TestEqual(TEXT("Only the locked group skips entry paths"),
+			Placed.FilterByPredicate([](const FHBEncounterSpawnChoice& Choice) { return !Choice.bRequireEntryPath; }).Num(), 1);
+		TestEqual(TEXT("The open group keeps its entry path requirement"),
+			Placed.FilterByPredicate([](const FHBEncounterSpawnChoice& Choice) { return Choice.bRequireEntryPath; }).Num(), 3);
+		Config->Groups = SavedGroups;
+	}
 	TSet<FString> RoomSignatures;
 	for (int32 RoomId = 0; RoomId < 8; ++RoomId)
 	{
@@ -454,6 +480,39 @@ public:
                     Test->TestNotNull(TEXT("Activated deferred enemies have controllers"), It->GetController());
         }
 		Subsystem->ClearGeneration(2);
+
+		const TArray<FHBEncounterGroup> SavedGroups = Setup->Encounter->Groups;
+		const TArray<FVector> UnreachableEntries{RoomBounds.Max + FVector(100000, 100000, 100000)};
+		for (FHBEncounterGroup& Group : Setup->Encounter->Groups) Group.bRequireEntryPath = true;
+		Test->TestFalse(TEXT("Entry path requirement rejects an unreachable entry"),
+			Subsystem->StartEncounter(3, 12345, 7, Definition->GetLevel(), RoomBounds, UnreachableEntries, Error, true));
+		Test->TestTrue(TEXT("Unreachable entry reports the navigation path reason"),
+			Error.Contains(TEXT("no complete navigation path")));
+		Subsystem->ClearGeneration(3);
+		for (FHBEncounterGroup& Group : Setup->Encounter->Groups) Group.bRequireEntryPath = false;
+		if (Subsystem->StartEncounter(4, 12345, 7, Definition->GetLevel(), RoomBounds, UnreachableEntries, Error, true))
+		{
+			Test->TestTrue(TEXT("Local navigation permits spawning without an entry path"),
+				Subsystem->IsPreparedFor(4, 7, Definition->GetLevel()));
+			Test->TestEqual(TEXT("Skipping entry paths preserves the seeded spawn count"),
+				Subsystem->GetAliveCount(4, 7, Definition->GetLevel()), Spawned.Num());
+		}
+		else Test->AddError(FString::Printf(TEXT("Spawn without entry path failed: %s"), *Error));
+		Subsystem->ClearGeneration(4);
+
+		TArray<TPair<AHBEnemySpawnPoint*, FVector>> SavedPoints;
+		for (AActor* Actor : Definition->GetLevel()->Actors)
+			if (auto* Point = Cast<AHBEnemySpawnPoint>(Actor); IsValid(Point))
+			{
+				SavedPoints.Emplace(Point, Point->GetActorLocation());
+				Point->SetActorLocation(Point->GetActorLocation() + FVector(0, 0, 100000));
+			}
+		Test->TestFalse(TEXT("Disabling entry paths still rejects points without a safe floor"),
+			Subsystem->StartEncounter(5, 12345, 7, Definition->GetLevel(), RoomBounds, UnreachableEntries, Error, true));
+		Test->TestTrue(TEXT("Floor validation remains active"), Error.Contains(TEXT("No safe floor")));
+		Subsystem->ClearGeneration(5);
+		for (const auto& Saved : SavedPoints) Saved.Key->SetActorLocation(Saved.Value);
+		Setup->Encounter->Groups = SavedGroups;
 		return true;
 	}
 };

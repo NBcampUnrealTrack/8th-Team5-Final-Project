@@ -16,6 +16,7 @@ struct FHBEncounterSpawnChoice
 	AHBEnemySpawnPoint* Point = nullptr;
 	TSubclassOf<AEnemyCharacterBase> EnemyClass;
 	EHBEncounterGrade Grade = EHBEncounterGrade::Common;
+	bool bRequireEntryPath = true;
 };
 
 namespace HBEncounterSelection
