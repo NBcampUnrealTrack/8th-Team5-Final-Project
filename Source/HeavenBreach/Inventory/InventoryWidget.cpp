@@ -1059,7 +1059,13 @@
 		ClearPlacementPreview();
 		ActiveDragOperation.Reset();
 
-		if (!bSuppressDropOnCancel && OwningInventory == nullptr)
+		const FVector2D CancelScreenPosition = InDragDropEvent.GetScreenSpacePosition();
+		const UOpenedBagWindowWidget* OpenedBagWindow = FindOpenedBagWindow();
+		const bool bReleasedOverWindow = GetCachedGeometry().IsUnderLocation(CancelScreenPosition)
+			|| (ParentContainerWidget != nullptr && ParentContainerWidget->GetCachedGeometry().IsUnderLocation(CancelScreenPosition))
+			|| (OpenedBagWindow != nullptr && OpenedBagWindow->GetCachedGeometry().IsUnderLocation(CancelScreenPosition));
+
+		if (!bSuppressDropOnCancel && OwningInventory == nullptr && !bReleasedOverWindow && GetOwningPlayerPawn() != nullptr)
 		{
 			if (const UInventoryDragDropOperation* Operation = Cast<UInventoryDragDropOperation>(InOperation))
 			{
