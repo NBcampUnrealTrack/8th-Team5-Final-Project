@@ -34,6 +34,11 @@
 #include "Tests/AutomationEditorCommon.h"
 #include "Settings/LevelEditorPlaySettings.h"
 #include "Misc/PackageName.h"
+#include "Engine/StaticMesh.h"
+#include "Components/StaticMeshComponent.h"
+#include "Navigation/NavLinkProxy.h"
+#include "NavigationPath.h"
+#include "UObject/Package.h"
 #endif
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -1010,5 +1015,238 @@ bool FHBTestMGEncounterIntegrationTest::RunTest(const FString&)
 		return true;
 	}));
 	return true;
+}
+
+// Shared only by the enemy/chest automation translation units; no runtime API changes.
+namespace HBEntryPathTestFixture
+{
+    // Locations: marker, valid entry, disconnected entry, outgoing-only entry,
+    // unprojectable entry, and a physical floor outside the navigation bounds.
+    using FVerify = TFunction<void(UWorld&, const FBox&, const TArray<FVector>&)>;
+
+    UBoxComponent* AddCollisionBlocker(UWorld& World, const FVector& Marker)
+    {
+        AActor* Actor = World.SpawnActor<AActor>();
+        UBoxComponent* Box = NewObject<UBoxComponent>(Actor);
+        Actor->SetRootComponent(Box);
+        Box->SetBoxExtent(FVector(5, 200, 150));
+        Box->SetCollisionProfileName(TEXT("BlockAll"));
+        Box->SetCanEverAffectNavigation(false);
+        Box->RegisterComponent();
+        // Leave the marker's vertical floor trace clear, but intersect the spawned body.
+        Box->SetWorldLocation(Marker + FVector(6, 0, 149.6));
+        return Box;
+    }
+
+    class FWaitForNavigation : public IAutomationLatentCommand
+    {
+        FAutomationTestBase* Test;
+        FVerify Verify;
+        double Started = 0.;
+        bool bCreated = false;
+        FBox RoomBounds = FBox(ForceInit);
+        TArray<FVector> Locations;
+    public:
+        FWaitForNavigation(FAutomationTestBase* InTest, FVerify InVerify)
+            : Test(InTest), Verify(MoveTemp(InVerify)) {}
+        virtual bool Update() override
+        {
+            if (Started == 0.) Started = FPlatformTime::Seconds();
+            UWorld* World = nullptr;
+            for (const auto& Context : GEngine->GetWorldContexts())
+                if (Context.WorldType == EWorldType::PIE) { World = Context.World(); break; }
+            const bool bTimedOut = FPlatformTime::Seconds() - Started > 90.;
+            if (!World || World->GetTimeSeconds() < 0.5f)
+            {
+                if (!bTimedOut) return false;
+                Test->AddError(TEXT("Entry path fixture PIE did not start.")); return true;
+            }
+            auto* Nav = UNavigationSystemV1::GetCurrent(World);
+            if (!Test->TestNotNull(TEXT("Entry path fixture has a real navigation system"), Nav)) return true;
+            if (!bCreated)
+            {
+                const FVector Origin(200000, 0, 10000);
+                Locations = {Origin + FVector(-400, 0, 0.4), Origin + FVector(-400, 600, 0),
+                    Origin + FVector(0, 5000, 0), Origin + FVector(1600, 0, 0),
+                    Origin + FVector(50000, 50000, 50000), Origin + FVector(0, 15000, 0.4)};
+                UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+                if (!Test->TestNotNull(TEXT("Fixture cube supplies physical and navigation geometry"), Cube)) return true;
+                auto AddFloor = [&](const FVector& Center, const FVector& Extent)
+                {
+                    AActor* Actor = World->SpawnActor<AActor>();
+                    UStaticMeshComponent* Mesh = NewObject<UStaticMeshComponent>(Actor);
+                    Actor->SetRootComponent(Mesh);
+                    Mesh->SetMobility(EComponentMobility::Static);
+                    Mesh->SetStaticMesh(Cube);
+                    Mesh->SetCollisionProfileName(TEXT("BlockAll"));
+                    Mesh->SetWorldLocation(Center - FVector(0, 0, Extent.Z));
+                    Mesh->SetWorldScale3D(Extent / 50.);
+                    Mesh->RegisterComponent();
+                    RoomBounds += FBox(Center - FVector(Extent.X, Extent.Y, Extent.Z * 2.),
+                        Center + FVector(Extent.X, Extent.Y, 0));
+                };
+                AddFloor(Origin, FVector(1000, 1000, 20));
+                AddFloor(Locations[2], FVector(600, 600, 20));
+                AddFloor(Locations[3], FVector(400, 600, 20));
+                const FBox NavBounds = RoomBounds.ExpandBy(FVector(300, 300, 500));
+                AddFloor(Locations[5] - FVector(0, 0, 0.4), FVector(600, 600, 20));
+                RoomBounds = RoomBounds.ExpandBy(FVector(0, 0, 500));
+
+                const FTransform LinkTransform(Origin);
+                auto* Link = World->SpawnActorDeferred<ANavLinkProxy>(ANavLinkProxy::StaticClass(),
+                    LinkTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+                if (!Test->TestNotNull(TEXT("One-way link fixture is created"), Link)) return true;
+                FNavigationLink OneWay;
+                OneWay.Left = FVector(800, 0, 10);
+                OneWay.Right = FVector(1400, 0, 10);
+                OneWay.Direction = ENavLinkDirection::LeftToRight;
+                Link->PointLinks = {OneWay};
+                Link->bSmartLinkIsRelevant = false;
+                Link->FinishSpawning(LinkTransform);
+                UNavigationSystemV1::UpdateActorInNavOctree(*Link);
+
+                auto* Volume = World->SpawnActor<ANavMeshBoundsVolume>(ANavMeshBoundsVolume::StaticClass(),
+                    NavBounds.GetCenter(), FRotator::ZeroRotator);
+                UBrushComponent* Brush = Volume ? Volume->GetBrushComponent() : nullptr;
+                if (!Test->TestNotNull(TEXT("Temporary navigation volume is created"), Brush)) return true;
+                UBodySetup* Body = NewObject<UBodySetup>(Brush);
+                FKBoxElem Box;
+                Box.X = NavBounds.GetSize().X; Box.Y = NavBounds.GetSize().Y; Box.Z = NavBounds.GetSize().Z;
+                Body->AggGeom.BoxElems.Add(Box);
+                Brush->BrushBodySetup = Body;
+                Brush->UpdateBounds();
+                Nav->OnNavigationBoundsUpdated(Volume);
+                if (auto* Mode = World->GetAuthGameMode()) Mode->DefaultPawnClass = ACharacter::StaticClass();
+                bCreated = true;
+                return false;
+            }
+            const ANavigationData* Data = Nav->GetDefaultNavDataInstance(FNavigationSystem::DontCreate);
+            FNavLocation Projected[4];
+            bool bReady = Data && !UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World);
+            for (int32 Index = 0; bReady && Index < 4; ++Index)
+                bReady = Nav->ProjectPointToNavigation(Locations[Index], Projected[Index], FVector(100, 100, 200), Data);
+            if (!bReady)
+            {
+                if (!bTimedOut) return false;
+                Test->AddError(TEXT("Entry path fixture navigation did not become ready.")); return true;
+            }
+            const auto& Agent = Data->GetConfig();
+            auto Path = [&](int32 From, int32 To)
+            {
+                FPathFindingQuery Query(Nav, *Data, Projected[From].Location, Projected[To].Location);
+                Query.SetAllowPartialPaths(false).SetNavAgentProperties(Agent);
+                return Nav->FindPathSync(Agent, Query);
+            };
+            const auto Forward = Path(0, 3), Reverse = Path(3, 0), Disconnected = Path(0, 2);
+            const bool bFixtureValid = Forward.IsSuccessful() && Forward.Path.IsValid() && !Forward.Path->IsPartial()
+                && !Reverse.IsSuccessful() && !Disconnected.IsSuccessful()
+                && Disconnected.Path.IsValid() && Disconnected.Path->IsPartial();
+            Test->TestTrue(TEXT("Real NavMesh has an outgoing-only link and a disconnected partial path"), bFixtureValid);
+            FNavLocation InvalidProjection;
+            Test->TestFalse(TEXT("Invalid first entry actually fails projection"),
+                Nav->ProjectPointToNavigation(Locations[4], InvalidProjection, FVector(100, 100, 200), Data));
+            Test->TestFalse(TEXT("Physical safety floor actually has no local navigation"),
+                Nav->ProjectPointToNavigation(Locations[5], InvalidProjection, FVector(100, 100, 200), Data));
+            if (bFixtureValid) Verify(*World, RoomBounds, Locations);
+            return true;
+        }
+    };
+
+    void Queue(FAutomationTestBase* Test, FVerify Verify)
+    {
+        EPlayNetMode PreviousMode;
+        int32 PreviousClients;
+        GetDefault<ULevelEditorPlaySettings>()->GetPlayNetMode(PreviousMode);
+        GetDefault<ULevelEditorPlaySettings>()->GetPlayNumberOfClients(PreviousClients);
+        const auto PreviousMapMode = MakeShared<TSubclassOf<AGameModeBase>>();
+        const auto PreviousDirty = MakeShared<bool>(false);
+        GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(EPlayNetMode::PIE_Standalone);
+        GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(1);
+        Test->AddCommand(new FEditorLoadMap(TEXT("/Engine/Maps/Entry")));
+        Test->AddCommand(new FFunctionLatentCommand([Test, PreviousMapMode, PreviousDirty]()
+        {
+            for (const auto& Context : GEngine->GetWorldContexts())
+                if (Context.WorldType == EWorldType::Editor && Context.World())
+                {
+                    auto* World = Context.World();
+                    *PreviousMapMode = World->GetWorldSettings()->DefaultGameMode;
+                    *PreviousDirty = World->GetOutermost()->IsDirty();
+                    World->GetWorldSettings()->DefaultGameMode = AGameModeBase::StaticClass();
+                    return true;
+                }
+            Test->AddError(TEXT("Entry path fixture has no editor world.")); return true;
+        }));
+        Test->AddCommand(new FStartPIECommand(false));
+        Test->AddCommand(new FWaitForNavigation(Test, MoveTemp(Verify)));
+        Test->AddCommand(new FEndPlayMapCommand());
+        Test->AddCommand(new FFunctionLatentCommand([Test, PreviousMode, PreviousClients, PreviousMapMode, PreviousDirty]()
+        {
+            for (const auto& Context : GEngine->GetWorldContexts()) if (Context.WorldType == EWorldType::PIE) return false;
+            for (const auto& Context : GEngine->GetWorldContexts())
+                if (Context.WorldType == EWorldType::Editor && Context.World())
+                {
+                    Context.World()->GetWorldSettings()->DefaultGameMode = *PreviousMapMode;
+                    Test->TestEqual(TEXT("Fixture did not change the original map's dirty state"),
+                        Context.World()->GetOutermost()->IsDirty(), *PreviousDirty);
+                }
+            GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(PreviousMode);
+            GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(PreviousClients);
+            return true;
+        }));
+    }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterEntryPathPolicyTest, "HeavenBreach.PCGModule.Encounter.EntryPathPolicy",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBEncounterEntryPathPolicyTest::RunTest(const FString&)
+{
+    HBEntryPathTestFixture::Queue(this, [this](UWorld& World, const FBox& Bounds, const TArray<FVector>& Locations)
+    {
+        auto* Setup = World.SpawnActor<AHBEncounterSetupActor>();
+        auto* Point = World.SpawnActor<AHBEnemySpawnPoint>();
+        Point->PointId = TEXT("EntryPolicy");
+        Point->GroupId = TEXT("Field");
+        Point->bRequired = true;
+        Point->bAllowPositionCorrection = false;
+        Point->SetActorLocation(Locations[0]);
+        FHBEncounterGroup Group;
+        Group.GroupId = Point->GroupId;
+        Group.MinCount = Group.MaxCount = 1;
+        Group.Monsters = {{AEnemyCharacterBase::StaticClass(), 1}};
+        Setup->Encounter->Groups = {Group};
+        auto* Subsystem = World.GetSubsystem<UHBEncounterSubsystem>();
+        if (!TestNotNull(TEXT("Enemy entry policy uses the actual encounter subsystem"), Subsystem)) return;
+        FString Error;
+        int32 Generation = 100;
+        auto Run = [&](const TCHAR* Label, const TArray<FVector>& Entries, bool bExpected, const TCHAR* Cause = nullptr)
+        {
+            const bool bResult = Subsystem->StartEncounter(Generation, 12345, 0, World.PersistentLevel, Bounds, Entries, Error, true);
+            TestEqual(Label, bResult, bExpected);
+            if (bResult) TestEqual(TEXT("Successful entry policy case spawns exactly one enemy"),
+                Subsystem->GetAliveCount(Generation, 0, World.PersistentLevel), 1);
+            if (Cause) TestTrue(FString(Label) + TEXT(" retains its exact cause"), Error.Contains(Cause));
+            AddInfo(FString::Printf(TEXT("%s: Spawned=%d Expected=%d%s"), Label, bResult, bExpected,
+                bResult ? TEXT("") : *(TEXT(" Diagnostic=") + Error)));
+            Subsystem->ClearGeneration(Generation++);
+        };
+        Run(TEXT("Enemy tries the valid second entry after a failed projection"), {Locations[4], Locations[1]}, true);
+        Run(TEXT("Enemy tries the valid second entry after a partial path"), {Locations[2], Locations[1]}, true);
+        Run(TEXT("Enemy rejects all invalid active entries"), {Locations[4], Locations[2]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        TestTrue(TEXT("Enemy checks both entries in placement-to-entry direction"),
+            Error.Contains(TEXT("EntriesAvailable=2 EntriesChecked=2 Direction=PlacementToEntry"))
+            && Error.Contains(TEXT("EntryIndex=0")) && Error.Contains(TEXT("Condition=ProjectionQueryFailed"))
+            && Error.Contains(TEXT("EntryIndex=1")) && Error.Contains(TEXT("PathQueried=1")) && Error.Contains(TEXT("PartialPath=1")));
+        Run(TEXT("Enemy uses the outgoing-only link from placement to entry"), {Locations[3]}, true);
+        Setup->Encounter->Groups[0].bRequireEntryPath = false;
+        Run(TEXT("Enemy may skip entry paths while keeping valid local navigation"), {Locations[4], Locations[2]}, true);
+        Point->SetActorLocation(Locations[5]);
+        Run(TEXT("Skipping enemy entry paths still requires local navigation"), {Locations[4]}, false, TEXT("Cause=NavProjectionFailed"));
+        Point->SetActorLocation(Locations[0]);
+        auto* Blocker = HBEntryPathTestFixture::AddCollisionBlocker(World, Locations[0]);
+        Run(TEXT("Skipping enemy entry paths still rejects blocking capsule geometry"), {Locations[4]}, false, TEXT("Cause=CapsuleOverlap"));
+        Blocker->GetOwner()->Destroy();
+        Point->Destroy(); Setup->Destroy();
+    });
+    return true;
 }
 #endif

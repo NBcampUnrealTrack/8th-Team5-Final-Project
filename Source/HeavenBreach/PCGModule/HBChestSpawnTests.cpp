@@ -13,6 +13,17 @@
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "CollisionQueryParams.h"
 
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+#include "Engine/Level.h"
+#include "PhysicsEngine/BodySetup.h"
+namespace HBEntryPathTestFixture
+{
+    // Test-only fixture implemented in HBRoomEncounterTests.cpp.
+    void Queue(FAutomationTestBase* Test, TFunction<void(UWorld&, const FBox&, const TArray<FVector>&)> Verify);
+    UBoxComponent* AddCollisionBlocker(UWorld& World, const FVector& Marker);
+}
+#endif
+
 #if WITH_DEV_AUTOMATION_TESTS
 namespace HBChestSpawnGeometry
 {
@@ -568,5 +579,85 @@ bool FHBChestShapeCorrectionTest::RunTest(const FString&)
 		HBChestSpawnGeometry::GetCorrectionFootprint(ABoxActor::StaticClass(), Identity, Radius, Extents, Error));
 	TestTrue(TEXT("Failed mesh lookup clears earlier successful dimensions"), Radius == 0. && Extents.IsZero());
 	return true;
+}
+#endif
+
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestEntryPathPolicyTest, "HeavenBreach.PCGModule.ChestSpawn.EntryPathPolicy",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBChestEntryPathPolicyTest::RunTest(const FString&)
+{
+    HBEntryPathTestFixture::Queue(this, [this](UWorld& World, const FBox& Bounds, const TArray<FVector>& Locations)
+    {
+        UClass* ChestClass = LoadClass<ABoxActor>(nullptr, TEXT("/Game/Loot/Blueprints/BP_Box_Rare.BP_Box_Rare_C"));
+        if (!TestNotNull(TEXT("Entry policy uses a real replicated chest with a root mesh"), ChestClass)) return;
+        auto* Setup = World.SpawnActor<AHBChestSetupActor>();
+        auto* Point = World.SpawnActor<AHBChestSpawnPoint>();
+        Point->PointId = TEXT("EntryPolicy");
+        Point->GroupId = TEXT("Field");
+        Point->bRequired = true;
+        Point->bAllowPositionCorrection = false;
+        Point->SetActorLocation(Locations[0]);
+        FHBChestPlacementGroup Group;
+        Group.GroupId = Point->GroupId;
+        Group.MinCount = Group.MaxCount = 1;
+        Group.Chests = {{ChestClass, 1}};
+        Setup->Placement->Groups = {Group};
+        auto* Subsystem = World.GetSubsystem<UHBChestSpawnSubsystem>();
+        if (!TestNotNull(TEXT("Chest entry policy uses the actual placement subsystem"), Subsystem)) return;
+        FString Error;
+        int32 Generation = 100;
+        auto Run = [&](const TCHAR* Label, const TArray<FVector>& Entries, bool bExpected, const TCHAR* Cause = nullptr)
+        {
+            const bool bResult = Subsystem->StartPlacement(Generation, 12345, 0, World.PersistentLevel, Bounds, Entries, Error);
+            TestEqual(Label, bResult, bExpected);
+            if (bResult) TestEqual(TEXT("Successful entry policy case spawns exactly one chest"),
+                Subsystem->GetSpawnedCount(Generation, 0, World.PersistentLevel), 1);
+            if (Cause) TestTrue(FString(Label) + TEXT(" retains its exact cause"), Error.Contains(Cause));
+            AddInfo(FString::Printf(TEXT("%s: Spawned=%d Expected=%d%s"), Label, bResult, bExpected,
+                bResult ? TEXT("") : *(TEXT(" Diagnostic=") + Error)));
+            Subsystem->ClearGeneration(Generation++);
+        };
+        Run(TEXT("Chest tries the valid second entry after a failed projection"), {Locations[4], Locations[1]}, true);
+        Run(TEXT("Chest tries the valid second entry after a partial path"), {Locations[2], Locations[1]}, true);
+        Run(TEXT("Chest rejects all invalid active entries"), {Locations[4], Locations[2]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        TestTrue(TEXT("Chest checks both entries in entry-to-approach direction"),
+            Error.Contains(TEXT("EntriesAvailable=2 EntriesChecked=2 Direction=EntryToPlacement"))
+            && Error.Contains(TEXT("EntryIndex=0")) && Error.Contains(TEXT("Condition=ProjectionQueryFailed"))
+            && Error.Contains(TEXT("EntryIndex=1")) && Error.Contains(TEXT("PathQueried=1")) && Error.Contains(TEXT("PartialPath=1")));
+        Run(TEXT("Chest cannot reverse the outgoing-only placement-to-entry link"), {Locations[3]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        Run(TEXT("Chest uses a valid later entry after the wrong-direction link fails"), {Locations[3], Locations[1]}, true);
+        Setup->Placement->Groups[0].bRequireEntryPath = false;
+        Run(TEXT("Chest may skip entry paths while keeping valid local navigation"), {Locations[4], Locations[2]}, true);
+        Point->SetActorLocation(Locations[5]);
+        Run(TEXT("Skipping chest entry paths still requires local approach navigation"), {Locations[4]}, false, TEXT("Cause=NavProjectionFailed"));
+        Point->SetActorLocation(Locations[0]);
+        auto* Blocker = HBEntryPathTestFixture::AddCollisionBlocker(World, Locations[0]);
+        const auto* Defaults = ChestClass->GetDefaultObject<ABoxActor>();
+        auto* Mesh = Cast<UStaticMeshComponent>(Defaults->GetRootComponent());
+        FTransform Grounded;
+        FString TransformError;
+        if (TestTrue(TEXT("Collision fixture uses the actual grounded chest transform"),
+            HBChestSpawnGeometry::MakeGroundedTransform(ChestClass, Point->GetActorTransform(),
+                Locations[0].Z - 0.4, Grounded, TransformError)) && Mesh)
+        {
+            const FBoxSphereBounds MeshBounds = Mesh->CalcBounds(Mesh->GetRelativeTransform() * Grounded);
+            const double Thickness = FMath::Max(0.1, MeshBounds.BoxExtent.X * 0.05);
+            FVector Center = MeshBounds.Origin + FVector(MeshBounds.BoxExtent.X * 0.5, 0, 0);
+            if (FMath::Abs(Center.X - Locations[0].X) <= Thickness)
+                Center.X = MeshBounds.Origin.X - MeshBounds.BoxExtent.X * 0.5;
+            Blocker->SetBoxExtent(FVector(Thickness, MeshBounds.BoxExtent.Y + 10., MeshBounds.BoxExtent.Z + 10.));
+            Blocker->SetWorldLocation(Center);
+            const UBodySetup* Body = Mesh->GetBodySetup();
+            AddInfo(FString::Printf(TEXT("Chest collision fixture: Profile=%s Enabled=%d Bounds=%s SimpleShapes=%d TraceFlag=%d"),
+                *Mesh->GetCollisionProfileName().ToString(), static_cast<int32>(Mesh->GetCollisionEnabled()),
+                *MeshBounds.GetBox().ToString(), Body ? Body->AggGeom.GetElementCount() : -1,
+                Body ? static_cast<int32>(Body->CollisionTraceFlag) : -1));
+        }
+        Run(TEXT("Skipping chest entry paths still rejects spawn collision"), {Locations[4]}, false, TEXT("Cause=SpawnCollision"));
+        Blocker->GetOwner()->Destroy();
+        Point->Destroy(); Setup->Destroy();
+    });
+    return true;
 }
 #endif
