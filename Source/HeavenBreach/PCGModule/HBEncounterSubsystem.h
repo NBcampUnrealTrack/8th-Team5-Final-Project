@@ -27,6 +27,13 @@ namespace HBEncounterSelection
 		TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError);
 }
 
+namespace HBEncounterPlacement
+{
+	/** Preserve horizontal spacing only while the capsules' vertical extents overlap. */
+	HEAVENBREACH_API bool AreCapsulesTooClose(const FVector& Location, float Radius, float HalfHeight,
+		const FVector& OtherLocation, float OtherRadius, float OtherHalfHeight, float MinSpacing);
+}
+
 /** One per game world; all encounter execution stays on the authority world. */
 UCLASS()
 class HEAVENBREACH_API UHBEncounterSubsystem : public UWorldSubsystem

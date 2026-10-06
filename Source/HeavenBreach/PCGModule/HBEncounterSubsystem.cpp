@@ -17,6 +17,13 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogHBEncounterSubsystem, Log, All);
 
+bool HBEncounterPlacement::AreCapsulesTooClose(const FVector& Location, float Radius, float HalfHeight,
+	const FVector& OtherLocation, float OtherRadius, float OtherHalfHeight, float MinSpacing)
+{
+	if (FMath::Abs(Location.Z - OtherLocation.Z) >= HalfHeight + OtherHalfHeight) return false;
+	return FVector::Dist2D(Location, OtherLocation) < Radius + OtherRadius + MinSpacing;
+}
+
 namespace
 {
 	bool AllowsGrade(const AHBEnemySpawnPoint& Point, EHBEncounterGrade Grade)
@@ -396,8 +403,11 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 	for (const TWeakObjectPtr<AEnemyCharacterBase>& OtherPtr : State.SpawnedEnemies)
 		if (AEnemyCharacterBase* Other = OtherPtr.Get())
 		{
-			const float OtherRadius = Other->GetCapsuleComponent()->GetScaledCapsuleRadius();
-			if (FVector::Dist2D(SpawnLocation, Other->GetActorLocation()) < Radius + OtherRadius + Config.MinMonsterSpacing)
+			const UCapsuleComponent* OtherCapsule = Other->GetCapsuleComponent();
+			const float OtherRadius = OtherCapsule->GetScaledCapsuleRadius();
+			const float OtherHalfHeight = OtherCapsule->GetScaledCapsuleHalfHeight();
+			if (HBEncounterPlacement::AreCapsulesTooClose(SpawnLocation, Radius, HalfHeight,
+				Other->GetActorLocation(), OtherRadius, OtherHalfHeight, Config.MinMonsterSpacing))
 			{
 				OutReason = TEXT("Spawn is too close to another monster.");
 				return false;

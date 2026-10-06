@@ -29,6 +29,42 @@
 #endif
 
 #if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterMonsterSpacingTest, "HeavenBreach.PCGModule.Encounter.MonsterSpacing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+bool FHBEncounterMonsterSpacingTest::RunTest(const FString&)
+{
+	const FVector Out8(-3883.542, 1460.838, 0.);
+	const FVector Out9(-3776.357, 1281.164, 395.315);
+	TestFalse(TEXT("Adventure1-1 Out8 and Out9 on separate floors do not block each other"),
+		HBEncounterPlacement::AreCapsulesTooClose(Out8, 80.f, 90.f, Out9, 34.f, 88.f, 120.f));
+	TestFalse(TEXT("Separated floors remain valid when the spawn order is reversed"),
+		HBEncounterPlacement::AreCapsulesTooClose(Out9, 34.f, 88.f, Out8, 80.f, 90.f, 120.f));
+	TestTrue(TEXT("The same horizontal positions still require spacing on the same floor"),
+		HBEncounterPlacement::AreCapsulesTooClose(Out8, 80.f, 90.f,
+			FVector(Out9.X, Out9.Y, Out8.Z), 34.f, 88.f, 120.f));
+	TestTrue(TEXT("Partially overlapping vertical extents retain spacing even at a large 3D distance"),
+		HBEncounterPlacement::AreCapsulesTooClose(Out8, 80.f, 90.f,
+			FVector(Out9.X, Out9.Y, 177.), 34.f, 88.f, 120.f));
+	TestFalse(TEXT("Capsules stacked with separated vertical extents are allowed"),
+		HBEncounterPlacement::AreCapsulesTooClose(FVector::ZeroVector, 80.f, 90.f,
+			FVector(0., 0., 179.), 34.f, 88.f, 120.f));
+	TestFalse(TEXT("Capsules whose vertical extents only touch do not block spacing"),
+		HBEncounterPlacement::AreCapsulesTooClose(FVector::ZeroVector, 80.f, 90.f,
+			FVector(0., 0., 178.), 34.f, 88.f, 120.f));
+	TestFalse(TEXT("A capsule on the lower floor is also allowed"),
+		HBEncounterPlacement::AreCapsulesTooClose(FVector::ZeroVector, 80.f, 90.f,
+			FVector(0., 0., -179.), 34.f, 88.f, 120.f));
+	TestTrue(TEXT("A taller enemy still blocks when its capsule reaches the other floor"),
+		HBEncounterPlacement::AreCapsulesTooClose(Out8, 80.f, 90.f, Out9, 34.f, 400.f, 120.f));
+	TestTrue(TEXT("Same-floor spacing rejects positions inside the minimum horizontal distance"),
+		HBEncounterPlacement::AreCapsulesTooClose(FVector::ZeroVector, 80.f, 90.f,
+			FVector(233., 0., 0.), 34.f, 88.f, 120.f));
+	TestFalse(TEXT("Same-floor spacing allows the exact minimum horizontal distance"),
+		HBEncounterPlacement::AreCapsulesTooClose(FVector::ZeroVector, 80.f, 90.f,
+			FVector(234., 0., 0.), 34.f, 88.f, 120.f));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterSelectionTest, "HeavenBreach.PCGModule.EncounterSelection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 bool FHBEncounterSelectionTest::RunTest(const FString&)
