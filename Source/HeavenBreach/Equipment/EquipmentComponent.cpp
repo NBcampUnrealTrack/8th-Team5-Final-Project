@@ -314,10 +314,44 @@ void UEquipmentComponent::HandleOpenedBagSourceChanged()
 	}
 
 	UInventoryComponent* Source = OpenedBagSource.Get();
-	if (Source == nullptr || Source->FindEntryIndexById(OpenedBagId) == INDEX_NONE)
+	const int32 BagIndex = Source != nullptr ? Source->FindEntryIndexById(OpenedBagId) : INDEX_NONE;
+	if (BagIndex == INDEX_NONE)
 	{
 		CloseOpenedBag();
+		return;
 	}
+
+	if (OpenedBagInventory == nullptr)
+	{
+		return;
+	}
+
+	const TArray<FBagItemEntry>& SourceContents = Source->GetEntries()[BagIndex].Item.BagContents;
+	const TArray<FInventoryEntry>& OpenedEntries = OpenedBagInventory->GetEntries();
+	bool bSame = SourceContents.Num() == OpenedEntries.Num();
+	for (int32 Index = 0; bSame && Index < SourceContents.Num(); ++Index)
+	{
+		const FBagItemEntry Current = InventoryEntryToBagItem(OpenedEntries[Index]);
+		bSame = Current.InstanceId == SourceContents[Index].InstanceId
+			&& Current.StackCount == SourceContents[Index].StackCount
+			&& Current.Position == SourceContents[Index].Position
+			&& Current.bRotated == SourceContents[Index].bRotated;
+	}
+	if (bSame)
+	{
+		return;
+	}
+
+	TArray<FInventoryEntry> Contents;
+	Contents.Reserve(SourceContents.Num());
+	for (const FBagItemEntry& BagEntry : SourceContents)
+	{
+		Contents.Add(BagItemToInventoryEntry(BagEntry));
+	}
+
+	bSyncingOpenedBag = true;
+	OpenedBagInventory->SetEntries(Contents);
+	bSyncingOpenedBag = false;
 }
 
 void UEquipmentComponent::Server_OpenBag_Implementation(UInventoryComponent* InSource, FGuid InInstanceId)
