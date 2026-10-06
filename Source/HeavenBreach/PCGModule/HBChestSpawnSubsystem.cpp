@@ -128,7 +128,9 @@ bool HBChestSelection::SelectAndPlace(const UHBChestPlacementComponent& Config,
 	TSet<FName> UsedIds;
 	for (const FHBChestPlacementGroup& Group : Config.Groups)
 	{
-		const int32 Target = Random.RandRange(Group.MinCount, Group.MaxCount);
+		int32 Target = 0;
+		if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, Group.CountSelectionMode,
+			Group.CountWeights, Random, Target, OutError)) return false;
 		TArray<AHBChestSpawnPoint*> Required;
 		TArray<AHBChestSpawnPoint*> Optional;
 		for (AHBChestSpawnPoint* Point : SortedPoints)

@@ -92,6 +92,26 @@ bool FHBEncounterSelectionTest::RunTest(const FString&)
 		SeenCounts.Add(Placed.Num());
 	}
 	TestTrue(TEXT("Changing dungeon seed can vary the count"), SeenCounts.Num() > 1);
+	Config->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Weighted;
+	Config->Groups[0].CountWeights = {{2, 1}, {3, 0}, {4, 5}};
+	int32 TwoCount = 0, FourCount = 0;
+	for (int32 Seed = 1; Seed <= 64; ++Seed)
+	{
+		TestTrue(TEXT("Monster selection accepts weighted counts"),
+			HBEncounterSelection::SelectAndPlace(*Config, Points, Seed, 2, Accept, Placed, Error));
+		TestTrue(TEXT("Monster count uses only positive-weight choices"), Placed.Num() == 2 || Placed.Num() == 4);
+		TwoCount += Placed.Num() == 2;
+		FourCount += Placed.Num() == 4;
+	}
+	TestTrue(TEXT("Larger monster count follows its greater weight"), FourCount > TwoCount && TwoCount > 0);
+	HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error);
+	const FString WeightedSignature = Signature(Placed);
+	Algo::Reverse(Config->Groups[0].CountWeights);
+	TestTrue(TEXT("Weighted monster selection replays"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
+	TestEqual(TEXT("Weighted monster replay preserves points"), Signature(Placed), WeightedSignature);
+	Config->Groups[0].CountSelectionMode = EHBSpawnCountSelectionMode::Uniform;
+	Config->Groups[0].CountWeights.Reset();
 	Config->Groups[0].MinCount = Config->Groups[0].MaxCount = 3;
 	Points[1]->GroupId = TEXT("AnotherGroup");
 	TestTrue(TEXT("Other group point is not selected"),
@@ -99,6 +119,59 @@ bool FHBEncounterSelectionTest::RunTest(const FString&)
 	TestFalse(TEXT("Group filtering excludes the marked point"), Placed.ContainsByPredicate(
 		[&](const FHBEncounterSpawnChoice& Choice) { return Choice.PointId == Points[1]->PointId; }));
 	Points[1]->GroupId = NAME_None;
+
+	{
+		const TArray<FHBEncounterGroup> SavedGroups = Config->Groups;
+		TArray<bool> SavedRequired, SavedElite;
+		for (AHBEnemySpawnPoint* Point : Points)
+		{
+			SavedRequired.Add(Point->bRequired);
+			SavedElite.Add(Point->bAllowElite);
+			Point->bRequired = false;
+		}
+		Points[2]->bAllowElite = true;
+		FHBEncounterGroup KeyElite;
+		KeyElite.GroupId = TEXT("KeyElite");
+		KeyElite.Grade = EHBEncounterGrade::Elite;
+		KeyElite.MinCount = 0;
+		KeyElite.MaxCount = 1;
+		KeyElite.CountSelectionMode = EHBSpawnCountSelectionMode::Weighted;
+		KeyElite.CountWeights = {{0, 1}, {1, 1}};
+		KeyElite.Monsters.Add(Option);
+		FHBEncounterGroup KeyCommon = Common;
+		KeyCommon.GroupId = TEXT("KeyCommon");
+		KeyCommon.MinCount = 0;
+		KeyCommon.MaxCount = 2;
+		KeyCommon.CountSelectionMode = EHBSpawnCountSelectionMode::Weighted;
+		KeyCommon.CountWeights = {{2, 1}};
+		KeyCommon.ConditionGroupId = KeyElite.GroupId;
+		KeyCommon.CountWeightsIfConditionSpawned = {{1, 1}};
+		Config->Groups = {KeyCommon, KeyElite};
+		int32 WithElite = 0, WithoutElite = 0;
+		for (int32 Seed = 1; Seed <= 64; ++Seed)
+		{
+			TestTrue(TEXT("Conditional count selection succeeds"),
+				HBEncounterSelection::SelectAndPlace(*Config, Points, Seed, 2, Accept, Placed, Error));
+			const int32 Elites = Placed.FilterByPredicate(
+				[](const FHBEncounterSpawnChoice& Choice) { return Choice.Grade == EHBEncounterGrade::Elite; }).Num();
+			TestEqual(TEXT("Conditional count keeps the room total"), Placed.Num(), 2);
+			WithElite += Elites == 1;
+			WithoutElite += Elites == 0;
+		}
+		TestTrue(TEXT("Both condition outcomes occur"), WithElite > 0 && WithoutElite > 0);
+		TArray<FString> ConditionErrors;
+		Config->Groups[0].ConditionGroupId = TEXT("Missing");
+		TestFalse(TEXT("Unknown condition group is rejected"), Config->Validate(ConditionErrors));
+		Config->Groups[0].ConditionGroupId = KeyElite.GroupId;
+		Config->Groups[1].Grade = EHBEncounterGrade::Common;
+		TestFalse(TEXT("Condition group placed later is rejected"), Config->Validate(ConditionErrors));
+		Config->Groups = SavedGroups;
+		for (int32 Index = 0; Index < Points.Num(); ++Index)
+		{
+			Points[Index]->bRequired = SavedRequired[Index];
+			Points[Index]->bAllowElite = SavedElite[Index];
+		}
+	}
 
 	FName RejectedPoint;
 	const FName RequiredId = Points.Last()->PointId;

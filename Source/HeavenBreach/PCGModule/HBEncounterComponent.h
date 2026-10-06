@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "PCGModule/HBSpawnCountSelection.h"
 #include "HBEncounterComponent.generated.h"
 
 class AEnemyCharacterBase;
@@ -45,6 +46,23 @@ struct FHBEncounterGroup
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter", meta=(ClampMin="0"))
 	int32 MaxCount = 0;
+
+	/** Uniform preserves the existing inclusive MinCount / MaxCount draw. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter")
+	EHBSpawnCountSelectionMode CountSelectionMode = EHBSpawnCountSelectionMode::Uniform;
+
+	/** Weighted mode selects only listed counts with positive weight, including MaxCount. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter",
+		meta=(EditCondition="CountSelectionMode == EHBSpawnCountSelectionMode::Weighted", EditConditionHides, TitleProperty="Count"))
+	TArray<FHBSpawnCountWeight> CountWeights;
+
+	/** Optional group placed before this one (higher grade, or same grade listed above). When it placed at least one monster, CountWeightsIfConditionSpawned replaces the normal count draw. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Condition")
+	FName ConditionGroupId;
+
+	/** Weighted counts used when ConditionGroupId placed at least one monster. Counts must stay inside MinCount / MaxCount. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Condition", meta=(TitleProperty="Count"))
+	TArray<FHBSpawnCountWeight> CountWeightsIfConditionSpawned;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter")
 	TArray<FHBEncounterMonsterOption> Monsters;

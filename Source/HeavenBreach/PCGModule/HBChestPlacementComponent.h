@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "PCGModule/HBSpawnCountSelection.h"
 #include "HBChestPlacementComponent.generated.h"
 
 class ABoxActor;
@@ -34,6 +35,15 @@ struct FHBChestPlacementGroup
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement", meta=(ClampMin="0"))
 	int32 MaxCount = 0;
+
+	/** Uniform preserves the existing inclusive MinCount / MaxCount draw. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement")
+	EHBSpawnCountSelectionMode CountSelectionMode = EHBSpawnCountSelectionMode::Uniform;
+
+	/** Weighted mode selects only listed counts with positive weight, including MaxCount. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement",
+		meta=(EditCondition="CountSelectionMode == EHBSpawnCountSelectionMode::Weighted", EditConditionHides, TitleProperty="Count"))
+	TArray<FHBSpawnCountWeight> CountWeights;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement")
 	TArray<FHBChestClassOption> Chests;
