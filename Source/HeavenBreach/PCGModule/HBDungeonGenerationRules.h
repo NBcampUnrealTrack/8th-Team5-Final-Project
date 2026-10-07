@@ -22,4 +22,10 @@ struct HEAVENBREACH_API FHBDungeonGenerationRules
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Layout", meta=(ClampMin="0", ClampMax="8")) int32 Floor1BranchRooms = 1;
 	/** Must exceed Floor1BranchRooms, as required by the dungeon rules. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Layout", meta=(ClampMin="1", ClampMax="8")) int32 Floor2BranchRooms = 2;
+	/** Effective role limits. The gameplay generator exposes the editable values directly on its Blueprint. */
+	UPROPERTY(BlueprintReadOnly, Category="Room Role Limits") int32 MaxConsecutiveAdventureRooms = 3;
+	UPROPERTY(BlueprintReadOnly, Category="Room Role Limits") int32 MaxConsecutiveRecoveryRooms = 1;
+	UPROPERTY(BlueprintReadOnly, Category="Room Role Limits") int32 MaxConsecutiveEnhancementRooms = 1;
+	UPROPERTY(BlueprintReadOnly, Category="Room Role Limits") int32 MaxRecoveryRoomsPerFloor = 1;
+	UPROPERTY(BlueprintReadOnly, Category="Room Role Limits") int32 MaxEnhancementRoomsPerFloor = 1;
 };

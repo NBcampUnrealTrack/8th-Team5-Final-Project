@@ -48,6 +48,52 @@
 #include "UObject/UObjectIterator.h"
 #include "UObject/Package.h"
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBGeneratorRoleLimitsTest, "HeavenBreach.PCGModule.Gameplay.GeneratorRoleLimits",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBGeneratorRoleLimitsTest::RunTest(const FString&)
+{
+    UClass* GeneratorClass = LoadClass<AHBDungeonRuntime>(nullptr, TEXT("/Game/Core/PCG/BP_HBDungeonRuntime.BP_HBDungeonRuntime_C"));
+    if (!TestNotNull(TEXT("Gameplay generator Blueprint loads with inherited role settings"), GeneratorClass)) return false;
+    const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
+        .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    auto* Dungeon = World->SpawnActor<AHBDungeonRuntime>(GeneratorClass);
+    if (!TestNotNull(TEXT("Blueprint generator instance spawns"), Dungeon))
+    { GEngine->DestroyWorldContext(World); World->DestroyWorld(false); return false; }
+    struct FSetting
+    {
+        const TCHAR* Name;
+        int32 Default;
+        int32 Edited;
+        int32 FHBDungeonGenerationRules::* Member;
+    };
+    const FSetting Settings[] = {
+        {TEXT("MaxConsecutiveAdventureRooms"), 3, 4, &FHBDungeonGenerationRules::MaxConsecutiveAdventureRooms},
+        {TEXT("MaxConsecutiveRecoveryRooms"), 1, 2, &FHBDungeonGenerationRules::MaxConsecutiveRecoveryRooms},
+        {TEXT("MaxConsecutiveEnhancementRooms"), 1, 3, &FHBDungeonGenerationRules::MaxConsecutiveEnhancementRooms},
+        {TEXT("MaxRecoveryRoomsPerFloor"), 1, 3, &FHBDungeonGenerationRules::MaxRecoveryRoomsPerFloor},
+        {TEXT("MaxEnhancementRoomsPerFloor"), 1, 4, &FHBDungeonGenerationRules::MaxEnhancementRoomsPerFloor}
+    };
+    for (const auto& Setting : Settings)
+    {
+        auto* Property = FindFProperty<FIntProperty>(GeneratorClass, Setting.Name);
+        if (!TestNotNull(FString::Printf(TEXT("BP exposes %s directly"), Setting.Name), Property)) continue;
+        TestTrue(TEXT("Setting is editable in both BP Class Defaults and placed instances"), Property->HasAllPropertyFlags(CPF_Edit | CPF_BlueprintVisible)
+            && !Property->HasAnyPropertyFlags(CPF_EditConst | CPF_BlueprintReadOnly | CPF_DisableEditOnInstance | CPF_DisableEditOnTemplate));
+        TestEqual(TEXT("Existing Blueprint inherits the original default"), Property->GetPropertyValue_InContainer(GeneratorClass->GetDefaultObject()), Setting.Default);
+        Property->SetPropertyValue_InContainer(Dungeon, Setting.Edited);
+    }
+    const auto Rules = Dungeon->GetGenerationRules();
+    for (const auto& Setting : Settings)
+        TestEqual(FString::Printf(TEXT("Generation uses BP setting %s"), Setting.Name), Rules.*(Setting.Member), Setting.Edited);
+    TestEqual(TEXT("Combining role settings retains authored layout counts"), Rules.Floor1MainRooms, Dungeon->DungeonRules.Floor1MainRooms);
+    TestTrue(TEXT("Combining role settings retains the selected exit map"), Rules.Floor1ExitMap == Dungeon->DungeonRules.Floor1ExitMap);
+    GEngine->DestroyWorldContext(World);
+    World->DestroyWorld(false);
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBClientLayoutBoundaryTest, "HeavenBreach.PCGModule.Gameplay.ClientLayoutBoundary",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FHBClientLayoutBoundaryTest::RunTest(const FString&)
@@ -694,7 +740,7 @@ bool FHBTestMGRuntimeTest::RunTest(const FString&)
 			Settings.Seed = Candidate;
 			TArray<FHBPrototypeRoom> Rooms;
 			FString Error;
-			if (HBDungeonRuleLayout::Generate(Catalog, Settings, Dungeon->DungeonRules, Rooms, Error)
+			if (HBDungeonRuleLayout::Generate(Catalog, Settings, Dungeon->GetGenerationRules(), Rooms, Error)
 				&& Rooms.ContainsByPredicate([](const FHBPrototypeRoom& Room)
 				{
 					return Room.ModuleMap.ToSoftObjectPath().GetLongPackageName() == TestMGMapPath;

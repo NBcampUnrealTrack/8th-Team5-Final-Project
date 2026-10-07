@@ -86,7 +86,7 @@ void AHBDungeonRuntime::StartGeneration()
     if (!HBDungeonModuleCatalog::Build(ModuleMaps, ModuleCatalog, CatalogErrors))
     { Fail(FString::Join(CatalogErrors, TEXT("\n"))); return; }
     ActiveSeed = bRandomSeedOnStart ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
-    ActiveRules = DungeonRules;
+    ActiveRules = GetGenerationRules();
     ActiveDoorSealClass = DoorSealClass;
     ActiveDoorSealExtent = DoorSealExtent;
     ActiveSettings.Seed = ActiveSeed;
@@ -100,6 +100,16 @@ void AHBDungeonRuntime::StartGeneration()
     PCG->Seed = ActiveSeed;
     PCG->SetGraphLocal(Graph);
     PCG->GenerateLocal(true);
+}
+FHBDungeonGenerationRules AHBDungeonRuntime::GetGenerationRules() const
+{
+    auto Rules = DungeonRules;
+    Rules.MaxConsecutiveAdventureRooms = MaxConsecutiveAdventureRooms;
+    Rules.MaxConsecutiveRecoveryRooms = MaxConsecutiveRecoveryRooms;
+    Rules.MaxConsecutiveEnhancementRooms = MaxConsecutiveEnhancementRooms;
+    Rules.MaxRecoveryRoomsPerFloor = MaxRecoveryRoomsPerFloor;
+    Rules.MaxEnhancementRoomsPerFloor = MaxEnhancementRoomsPerFloor;
+    return Rules;
 }
 bool AHBDungeonRuntime::PlanLayout()
 {

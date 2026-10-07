@@ -15,6 +15,32 @@ namespace
 	{
 		return M.AllowedFloor == EHBAllowedFloor::Any || static_cast<int32>(M.AllowedFloor) == Floor;
 	}
+	int32 ConsecutiveLimit(EHBPrototypeRoomRole Role, const FHBDungeonGenerationRules& Rules)
+	{
+		switch (Role)
+		{
+		case EHBPrototypeRoomRole::Adventure: return Rules.MaxConsecutiveAdventureRooms;
+		case EHBPrototypeRoomRole::Recovery: return Rules.MaxConsecutiveRecoveryRooms;
+		case EHBPrototypeRoomRole::Upgrade: return Rules.MaxConsecutiveEnhancementRooms;
+		default: return 0;
+		}
+	}
+	int32 SpecialRoomLimit(EHBPrototypeRoomRole Role, const FHBDungeonGenerationRules& Rules)
+	{
+		return Role == EHBPrototypeRoomRole::Recovery ? Rules.MaxRecoveryRoomsPerFloor : Rules.MaxEnhancementRoomsPerFloor;
+	}
+	int32 ConsecutiveRoomCount(const TArray<FHBPrototypeRoom>& Rooms, int32 Parent, int32 Floor, EHBPrototypeRoomRole Role)
+	{
+		int32 Streak = 1;
+		for (int32 J = Parent; J != INDEX_NONE; J = Rooms[J].ParentId)
+		{
+			if (Rooms[J].Floor != Floor) break;
+			if (Rooms[J].bCorridor) continue;
+			if (Rooms[J].Role != Role) break;
+			++Streak;
+		}
+		return Streak;
+	}
 	const TCHAR* RoomRoleName(EHBPrototypeRoomRole Role)
 	{
 		switch (Role)
@@ -45,6 +71,9 @@ namespace
 			R.Floor1MainRooms, R.Floor2MainRooms, R.Floor1BranchRooms, R.Floor2BranchRooms,
 			S.bAllowModuleReuse ? TEXT("true") : TEXT("false"), S.MaxSearchSteps, S.MaxSearchSeconds,
 			*S.Origin.ToString(), *R.Floor2Offset.ToString());
+		UE_LOG(LogHBDungeonLayout, Warning, TEXT("[RoleLimits] ConsecutiveAdventure=%d ConsecutiveRecovery=%d ConsecutiveEnhancement=%d RecoveryPerFloor=%d EnhancementPerFloor=%d"),
+			R.MaxConsecutiveAdventureRooms, R.MaxConsecutiveRecoveryRooms, R.MaxConsecutiveEnhancementRooms,
+			R.MaxRecoveryRoomsPerFloor, R.MaxEnhancementRoomsPerFloor);
 		UE_LOG(LogHBDungeonLayout, Warning, TEXT("[Maps] Floor1Exit=%s Portal=%s Floor2Entry=%s Portal=%s BossCorridor=%s"),
 			*R.Floor1ExitMap.ToString(), *R.Floor1ExitPortalId.ToString(), *R.Floor2EntryMap.ToString(),
 			*R.Floor2EntryPortalId.ToString(), *R.BossCorridorMap.ToString());
@@ -52,7 +81,7 @@ namespace
 	enum class ERejection : uint8
 	{
 		Floor, Reuse, ForcedModule, Kind, BossRole, ReservedTransition, StartCandidate, BeforeCorridor,
-		SpecialQuota, AdjacentToStart, SameSpecialRole, AdventureStreak,
+		SpecialQuota, AdjacentToStart, AdventureStreak, RecoveryStreak, EnhancementStreak,
 		NoParents, NoCandidates, NoParentDoors, ConnectorRole, Occupancy, FinalRules, Count
 	};
 	constexpr int32 FilterReasonCount = static_cast<int32>(ERejection::NoParents);
@@ -71,8 +100,9 @@ namespace
 		case ERejection::BeforeCorridor: return TEXT("AdventureRequiredBeforeCorridor");
 		case ERejection::SpecialQuota: return TEXT("SpecialRoomQuota");
 		case ERejection::AdjacentToStart: return TEXT("SpecialRoomAdjacentToStart");
-		case ERejection::SameSpecialRole: return TEXT("SameSpecialRoleAdjacent");
 		case ERejection::AdventureStreak: return TEXT("AdventureStreakLimit");
+		case ERejection::RecoveryStreak: return TEXT("RecoveryStreakLimit");
+		case ERejection::EnhancementStreak: return TEXT("EnhancementStreakLimit");
 		case ERejection::NoParents: return TEXT("NoEligibleParentRooms");
 		case ERejection::NoCandidates: return TEXT("NoEligibleModules");
 		case ERejection::NoParentDoors: return TEXT("NoAvailableParentDoors");
@@ -104,6 +134,10 @@ namespace
 			|| R.Floor1BranchRooms < 0 || R.Floor1BranchRooms > 8 || R.Floor2BranchRooms <= R.Floor1BranchRooms
 			|| R.Floor2BranchRooms > 8 || R.Floor1MainRooms + R.Floor2MainRooms + R.Floor1BranchRooms + R.Floor2BranchRooms + 1 > 64)
 			return Fail(TEXT("Use 2-24 floor-1 main rooms, 3-24 floor-2 main rooms, 0-8 branches; floor 2 needs more branches, at most 64 modules including the corridor."));
+		if (R.MaxConsecutiveAdventureRooms < 1 || R.MaxConsecutiveRecoveryRooms < 1 || R.MaxConsecutiveEnhancementRooms < 1)
+			return Fail(TEXT("MaxConsecutiveAdventureRooms, MaxConsecutiveRecoveryRooms and MaxConsecutiveEnhancementRooms must each be at least 1."));
+		if (R.MaxRecoveryRoomsPerFloor < 0 || R.MaxEnhancementRoomsPerFloor < 0)
+			return Fail(TEXT("MaxRecoveryRoomsPerFloor and MaxEnhancementRoomsPerFloor must each be at least 0."));
 		if (R.Floor2Offset.ContainsNaN()) return Fail(TEXT("Floor2Offset must be finite."));
 		if (R.Floor1ExitMap.IsNull() || R.Floor2EntryMap.IsNull() || R.BossCorridorMap.IsNull())
 			return Fail(TEXT("Dungeon Rules: select Floor1ExitMap, Floor2EntryMap and BossCorridorMap. No map names are assumed."));
@@ -216,8 +250,13 @@ namespace
 				if (Role > 3) return Fail(TEXT("Invalid room role."));
 				++Counts[Role];
 				++(R.bBranch ? Branch[R.Floor] : Main[R.Floor]);
-				if (R.Role == EHBPrototypeRoomRole::Recovery && ++Heal[R.Floor] > 1) return Fail(TEXT("At most one Recovery room per floor."));
-				if (R.Role == EHBPrototypeRoomRole::Upgrade && ++Upgrade[R.Floor] > 1) return Fail(TEXT("At most one Upgrade room per floor."));
+				if ((R.Role == EHBPrototypeRoomRole::Recovery && ++Heal[R.Floor] > Rules.MaxRecoveryRoomsPerFloor)
+					|| (R.Role == EHBPrototypeRoomRole::Upgrade && ++Upgrade[R.Floor] > Rules.MaxEnhancementRoomsPerFloor))
+				{
+					Error = FString::Printf(TEXT("%s room count exceeds the per-floor limit of %d on floor %d."),
+						RoomRoleName(R.Role), SpecialRoomLimit(R.Role, Rules), R.Floor);
+					return false;
+				}
 			}
 			if (R.bFloorExit)
 			{
@@ -238,20 +277,19 @@ namespace
 				}
 				else if (P.Floor != R.Floor) return Fail(TEXT("Logical floors may only change through the configured portal pair."));
 				if ((R.Role == EHBPrototypeRoomRole::Recovery || R.Role == EHBPrototypeRoomRole::Upgrade)
-					&& (R.ParentId == 0 || R.Role == P.Role)) return Fail(TEXT("Special room adjacent to start or to the same special role."));
+					&& R.ParentId == 0) return Fail(TEXT("Special room adjacent to start."));
 				if (R.Role == EHBPrototypeRoomRole::Boss && (R.Floor != 2 || R.bBranch || !P.bCorridor || Children[I] != 0))
 					return Fail(TEXT("Exactly one floor-2 boss must directly follow the selected corridor and end the main path."));
 			}
 			if ((R.ModuleMap == Rules.Floor1ExitMap || R.ModuleMap == Rules.Floor2EntryMap)
 				&& !M->bIsStartCandidate && !R.bFloorExit && R.Connection != EHBDungeonConnection::Portal)
 				return Fail(TEXT("Transition modules are reserved for the configured endpoints."));
-			int32 Streak = 0;
-			for (int32 J = I; J != INDEX_NONE; J = Rooms[J].ParentId)
+			const int32 Limit = ConsecutiveLimit(R.Role, Rules);
+			if (Limit > 0 && !R.bCorridor && ConsecutiveRoomCount(Rooms, R.ParentId, R.Floor, R.Role) > Limit)
 			{
-				if (Rooms[J].Floor != R.Floor) break;
-				if (Rooms[J].bCorridor) continue;
-				if (Rooms[J].Role != EHBPrototypeRoomRole::Adventure) break;
-				if (++Streak > 3) return Fail(TEXT("More than three consecutive Adventure rooms on the same floor."));
+				Error = FString::Printf(TEXT("More than %d consecutive %s rooms on the same floor (room %d, floor %d)."),
+					Limit, RoomRoleName(R.Role), I, R.Floor);
+				return false;
 			}
 		}
 		if (Counts[3] != 1 || Portals != 1 || Exits != 1 || Corridors != 1) return Fail(TEXT("Expected one boss, one boss corridor and one portal transition."));
@@ -368,20 +406,14 @@ namespace
 			if (bBeforeCorridor && M.Role != EHBPrototypeRoomRole::Adventure) return Reject(ERejection::BeforeCorridor);
 			if (M.Role == EHBPrototypeRoomRole::Recovery || M.Role == EHBPrototypeRoomRole::Upgrade)
 			{
-				if (RoleCounts[Slot.Floor][static_cast<int32>(M.Role)] >= 1) return Reject(ERejection::SpecialQuota);
+				if (RoleCounts[Slot.Floor][static_cast<int32>(M.Role)] >= SpecialRoomLimit(M.Role, Rules)) return Reject(ERejection::SpecialQuota);
 				if (Parent == 0) return Reject(ERejection::AdjacentToStart);
-				if (Parent != INDEX_NONE && Rooms[Parent].Role == M.Role) return Reject(ERejection::SameSpecialRole);
 			}
-			if (M.Role == EHBPrototypeRoomRole::Adventure)
+			const int32 Limit = ConsecutiveLimit(M.Role, Rules);
+			if (Limit > 0 && ConsecutiveRoomCount(Rooms, Parent, Slot.Floor, M.Role) > Limit)
 			{
-				int32 Streak = 1;
-				for (int32 J = Parent; J != INDEX_NONE; J = Rooms[J].ParentId)
-				{
-					if (Rooms[J].Floor != Slot.Floor) break;
-					if (Rooms[J].bCorridor) continue;
-					if (Rooms[J].Role != M.Role) break;
-					if (++Streak > 3) return Reject(ERejection::AdventureStreak);
-				}
+				return Reject(M.Role == EHBPrototypeRoomRole::Adventure ? ERejection::AdventureStreak
+					: M.Role == EHBPrototypeRoomRole::Recovery ? ERejection::RecoveryStreak : ERejection::EnhancementStreak);
 			}
 			return true;
 		}
