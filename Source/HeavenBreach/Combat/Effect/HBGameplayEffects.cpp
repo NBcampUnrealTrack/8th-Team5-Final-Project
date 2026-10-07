@@ -152,6 +152,21 @@ UGE_FallDamage::UGE_FallDamage()
 		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_Damage);
 }
 
+UGE_FallDamageReductionBuff::UGE_FallDamageReductionBuff()
+{
+	DurationPolicy = EGameplayEffectDurationType::HasDuration;
+	FSetByCallerFloat DurationSetByCaller;
+	DurationSetByCaller.DataTag = AbilityTag::TAG_SetByCaller_Duration;
+	DurationMagnitude = FGameplayEffectModifierMagnitude(DurationSetByCaller);
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_FallDamageReductionAttribute(),
+		EGameplayModOp::Additive, ItemTag::TAG_Data_ItemEffect_Magnitude);
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
+	StackingType = EGameplayEffectStackingType::AggregateByTarget;
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
+	StackLimitCount = 1;
+	StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::RefreshOnSuccessfulApplication;
+}
+
 UGE_LightLandingPassive::UGE_LightLandingPassive()
 {
 	DurationPolicy = EGameplayEffectDurationType::Infinite;

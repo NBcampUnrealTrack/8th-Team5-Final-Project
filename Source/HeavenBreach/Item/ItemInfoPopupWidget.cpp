@@ -270,8 +270,7 @@ void UItemInfoPopupWidget::SetupInfo(const FString& InDisplayName, EItemGrade In
         }
     }
 
-    // 설명은 장비/악세사리에서만 보여준다 — 잡템은 판매가만.
-    const bool bShowDescription = !bInCompact && bIsEquipment && !InDescription.IsEmpty();
+    const bool bShowDescription = !bInCompact && !InDescription.IsEmpty();
     if (DescriptionText != nullptr)
     {
         DescriptionText->SetText(FText::FromString(InDescription));

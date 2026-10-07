@@ -276,6 +276,8 @@ private:
 	/** 사용 가능 여부만 본다(존재, 소모품, 쿨타임, 최대 체력). 상태는 바꾸지 않는다. */
 	bool CanUseItem(FGuid InInstanceId, FItemInstance& OutItem, FItemViewData& OutViewData) const;
 
+	void ApplyTimedBuff(const FItemViewData& InViewData) const;
+
 	// UseItem 으로 시작돼 Commit/Cancel 을 기다리는 아이템. 서버 전용이라 복제하지 않는다.
 	// 하나만 둔다: 마시는 도중 다른 소모품을 또 쓰는 것을 막는다.
 	FGuid PendingUseInstanceId;
