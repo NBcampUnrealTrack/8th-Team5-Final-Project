@@ -66,6 +66,8 @@ bool UHBEncounterComponent::Validate(TArray<FString>& OutErrors) const
 			const FHBEncounterMonsterOption& Option = Group.Monsters[OptionIndex];
 			if (!Option.EnemyClass || Option.Weight <= 0)
 				OutErrors.Add(FString::Printf(TEXT("%s option %d needs an enemy class and positive weight."), *Label, OptionIndex));
+			if (!FMath::IsFinite(Option.SpawnScale) || Option.SpawnScale <= 0.f)
+				OutErrors.Add(FString::Printf(TEXT("%s option %d SpawnScale must be finite and positive."), *Label, OptionIndex));
 			if (Option.EnemyClass && Classes.Contains(Option.EnemyClass.Get()))
 				OutErrors.Add(Label + TEXT(" contains the same enemy class more than once."));
 			if (Option.EnemyClass) Classes.Add(Option.EnemyClass.Get());

@@ -1,6 +1,9 @@
 #include "PCGModule/HBEncounterSubsystem.h"
 #include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGModule/HBSpawnDiagnostics.h"
+#include "PCGModule/HBSpawnNavigationAnchor.h"
+#include "PCGModule/HBSpawnNavigationTargets.h"
+#include "PCGModule/HBSpawnNavigationAgents.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "AI/EnemyCharacterBase.h"
 #include "Engine/World.h"
@@ -12,6 +15,7 @@
 #include "CollisionShape.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/OverlapResult.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include <limits>
@@ -43,6 +47,54 @@
 #endif
 
 #if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBSpawnNavigationTargetsTest, "HeavenBreach.PCGModule.NavigationTargets",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBSpawnNavigationTargetsTest::RunTest(const FString&)
+{
+    const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(false)
+        .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false).ShouldSimulatePhysics(false);
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    UWorld* OtherWorld = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(OtherWorld);
+    auto* Anchor = World->SpawnActor<AHBSpawnNavigationAnchor>();
+    auto* Other = OtherWorld->SpawnActor<AHBSpawnNavigationAnchor>();
+    Anchor->AnchorId = Other->AnchorId = TEXT("CommonInside");
+    const FTransform RoomTransform(FRotator(0, 90, 0), FVector(1000, 2000, 300));
+    Anchor->SetActorLocation(RoomTransform.TransformPosition(FVector(100, 200, 0)));
+    Other->SetActorLocation(FVector(3000, 4000, 0));
+    const FBox Bounds(FVector(-10000), FVector(10000));
+    TMap<FName, FVector> Anchors, OtherAnchors;
+    FString Error;
+    TestTrue(TEXT("Collect room targets"), HBSpawnNavigationTargets::Collect(*World->PersistentLevel, Bounds, Anchors, Error));
+    TestTrue(TEXT("Same IDs in another room instance are valid"), HBSpawnNavigationTargets::Collect(*OtherWorld->PersistentLevel, Bounds, OtherAnchors, Error));
+    TestTrue(TEXT("Room transform is already reflected in the collected world location"), Anchors.FindChecked(Anchor->AnchorId).Equals(Anchor->GetActorLocation()));
+    TestFalse(TEXT("Identical anchor IDs cannot leak across room instances"), Anchors.FindChecked(Anchor->AnchorId).Equals(OtherAnchors.FindChecked(Anchor->AnchorId)));
+    const TArray<FHBRoomSpawnEntry> Entries{{FVector(400, 500, 0), FVector(600, 700, 0)}};
+    TArray<FHBSpawnNavigationTarget> Targets;
+    TestTrue(TEXT("Empty ID preserves room entries"), HBSpawnNavigationTargets::Resolve(NAME_None, Anchors, Entries, Targets, Error));
+    TestTrue(TEXT("Entry target retains physical spacing metadata"), Targets.Num() == 1 && Targets[0].bHasConnectionLocation
+        && Targets[0].Location.Equals(Entries[0].NavigationLocation) && Targets[0].ConnectionLocation.Equals(Entries[0].ConnectionLocation));
+    TestTrue(TEXT("Explicit region ID resolves"), HBSpawnNavigationTargets::Resolve(Anchor->AnchorId, Anchors, Entries, Targets, Error));
+    TestTrue(TEXT("Anchor replaces entries without creating a spacing exclusion"), Targets.Num() == 1 && !Targets[0].bHasConnectionLocation
+        && Targets[0].Location.Equals(Anchor->GetActorLocation()));
+    TestFalse(TEXT("Missing explicit ID never falls back to an entry"), HBSpawnNavigationTargets::Resolve(TEXT("Missing"), Anchors, Entries, Targets, Error));
+    TestTrue(TEXT("Missing anchor has an actionable diagnostic"), Targets.IsEmpty() && Error.Contains(TEXT("Missing")));
+    auto* Duplicate = World->SpawnActor<AHBSpawnNavigationAnchor>();
+    Duplicate->AnchorId = Anchor->AnchorId;
+    TestFalse(TEXT("Duplicate IDs in one room are rejected"), HBSpawnNavigationTargets::Collect(*World->PersistentLevel, Bounds, Anchors, Error));
+    Duplicate->AnchorId = TEXT("Outside");
+    Duplicate->SetActorLocation(FVector(20000, 0, 0));
+    TestFalse(TEXT("Targets outside the room are rejected"), HBSpawnNavigationTargets::Collect(*World->PersistentLevel, Bounds, Anchors, Error));
+    Duplicate->Destroy();
+    TestTrue(TEXT("Removed anchors are not collected"), HBSpawnNavigationTargets::Collect(*World->PersistentLevel, Bounds, Anchors, Error));
+    World->DestroyWorld(false);
+    OtherWorld->DestroyWorld(false);
+    GEngine->DestroyWorldContext(World);
+    GEngine->DestroyWorldContext(OtherWorld);
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterMonsterSpacingTest, "HeavenBreach.PCGModule.Encounter.MonsterSpacing",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 bool FHBEncounterMonsterSpacingTest::RunTest(const FString&)
@@ -123,6 +175,15 @@ bool FHBEncounterSelectionTest::RunTest(const FString&)
 	TestTrue(TEXT("Reordered actor enumeration accepted"),
 		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
 	TestEqual(TEXT("Same seed and room yield the same placement"), Signature(Placed), FirstSignature);
+	TestFalse(TEXT("Existing choices preserve the original spawn scale"),
+		Placed.ContainsByPredicate([](const FHBEncounterSpawnChoice& Choice) { return Choice.SpawnScale != 1.f; }));
+	Config->Groups[0].Monsters[0].SpawnScale = 0.85f;
+	TestTrue(TEXT("Scaled choices remain replayable"),
+		HBEncounterSelection::SelectAndPlace(*Config, Points, 12345, 2, Accept, Placed, Error));
+	TestEqual(TEXT("Spawn scale does not consume seed draws"), Signature(Placed), FirstSignature);
+	TestFalse(TEXT("Spawn scale reaches every selected choice"),
+		Placed.ContainsByPredicate([](const FHBEncounterSpawnChoice& Choice) { return Choice.SpawnScale != 0.85f; }));
+	Config->Groups[0].Monsters[0].SpawnScale = 1.f;
 	{
 		const TArray<FHBEncounterGroup> SavedGroups = Config->Groups;
 		TestTrue(TEXT("Existing groups require entry paths by default"), Config->Groups[0].bRequireEntryPath);
@@ -1022,7 +1083,7 @@ bool FHBTestMGEncounterIntegrationTest::RunTest(const FString&)
 namespace HBEntryPathTestFixture
 {
     // Locations: marker, valid entry, disconnected entry, outgoing-only entry,
-    // unprojectable entry, and a physical floor outside the navigation bounds.
+    // unprojectable entry, a floor outside navigation bounds, and a stacked navigable floor.
     using FVerify = TFunction<void(UWorld&, const FBox&, const TArray<FVector>&)>;
 
     UBoxComponent* AddCollisionBlocker(UWorld& World, const FVector& Marker)
@@ -1069,7 +1130,8 @@ namespace HBEntryPathTestFixture
                 const FVector Origin(200000, 0, 10000);
                 Locations = {Origin + FVector(-400, 0, 0.4), Origin + FVector(-400, 600, 0),
                     Origin + FVector(0, 5000, 0), Origin + FVector(1600, 0, 0),
-                    Origin + FVector(50000, 50000, 50000), Origin + FVector(0, 15000, 0.4)};
+                    Origin + FVector(50000, 50000, 50000), Origin + FVector(0, 15000, 0.4),
+                    Origin + FVector(-400, 50, 1200.4)};
                 UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
                 if (!Test->TestNotNull(TEXT("Fixture cube supplies physical and navigation geometry"), Cube)) return true;
                 auto AddFloor = [&](const FVector& Center, const FVector& Extent)
@@ -1089,6 +1151,7 @@ namespace HBEntryPathTestFixture
                 AddFloor(Origin, FVector(1000, 1000, 20));
                 AddFloor(Locations[2], FVector(600, 600, 20));
                 AddFloor(Locations[3], FVector(400, 600, 20));
+                AddFloor(Origin + FVector(0, 0, 1200), FVector(1000, 1000, 20));
                 const FBox NavBounds = RoomBounds.ExpandBy(FVector(300, 300, 500));
                 AddFloor(Locations[5] - FVector(0, 0, 0.4), FVector(600, 600, 20));
                 RoomBounds = RoomBounds.ExpandBy(FVector(0, 0, 500));
@@ -1126,6 +1189,8 @@ namespace HBEntryPathTestFixture
             bool bReady = Data && !UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World);
             for (int32 Index = 0; bReady && Index < 4; ++Index)
                 bReady = Nav->ProjectPointToNavigation(Locations[Index], Projected[Index], FVector(100, 100, 200), Data);
+            FNavLocation UpperFloor;
+            if (bReady) bReady = Nav->ProjectPointToNavigation(Locations[6], UpperFloor, FVector(100, 100, 200), Data);
             if (!bReady)
             {
                 if (!bTimedOut) return false;
@@ -1197,6 +1262,123 @@ namespace HBEntryPathTestFixture
     }
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBNavigationAgentSizeSelectionTest,
+    "HeavenBreach.PCGModule.Navigation.AgentSizeSelection",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBNavigationAgentSizeSelectionTest::RunTest(const FString&)
+{
+    HBEntryPathTestFixture::Queue(this, [this](UWorld& World, const FBox&, const TArray<FVector>& Locations)
+    {
+        auto* Nav = UNavigationSystemV1::GetCurrent(&World);
+        for (const auto Size : {FVector2f(34, 176), FVector2f(70, 300), FVector2f(80, 180), FVector2f(68, 153)})
+        {
+            const FNavAgentProperties Agent(Size.X, Size.Y);
+            const ANavigationData* Data = Nav->GetNavDataForProps(Agent, Locations[0]);
+            if (!TestNotNull(TEXT("Configured character size selects a real mesh"), Data)) continue;
+            TestEqual(TEXT("Selected mesh matches the character radius"), Data->GetConfig().AgentRadius, Agent.AgentRadius);
+            TestEqual(TEXT("Selected mesh matches the character height"), Data->GetConfig().AgentHeight, Agent.AgentHeight);
+            FHBSpawnNavCheck Check;
+            FNavLocation Projected;
+            TestTrue(TEXT("Matching mesh accepts a real floor projection"),
+                HBSpawnDiagnostics::ProjectNavigation(World, Nav, &Agent, Data,
+                    Locations[0], FVector(100, 100, 200), -1, -1, nullptr, false, Projected, Check));
+        }
+        const FNavAgentProperties Oversized(1000, 1000);
+        const ANavigationData* Fallback = Nav->GetNavDataForProps(Oversized, Locations[0]);
+        TestNotNull(TEXT("Engine still returns a mesh for an unsupported size"), Fallback);
+        FHBSpawnNavCheck Check;
+        FNavLocation Projected;
+        TestFalse(TEXT("Spawn validation rejects an undersized fallback mesh"),
+            HBSpawnDiagnostics::ProjectNavigation(World, Nav, &Oversized, Fallback,
+                Locations[0], FVector(100, 100, 200), -1, -1, nullptr, false, Projected, Check));
+        TestTrue(TEXT("Unsupported size is diagnosed before querying geometry"),
+            Check.Condition == EHBSpawnNavCondition::UnsupportedAgentSize && !Check.bProjectionQueried
+            && Check.Format().Contains(TEXT("NavDataRadius=")));
+    });
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterSpawnScaleTest, "HeavenBreach.PCGModule.Encounter.SpawnScale",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBEncounterSpawnScaleTest::RunTest(const FString&)
+{
+    HBEntryPathTestFixture::Queue(this, [this](UWorld& World, const FBox& Bounds, const TArray<FVector>& Locations)
+    {
+        UClass* WolfClass = LoadClass<AEnemyCharacterBase>(nullptr,
+            TEXT("/Game/Monsters/Sabertooth/Blueprints/BP_Enemy_SteamWolf.BP_Enemy_SteamWolf_C"));
+        if (!TestNotNull(TEXT("Original wolf Blueprint loads"), WolfClass)) return;
+        // The existing controller auto-starts its StateTree before possession,
+        // then restarts it in OnPossess. Account for exactly one startup pair
+        // per spawned controller and verify recovery below.
+        AddExpectedError(TEXT("UStateTreeComponentSchema::SetContextData: Could not find context actor of type EnemyCharacterBase"),
+            EAutomationExpectedErrorFlags::Contains, 2);
+        AddExpectedError(TEXT("UStateTreeComponentSchema::SetContextRequirements: Missing external data requirements"),
+            EAutomationExpectedErrorFlags::Contains, 2);
+        const auto* Defaults = WolfClass->GetDefaultObject<AEnemyCharacterBase>();
+        const float DefaultRadius = Defaults->GetCapsuleComponent()->GetScaledCapsuleRadius();
+        const float DefaultHalfHeight = Defaults->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        auto* Setup = World.SpawnActor<AHBEncounterSetupActor>();
+        auto* Point = World.SpawnActor<AHBEnemySpawnPoint>();
+        Point->PointId = TEXT("ScaledWolf");
+        Point->GroupId = TEXT("Field");
+        Point->bRequired = true;
+        Point->bAllowPositionCorrection = false;
+        Point->SetActorLocation(Locations[0]);
+        FHBEncounterGroup Group;
+        Group.GroupId = Point->GroupId;
+        Group.MinCount = Group.MaxCount = 1;
+        Group.Monsters = {{WolfClass, 1, 0.85f}};
+        Setup->Encounter->Groups = {Group};
+        // A 150 cm physical opening admits radius 68, but rejects the original radius 80.
+        for (float Side : {-1.f, 1.f})
+        {
+            auto* Wall = HBEntryPathTestFixture::AddCollisionBlocker(World, Locations[0]);
+            Wall->SetBoxExtent(FVector(10, 120, 100));
+            Wall->SetWorldLocation(Locations[0] + FVector(Side * 85, 0, 100));
+        }
+        auto* Subsystem = World.GetSubsystem<UHBEncounterSubsystem>();
+        FString Error;
+        int32 Generation = 300;
+        for (bool bDeferred : {false, true})
+        {
+            const bool bSpawned = Subsystem->StartEncounter(Generation, 12345, 0,
+                World.PersistentLevel, Bounds, {Locations[1]}, Error, bDeferred);
+            if (!TestTrue(TEXT("Scaled wolf fits the physical opening in both spawn modes"), bSpawned))
+            {
+                AddError(Error); continue;
+            }
+            for (TActorIterator<AEnemyCharacterBase> It(&World); It; ++It)
+            {
+                if (It->GetClass() != WolfClass) continue;
+                TestTrue(TEXT("Actor scale reduces the mesh and capsule together"), It->GetActorScale3D().Equals(FVector(0.85f), 0.001f));
+                TestEqual(TEXT("Physical capsule radius matches pre-spawn validation"), It->GetCapsuleComponent()->GetScaledCapsuleRadius(), DefaultRadius * 0.85f);
+                TestEqual(TEXT("Physical capsule height matches pre-spawn validation"), It->GetCapsuleComponent()->GetScaledCapsuleHalfHeight(), DefaultHalfHeight * 0.85f);
+                TestTrue(TEXT("Capsule still clears the traced floor"),
+                    FMath::IsNearlyEqual(It->GetActorLocation().Z - It->GetCapsuleComponent()->GetScaledCapsuleHalfHeight(), Locations[0].Z + 1.6, 0.1));
+                const auto& Agent = It->GetCharacterMovement()->GetNavAgentPropertiesRef();
+                TestEqual(TEXT("Runtime navigation radius follows scaled collision"), Agent.AgentRadius, 68.f);
+                TestEqual(TEXT("Runtime navigation height follows scaled collision"), Agent.AgentHeight, 153.f);
+                if (bDeferred) TestNull(TEXT("Scaled pending spawn stays unpossessed"), It->GetController());
+            }
+            if (bDeferred) TestTrue(TEXT("Scaled pending spawn activates normally"), Subsystem->ActivateGeneration(Generation, Error));
+            for (TActorIterator<AEnemyCharacterBase> It(&World); It; ++It)
+                if (It->GetClass() == WolfClass && It->GetController())
+                {
+                    const auto* Brain = It->GetController()->FindComponentByClass<UStateTreeAIComponent>();
+                    TestTrue(TEXT("Scaled wolf StateTree runs after possession"), Brain && Brain->IsRunning());
+                }
+            Subsystem->ClearGeneration(Generation++);
+        }
+        Setup->Encounter->Groups[0].Monsters[0].SpawnScale = 1.f;
+        TestFalse(TEXT("Original-size wolf still fails the same narrow opening"),
+            Subsystem->StartEncounter(Generation++, 12345, 0, World.PersistentLevel, Bounds, {Locations[1]}, Error));
+        TestTrue(TEXT("Original-size rejection is a physical capsule collision"), Error.Contains(TEXT("Cause=CapsuleOverlap")));
+        TestEqual(TEXT("PCG scaling leaves original Blueprint radius unchanged"), Defaults->GetCapsuleComponent()->GetScaledCapsuleRadius(), DefaultRadius);
+        TestEqual(TEXT("PCG scaling leaves original Blueprint height unchanged"), Defaults->GetCapsuleComponent()->GetScaledCapsuleHalfHeight(), DefaultHalfHeight);
+    });
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterEntryPathPolicyTest, "HeavenBreach.PCGModule.Encounter.EntryPathPolicy",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FHBEncounterEntryPathPolicyTest::RunTest(const FString&)
@@ -1265,6 +1447,39 @@ bool FHBEncounterEntryPathPolicyTest::RunTest(const FString&)
         RunWithEntries(TEXT("Separate enemy targets preserve placement-to-entry link direction"),
             {{Locations[1], Locations[3]}}, true);
         FVector NonFiniteTarget = Locations[1];
+        auto* LocalAnchor = World.SpawnActor<AHBSpawnNavigationAnchor>();
+        LocalAnchor->AnchorId = TEXT("Inside");
+        LocalAnchor->SetActorLocation(Locations[0]);
+        auto* DisconnectedAnchor = World.SpawnActor<AHBSpawnNavigationAnchor>();
+        DisconnectedAnchor->AnchorId = TEXT("Disconnected");
+        DisconnectedAnchor->SetActorLocation(Locations[2]);
+        Setup->Encounter->Groups[0].NavigationAnchorId = LocalAnchor->AnchorId;
+        Run(TEXT("Enemy group anchor permits placement in a region disconnected from room entries"), {Locations[2]}, true);
+        Run(TEXT("Enemy anchor does not replace physical entry spacing"), {Locations[0]}, false, TEXT("Cause=EntrySpacing"));
+        Point->bOverrideNavigationAnchor = true;
+        Point->NavigationAnchorId = DisconnectedAnchor->AnchorId;
+        Run(TEXT("Enemy explicit point override never falls back to a valid group anchor or entry"), {Locations[1]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        TestTrue(TEXT("Enemy anchor failures preserve the target identity"), Error.Contains(TEXT("TargetSource=NavigationAnchor AnchorId=Disconnected")));
+        Point->NavigationAnchorId = NAME_None;
+        Run(TEXT("Enemy empty override selects room entries instead of the group anchor"), {Locations[2]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        Run(TEXT("Enemy empty override accepts a reachable room entry"), {Locations[1]}, true);
+        Setup->Encounter->Groups[0].NavigationAnchorId = DisconnectedAnchor->AnchorId;
+        Point->NavigationAnchorId = LocalAnchor->AnchorId;
+        Run(TEXT("Enemy point anchor overrides a disconnected group target"), {Locations[2]}, true);
+        Point->NavigationAnchorId = TEXT("Missing");
+        Run(TEXT("Enemy rejects an unknown point anchor before placement"), {Locations[1]}, false, TEXT("not found in this room instance"));
+        Point->bOverrideNavigationAnchor = false;
+        Setup->Encounter->Groups[0].NavigationAnchorId = TEXT("Missing");
+        Run(TEXT("Enemy rejects an unknown group anchor before placement"), {Locations[1]}, false, TEXT("not found in this room instance"));
+        Setup->Encounter->Groups[0].NavigationAnchorId = LocalAnchor->AnchorId;
+        LocalAnchor->SetActorLocation(Locations[3]);
+        Run(TEXT("Enemy anchor retains the original path direction"), {Locations[1]}, true);
+        LocalAnchor->SetActorLocation(Locations[5]);
+        Run(TEXT("Enemy anchor requires its own navigable surface"), {Locations[1]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        Setup->Encounter->Groups[0].NavigationAnchorId = NAME_None;
+        Point->NavigationAnchorId = NAME_None;
+        LocalAnchor->Destroy();
+        DisconnectedAnchor->Destroy();
         NonFiniteTarget.X = std::numeric_limits<double>::infinity();
         RunWithEntries(TEXT("Enemy rejects a nonfinite navigation target before placement"),
             {{Locations[1], NonFiniteTarget}}, false, TEXT("must be finite"));

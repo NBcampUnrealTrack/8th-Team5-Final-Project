@@ -1,5 +1,7 @@
 ﻿#include "PCGModule/HBChestSpawnSubsystem.h"
 #include "PCGModule/HBSpawnGroundQuery.h"
+#include "PCGModule/HBSpawnNavigationTargets.h"
+#include "PCGModule/HBSpawnNavigationAgents.h"
 #include "PCGModule/HBSpawnDiagnostics.h"
 #include "PCGModule/HBChestSetupActor.h"
 #include "PCGModule/HBChestSpawnPoint.h"
@@ -136,7 +138,8 @@ namespace
 				if (Roll <= 0) break;
 			}
 			FHBChestSpawnChoice Choice{Point.PointId, const_cast<AHBChestSpawnPoint*>(&Point),
-				Remaining[Pick].ChestClass, Group.bRequireEntryPath};
+				Remaining[Pick].ChestClass, Group.bRequireEntryPath,
+				Point.bOverrideNavigationAnchor ? Point.NavigationAnchorId : Group.NavigationAnchorId};
 			Remaining.RemoveAt(Pick);
 			FString Reason;
 			FHBSpawnPlacementReport PlacementReport;
@@ -354,7 +357,24 @@ bool UHBChestSpawnSubsystem::StartPlacementWithEntries(int32 GenerationId, int32
 		OutError = TEXT("Chest Setup has no authority or settings component.");
 		return false;
 	}
+	TMap<FName, FVector> NavigationAnchors;
+	if (!HBSpawnNavigationTargets::Collect(*RoomLevel, RoomBounds, NavigationAnchors, OutError)) return false;
+	for (const AHBChestSpawnPoint* Point : Points)
+		if (Point->bOverrideNavigationAnchor && !Point->NavigationAnchorId.IsNone() && !NavigationAnchors.Contains(Point->NavigationAnchorId))
+		{
+			OutError = FString::Printf(TEXT("Point %s navigation anchor %s was not found in this room instance."),
+				*Point->PointId.ToString(), *Point->NavigationAnchorId.ToString());
+			return false;
+		}
+	for (const FHBChestPlacementGroup& Group : Setup->Placement->Groups)
+		if (!Group.NavigationAnchorId.IsNone() && !NavigationAnchors.Contains(Group.NavigationAnchorId))
+		{
+			OutError = FString::Printf(TEXT("Group %s navigation anchor %s was not found in this room instance."),
+				*Group.GroupId.ToString(), *Group.NavigationAnchorId.ToString());
+			return false;
+		}
 	FRoomState& State = RoomStates.AddDefaulted_GetRef();
+	State.NavigationAnchors = MoveTemp(NavigationAnchors);
 	State.Level = RoomLevel;
 	State.GenerationId = GenerationId;
 	State.RoomId = RoomId;
@@ -447,6 +467,13 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidConfiguration, OutReason);
 		return false;
 	}
+	TArray<FHBSpawnNavigationTarget> PathTargets;
+	if (Choice.bRequireEntryPath && !HBSpawnNavigationTargets::Resolve(Choice.NavigationAnchorId,
+		State.NavigationAnchors, Entries, PathTargets, OutReason))
+	{
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidConfiguration, OutReason);
+		return false;
+	}
 	const FVector Marker = Choice.Point->GetActorLocation();
 	if (!RoomBounds.IsInsideOrOn(Marker))
 	{
@@ -496,7 +523,7 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 					return false;
 				}
 			for (const TWeakObjectPtr<ABoxActor>& Other : State.SpawnedChests)
-				if (IsValid(Other.Get()) && FVector::Dist2D(CandidateMarker, Other->GetActorLocation()) < Config.MinChestSpacing)
+				if (IsValid(Other.Get()) && FVector::Dist(CandidateMarker, Other->GetActorLocation()) < Config.MinChestSpacing)
 				{
 					Reason = TEXT("Chest is too close to another chest.");
 					Evidence.Cause = EHBSpawnFailureReason::ChestSpacing;
@@ -514,8 +541,9 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 			const AGameModeBase* Mode = World->GetAuthGameMode();
 			const ACharacter* PlayerDefaults = Mode && Mode->DefaultPawnClass
 				? Cast<ACharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
-			const UCharacterMovementComponent* Movement = PlayerDefaults ? PlayerDefaults->GetCharacterMovement() : nullptr;
-			const FNavAgentProperties* Agent = Movement ? &Movement->GetNavAgentPropertiesRef() : nullptr;
+			FNavAgentProperties EffectiveAgent;
+			const FNavAgentProperties* Agent = HBSpawnNavigationAgents::GetCharacterAgent(PlayerDefaults, EffectiveAgent)
+				? &EffectiveAgent : nullptr;
 			const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, Ground) : nullptr;
 			const FVector Approach = Ground + Choice.Point->GetActorForwardVector() * 120.f;
 			FNavLocation ApproachOnNav;
@@ -534,18 +562,22 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 			if (Choice.bRequireEntryPath)
 			{
 				bool bReachable = false;
-				for (int32 EntryIndex = 0; EntryIndex < Entries.Num(); ++EntryIndex)
+				for (const FHBSpawnNavigationTarget& Target : PathTargets)
 				{
-					const FHBRoomSpawnEntry& Entry = Entries[EntryIndex];
 					FNavLocation EntryOnNav;
 					FHBSpawnNavCheck& EntryCheck = Evidence.NavigationChecks.AddDefaulted_GetRef();
 					EntryCheck.Stage = EHBSpawnNavStage::EntryPath;
-					EntryCheck.EntryIndex = EntryIndex;
+					EntryCheck.EntryIndex = Target.EntryIndex;
+					EntryCheck.NavigationAnchorId = Target.AnchorId;
 					EntryCheck.bEntryToPlacement = true;
-					EntryCheck.bHasEntryConnectionLocation = true;
-					EntryCheck.EntryConnectionLocation = Entry.ConnectionLocation;
-					if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Entry.NavigationLocation,
-						FVector(100, 100, 200), -1., -1., nullptr, false, EntryOnNav, EntryCheck)) continue;
+					EntryCheck.bHasEntryConnectionLocation = Target.bHasConnectionLocation;
+					EntryCheck.EntryConnectionLocation = Target.ConnectionLocation;
+					const FBox* TargetBounds = Target.AnchorId.IsNone() ? nullptr : &RoomBounds;
+					if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Target.Location,
+						FVector(100, 100, 200),
+						Target.AnchorId.IsNone() ? -1. : Config.MaxNavProjectionDistance,
+						Target.AnchorId.IsNone() ? -1. : Config.MaxNavProjectionHeight,
+						TargetBounds, false, EntryOnNav, EntryCheck)) continue;
 					FPathFindingQuery PathQuery(this, *NavData, EntryOnNav.Location, ApproachOnNav.Location);
 					PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
 					const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
@@ -563,7 +595,7 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 					Reason = TEXT("Player has no complete navigation path to the chest approach.");
 					Evidence.Cause = EHBSpawnFailureReason::NoCompleteEntryPath;
 					Evidence.Details = FString::Printf(TEXT("EntriesAvailable=%d EntriesChecked=%d Direction=EntryToPlacement"),
-						Entries.Num(), Evidence.NavigationChecks.Num() - 1);
+						PathTargets.Num(), Evidence.NavigationChecks.Num() - 1);
 					return false;
 				}
 			}

@@ -1,4 +1,5 @@
 #include "PCGModule/HBSpawnDiagnostics.h"
+#include "PCGModule/HBSpawnNavigationAgents.h"
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
 #include "Components/PrimitiveComponent.h"
@@ -65,6 +66,7 @@ namespace
 		case EHBSpawnNavCondition::MissingSystem: return TEXT("MissingSystem");
 		case EHBSpawnNavCondition::MissingAgent: return TEXT("MissingAgent");
 		case EHBSpawnNavCondition::MissingNavData: return TEXT("MissingNavData");
+		case EHBSpawnNavCondition::UnsupportedAgentSize: return TEXT("UnsupportedAgentSize");
 		case EHBSpawnNavCondition::NavigationBuildingOrLocked: return TEXT("NavigationBuildingOrLocked");
 		case EHBSpawnNavCondition::ProjectionQueryFailed: return TEXT("ProjectionQueryFailed");
 		case EHBSpawnNavCondition::HorizontalDistanceExceeded: return TEXT("HorizontalDistanceExceeded");
@@ -140,8 +142,8 @@ FString FHBSpawnNavCheck::Format() const
 {
 	const TCHAR* StageName = Stage == EHBSpawnNavStage::EnemyGround ? TEXT("EnemyGround")
 		: Stage == EHBSpawnNavStage::ChestApproach ? TEXT("ChestApproach") : TEXT("EntryPath");
-	FString Result = FString::Printf(TEXT("Stage=%s Condition=%s EntryIndex=%d AgentRadius=%.3f AgentHeight=%.3f NavData=%s Input=%s Projected=%s Extent=%s ProjectionQueried=%d ProjectionSucceeded=%d HorizontalDistance=%.3f HeightDelta=%.3f MaxDistance=%.3f MaxHeight=%.3f PathQueried=%d PathSucceeded=%d PathValid=%d PartialPath=%d Direction=%s"),
-		StageName, NavConditionName(Condition), EntryIndex, AgentRadius, AgentHeight, *NavDataPath,
+	FString Result = FString::Printf(TEXT("Stage=%s Condition=%s EntryIndex=%d AgentRadius=%.3f AgentHeight=%.3f NavData=%s NavDataRadius=%.3f NavDataHeight=%.3f Input=%s Projected=%s Extent=%s ProjectionQueried=%d ProjectionSucceeded=%d HorizontalDistance=%.3f HeightDelta=%.3f MaxDistance=%.3f MaxHeight=%.3f PathQueried=%d PathSucceeded=%d PathValid=%d PartialPath=%d Direction=%s"),
+		StageName, NavConditionName(Condition), EntryIndex, AgentRadius, AgentHeight, *NavDataPath, NavDataRadius, NavDataHeight,
 		*InputLocation.ToString(), *ProjectedLocation.ToString(), *ProjectionExtent.ToString(),
 		bProjectionQueried ? 1 : 0, bProjectionSucceeded ? 1 : 0,
 		bProjectionSucceeded ? FVector::Dist2D(InputLocation, ProjectedLocation) : -1.,
@@ -151,6 +153,8 @@ FString FHBSpawnNavCheck::Format() const
 	if (bHasEntryConnectionLocation)
 		Result += FString::Printf(TEXT(" Connection=%s NavigationOffset=%s"),
 			*EntryConnectionLocation.ToString(), *(InputLocation - EntryConnectionLocation).ToString());
+	if (!NavigationAnchorId.IsNone())
+		Result += FString::Printf(TEXT(" TargetSource=NavigationAnchor AnchorId=%s"), *NavigationAnchorId.ToString());
 	return Result;
 }
 
@@ -161,12 +165,14 @@ bool HBSpawnDiagnostics::ProjectNavigation(UWorld& World, UNavigationSystemV1* N
 {
 	const EHBSpawnNavStage Stage = Check.Stage;
 	const int32 EntryIndex = Check.EntryIndex;
+	const FName NavigationAnchorId = Check.NavigationAnchorId;
 	const bool bEntryToPlacement = Check.bEntryToPlacement;
 	const bool bHasEntryConnectionLocation = Check.bHasEntryConnectionLocation;
 	const FVector EntryConnectionLocation = Check.EntryConnectionLocation;
 	Check = FHBSpawnNavCheck();
 	Check.Stage = Stage;
 	Check.EntryIndex = EntryIndex;
+	Check.NavigationAnchorId = NavigationAnchorId;
 	Check.bEntryToPlacement = bEntryToPlacement;
 	Check.bHasEntryConnectionLocation = bHasEntryConnectionLocation;
 	Check.EntryConnectionLocation = EntryConnectionLocation;
@@ -176,9 +182,11 @@ bool HBSpawnDiagnostics::ProjectNavigation(UWorld& World, UNavigationSystemV1* N
 	Check.MaxHeight = MaxHeight;
 	if (Agent) { Check.AgentRadius = Agent->AgentRadius; Check.AgentHeight = Agent->AgentHeight; }
 	Check.NavDataPath = GetPathNameSafe(NavData);
+	if (NavData) { Check.NavDataRadius = NavData->GetConfig().AgentRadius; Check.NavDataHeight = NavData->GetConfig().AgentHeight; }
 	if (!Nav) Check.Condition = EHBSpawnNavCondition::MissingSystem;
 	else if (!Agent) Check.Condition = EHBSpawnNavCondition::MissingAgent;
 	else if (!NavData) Check.Condition = EHBSpawnNavCondition::MissingNavData;
+	else if (!HBSpawnNavigationAgents::SupportsAgent(NavData, *Agent)) Check.Condition = EHBSpawnNavCondition::UnsupportedAgentSize;
 	else if (bRejectBuilding && UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(&World))
 		Check.Condition = EHBSpawnNavCondition::NavigationBuildingOrLocked;
 	else

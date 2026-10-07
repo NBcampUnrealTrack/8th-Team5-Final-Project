@@ -1,6 +1,7 @@
 #include "PCGModule/HBChestSpawnSubsystem.h"
 #include "PCGModule/HBChestSetupActor.h"
 #include "PCGModule/HBSpawnDiagnostics.h"
+#include "PCGModule/HBSpawnNavigationAnchor.h"
 #include "PCGModule/HBChestSpawnPoint.h"
 #include "Loot/BoxActor.h"
 #include "Components/StaticMeshComponent.h"
@@ -584,6 +585,60 @@ bool FHBChestShapeCorrectionTest::RunTest(const FString&)
 #endif
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestVerticalSpacingTest, "HeavenBreach.PCGModule.ChestSpawn.VerticalSpacing",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBChestVerticalSpacingTest::RunTest(const FString&)
+{
+    HBEntryPathTestFixture::Queue(this, [this](UWorld& World, const FBox& Bounds, const TArray<FVector>& Locations)
+    {
+        UClass* ChestClass = LoadClass<ABoxActor>(nullptr, TEXT("/Game/Loot/Blueprints/BP_Box_Rare.BP_Box_Rare_C"));
+        if (!TestNotNull(TEXT("Spacing test uses an actual chest mesh"), ChestClass)) return;
+        auto* Setup = World.SpawnActor<AHBChestSetupActor>();
+        Setup->Placement->MinEntryDistance = 0;
+        Setup->Placement->MinChestSpacing = 150;
+        FHBChestPlacementGroup Group;
+        Group.GroupId = TEXT("Spacing");
+        Group.MinCount = Group.MaxCount = 2;
+        Group.Chests = {{ChestClass, 1}};
+        Group.bRequireEntryPath = false;
+        Setup->Placement->Groups = {Group};
+        auto MakePoint = [&](const TCHAR* Id, const FVector& Location)
+        {
+            auto* Point = World.SpawnActor<AHBChestSpawnPoint>();
+            Point->PointId = Id;
+            Point->GroupId = Group.GroupId;
+            Point->bRequired = true;
+            Point->bAllowPositionCorrection = false;
+            Point->SetActorLocation(Location);
+            return Point;
+        };
+        auto* Lower = MakePoint(TEXT("A_Lower"), Locations[0]);
+        auto* Other = MakePoint(TEXT("B_Other"), Locations[6]);
+        auto* Subsystem = World.GetSubsystem<UHBChestSpawnSubsystem>();
+        if (!TestNotNull(TEXT("Spacing goes through native chest placement"), Subsystem)) return;
+        FString Error;
+        int32 Generation = 400;
+        auto Run = [&](const TCHAR* Label, bool bExpected)
+        {
+            const bool bResult = Subsystem->StartPlacement(Generation, 1898457314, 0,
+                World.PersistentLevel, Bounds, {Locations[1]}, Error);
+            TestEqual(Label, bResult, bExpected);
+            if (bResult) TestEqual(TEXT("Both required chests are placed"),
+                Subsystem->GetSpawnedCount(Generation, 0, World.PersistentLevel), 2);
+            else TestTrue(TEXT("Same-floor rejection retains its spacing reason"), Error.Contains(TEXT("ChestSpacing")));
+            AddInfo(FString(Label) + (bResult ? TEXT(": placed both chests") : TEXT(": ") + Error));
+            Subsystem->ClearGeneration(Generation++);
+        };
+        Run(TEXT("Chests 50 cm apart in XY and 1200 cm apart in height both fit"), true);
+        Other->SetActorLocation(Locations[0] + FVector(0, 50, 0));
+        Run(TEXT("Two chests 50 cm apart on the same floor remain rejected"), false);
+        Other->SetActorLocation(Locations[0] + FVector(0, 400, 0));
+        Run(TEXT("Two well-spaced chests on the same floor remain accepted"), true);
+        Lower->Destroy(); Other->Destroy(); Setup->Destroy();
+    });
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBChestEntryPathPolicyTest, "HeavenBreach.PCGModule.ChestSpawn.EntryPathPolicy",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FHBChestEntryPathPolicyTest::RunTest(const FString&)
@@ -655,6 +710,39 @@ bool FHBChestEntryPathPolicyTest::RunTest(const FString&)
         RunWithEntries(TEXT("Separate chest targets still reject the outgoing-only placement-to-entry link"),
             {{Locations[1], Locations[3]}}, false, TEXT("Cause=NoCompleteEntryPath"));
         FVector NonFiniteTarget = Locations[1];
+        auto* LocalAnchor = World.SpawnActor<AHBSpawnNavigationAnchor>();
+        LocalAnchor->AnchorId = TEXT("Inside");
+        LocalAnchor->SetActorLocation(Locations[0]);
+        auto* DisconnectedAnchor = World.SpawnActor<AHBSpawnNavigationAnchor>();
+        DisconnectedAnchor->AnchorId = TEXT("Disconnected");
+        DisconnectedAnchor->SetActorLocation(Locations[2]);
+        Setup->Placement->Groups[0].NavigationAnchorId = LocalAnchor->AnchorId;
+        Run(TEXT("Chest group anchor permits placement in a region disconnected from room entries"), {Locations[2]}, true);
+        Run(TEXT("Chest anchor does not replace physical entry spacing"), {Locations[0]}, false, TEXT("Cause=EntrySpacing"));
+        Point->bOverrideNavigationAnchor = true;
+        Point->NavigationAnchorId = DisconnectedAnchor->AnchorId;
+        Run(TEXT("Chest explicit point override never falls back to a valid group anchor or entry"), {Locations[1]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        TestTrue(TEXT("Chest anchor failures preserve the target identity"), Error.Contains(TEXT("TargetSource=NavigationAnchor AnchorId=Disconnected")));
+        Point->NavigationAnchorId = NAME_None;
+        Run(TEXT("Chest empty override selects room entries instead of the group anchor"), {Locations[2]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        Run(TEXT("Chest empty override accepts a reachable room entry"), {Locations[1]}, true);
+        Setup->Placement->Groups[0].NavigationAnchorId = DisconnectedAnchor->AnchorId;
+        Point->NavigationAnchorId = LocalAnchor->AnchorId;
+        Run(TEXT("Chest point anchor overrides a disconnected group target"), {Locations[2]}, true);
+        Point->NavigationAnchorId = TEXT("Missing");
+        Run(TEXT("Chest rejects an unknown point anchor before placement"), {Locations[1]}, false, TEXT("not found in this room instance"));
+        Point->bOverrideNavigationAnchor = false;
+        Setup->Placement->Groups[0].NavigationAnchorId = TEXT("Missing");
+        Run(TEXT("Chest rejects an unknown group anchor before placement"), {Locations[1]}, false, TEXT("not found in this room instance"));
+        Setup->Placement->Groups[0].NavigationAnchorId = LocalAnchor->AnchorId;
+        LocalAnchor->SetActorLocation(Locations[3]);
+        Run(TEXT("Chest anchor retains the original path direction"), {Locations[1]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        LocalAnchor->SetActorLocation(Locations[5]);
+        Run(TEXT("Chest anchor requires its own navigable surface"), {Locations[1]}, false, TEXT("Cause=NoCompleteEntryPath"));
+        Setup->Placement->Groups[0].NavigationAnchorId = NAME_None;
+        Point->NavigationAnchorId = NAME_None;
+        LocalAnchor->Destroy();
+        DisconnectedAnchor->Destroy();
         NonFiniteTarget.X = std::numeric_limits<double>::infinity();
         RunWithEntries(TEXT("Chest rejects a nonfinite navigation target before placement"),
             {{Locations[1], NonFiniteTarget}}, false, TEXT("must be finite"));

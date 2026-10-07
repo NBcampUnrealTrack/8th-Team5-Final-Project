@@ -20,6 +20,8 @@ struct FHBEncounterSpawnChoice
 	TSubclassOf<AEnemyCharacterBase> EnemyClass;
 	EHBEncounterGrade Grade = EHBEncounterGrade::Common;
 	bool bRequireEntryPath = true;
+	FName NavigationAnchorId;
+	float SpawnScale = 1.f;
 };
 
 namespace HBEncounterSelection
@@ -74,6 +76,7 @@ private:
 		bool bPrepared = false;
 		bool bDeferActivation = false;
 		bool bActivated = false;
+		TMap<FName, FVector> NavigationAnchors;
 		TArray<TWeakObjectPtr<AEnemyCharacterBase>> SpawnedEnemies;
 		TSet<TWeakObjectPtr<AEnemyCharacterBase>> CountedDeaths;
 	};

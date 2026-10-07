@@ -19,6 +19,7 @@ struct FHBChestSpawnChoice
 	AHBChestSpawnPoint* Point = nullptr;
 	TSubclassOf<ABoxActor> ChestClass;
 	bool bRequireEntryPath = true;
+	FName NavigationAnchorId;
 };
 
 namespace HBChestSelection
@@ -60,6 +61,7 @@ private:
 		int32 RoomId = INDEX_NONE;
 		int32 DungeonSeed = 0;
 		bool bPrepared = false;
+		TMap<FName, FVector> NavigationAnchors;
 		TArray<TWeakObjectPtr<ABoxActor>> SpawnedChests;
 	};
 

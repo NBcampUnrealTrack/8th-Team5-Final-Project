@@ -59,7 +59,7 @@ struct HEAVENBREACH_API FHBSpawnCorrectionReport
 };
 enum class EHBSpawnNavCondition : uint8
 {
-	None, MissingSystem, MissingAgent, MissingNavData, NavigationBuildingOrLocked,
+	None, MissingSystem, MissingAgent, MissingNavData, UnsupportedAgentSize, NavigationBuildingOrLocked,
 	ProjectionQueryFailed, HorizontalDistanceExceeded, HeightExceeded, OutsideRoom,
 	PathQueryFailed, InvalidPath, PartialPath
 };
@@ -70,6 +70,7 @@ struct HEAVENBREACH_API FHBSpawnNavCheck
 	EHBSpawnNavStage Stage = EHBSpawnNavStage::EnemyGround;
 	EHBSpawnNavCondition Condition = EHBSpawnNavCondition::None;
 	int32 EntryIndex = INDEX_NONE;
+	FName NavigationAnchorId;
 	bool bHasEntryConnectionLocation = false;
 	FVector EntryConnectionLocation = FVector::ZeroVector;
 	FVector InputLocation = FVector::ZeroVector;
@@ -77,6 +78,8 @@ struct HEAVENBREACH_API FHBSpawnNavCheck
 	FVector ProjectionExtent = FVector::ZeroVector;
 	float AgentRadius = 0.f;
 	float AgentHeight = 0.f;
+	float NavDataRadius = 0.f;
+	float NavDataHeight = 0.f;
 	FString NavDataPath;
 	double MaxHorizontalDistance = -1.;
 	double MaxHeight = -1.;

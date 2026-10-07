@@ -26,6 +26,10 @@ struct FHBEncounterMonsterOption
 	/** Relative chance when this group has more than one eligible monster class. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter", meta=(ClampMin="1"))
 	int32 Weight = 1;
+
+	/** Uniform scale for this PCG spawn only; the enemy Blueprint defaults stay unchanged. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter", meta=(ClampMin="0.01", UIMin="0.1", UIMax="2.0"))
+	float SpawnScale = 1.f;
 };
 
 USTRUCT(BlueprintType)
@@ -67,7 +71,11 @@ struct FHBEncounterGroup
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter")
 	TArray<FHBEncounterMonsterOption> Monsters;
 
-	/** Require a complete navigation path to a room entry before spawning. Disable for groups behind locked doors; local navigation and placement safety checks still apply. */
+	/** Default room-owned path target for this group. Empty uses active room entries. Points can override it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Navigation")
+	FName NavigationAnchorId;
+
+	/** Require a complete path to the selected anchor or room entry. A region anchor permits checking inside a locked room. Disabling keeps local navigation and placement checks. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Safety")
 	bool bRequireEntryPath = true;
 };

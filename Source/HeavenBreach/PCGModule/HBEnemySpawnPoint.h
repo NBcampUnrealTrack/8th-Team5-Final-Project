@@ -22,6 +22,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Point")
 	FName GroupId;
 
+	/** Override the group's path target. An empty override ID explicitly uses active room entries. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Navigation")
+	bool bOverrideNavigationAnchor = false;
+
+	/** Room-owned target used when overriding the group. Explicit IDs never fall back to entries. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Navigation", meta=(EditCondition="bOverrideNavigationAnchor"))
+	FName NavigationAnchorId;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Point")
 	bool bAllowCommon = true;
 
