@@ -130,6 +130,12 @@ struct FItemData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float ManaAmount = 0.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Consumable", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FallDamageReduction = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Consumable", meta = (ClampMin = "0.0", Units = "s"))
+	float BuffDuration = 0.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light", meta = (ClampMin = "0"))
 	float LightRadius = 0.f;
 
