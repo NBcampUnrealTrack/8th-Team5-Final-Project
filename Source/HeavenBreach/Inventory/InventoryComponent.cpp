@@ -13,6 +13,10 @@
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Item/ItemEngraving.h"
+#include "AbilitySystemComponent.h"
+#include "Combat/Effect/HBGameplayEffects.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/Item/HB_ItemTag.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -616,8 +620,34 @@ bool UInventoryComponent::CommitItemUse(FGuid InInstanceId)
 	const FName CooldownKey = Item.ItemRow.RowName;
 	SetItemCooldown(CooldownKey, static_cast<float>(GameState->GetServerWorldTimeSeconds()));
 	OnItemUsed.Broadcast(Item.ItemRow.RowName, ViewData.HealAmount, ViewData.ManaAmount);
+	ApplyTimedBuff(ViewData);
 	RemoveStackCount(InInstanceId, 1);
 	return true;
+}
+
+void UInventoryComponent::ApplyTimedBuff(const FItemViewData& InViewData) const
+{
+	if (!InViewData.HasTimedBuff())
+	{
+		return;
+	}
+
+	const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner());
+	UAbilitySystemComponent* ASC = OwnerPlayerState != nullptr ? OwnerPlayerState->GetAbilitySystemComponent() : nullptr;
+	if (ASC == nullptr)
+	{
+		return;
+	}
+
+	const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(UGE_FallDamageReductionBuff::StaticClass(), 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+
+	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Duration, InViewData.BuffDuration);
+	Spec.Data->SetSetByCallerMagnitude(ItemTag::TAG_Data_ItemEffect_Magnitude, FMath::Clamp(InViewData.FallDamageReduction, 0.f, 1.f));
+	ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 }
 
 void UInventoryComponent::CancelItemUse(FGuid InInstanceId)
@@ -647,7 +677,7 @@ bool UInventoryComponent::CanUseItem(FGuid InInstanceId, FItemInstance& OutItem,
 
 	// 회복할 자원이 하나도 없을 때만 막는다(개발 기획 18장 남은 기능).
 	// 체력·마나를 같이 채우는 포션(조화)은 둘 중 하나라도 비어 있으면 쓸 수 있다.
-	if (ViewData.HealAmount > 0.f || ViewData.ManaAmount > 0.f)
+	if (!ViewData.HasTimedBuff() && (ViewData.HealAmount > 0.f || ViewData.ManaAmount > 0.f))
 	{
 		if (const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner()))
 		{

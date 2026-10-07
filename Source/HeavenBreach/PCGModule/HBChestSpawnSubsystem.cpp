@@ -1,4 +1,8 @@
-#include "PCGModule/HBChestSpawnSubsystem.h"
+﻿#include "PCGModule/HBChestSpawnSubsystem.h"
+#include "PCGModule/HBSpawnGroundQuery.h"
+#include "PCGModule/HBSpawnNavigationTargets.h"
+#include "PCGModule/HBSpawnNavigationAgents.h"
+#include "PCGModule/HBSpawnDiagnostics.h"
 #include "PCGModule/HBChestSetupActor.h"
 #include "PCGModule/HBChestSpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
@@ -7,6 +11,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/StaticMesh.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/GameModeBase.h"
@@ -18,6 +23,52 @@ DEFINE_LOG_CATEGORY_STATIC(LogHBChestSpawn, Log, All);
 
 namespace HBChestSpawnGeometry
 {
+	/** Radius of the transformed local bounds' XY projection, independent of translation and yaw. */
+	bool GetCorrectionFootprint(const UClass* ChestClass, const FTransform& PointTransform,
+		double& OutRadius, FVector& OutHalfExtents, FString& OutError)
+	{
+		OutRadius = 0.;
+		OutHalfExtents = FVector::ZeroVector;
+		OutError.Reset();
+		const ABoxActor* Defaults = ChestClass ? ChestClass->GetDefaultObject<ABoxActor>() : nullptr;
+		const UStaticMeshComponent* Mesh = Defaults ? Cast<UStaticMeshComponent>(Defaults->GetRootComponent()) : nullptr;
+		if (!Mesh || !Mesh->GetStaticMesh())
+		{
+			OutError = TEXT("Mesh-based correction needs a static mesh on the box's root component.");
+			return false;
+		}
+		const FBox LocalBounds = Mesh->GetStaticMesh()->GetBoundingBox();
+		const FTransform MeshTransform = Mesh->GetRelativeTransform() * PointTransform;
+		if (!LocalBounds.IsValid || LocalBounds.Min.ContainsNaN() || LocalBounds.Max.ContainsNaN() || MeshTransform.ContainsNaN())
+		{
+			OutError = TEXT("Mesh-based correction needs valid finite mesh bounds and transform.");
+			return false;
+		}
+		FVector Corners[8];
+		LocalBounds.GetVertices(Corners);
+		FBox TransformedOffsets(ForceInit);
+		double Radius = 0.;
+		for (const FVector& Corner : Corners)
+		{
+			const FVector Offset = MeshTransform.TransformVector(Corner - LocalBounds.GetCenter());
+			if (Offset.ContainsNaN())
+			{
+				OutError = TEXT("Mesh-based correction produced non-finite scaled bounds.");
+				return false;
+			}
+			TransformedOffsets += Offset;
+			Radius = FMath::Max(Radius, Offset.Size2D());
+		}
+		if (!FMath::IsFinite(Radius) || Radius <= 0.)
+		{
+			OutError = TEXT("Mesh-based correction needs a positive finite horizontal mesh radius.");
+			return false;
+		}
+		OutRadius = Radius;
+		OutHalfExtents = TransformedOffsets.GetExtent();
+		return true;
+	}
+
 	bool MakeGroundedTransform(const UClass* ChestClass, const FTransform& PointTransform,
 		float FloorZ, FTransform& OutTransform, FString& OutError)
 	{
@@ -66,13 +117,15 @@ namespace
 	}
 
 	bool TryOptionsAtPoint(const AHBChestSpawnPoint& Point, const FHBChestPlacementGroup& Group,
-		FRandomStream& Random, TFunctionRef<bool(const FHBChestSpawnChoice&, FString&)> TryPlace,
-		FHBChestSpawnChoice& OutChoice, FString& LastFailure)
+		FRandomStream& Random, TFunctionRef<bool(const FHBChestSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
+		FHBChestSpawnChoice& OutChoice, FHBSpawnSelectionReport& Report)
 	{
 		TArray<FHBChestClassOption> Remaining;
 		for (const FHBChestClassOption& Option : Group.Chests)
 			if (Option.ChestClass && Option.Weight > 0 && AllowsClass(Point, Option.ChestClass.Get()))
 				Remaining.Add(Option);
+		if (Remaining.IsEmpty())
+			Report.RecordSkip(Point.PointId, Group.GroupId, EHBSpawnFailureReason::NoCompatibleClass);
 		while (!Remaining.IsEmpty())
 		{
 			int32 TotalWeight = 0;
@@ -85,11 +138,18 @@ namespace
 				if (Roll <= 0) break;
 			}
 			FHBChestSpawnChoice Choice{Point.PointId, const_cast<AHBChestSpawnPoint*>(&Point),
-				Remaining[Pick].ChestClass};
+				Remaining[Pick].ChestClass, Group.bRequireEntryPath,
+				Point.bOverrideNavigationAnchor ? Point.NavigationAnchorId : Group.NavigationAnchorId};
 			Remaining.RemoveAt(Pick);
 			FString Reason;
-			if (TryPlace(Choice, Reason)) { OutChoice = Choice; return true; }
-			LastFailure = FString::Printf(TEXT("Point %s: %s"), *Point.PointId.ToString(), *Reason);
+			FHBSpawnPlacementReport PlacementReport;
+			if (TryPlace(Choice, Reason, PlacementReport))
+			{
+				Report.RecordPlaced(Point.PointId, Group.GroupId, Choice.ChestClass->GetPathName(), &PlacementReport);
+				OutChoice = Choice;
+				return true;
+			}
+			Report.RecordClassFailure(Point.PointId, Group.GroupId, Choice.ChestClass->GetPathName(), Reason, &PlacementReport);
 		}
 		return false;
 	}
@@ -98,14 +158,30 @@ namespace
 bool HBChestSelection::SelectAndPlace(const UHBChestPlacementComponent& Config,
 	const TArray<AHBChestSpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 	TFunctionRef<bool(const FHBChestSpawnChoice&, FString&)> TryPlace,
-	TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError)
+	TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport)
+{
+	return SelectAndPlaceWithDiagnostics(Config, Points, DungeonSeed, RoomId,
+		[&](const FHBChestSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport&)
+		{ return TryPlace(Choice, Reason); }, OutPlaced, OutError, OutReport);
+}
+
+bool HBChestSelection::SelectAndPlaceWithDiagnostics(const UHBChestPlacementComponent& Config,
+	const TArray<AHBChestSpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
+	TFunctionRef<bool(const FHBChestSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
+	TArray<FHBChestSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport)
 {
 	OutPlaced.Reset();
 	OutError.Reset();
+	FHBSpawnSelectionReport LocalReport;
+	FHBSpawnSelectionReport& Report = OutReport ? *OutReport : LocalReport;
+	Report = FHBSpawnSelectionReport();
+	Report.RoomId = RoomId;
+	Report.DungeonSeed = DungeonSeed;
 	TArray<FString> ConfigErrors;
 	if (!Config.Validate(ConfigErrors))
 	{
 		OutError = FString::Join(ConfigErrors, TEXT("; "));
+		Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
 		return false;
 	}
 	TArray<AHBChestSpawnPoint*> SortedPoints = Points;
@@ -120,9 +196,11 @@ bool HBChestSelection::SelectAndPlace(const UHBChestPlacementComponent& Config,
 		if (Point->PointId.IsNone() || AllIds.Contains(Point->PointId))
 		{
 			OutError = TEXT("Chest Spawn Point IDs must be nonempty and unique within the room instance.");
+			Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
 			return false;
 		}
 		AllIds.Add(Point->PointId);
+		Report.AddPoint(Point->PointId, Point->bRequired);
 	}
 	FRandomStream Random(MakeChestRoomSeed(DungeonSeed, RoomId));
 	TSet<FName> UsedIds;
@@ -130,46 +208,69 @@ bool HBChestSelection::SelectAndPlace(const UHBChestPlacementComponent& Config,
 	{
 		int32 Target = 0;
 		if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, Group.CountSelectionMode,
-			Group.CountWeights, Random, Target, OutError)) return false;
+			Group.CountWeights, Random, Target, OutError))
+		{
+			Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
+			return false;
+		}
+		FHBSpawnGroupReport& GroupReport = Report.Groups.AddDefaulted_GetRef();
+		GroupReport.GroupId = Group.GroupId;
+		GroupReport.MinCount = Group.MinCount;
+		GroupReport.Target = Target;
 		TArray<AHBChestSpawnPoint*> Required;
 		TArray<AHBChestSpawnPoint*> Optional;
 		for (AHBChestSpawnPoint* Point : SortedPoints)
 		{
-			if (UsedIds.Contains(Point->PointId)
-				|| (!Point->GroupId.IsNone() && Point->GroupId != Group.GroupId)) continue;
+			if (UsedIds.Contains(Point->PointId)) continue;
+			if (!Point->GroupId.IsNone() && Point->GroupId != Group.GroupId)
+			{
+				Report.RecordSkip(Point->PointId, Group.GroupId, EHBSpawnFailureReason::GroupMismatch);
+				continue;
+			}
 			(Point->bRequired ? Required : Optional).Add(Point);
 		}
 		ShufflePoints(Required, Random);
 		ShufflePoints(Optional, Random);
 		Required.Append(Optional);
 		int32 Placed = 0;
-		FString LastFailure;
-		for (AHBChestSpawnPoint* Point : Required)
+		for (int32 PointIndex = 0; PointIndex < Required.Num(); ++PointIndex)
 		{
-			if (Placed >= Target) break;
+			if (Placed >= Target)
+			{
+				for (int32 SkippedIndex = PointIndex; SkippedIndex < Required.Num(); ++SkippedIndex)
+					Report.RecordSkip(Required[SkippedIndex]->PointId, Group.GroupId, EHBSpawnFailureReason::TargetReached);
+				break;
+			}
+			AHBChestSpawnPoint* Point = Required[PointIndex];
 			FHBChestSpawnChoice Choice;
-			if (TryOptionsAtPoint(*Point, Group, Random, TryPlace, Choice, LastFailure))
+			if (TryOptionsAtPoint(*Point, Group, Random, TryPlace, Choice, Report))
 			{
 				OutPlaced.Add(Choice);
 				UsedIds.Add(Choice.PointId);
+				Report.RecordPlaced(Choice.PointId);
 				++Placed;
 			}
 		}
+		GroupReport.Placed = Placed;
 		if (Placed < Group.MinCount)
 		{
-			OutError = FString::Printf(TEXT("Room %d chest group %s placed %d of required %d. %s"),
-				RoomId, *Group.GroupId.ToString(), Placed, Group.MinCount, *LastFailure);
+			Report.FailureReason = GroupReport.FailureReason = EHBSpawnFailureReason::MinCountNotMet;
+			Report.FailedGroupId = Group.GroupId;
+			OutError = FString::Printf(TEXT("Room %d chest group %s placed %d of required %d. FailureReason=MinCountNotMet Target=%d Seed=%d %s"),
+				RoomId, *Group.GroupId.ToString(), Placed, Group.MinCount, Target, DungeonSeed,
+				*Report.FormatGroupResults(Group.GroupId));
 			return false;
 		}
 		if (Placed < Target)
 			UE_LOG(LogHBChestSpawn, Warning, TEXT("Room %d chest group %s placed %d of selected %d. %s"),
-				RoomId, *Group.GroupId.ToString(), Placed, Target, *LastFailure);
+				RoomId, *Group.GroupId.ToString(), Placed, Target, *Report.FormatGroupResults(Group.GroupId));
 	}
 	for (const AHBChestSpawnPoint* Point : SortedPoints)
 		if (Point->bRequired && !UsedIds.Contains(Point->PointId))
 		{
-			OutError = FString::Printf(TEXT("Room %d required chest point %s was not filled."),
-				RoomId, *Point->PointId.ToString());
+			Report.FailureReason = EHBSpawnFailureReason::RequiredPointUnfilled;
+			Report.FailedPointId = Point->PointId;
+			OutError = Report.FormatRequiredFailure(Point->PointId, true);
 			return false;
 		}
 	return true;
@@ -192,6 +293,13 @@ bool UHBChestSpawnSubsystem::CanManageRoomSpawns() const
 bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
 	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError)
 {
+	return StartPlacementWithEntries(GenerationId, DungeonSeed, RoomId, RoomLevel, RoomBounds,
+		HBRoomSpawnEntries::FromLocations(EntryLocations), OutError);
+}
+
+bool UHBChestSpawnSubsystem::StartPlacementWithEntries(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
+	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FHBRoomSpawnEntry>& Entries, FString& OutError)
+{
 	OutError.Reset();
 	UWorld* World = GetWorld();
 	if (!CanManageRoomSpawns())
@@ -204,11 +312,17 @@ bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSee
 		OutError = TEXT("Chest placement requires a positive generation ID and nonnegative room ID.");
 		return false;
 	}
-	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || EntryLocations.IsEmpty())
+	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || Entries.IsEmpty())
 	{
 		OutError = TEXT("Chest placement needs its loaded room level, valid bounds and an entry location.");
 		return false;
 	}
+	for (const FHBRoomSpawnEntry& Entry : Entries)
+		if (!Entry.IsFinite())
+		{
+			OutError = TEXT("Chest entry connection and navigation locations must be finite.");
+			return false;
+		}
 	for (const FRoomState& State : RoomStates)
 	{
 		if (State.GenerationId == GenerationId && State.DungeonSeed != DungeonSeed)
@@ -243,18 +357,35 @@ bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSee
 		OutError = TEXT("Chest Setup has no authority or settings component.");
 		return false;
 	}
+	TMap<FName, FVector> NavigationAnchors;
+	if (!HBSpawnNavigationTargets::Collect(*RoomLevel, RoomBounds, NavigationAnchors, OutError)) return false;
+	for (const AHBChestSpawnPoint* Point : Points)
+		if (Point->bOverrideNavigationAnchor && !Point->NavigationAnchorId.IsNone() && !NavigationAnchors.Contains(Point->NavigationAnchorId))
+		{
+			OutError = FString::Printf(TEXT("Point %s navigation anchor %s was not found in this room instance."),
+				*Point->PointId.ToString(), *Point->NavigationAnchorId.ToString());
+			return false;
+		}
+	for (const FHBChestPlacementGroup& Group : Setup->Placement->Groups)
+		if (!Group.NavigationAnchorId.IsNone() && !NavigationAnchors.Contains(Group.NavigationAnchorId))
+		{
+			OutError = FString::Printf(TEXT("Group %s navigation anchor %s was not found in this room instance."),
+				*Group.GroupId.ToString(), *Group.NavigationAnchorId.ToString());
+			return false;
+		}
 	FRoomState& State = RoomStates.AddDefaulted_GetRef();
+	State.NavigationAnchors = MoveTemp(NavigationAnchors);
 	State.Level = RoomLevel;
 	State.GenerationId = GenerationId;
 	State.RoomId = RoomId;
 	State.DungeonSeed = DungeonSeed;
 	TArray<FHBChestSpawnChoice> Placed;
-	const bool bSucceeded = HBChestSelection::SelectAndPlace(*Setup->Placement, Points, DungeonSeed, RoomId,
-		[&](const FHBChestSpawnChoice& Choice, FString& Reason)
+	const bool bSucceeded = HBChestSelection::SelectAndPlaceWithDiagnostics(*Setup->Placement, Points, DungeonSeed, RoomId,
+		[&](const FHBChestSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport& PlacementReport)
 		{
 			ABoxActor* Chest = nullptr;
 			if (!TrySpawn(Choice, *Setup->Placement, *Setup, *RoomLevel, RoomBounds,
-				EntryLocations, State, Chest, Reason)) return false;
+				Entries, State, Chest, Reason, PlacementReport)) return false;
 			State.SpawnedChests.Add(Chest);
 			UE_LOG(LogHBChestSpawn, Display, TEXT("Room %d point %s spawned %s at %s."),
 				RoomId, *Choice.PointId.ToString(), *GetNameSafe(Choice.ChestClass.Get()),
@@ -325,20 +456,46 @@ void UHBChestSpawnSubsystem::Deinitialize()
 
 bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const UHBChestPlacementComponent& Config,
 	AHBChestSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
-	const TArray<FVector>& EntryLocations, const FRoomState& State,
-	ABoxActor*& OutChest, FString& OutReason)
+	const TArray<FHBRoomSpawnEntry>& Entries, const FRoomState& State,
+	ABoxActor*& OutChest, FString& OutReason, FHBSpawnPlacementReport& PlacementReport)
 {
 	OutChest = nullptr;
 	UWorld* World = GetWorld();
 	if (!CanManageRoomSpawns() || !IsValid(Choice.Point) || !Choice.ChestClass || Choice.Point->GetLevel() != &RoomLevel)
 	{
 		OutReason = TEXT("Missing world, room-owned point or box class.");
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidConfiguration, OutReason);
+		return false;
+	}
+	TArray<FHBSpawnNavigationTarget> PathTargets;
+	if (Choice.bRequireEntryPath && !HBSpawnNavigationTargets::Resolve(Choice.NavigationAnchorId,
+		State.NavigationAnchors, Entries, PathTargets, OutReason))
+	{
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidConfiguration, OutReason);
 		return false;
 	}
 	const FVector Marker = Choice.Point->GetActorLocation();
 	if (!RoomBounds.IsInsideOrOn(Marker))
 	{
 		OutReason = TEXT("Chest point is outside the room bounds.");
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::OutsideRoom, OutReason);
+		return false;
+	}
+	FHBSpawnGroundSearchSettings SearchSettings;
+	SearchSettings.bAllowPositionCorrection = Choice.Point->bAllowPositionCorrection;
+	SearchSettings.Basis = Choice.Point->bUseMeshBasedCorrection
+		? EHBSpawnCorrectionBasis::ChestMesh : EHBSpawnCorrectionBasis::LegacyFixed;
+	SearchSettings.RadiusMultiplier = Choice.Point->CorrectionRadiusMultiplier;
+	// Disabled/zero correction never needs mesh dimensions. Invalid multipliers are diagnosed by ground search.
+	if (SearchSettings.bAllowPositionCorrection && Choice.Point->bUseMeshBasedCorrection
+		&& FMath::IsFinite(SearchSettings.RadiusMultiplier) && SearchSettings.RadiusMultiplier > 0.
+		&& !HBChestSpawnGeometry::GetCorrectionFootprint(Choice.ChestClass.Get(), Choice.Point->GetActorTransform(),
+			SearchSettings.ShapeRadius, SearchSettings.ShapeHalfExtents, OutReason))
+	{
+		PlacementReport.Correction.bInitialized = true;
+		PlacementReport.Correction.Basis = SearchSettings.Basis;
+		PlacementReport.Correction.RadiusMultiplier = SearchSettings.RadiusMultiplier;
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidConfiguration, OutReason);
 		return false;
 	}
 	FCollisionQueryParams FloorQuery(SCENE_QUERY_STAT(HBChestFloor), false);
@@ -346,99 +503,136 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 	for (const TWeakObjectPtr<ABoxActor>& Other : State.SpawnedChests)
 		if (IsValid(Other.Get())) FloorQuery.AddIgnoredActor(Other.Get());
 	FHitResult Floor;
-	if (!World->LineTraceSingleByChannel(Floor, Marker + FVector(0, 0, 100),
-		Marker - FVector(0, 0, 200), ECC_WorldStatic, FloorQuery)
-		|| Floor.ImpactNormal.Z < Config.MinFloorUpDot)
-	{
-		OutReason = TEXT("No safe floor below the chest point.");
-		return false;
-	}
-	const FVector Ground = Floor.ImpactPoint;
-	if (!RoomBounds.IsInsideOrOn(Ground))
-	{
-		OutReason = TEXT("Chest floor is outside the room bounds.");
-		return false;
-	}
-	for (const FVector& Entry : EntryLocations)
-		if (FVector::Dist2D(Marker, Entry) < Config.MinEntryDistance)
+	if (!HBSpawnGroundQuery::FindPlacementWithDiagnostics(*World, Marker, Choice.Point->GetActorQuat(), RoomBounds,
+		Config.MinFloorUpDot, FloorQuery,
+		[&](const FHitResult& CandidateFloor, FString& Reason, FHBSpawnCandidateReport& Evidence)
 		{
-			OutReason = TEXT("Chest is too close to a room entry or player start.");
-			return false;
-		}
-	for (const TWeakObjectPtr<ABoxActor>& Other : State.SpawnedChests)
-		if (IsValid(Other.Get()) && FVector::Dist2D(Marker, Other->GetActorLocation()) < Config.MinChestSpacing)
-		{
-			OutReason = TEXT("Chest is too close to another chest.");
-			return false;
-		}
-	for (AActor* Actor : RoomLevel.Actors)
-		if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion)
-			&& Exclusion->Bounds->Bounds.GetBox().ExpandBy(FVector(60, 60, 100)).IsInsideOrOn(Marker))
-		{
-			OutReason = TEXT("Chest overlaps an authored spawn exclusion region.");
-			return false;
-		}
-	UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
-	const AGameModeBase* Mode = World->GetAuthGameMode();
-	const ACharacter* PlayerDefaults = Mode && Mode->DefaultPawnClass
-		? Cast<ACharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
-	const UCharacterMovementComponent* Movement = PlayerDefaults ? PlayerDefaults->GetCharacterMovement() : nullptr;
-	const FNavAgentProperties* Agent = Movement ? &Movement->GetNavAgentPropertiesRef() : nullptr;
-	const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, Ground) : nullptr;
-	if (!NavData || UNavigationSystemV1::IsNavigationBeingBuiltOrLocked(World))
-	{
-		OutReason = TEXT("Player navigation is not ready for this chest.");
-		return false;
-	}
-	const FVector Approach = Ground + Choice.Point->GetActorForwardVector() * 120.f;
-	FNavLocation ApproachOnNav;
-	if (!Nav->ProjectPointToNavigation(Approach, ApproachOnNav, FVector(100, 100, 200), NavData)
-		|| FVector::Dist2D(Approach, ApproachOnNav.Location) > Config.MaxNavProjectionDistance
-		|| FMath::Abs(Approach.Z - ApproachOnNav.Location.Z) > Config.MaxNavProjectionHeight
-		|| !RoomBounds.IsInsideOrOn(ApproachOnNav.Location))
-	{
-		OutReason = TEXT("No nearby navigation surface at the chest approach.");
-		return false;
-	}
-	bool bReachable = false;
-	for (const FVector& Entry : EntryLocations)
-	{
-		FNavLocation EntryOnNav;
-		if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(100, 100, 200), NavData)) continue;
-		FPathFindingQuery PathQuery(this, *NavData, EntryOnNav.Location, ApproachOnNav.Location);
-		PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
-		const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
-		if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
-		{
-			bReachable = true;
-			break;
-		}
-	}
-	if (!bReachable)
-	{
-		OutReason = TEXT("Player has no complete navigation path to the chest approach.");
-		return false;
-	}
-	FActorSpawnParameters Params;
-	Params.Owner = &Setup;
-	Params.OverrideLevel = &RoomLevel;
-	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
-	FTransform SpawnTransform;
-	if (!HBChestSpawnGeometry::MakeGroundedTransform(Choice.ChestClass.Get(),
-		Choice.Point->GetActorTransform(), Ground.Z, SpawnTransform, OutReason)) return false;
-	OutChest = World->SpawnActor<ABoxActor>(Choice.ChestClass, SpawnTransform, Params);
-	if (!IsValid(OutChest))
-	{
-		OutReason = FString::Printf(TEXT("Box %s at %s was blocked after floor alignment (floor Z=%.1f)."),
-			*GetNameSafe(Choice.ChestClass.Get()), *SpawnTransform.GetLocation().ToString(), Ground.Z);
-		return false;
-	}
+			const FVector Ground = CandidateFloor.ImpactPoint;
+			const FVector CandidateMarker(Ground.X, Ground.Y, Marker.Z);
+			if (!RoomBounds.IsInsideOrOn(Ground))
+			{
+				Reason = TEXT("Chest floor is outside the room bounds.");
+				Evidence.Cause = EHBSpawnFailureReason::OutsideRoom;
+				return false;
+			}
+			for (const FHBRoomSpawnEntry& Entry : Entries)
+				if (FVector::Dist2D(CandidateMarker, Entry.ConnectionLocation) < Config.MinEntryDistance)
+				{
+					Reason = TEXT("Chest is too close to a room entry or player start.");
+					Evidence.Cause = EHBSpawnFailureReason::EntrySpacing;
+					return false;
+				}
+			for (const TWeakObjectPtr<ABoxActor>& Other : State.SpawnedChests)
+				if (IsValid(Other.Get()) && FVector::Dist(CandidateMarker, Other->GetActorLocation()) < Config.MinChestSpacing)
+				{
+					Reason = TEXT("Chest is too close to another chest.");
+					Evidence.Cause = EHBSpawnFailureReason::ChestSpacing;
+					return false;
+				}
+			for (AActor* Actor : RoomLevel.Actors)
+				if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion)
+					&& Exclusion->Bounds->Bounds.GetBox().ExpandBy(FVector(60, 60, 100)).IsInsideOrOn(CandidateMarker))
+				{
+					Reason = TEXT("Chest overlaps an authored spawn exclusion region.");
+					Evidence.Cause = EHBSpawnFailureReason::ExcludedArea;
+					return false;
+				}
+			UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+			const AGameModeBase* Mode = World->GetAuthGameMode();
+			const ACharacter* PlayerDefaults = Mode && Mode->DefaultPawnClass
+				? Cast<ACharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
+			FNavAgentProperties EffectiveAgent;
+			const FNavAgentProperties* Agent = HBSpawnNavigationAgents::GetCharacterAgent(PlayerDefaults, EffectiveAgent)
+				? &EffectiveAgent : nullptr;
+			const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, Ground) : nullptr;
+			const FVector Approach = Ground + Choice.Point->GetActorForwardVector() * 120.f;
+			FNavLocation ApproachOnNav;
+			FHBSpawnNavCheck& ApproachCheck = Evidence.NavigationChecks.AddDefaulted_GetRef();
+			ApproachCheck.Stage = EHBSpawnNavStage::ChestApproach;
+			ApproachCheck.bEntryToPlacement = true;
+			if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Approach,
+				FVector(100, 100, 200), Config.MaxNavProjectionDistance, Config.MaxNavProjectionHeight,
+				&RoomBounds, true, ApproachOnNav, ApproachCheck))
+			{
+				Reason = ApproachCheck.bProjectionQueried ? TEXT("No nearby navigation surface at the chest approach.")
+					: TEXT("Player navigation is not ready for this chest.");
+				Evidence.Cause = EHBSpawnFailureReason::NavProjectionFailed;
+				return false;
+			}
+			if (Choice.bRequireEntryPath)
+			{
+				bool bReachable = false;
+				for (const FHBSpawnNavigationTarget& Target : PathTargets)
+				{
+					FNavLocation EntryOnNav;
+					FHBSpawnNavCheck& EntryCheck = Evidence.NavigationChecks.AddDefaulted_GetRef();
+					EntryCheck.Stage = EHBSpawnNavStage::EntryPath;
+					EntryCheck.EntryIndex = Target.EntryIndex;
+					EntryCheck.NavigationAnchorId = Target.AnchorId;
+					EntryCheck.bEntryToPlacement = true;
+					EntryCheck.bHasEntryConnectionLocation = Target.bHasConnectionLocation;
+					EntryCheck.EntryConnectionLocation = Target.ConnectionLocation;
+					const FBox* TargetBounds = Target.AnchorId.IsNone() ? nullptr : &RoomBounds;
+					if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Target.Location,
+						FVector(100, 100, 200),
+						Target.AnchorId.IsNone() ? -1. : Config.MaxNavProjectionDistance,
+						Target.AnchorId.IsNone() ? -1. : Config.MaxNavProjectionHeight,
+						TargetBounds, false, EntryOnNav, EntryCheck)) continue;
+					FPathFindingQuery PathQuery(this, *NavData, EntryOnNav.Location, ApproachOnNav.Location);
+					PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
+					const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
+					const bool bPathSucceeded = Path.IsSuccessful();
+					const bool bPathValid = Path.Path.IsValid();
+					if (EntryCheck.SetPathResult(bPathSucceeded, bPathValid,
+						bPathValid && Path.Path->IsPartial()))
+					{
+						bReachable = true;
+						break;
+					}
+				}
+				if (!bReachable)
+				{
+					Reason = TEXT("Player has no complete navigation path to the chest approach.");
+					Evidence.Cause = EHBSpawnFailureReason::NoCompleteEntryPath;
+					Evidence.Details = FString::Printf(TEXT("EntriesAvailable=%d EntriesChecked=%d Direction=EntryToPlacement"),
+						PathTargets.Num(), Evidence.NavigationChecks.Num() - 1);
+					return false;
+				}
+			}
+			FActorSpawnParameters Params;
+			Params.Owner = &Setup;
+			Params.OverrideLevel = &RoomLevel;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
+			FTransform PointTransform = Choice.Point->GetActorTransform();
+			PointTransform.SetLocation(CandidateMarker);
+			FTransform SpawnTransform;
+			if (!HBChestSpawnGeometry::MakeGroundedTransform(Choice.ChestClass.Get(),
+				PointTransform, Ground.Z, SpawnTransform, Reason))
+			{
+				Evidence.Cause = EHBSpawnFailureReason::InvalidConfiguration;
+				return false;
+			}
+			OutChest = World->SpawnActor<ABoxActor>(Choice.ChestClass, SpawnTransform, Params);
+			if (!IsValid(OutChest))
+			{
+				Reason = FString::Printf(TEXT("Box %s at %s was blocked after floor alignment (floor Z=%.1f)."),
+					*GetNameSafe(Choice.ChestClass.Get()), *SpawnTransform.GetLocation().ToString(), Ground.Z);
+				Evidence.Cause = EHBSpawnFailureReason::SpawnCollision;
+				return false;
+			}
+			return true;
+		}, Floor, OutReason, PlacementReport, SearchSettings)) return false;
+	if (FVector::Dist2D(Marker, Floor.ImpactPoint) > KINDA_SMALL_NUMBER)
+		UE_LOG(LogHBChestSpawn, Display, TEXT("Room %d point %s floor adjusted %.1f cm: marker=%s ground=%s actor=%s component=%s."),
+			State.RoomId, *Choice.PointId.ToString(), FVector::Dist2D(Marker, Floor.ImpactPoint),
+			*Marker.ToString(), *Floor.ImpactPoint.ToString(), *GetNameSafe(Floor.GetActor()), *GetNameSafe(Floor.GetComponent()));
 	if (!OutChest->GetIsReplicated() || OutChest->bOnlyRelevantToOwner || OutChest->GetLevel() != &RoomLevel)
 	{
 		OutChest->Destroy();
 		OutChest = nullptr;
 		OutReason = FString::Printf(TEXT("Spawned box %s must replicate to other players and belong to its source room level."),
 			*GetNameSafe(Choice.ChestClass.Get()));
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidSpawnedActor, OutReason);
 		return false;
 	}
 	return true;

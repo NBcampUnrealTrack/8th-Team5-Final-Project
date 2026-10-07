@@ -47,6 +47,14 @@ struct FHBChestPlacementGroup
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement")
 	TArray<FHBChestClassOption> Chests;
+
+	/** Default room-owned path target for this group. Empty uses active room entries. Points can override it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Navigation")
+	FName NavigationAnchorId;
+
+	/** Require a complete player path from the selected anchor or room entry to the chest approach. A region anchor permits checking inside a locked room. Disabling keeps local navigation and placement checks. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Safety")
+	bool bRequireEntryPath = true;
 };
 
 /** LD-authored room settings only. Selection and spawning will belong to a world subsystem. */
@@ -63,6 +71,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Safety", meta=(ClampMin="0"))
 	float MinEntryDistance = 250.f;
 
+	/** Minimum three-dimensional distance between chest placements; separate heights do not exclude each other by XY alone. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Chest Placement|Safety", meta=(ClampMin="0"))
 	float MinChestSpacing = 150.f;
 
