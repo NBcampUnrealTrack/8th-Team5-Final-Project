@@ -145,6 +145,15 @@ public:
 	UGE_FallDamage();
 };
 
+/** 포션 낙하 피해 감소. 시간은 SetByCaller.Duration, 감소량은 Data.ItemEffect.Magnitude. 다시 마시면 시간만 새로 */
+UCLASS()
+class HEAVENBREACH_API UGE_FallDamageReductionBuff : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_FallDamageReductionBuff();
+};
+
 /** 패시브 "가벼운 착지" 기본 효과. 낙하 피해 감소 +0.4 */
 UCLASS()
 class HEAVENBREACH_API UGE_LightLandingPassive : public UGameplayEffect

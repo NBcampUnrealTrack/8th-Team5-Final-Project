@@ -45,6 +45,8 @@ bool ResolveItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutVie
 		OutViewData.WorldMeshPath = ItemRow->WorldMeshPath;
 		OutViewData.HealAmount = ItemRow->HealAmount;
 		OutViewData.ManaAmount = ItemRow->ManaAmount;
+		OutViewData.FallDamageReduction = ItemRow->FallDamageReduction;
+		OutViewData.BuffDuration = ItemRow->BuffDuration;
 		OutViewData.SellValue = ItemRow->SellValue;
 		OutViewData.Description = ItemRow->Description;
 		OutViewData.Icon = ItemRow->Icon;
@@ -159,6 +161,24 @@ FString BuildStatTextForItem(const FItemInstance& InItem)
 			{
 				const FString BagText = FString::Printf(TEXT("수납 공간: %d x %d"), GeneralRow->BagGridWidth, GeneralRow->BagGridHeight);
 				StatText = StatText.IsEmpty() ? BagText : StatText + TEXT("\n") + BagText;
+			}
+			TArray<FString> EffectLines;
+			if (GeneralRow->HealAmount > 0.f)
+			{
+				EffectLines.Add(FString::Printf(TEXT("체력 회복: %s"), *FText::AsNumber(GeneralRow->HealAmount).ToString()));
+			}
+			if (GeneralRow->ManaAmount > 0.f)
+			{
+				EffectLines.Add(FString::Printf(TEXT("마나 회복: %s"), *FText::AsNumber(GeneralRow->ManaAmount).ToString()));
+			}
+			if (GeneralRow->FallDamageReduction > 0.f && GeneralRow->BuffDuration > 0.f)
+			{
+				EffectLines.Add(FString::Printf(TEXT("낙하 피해 감소: %d%%"), FMath::RoundToInt(FMath::Clamp(GeneralRow->FallDamageReduction, 0.f, 1.f) * 100.f)));
+				EffectLines.Add(FString::Printf(TEXT("지속 시간: %d초"), FMath::RoundToInt(GeneralRow->BuffDuration)));
+			}
+			for (const FString& EffectLine : EffectLines)
+			{
+				StatText = StatText.IsEmpty() ? EffectLine : StatText + TEXT("\n") + EffectLine;
 			}
 		}
 	}

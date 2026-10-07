@@ -30,15 +30,15 @@ namespace
 
 UGE_DefaultAttributes_Warrior::UGE_DefaultAttributes_Warrior()
 {
-	Configure(*this, 130.f, 100.f, 13.f, 1.f, 8.f, 1.f);
+	Configure(*this, 130.f, 100.f, 5.f, 1.f, 8.f, 1.f);
 }
 
 UGE_DefaultAttributes_Archer::UGE_DefaultAttributes_Archer()
 {
-	Configure(*this, 90.f, 100.f, 11.f, 1.2f, 3.f, 1.1f);
+	Configure(*this, 90.f, 100.f, 5.f, 1.2f, 3.f, 1.1f);
 }
 
 UGE_DefaultAttributes_Mage::UGE_DefaultAttributes_Mage()
 {
-	Configure(*this, 80.f, 150.f, 15.f, 1.f, 2.f, 1.f);
+	Configure(*this, 80.f, 150.f, 5.f, 1.f, 2.f, 1.f);
 }
