@@ -86,6 +86,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Progression|Match")
 	int32 GetPlayerLevel() const { return PlayerLevel; }
+	int32 GetMaxPlayerLevel() const { return MaxPlayerLevel; }
 
 	UFUNCTION(BlueprintPure, Category = "Progression|Match")
 	int32 GetCurrentExperience() const { return CurrentExperience; }
@@ -154,7 +155,15 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Progression|Skills")
 	FOnUpgradeCandidatesChanged OnUpgradeCandidatesChanged;
 
+	// 이번 판에서 고른 카드를 고른 순서대로. 스탯창 타임라인이 읽는다.
+	const TArray<FHBUpgradePick>& GetUpgradeHistory() const { return UpgradeHistory; }
+
 private:
+	// 선택 한 번에 한 줄씩 쌓인다. 서버가 ApplyUpgradeCandidate 에서 넣고,
+	// ResetMatchProgression 이 비운다. TakenAugments 와 같은 알림을 쓴다.
+	UPROPERTY(ReplicatedUsing = OnRep_SkillUpgrades)
+	TArray<FHBUpgradePick> UpgradeHistory;
+
 	UPROPERTY(ReplicatedUsing = OnRep_PlayerLevel)
 	int32 PlayerLevel = 1;
 

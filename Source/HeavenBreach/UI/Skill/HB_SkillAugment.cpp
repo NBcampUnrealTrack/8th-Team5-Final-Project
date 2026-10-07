@@ -49,6 +49,7 @@ void UHB_SkillAugment::NativeOnActivated()
 	// 스택이 위젯 인스턴스를 풀에서 재사용하므로 열릴 때마다 잠금을 푼다.
 	// 재사용 시 NativeConstruct 가 다시 불린다는 보장이 없어서 카드도 여기서 다시 그린다.
 	bSelectionSubmitted = false;
+	bAwaitingNextCandidates = false;
 	RebuildCards();
 }
 
@@ -85,9 +86,27 @@ AHB_PlayerState* UHB_SkillAugment::GetHBPlayerState() const
 
 void UHB_SkillAugment::HandleUpgradeCandidatesChanged()
 {
-	// 이미 골랐으면 닫히는 중이다. 여기서 다시 그리면 다음 후보가 보인다.
 	if (bSelectionSubmitted)
 	{
+		// 다음 증강을 고를 차례라면 잠금을 풀고 새 후보를 그린다.
+		if (bAwaitingNextCandidates)
+		{
+			bAwaitingNextCandidates = false;
+			bSelectionSubmitted = false;
+			RebuildCards();
+
+			// 뽑을 후보가 없어 서버가 남은 선택권을 비웠으면 더 고를 게 없다. 스탯창으로 넘어간다.
+			const AHB_PlayerState* HBPS = GetHBPlayerState();
+			if (HBPS && HBPS->GetPendingUpgradeChoices() <= 0)
+			{
+				if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+				{
+					PC->FinishAugmentSelection();
+				}
+			}
+		}
+
+		// 그 외에는 닫히는 중이다. 여기서 다시 그리면 다음 후보가 보인다.
 		return;
 	}
 
@@ -145,15 +164,34 @@ void UHB_SkillAugment::OnAugmentCardClicked(FName ClickedCandidateId)
 	}
 	bSelectionSubmitted = true;
 
+	AHB_PlayerState* HBPS = GetHBPlayerState();
+
+	// 클라이언트는 요청이 서버를 다녀와야 남은 개수가 줄어든다. 보내기 전에 센다.
+	const bool bHasMoreChoices = HBPS && HBPS->GetPendingUpgradeChoices() > 1;
+
+	// 호스트는 요청 안에서 다음 후보 방송까지 끝나므로 플래그를 먼저 세운다.
+	bAwaitingNextCandidates = bHasMoreChoices;
+
 	// 적용은 서버가 한다. 클라는 고른 후보의 이름만 보낸다.
-	if (AHB_PlayerState* HBPS = GetHBPlayerState())
+	if (HBPS)
 	{
 		HBPS->RequestSelectUpgrade(ClickedCandidateId);
 	}
 
+	if (bHasMoreChoices)
+	{
+		// 방금 고른 카드는 지운다. 다음 후보가 올 때까지 빈 화면이 잠깐 보인다.
+		// (호스트는 위에서 이미 다음 후보로 다시 그려졌다.)
+		if (bSelectionSubmitted && CardContainer)
+		{
+			CardContainer->ClearChildren();
+		}
+		return;
+	}
+
 	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
 	{
-		PC->ToggleSkillAugment(); // 선택 완료 -> 화면 닫기
+		PC->FinishAugmentSelection(); // 다 골랐다 -> 증강 화면을 닫고 스탯창을 연다
 	}
 }
 
