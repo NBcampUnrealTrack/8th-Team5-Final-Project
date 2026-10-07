@@ -12,6 +12,7 @@
 #include "PCGModule/HBSpawnGroundQuery.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
 #include "CollisionQueryParams.h"
+#include <limits>
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "Engine/Level.h"
@@ -627,6 +628,36 @@ bool FHBChestEntryPathPolicyTest::RunTest(const FString&)
             && Error.Contains(TEXT("EntryIndex=1")) && Error.Contains(TEXT("PathQueried=1")) && Error.Contains(TEXT("PartialPath=1")));
         Run(TEXT("Chest cannot reverse the outgoing-only placement-to-entry link"), {Locations[3]}, false, TEXT("Cause=NoCompleteEntryPath"));
         Run(TEXT("Chest uses a valid later entry after the wrong-direction link fails"), {Locations[3], Locations[1]}, true);
+        auto RunWithEntries = [&](const TCHAR* Label, const TArray<FHBRoomSpawnEntry>& Entries,
+            bool bExpected, const TCHAR* Cause = nullptr)
+        {
+            const bool bResult = Subsystem->StartPlacementWithEntries(Generation, 12345, 0,
+                World.PersistentLevel, Bounds, Entries, Error);
+            TestEqual(Label, bResult, bExpected);
+            if (bResult) TestEqual(TEXT("Separate entry target spawns exactly one chest"),
+                Subsystem->GetSpawnedCount(Generation, 0, World.PersistentLevel), 1);
+            if (Cause) TestTrue(FString(Label) + TEXT(" retains its exact cause"), Error.Contains(Cause));
+            Subsystem->ClearGeneration(Generation++);
+        };
+        RunWithEntries(TEXT("Chest uses an inside target when the physical doorway cannot project"),
+            {{Locations[4], Locations[1]}}, true);
+        RunWithEntries(TEXT("Chest spacing still protects the physical doorway"),
+            {{Locations[0], Locations[1]}}, false, TEXT("Cause=EntrySpacing"));
+        RunWithEntries(TEXT("A chest navigation target near the point does not create a new spacing exclusion"),
+            {{Locations[1], Locations[0]}}, true);
+        RunWithEntries(TEXT("Chest does not substitute the physical doorway for an invalid target"),
+            {{Locations[1], Locations[4]}}, false, TEXT("Cause=NoCompleteEntryPath"));
+        TestTrue(TEXT("Chest projection diagnostics retain both entry coordinates"),
+            Error.Contains(TEXT("Connection=") + Locations[1].ToString())
+            && Error.Contains(TEXT("NavigationOffset=") + (Locations[4] - Locations[1]).ToString()));
+        RunWithEntries(TEXT("Chest retries later navigation targets independently of doorway coordinates"),
+            {{Locations[1], Locations[4]}, {Locations[4], Locations[1]}}, true);
+        RunWithEntries(TEXT("Separate chest targets still reject the outgoing-only placement-to-entry link"),
+            {{Locations[1], Locations[3]}}, false, TEXT("Cause=NoCompleteEntryPath"));
+        FVector NonFiniteTarget = Locations[1];
+        NonFiniteTarget.X = std::numeric_limits<double>::infinity();
+        RunWithEntries(TEXT("Chest rejects a nonfinite navigation target before placement"),
+            {{Locations[1], NonFiniteTarget}}, false, TEXT("must be finite"));
         Setup->Placement->Groups[0].bRequireEntryPath = false;
         Run(TEXT("Chest may skip entry paths while keeping valid local navigation"), {Locations[4], Locations[2]}, true);
         Point->SetActorLocation(Locations[5]);

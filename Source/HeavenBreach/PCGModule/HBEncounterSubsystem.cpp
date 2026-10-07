@@ -254,6 +254,13 @@ bool UHBEncounterSubsystem::CanManageRoomSpawns() const
 bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
 	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError, bool bDeferActivation)
 {
+	return StartEncounterWithEntries(GenerationId, DungeonSeed, RoomId, RoomLevel, RoomBounds,
+		HBRoomSpawnEntries::FromLocations(EntryLocations), OutError, bDeferActivation);
+}
+
+bool UHBEncounterSubsystem::StartEncounterWithEntries(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
+	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FHBRoomSpawnEntry>& Entries, FString& OutError, bool bDeferActivation)
+{
 	OutError.Reset();
 	UWorld* World = GetWorld();
 	if (!CanManageRoomSpawns())
@@ -266,11 +273,17 @@ bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed
 		OutError = TEXT("Encounter requires a positive generation ID and nonnegative room ID.");
 		return false;
 	}
-	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || EntryLocations.IsEmpty())
+	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || Entries.IsEmpty())
 	{
 		OutError = TEXT("Encounter needs its loaded room level, valid bounds and an entry location.");
 		return false;
 	}
+	for (const FHBRoomSpawnEntry& Entry : Entries)
+		if (!Entry.IsFinite())
+		{
+			OutError = TEXT("Encounter entry connection and navigation locations must be finite.");
+			return false;
+		}
 	for (const FRoomState& State : RoomStates)
 	{
 		if (State.GenerationId == GenerationId && State.DungeonSeed != DungeonSeed)
@@ -316,7 +329,7 @@ bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed
 		[&](const FHBEncounterSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport& PlacementReport)
 		{
 			AEnemyCharacterBase* Enemy = nullptr;
-			if (!TrySpawn(Choice, *Setup->Encounter, *Setup, *RoomLevel, RoomBounds, EntryLocations, State, Enemy, Reason, PlacementReport)) return false;
+			if (!TrySpawn(Choice, *Setup->Encounter, *Setup, *RoomLevel, RoomBounds, Entries, State, Enemy, Reason, PlacementReport)) return false;
 			State.SpawnedEnemies.Add(Enemy);
 			Enemy->OnDied.AddUObject(this, &UHBEncounterSubsystem::HandleEnemyDied);
 			++State.AliveCount;
@@ -417,7 +430,7 @@ int32 UHBEncounterSubsystem::GetAliveCount(int32 GenerationId, int32 RoomId, con
 
 bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, const UHBEncounterComponent& Config,
 	AHBEncounterSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
-	const TArray<FVector>& EntryLocations, const FRoomState& State,
+	const TArray<FHBRoomSpawnEntry>& Entries, const FRoomState& State,
 	AEnemyCharacterBase*& OutEnemy, FString& OutReason, FHBSpawnPlacementReport& PlacementReport)
 {
 	OutEnemy = nullptr;
@@ -465,8 +478,8 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 				Evidence.Cause = EHBSpawnFailureReason::OutsideRoom;
 				return false;
 			}
-			for (const FVector& Entry : EntryLocations)
-				if (FVector::Dist2D(Ground, Entry) < Config.MinEntryDistance + Radius)
+			for (const FHBRoomSpawnEntry& Entry : Entries)
+				if (FVector::Dist2D(Ground, Entry.ConnectionLocation) < Config.MinEntryDistance + Radius)
 				{
 					Reason = TEXT("Spawn blocks a room entry or player start.");
 					Evidence.Cause = EHBSpawnFailureReason::EntrySpacing;
@@ -532,14 +545,16 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 			if (Choice.bRequireEntryPath)
 			{
 				bool bReachable = false;
-				for (int32 EntryIndex = 0; EntryIndex < EntryLocations.Num(); ++EntryIndex)
+				for (int32 EntryIndex = 0; EntryIndex < Entries.Num(); ++EntryIndex)
 				{
-					const FVector& Entry = EntryLocations[EntryIndex];
+					const FHBRoomSpawnEntry& Entry = Entries[EntryIndex];
 					FNavLocation EntryOnNav;
 					FHBSpawnNavCheck& EntryCheck = Evidence.NavigationChecks.AddDefaulted_GetRef();
 					EntryCheck.Stage = EHBSpawnNavStage::EntryPath;
 					EntryCheck.EntryIndex = EntryIndex;
-					if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Entry,
+					EntryCheck.bHasEntryConnectionLocation = true;
+					EntryCheck.EntryConnectionLocation = Entry.ConnectionLocation;
+					if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Entry.NavigationLocation,
 						FVector(Radius, Radius, HalfHeight), Config.MaxNavProjectionDistance * 2.f,
 						Config.MaxNavProjectionHeight * 2.f, nullptr, false, EntryOnNav, EntryCheck)) continue;
 					FPathFindingQuery PathQuery(this, *NavData, OnNav.Location, EntryOnNav.Location);
@@ -559,7 +574,7 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 					Reason = TEXT("Enemy has no complete navigation path to a room entry.");
 					Evidence.Cause = EHBSpawnFailureReason::NoCompleteEntryPath;
 					Evidence.Details = FString::Printf(TEXT("EntriesAvailable=%d EntriesChecked=%d Direction=PlacementToEntry"),
-						EntryLocations.Num(), Evidence.NavigationChecks.Num() - 1);
+						Entries.Num(), Evidence.NavigationChecks.Num() - 1);
 					return false;
 				}
 			}

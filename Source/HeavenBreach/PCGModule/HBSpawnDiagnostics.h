@@ -70,6 +70,8 @@ struct HEAVENBREACH_API FHBSpawnNavCheck
 	EHBSpawnNavStage Stage = EHBSpawnNavStage::EnemyGround;
 	EHBSpawnNavCondition Condition = EHBSpawnNavCondition::None;
 	int32 EntryIndex = INDEX_NONE;
+	bool bHasEntryConnectionLocation = false;
+	FVector EntryConnectionLocation = FVector::ZeroVector;
 	FVector InputLocation = FVector::ZeroVector;
 	FVector ProjectedLocation = FVector::ZeroVector;
 	FVector ProjectionExtent = FVector::ZeroVector;

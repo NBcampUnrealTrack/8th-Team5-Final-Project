@@ -290,6 +290,13 @@ bool UHBChestSpawnSubsystem::CanManageRoomSpawns() const
 bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
 	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError)
 {
+	return StartPlacementWithEntries(GenerationId, DungeonSeed, RoomId, RoomLevel, RoomBounds,
+		HBRoomSpawnEntries::FromLocations(EntryLocations), OutError);
+}
+
+bool UHBChestSpawnSubsystem::StartPlacementWithEntries(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
+	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FHBRoomSpawnEntry>& Entries, FString& OutError)
+{
 	OutError.Reset();
 	UWorld* World = GetWorld();
 	if (!CanManageRoomSpawns())
@@ -302,11 +309,17 @@ bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSee
 		OutError = TEXT("Chest placement requires a positive generation ID and nonnegative room ID.");
 		return false;
 	}
-	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || EntryLocations.IsEmpty())
+	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || Entries.IsEmpty())
 	{
 		OutError = TEXT("Chest placement needs its loaded room level, valid bounds and an entry location.");
 		return false;
 	}
+	for (const FHBRoomSpawnEntry& Entry : Entries)
+		if (!Entry.IsFinite())
+		{
+			OutError = TEXT("Chest entry connection and navigation locations must be finite.");
+			return false;
+		}
 	for (const FRoomState& State : RoomStates)
 	{
 		if (State.GenerationId == GenerationId && State.DungeonSeed != DungeonSeed)
@@ -352,7 +365,7 @@ bool UHBChestSpawnSubsystem::StartPlacement(int32 GenerationId, int32 DungeonSee
 		{
 			ABoxActor* Chest = nullptr;
 			if (!TrySpawn(Choice, *Setup->Placement, *Setup, *RoomLevel, RoomBounds,
-				EntryLocations, State, Chest, Reason, PlacementReport)) return false;
+				Entries, State, Chest, Reason, PlacementReport)) return false;
 			State.SpawnedChests.Add(Chest);
 			UE_LOG(LogHBChestSpawn, Display, TEXT("Room %d point %s spawned %s at %s."),
 				RoomId, *Choice.PointId.ToString(), *GetNameSafe(Choice.ChestClass.Get()),
@@ -423,7 +436,7 @@ void UHBChestSpawnSubsystem::Deinitialize()
 
 bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const UHBChestPlacementComponent& Config,
 	AHBChestSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
-	const TArray<FVector>& EntryLocations, const FRoomState& State,
+	const TArray<FHBRoomSpawnEntry>& Entries, const FRoomState& State,
 	ABoxActor*& OutChest, FString& OutReason, FHBSpawnPlacementReport& PlacementReport)
 {
 	OutChest = nullptr;
@@ -475,8 +488,8 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 				Evidence.Cause = EHBSpawnFailureReason::OutsideRoom;
 				return false;
 			}
-			for (const FVector& Entry : EntryLocations)
-				if (FVector::Dist2D(CandidateMarker, Entry) < Config.MinEntryDistance)
+			for (const FHBRoomSpawnEntry& Entry : Entries)
+				if (FVector::Dist2D(CandidateMarker, Entry.ConnectionLocation) < Config.MinEntryDistance)
 				{
 					Reason = TEXT("Chest is too close to a room entry or player start.");
 					Evidence.Cause = EHBSpawnFailureReason::EntrySpacing;
@@ -521,15 +534,17 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 			if (Choice.bRequireEntryPath)
 			{
 				bool bReachable = false;
-				for (int32 EntryIndex = 0; EntryIndex < EntryLocations.Num(); ++EntryIndex)
+				for (int32 EntryIndex = 0; EntryIndex < Entries.Num(); ++EntryIndex)
 				{
-					const FVector& Entry = EntryLocations[EntryIndex];
+					const FHBRoomSpawnEntry& Entry = Entries[EntryIndex];
 					FNavLocation EntryOnNav;
 					FHBSpawnNavCheck& EntryCheck = Evidence.NavigationChecks.AddDefaulted_GetRef();
 					EntryCheck.Stage = EHBSpawnNavStage::EntryPath;
 					EntryCheck.EntryIndex = EntryIndex;
 					EntryCheck.bEntryToPlacement = true;
-					if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Entry,
+					EntryCheck.bHasEntryConnectionLocation = true;
+					EntryCheck.EntryConnectionLocation = Entry.ConnectionLocation;
+					if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Entry.NavigationLocation,
 						FVector(100, 100, 200), -1., -1., nullptr, false, EntryOnNav, EntryCheck)) continue;
 					FPathFindingQuery PathQuery(this, *NavData, EntryOnNav.Location, ApproachOnNav.Location);
 					PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
@@ -548,7 +563,7 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 					Reason = TEXT("Player has no complete navigation path to the chest approach.");
 					Evidence.Cause = EHBSpawnFailureReason::NoCompleteEntryPath;
 					Evidence.Details = FString::Printf(TEXT("EntriesAvailable=%d EntriesChecked=%d Direction=EntryToPlacement"),
-						EntryLocations.Num(), Evidence.NavigationChecks.Num() - 1);
+						Entries.Num(), Evidence.NavigationChecks.Num() - 1);
 					return false;
 				}
 			}

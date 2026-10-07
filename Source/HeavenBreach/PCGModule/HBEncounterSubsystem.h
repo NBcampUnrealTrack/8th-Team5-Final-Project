@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "PCGModule/HBEncounterComponent.h"
+#include "PCGModule/HBRoomSpawnEntry.h"
 #include "HBEncounterSubsystem.generated.h"
 
 class AEnemyCharacterBase;
@@ -52,6 +53,9 @@ public:
 	/** Dungeon preparation defers possession so AI cannot run before match start. */
 	bool StartEncounter(int32 GenerationId, int32 DungeonSeed, int32 RoomId, ULevel* RoomLevel,
 		const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError, bool bDeferActivation = false);
+	/** Separate entry spawn spacing from the navigation path target. */
+	bool StartEncounterWithEntries(int32 GenerationId, int32 DungeonSeed, int32 RoomId, ULevel* RoomLevel,
+		const FBox& RoomBounds, const TArray<FHBRoomSpawnEntry>& Entries, FString& OutError, bool bDeferActivation = false);
 	bool ActivateGeneration(int32 GenerationId, FString& OutError);
 	bool IsPreparedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
 	bool IsActivatedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
@@ -77,7 +81,7 @@ private:
 	bool CanManageRoomSpawns() const;
 	bool TrySpawn(const FHBEncounterSpawnChoice& Choice, const UHBEncounterComponent& Config,
 		AHBEncounterSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
-		const TArray<FVector>& EntryLocations, const FRoomState& State,
+		const TArray<FHBRoomSpawnEntry>& Entries, const FRoomState& State,
 		AEnemyCharacterBase*& OutEnemy, FString& OutReason, FHBSpawnPlacementReport& PlacementReport);
 	void HandleEnemyDied(AEnemyCharacterBase* Enemy);
 	void ClearRoom(FRoomState& State);

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "PCGModule/HBChestPlacementComponent.h"
+#include "PCGModule/HBRoomSpawnEntry.h"
 #include "HBChestSpawnSubsystem.generated.h"
 
 class ABoxActor;
@@ -43,6 +44,9 @@ public:
 	static bool HasPlacement(const ULevel* RoomLevel);
 	bool StartPlacement(int32 GenerationId, int32 DungeonSeed, int32 RoomId, ULevel* RoomLevel,
 		const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError);
+	/** Separate entry spawn spacing from the navigation path target. */
+	bool StartPlacementWithEntries(int32 GenerationId, int32 DungeonSeed, int32 RoomId, ULevel* RoomLevel,
+		const FBox& RoomBounds, const TArray<FHBRoomSpawnEntry>& Entries, FString& OutError);
 	bool IsPreparedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
 	int32 GetSpawnedCount(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
 	void ClearGeneration(int32 GenerationId);
@@ -62,7 +66,7 @@ private:
 	bool CanManageRoomSpawns() const;
 	bool TrySpawn(const FHBChestSpawnChoice& Choice, const UHBChestPlacementComponent& Config,
 		AHBChestSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
-		const TArray<FVector>& EntryLocations, const FRoomState& State,
+		const TArray<FHBRoomSpawnEntry>& Entries, const FRoomState& State,
 		ABoxActor*& OutChest, FString& OutReason, FHBSpawnPlacementReport& PlacementReport);
 	void ClearRoom(FRoomState& State);
 	TArray<FRoomState> RoomStates;

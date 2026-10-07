@@ -462,13 +462,13 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
         const bool bHasEncounter = UHBEncounterSubsystem::HasEncounter(Level);
         const bool bHasChests = UHBChestSpawnSubsystem::HasPlacement(Level);
         if (!bHasEncounter && !bHasChests) continue;
-        TArray<FVector> Entries;
+        TArray<FHBRoomSpawnEntry> Entries;
         for (AActor* Actor : Level->Actors)
         {
             if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal) && IsValid(Portal->TargetPortal))
-                Entries.Add(Portal->Arrival->GetComponentLocation());
+                Entries.Emplace(Portal->Arrival->GetComponentLocation());
             if (const auto* Start = Cast<APlayerStart>(Actor); Room.bIsStartRoom && IsValid(Start) && !Start->IsActorBeingDestroyed())
-                Entries.Add(Start->GetActorLocation());
+                Entries.Emplace(Start->GetActorLocation());
         }
         for (AActor* Actor : Level->Actors)
             if (IsValid(Actor))
@@ -476,9 +476,9 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
                 TInlineComponentArray<UHBDungeonConnectorComponent*> Connectors(Actor);
                 for (const auto* Connector : Connectors)
                     if (Room.UsedConnectorIds.Contains(Connector->GetEffectiveConnectorId()))
-                        Entries.Add(Connector->GetComponentLocation());
+                        Entries.Emplace(Connector->GetComponentLocation(), Connector->GetNavigationEntryLocation());
             }
-        if (bHasEncounter && (!EncounterSubsystem->StartEncounter(
+        if (bHasEncounter && (!EncounterSubsystem->StartEncounterWithEntries(
             GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error, true)
             || !EncounterSubsystem->IsPreparedFor(GenerationId, Room.Id, Level)))
         {
@@ -486,7 +486,7 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
             Error = FString::Printf(TEXT("Room %d encounter: %s"), Room.Id, *Error);
             return false;
         }
-        if (bHasChests && (!ChestSubsystem->StartPlacement(
+        if (bHasChests && (!ChestSubsystem->StartPlacementWithEntries(
             GenerationId, ActiveSeed, Room.Id, Level, Room.Bounds, Entries, Error)
             || !ChestSubsystem->IsPreparedFor(GenerationId, Room.Id, Level)))
         {

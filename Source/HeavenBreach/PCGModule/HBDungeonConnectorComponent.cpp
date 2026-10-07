@@ -12,6 +12,11 @@ UHBDungeonConnectorComponent::UHBDungeonConnectorComponent()
 	SetHiddenInGame(true);
 }
 
+FVector UHBDungeonConnectorComponent::GetNavigationEntryLocation() const
+{
+	return GetComponentTransform().TransformPosition(NavigationEntryOffset);
+}
+
 FName UHBDungeonConnectorComponent::GetEffectiveConnectorId() const
 {
 	if (!ConnectorId.IsNone()) { return ConnectorId; }

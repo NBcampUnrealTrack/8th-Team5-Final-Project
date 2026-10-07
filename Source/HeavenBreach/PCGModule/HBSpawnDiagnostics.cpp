@@ -140,7 +140,7 @@ FString FHBSpawnNavCheck::Format() const
 {
 	const TCHAR* StageName = Stage == EHBSpawnNavStage::EnemyGround ? TEXT("EnemyGround")
 		: Stage == EHBSpawnNavStage::ChestApproach ? TEXT("ChestApproach") : TEXT("EntryPath");
-	return FString::Printf(TEXT("Stage=%s Condition=%s EntryIndex=%d AgentRadius=%.3f AgentHeight=%.3f NavData=%s Input=%s Projected=%s Extent=%s ProjectionQueried=%d ProjectionSucceeded=%d HorizontalDistance=%.3f HeightDelta=%.3f MaxDistance=%.3f MaxHeight=%.3f PathQueried=%d PathSucceeded=%d PathValid=%d PartialPath=%d Direction=%s"),
+	FString Result = FString::Printf(TEXT("Stage=%s Condition=%s EntryIndex=%d AgentRadius=%.3f AgentHeight=%.3f NavData=%s Input=%s Projected=%s Extent=%s ProjectionQueried=%d ProjectionSucceeded=%d HorizontalDistance=%.3f HeightDelta=%.3f MaxDistance=%.3f MaxHeight=%.3f PathQueried=%d PathSucceeded=%d PathValid=%d PartialPath=%d Direction=%s"),
 		StageName, NavConditionName(Condition), EntryIndex, AgentRadius, AgentHeight, *NavDataPath,
 		*InputLocation.ToString(), *ProjectedLocation.ToString(), *ProjectionExtent.ToString(),
 		bProjectionQueried ? 1 : 0, bProjectionSucceeded ? 1 : 0,
@@ -148,6 +148,10 @@ FString FHBSpawnNavCheck::Format() const
 		bProjectionSucceeded ? FMath::Abs(InputLocation.Z - ProjectedLocation.Z) : -1., MaxHorizontalDistance, MaxHeight,
 		bPathQueried ? 1 : 0, bPathSucceeded ? 1 : 0, bPathValid ? 1 : 0, bPartialPath ? 1 : 0,
 		bEntryToPlacement ? TEXT("EntryToPlacement") : TEXT("PlacementToEntry"));
+	if (bHasEntryConnectionLocation)
+		Result += FString::Printf(TEXT(" Connection=%s NavigationOffset=%s"),
+			*EntryConnectionLocation.ToString(), *(InputLocation - EntryConnectionLocation).ToString());
+	return Result;
 }
 
 bool HBSpawnDiagnostics::ProjectNavigation(UWorld& World, UNavigationSystemV1* Nav,
@@ -158,10 +162,14 @@ bool HBSpawnDiagnostics::ProjectNavigation(UWorld& World, UNavigationSystemV1* N
 	const EHBSpawnNavStage Stage = Check.Stage;
 	const int32 EntryIndex = Check.EntryIndex;
 	const bool bEntryToPlacement = Check.bEntryToPlacement;
+	const bool bHasEntryConnectionLocation = Check.bHasEntryConnectionLocation;
+	const FVector EntryConnectionLocation = Check.EntryConnectionLocation;
 	Check = FHBSpawnNavCheck();
 	Check.Stage = Stage;
 	Check.EntryIndex = EntryIndex;
 	Check.bEntryToPlacement = bEntryToPlacement;
+	Check.bHasEntryConnectionLocation = bHasEntryConnectionLocation;
+	Check.EntryConnectionLocation = EntryConnectionLocation;
 	Check.InputLocation = Input;
 	Check.ProjectionExtent = Extent;
 	Check.MaxHorizontalDistance = MaxDistance;

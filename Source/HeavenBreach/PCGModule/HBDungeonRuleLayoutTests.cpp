@@ -13,6 +13,7 @@
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "Misc/AutomationTest.h"
+#include "UObject/UnrealType.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 #include "IpNetDriver.h"
@@ -116,6 +117,51 @@ bool FHBConnectorRolesTest::RunTest(const FString&)
     for (auto& Door : C.Modules[5].Connectors) Door.Role = R::None;
     TestFalse(TEXT("Boss needs explicit entrance"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
     TestTrue(TEXT("Missing entrance diagnostic"), Error.Contains(TEXT("Boss Entrance")));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBConnectorNavigationEntryTest, "HeavenBreach.PCGModule.Connector.NavigationEntry",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBConnectorNavigationEntryTest::RunTest(const FString&)
+{
+    const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(false)
+        .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+    UWorld* World = UWorld::CreateWorld(EWorldType::EditorPreview, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    GEngine->CreateNewWorldContext(EWorldType::EditorPreview).SetCurrentWorld(World);
+    auto* Definition = World->SpawnActor<AHBDungeonModuleDefinition>();
+    Definition->ModuleId = TEXT("NavigationEntryRoom");
+    Definition->RoomInfo->RoomRole = EHBPrototypeRoomRole::Adventure;
+    World->SpawnActor<AHBDungeonOccupancy>();
+    auto* Marker = World->SpawnActor<AHBDungeonConnector>();
+    auto* Connector = Marker->FindComponentByClass<UHBDungeonConnectorComponent>();
+    if (TestNotNull(TEXT("Connector marker exposes its authoring component"), Connector))
+    {
+        Connector->ConnectorId = TEXT("Entry");
+        Marker->SetActorLocationAndRotation(FVector(1000, 2000, 300), FRotator(0, 90, 0));
+        const FTransform Connection = Connector->GetComponentTransform();
+        TestTrue(TEXT("Default zero offset uses the existing connection coordinate"),
+            Connector->NavigationEntryOffset.IsZero() && Connector->GetNavigationEntryLocation().Equals(Connection.GetLocation()));
+        const auto* Property = FindFProperty<FStructProperty>(Connector->GetClass(), TEXT("NavigationEntryOffset"));
+        if (TestNotNull(TEXT("Navigation offset is a reflected authoring property"), Property))
+            TestTrue(TEXT("Offset is editable in BP defaults and placed connector instances"),
+                Property->HasAllPropertyFlags(CPF_Edit | CPF_BlueprintVisible)
+                && !Property->HasAnyPropertyFlags(CPF_BlueprintReadOnly | CPF_DisableEditOnInstance | CPF_DisableEditOnTemplate));
+        const auto* Function = Connector->FindFunction(TEXT("GetNavigationEntryLocation"));
+        TestTrue(TEXT("World-space navigation target is available as a pure Blueprint function"),
+            Function && Function->HasAllFunctionFlags(FUNC_BlueprintCallable | FUNC_BlueprintPure));
+        Connector->NavigationEntryOffset = FVector(-200, 0, 40);
+        TestTrue(TEXT("Local inward offset rotates with the room and retains vertical adjustment"),
+            Connector->GetNavigationEntryLocation().Equals(FVector(1000, 1800, 340), 0.01));
+        TestTrue(TEXT("Offset leaves the physical connector transform untouched"), Connector->GetComponentTransform().Equals(Connection));
+        TArray<FHBModuleCatalogEntry> Catalog;
+        TArray<FString> Errors;
+        if (TestTrue(TEXT("Module with an offset target remains valid for assembly"), HBDungeonModuleCatalog::Build({World}, Catalog, Errors))
+            && TestEqual(TEXT("Catalog retains the authored room"), Catalog.Num(), 1)
+            && TestEqual(TEXT("Catalog retains the authored connector"), Catalog[0].Connectors.Num(), 1))
+            TestTrue(TEXT("Assembly catalog uses the physical marker, not the navigation target"),
+                Catalog[0].Connectors[0].LocalTransform.Equals(Connection));
+    }
+    World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
     return true;
 }
 

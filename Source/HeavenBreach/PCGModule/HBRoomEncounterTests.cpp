@@ -14,6 +14,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Engine/OverlapResult.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
+#include <limits>
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "PCGModule/HBDungeonModuleDefinition.h"
@@ -1237,6 +1238,36 @@ bool FHBEncounterEntryPathPolicyTest::RunTest(const FString&)
             && Error.Contains(TEXT("EntryIndex=0")) && Error.Contains(TEXT("Condition=ProjectionQueryFailed"))
             && Error.Contains(TEXT("EntryIndex=1")) && Error.Contains(TEXT("PathQueried=1")) && Error.Contains(TEXT("PartialPath=1")));
         Run(TEXT("Enemy uses the outgoing-only link from placement to entry"), {Locations[3]}, true);
+        auto RunWithEntries = [&](const TCHAR* Label, const TArray<FHBRoomSpawnEntry>& Entries,
+            bool bExpected, const TCHAR* Cause = nullptr)
+        {
+            const bool bResult = Subsystem->StartEncounterWithEntries(Generation, 12345, 0,
+                World.PersistentLevel, Bounds, Entries, Error, true);
+            TestEqual(Label, bResult, bExpected);
+            if (bResult) TestEqual(TEXT("Separate entry target spawns exactly one enemy"),
+                Subsystem->GetAliveCount(Generation, 0, World.PersistentLevel), 1);
+            if (Cause) TestTrue(FString(Label) + TEXT(" retains its exact cause"), Error.Contains(Cause));
+            Subsystem->ClearGeneration(Generation++);
+        };
+        RunWithEntries(TEXT("Enemy uses an inside target when the physical doorway cannot project"),
+            {{Locations[4], Locations[1]}}, true);
+        RunWithEntries(TEXT("Enemy spacing still protects the physical doorway"),
+            {{Locations[0], Locations[1]}}, false, TEXT("Cause=EntrySpacing"));
+        RunWithEntries(TEXT("An enemy navigation target near the point does not create a new spacing exclusion"),
+            {{Locations[1], Locations[0]}}, true);
+        RunWithEntries(TEXT("Enemy does not substitute the physical doorway for an invalid target"),
+            {{Locations[1], Locations[4]}}, false, TEXT("Cause=NoCompleteEntryPath"));
+        TestTrue(TEXT("Enemy projection diagnostics retain both entry coordinates"),
+            Error.Contains(TEXT("Connection=") + Locations[1].ToString())
+            && Error.Contains(TEXT("NavigationOffset=") + (Locations[4] - Locations[1]).ToString()));
+        RunWithEntries(TEXT("Enemy retries later navigation targets independently of doorway coordinates"),
+            {{Locations[1], Locations[4]}, {Locations[4], Locations[1]}}, true);
+        RunWithEntries(TEXT("Separate enemy targets preserve placement-to-entry link direction"),
+            {{Locations[1], Locations[3]}}, true);
+        FVector NonFiniteTarget = Locations[1];
+        NonFiniteTarget.X = std::numeric_limits<double>::infinity();
+        RunWithEntries(TEXT("Enemy rejects a nonfinite navigation target before placement"),
+            {{Locations[1], NonFiniteTarget}}, false, TEXT("must be finite"));
         Setup->Encounter->Groups[0].bRequireEntryPath = false;
         Run(TEXT("Enemy may skip entry paths while keeping valid local navigation"), {Locations[4], Locations[2]}, true);
         Point->SetActorLocation(Locations[5]);
