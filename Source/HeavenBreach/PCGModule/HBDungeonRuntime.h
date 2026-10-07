@@ -34,6 +34,21 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Generation") FHBDungeonGenerationRules DungeonRules;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Generation") bool bRandomSeedOnStart = true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Generation") int32 Seed = 12345;
+    /** Maximum same-role run along a parent path on one floor, including branch rooms. Resets at a floor transition. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Room Counts", meta=(ClampMin="1", DisplayName="Max Consecutive Adventure Rooms"))
+    int32 MaxConsecutiveAdventureRooms = 3;
+    /** Also bounded by Max Recovery Rooms Per Floor; special rooms still cannot directly follow the start room. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Room Counts", meta=(ClampMin="1", DisplayName="Max Consecutive Recovery Rooms"))
+    int32 MaxConsecutiveRecoveryRooms = 1;
+    /** Enhancement uses the existing Upgrade room role. Also bounded by Max Enhancement Rooms Per Floor. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Room Counts", meta=(ClampMin="1", DisplayName="Max Consecutive Enhancement Rooms"))
+    int32 MaxConsecutiveEnhancementRooms = 1;
+    /** Counts all Recovery rooms on each floor, including the start, transitions and branches. Zero disables this role. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Room Counts", meta=(ClampMin="0", DisplayName="Max Recovery Rooms Per Floor"))
+    int32 MaxRecoveryRoomsPerFloor = 1;
+    /** Counts all Enhancement (Upgrade) rooms on each floor. Zero disables this role; Adventure must remain the most common role. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Room Counts", meta=(ClampMin="0", DisplayName="Max Enhancement Rooms Per Floor"))
+    int32 MaxEnhancementRoomsPerFloor = 1;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search") bool bAllowModuleReuse = true;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search", meta=(ClampMin="1")) int32 MaxConnectionAttempts = 20000;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon - Search", meta=(ClampMin="0.1")) float ConnectionSearchSeconds = 2;
@@ -58,6 +73,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Dungeon") void StartGeneration();
     UFUNCTION(BlueprintPure, Category="Dungeon") bool IsReady() const { return State == EHBDungeonRuntimeState::Ready; }
     UFUNCTION(BlueprintPure, Category="Dungeon") APlayerStart* GetPlayerStart() const;
+    /** Combines layout settings with the generator's directly editable room role limits. Captured when generation starts. */
+    UFUNCTION(BlueprintPure, Category="Dungeon") FHBDungeonGenerationRules GetGenerationRules() const;
 	/** Read-only access to the exact streamed instance used by a planned room. */
 	ULevel* GetLoadedRoomLevel(int32 RoomId) const;
     UFUNCTION(CallInEditor, Category="Dungeon - Modules") void RefreshModuleCatalog();

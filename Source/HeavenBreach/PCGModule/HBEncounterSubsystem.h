@@ -3,12 +3,15 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "PCGModule/HBEncounterComponent.h"
+#include "PCGModule/HBRoomSpawnEntry.h"
 #include "HBEncounterSubsystem.generated.h"
 
 class AEnemyCharacterBase;
 class AHBEnemySpawnPoint;
 class AHBEncounterSetupActor;
 class ULevel;
+struct FHBSpawnSelectionReport;
+struct FHBSpawnPlacementReport;
 
 struct FHBEncounterSpawnChoice
 {
@@ -16,6 +19,9 @@ struct FHBEncounterSpawnChoice
 	AHBEnemySpawnPoint* Point = nullptr;
 	TSubclassOf<AEnemyCharacterBase> EnemyClass;
 	EHBEncounterGrade Grade = EHBEncounterGrade::Common;
+	bool bRequireEntryPath = true;
+	FName NavigationAnchorId;
+	float SpawnScale = 1.f;
 };
 
 namespace HBEncounterSelection
@@ -24,7 +30,12 @@ namespace HBEncounterSelection
 	HEAVENBREACH_API bool SelectAndPlace(const UHBEncounterComponent& Config,
 		const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 		TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
-		TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError);
+		TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport = nullptr);
+	/** Runtime callback can attach typed placement evidence; the legacy callback above remains supported. */
+	HEAVENBREACH_API bool SelectAndPlaceWithDiagnostics(const UHBEncounterComponent& Config,
+		const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
+		TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
+		TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport = nullptr);
 }
 
 namespace HBEncounterPlacement
@@ -44,6 +55,9 @@ public:
 	/** Dungeon preparation defers possession so AI cannot run before match start. */
 	bool StartEncounter(int32 GenerationId, int32 DungeonSeed, int32 RoomId, ULevel* RoomLevel,
 		const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError, bool bDeferActivation = false);
+	/** Separate entry spawn spacing from the navigation path target. */
+	bool StartEncounterWithEntries(int32 GenerationId, int32 DungeonSeed, int32 RoomId, ULevel* RoomLevel,
+		const FBox& RoomBounds, const TArray<FHBRoomSpawnEntry>& Entries, FString& OutError, bool bDeferActivation = false);
 	bool ActivateGeneration(int32 GenerationId, FString& OutError);
 	bool IsPreparedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
 	bool IsActivatedFor(int32 GenerationId, int32 RoomId, const ULevel* RoomLevel) const;
@@ -62,6 +76,7 @@ private:
 		bool bPrepared = false;
 		bool bDeferActivation = false;
 		bool bActivated = false;
+		TMap<FName, FVector> NavigationAnchors;
 		TArray<TWeakObjectPtr<AEnemyCharacterBase>> SpawnedEnemies;
 		TSet<TWeakObjectPtr<AEnemyCharacterBase>> CountedDeaths;
 	};
@@ -69,8 +84,8 @@ private:
 	bool CanManageRoomSpawns() const;
 	bool TrySpawn(const FHBEncounterSpawnChoice& Choice, const UHBEncounterComponent& Config,
 		AHBEncounterSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
-		const TArray<FVector>& EntryLocations, const FRoomState& State,
-		AEnemyCharacterBase*& OutEnemy, FString& OutReason);
+		const TArray<FHBRoomSpawnEntry>& Entries, const FRoomState& State,
+		AEnemyCharacterBase*& OutEnemy, FString& OutReason, FHBSpawnPlacementReport& PlacementReport);
 	void HandleEnemyDied(AEnemyCharacterBase* Enemy);
 	void ClearRoom(FRoomState& State);
 	TArray<FRoomState> RoomStates;

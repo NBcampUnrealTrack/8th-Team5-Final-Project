@@ -34,6 +34,65 @@
 #include "PCGModule/HBDungeonRuntimeValidation.h"
 #include "IpNetDriver.h"
 #include "Engine/ChildConnection.h"
+#include "PCGModule/HBEnemySpawnPoint.h"
+#include "PCGModule/HBDungeonConnectorComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Misc/OutputDeviceRedirector.h"
+#include "HAL/FileManager.h"
+#include "UObject/UObjectIterator.h"
+#include "UObject/Package.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBGeneratorRoleLimitsTest, "HeavenBreach.PCGModule.Gameplay.GeneratorRoleLimits",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBGeneratorRoleLimitsTest::RunTest(const FString&)
+{
+    UClass* GeneratorClass = LoadClass<AHBDungeonRuntime>(nullptr, TEXT("/Game/Core/PCG/BP_HBDungeonRuntime.BP_HBDungeonRuntime_C"));
+    if (!TestNotNull(TEXT("Gameplay generator Blueprint loads with inherited role settings"), GeneratorClass)) return false;
+    const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
+        .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    auto* Dungeon = World->SpawnActor<AHBDungeonRuntime>(GeneratorClass);
+    if (!TestNotNull(TEXT("Blueprint generator instance spawns"), Dungeon))
+    { GEngine->DestroyWorldContext(World); World->DestroyWorld(false); return false; }
+    struct FSetting
+    {
+        const TCHAR* Name;
+        int32 Default;
+        int32 Edited;
+        int32 FHBDungeonGenerationRules::* Member;
+    };
+    const FSetting Settings[] = {
+        {TEXT("MaxConsecutiveAdventureRooms"), 3, 4, &FHBDungeonGenerationRules::MaxConsecutiveAdventureRooms},
+        {TEXT("MaxConsecutiveRecoveryRooms"), 1, 2, &FHBDungeonGenerationRules::MaxConsecutiveRecoveryRooms},
+        {TEXT("MaxConsecutiveEnhancementRooms"), 1, 3, &FHBDungeonGenerationRules::MaxConsecutiveEnhancementRooms},
+        {TEXT("MaxRecoveryRoomsPerFloor"), 1, 3, &FHBDungeonGenerationRules::MaxRecoveryRoomsPerFloor},
+        {TEXT("MaxEnhancementRoomsPerFloor"), 1, 4, &FHBDungeonGenerationRules::MaxEnhancementRoomsPerFloor}
+    };
+    for (const auto& Setting : Settings)
+    {
+        auto* Property = FindFProperty<FIntProperty>(GeneratorClass, Setting.Name);
+        if (!TestNotNull(FString::Printf(TEXT("BP exposes %s directly"), Setting.Name), Property)) continue;
+        TestTrue(TEXT("Setting is editable in both BP Class Defaults and placed instances"), Property->HasAllPropertyFlags(CPF_Edit | CPF_BlueprintVisible)
+            && !Property->HasAnyPropertyFlags(CPF_EditConst | CPF_BlueprintReadOnly | CPF_DisableEditOnInstance | CPF_DisableEditOnTemplate));
+        TestEqual(TEXT("Existing Blueprint inherits the original default"), Property->GetPropertyValue_InContainer(GeneratorClass->GetDefaultObject()), Setting.Default);
+        Property->SetPropertyValue_InContainer(Dungeon, Setting.Edited);
+    }
+    const auto Rules = Dungeon->GetGenerationRules();
+    for (const auto& Setting : Settings)
+        TestEqual(FString::Printf(TEXT("Generation uses BP setting %s"), Setting.Name), Rules.*(Setting.Member), Setting.Edited);
+    TestEqual(TEXT("Combining role settings retains authored layout counts"), Rules.Floor1MainRooms, Dungeon->DungeonRules.Floor1MainRooms);
+    TestTrue(TEXT("Combining role settings retains the selected exit map"), Rules.Floor1ExitMap == Dungeon->DungeonRules.Floor1ExitMap);
+    GEngine->DestroyWorldContext(World);
+    World->DestroyWorld(false);
+    return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBClientLayoutBoundaryTest, "HeavenBreach.PCGModule.Gameplay.ClientLayoutBoundary",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -681,7 +740,7 @@ bool FHBTestMGRuntimeTest::RunTest(const FString&)
 			Settings.Seed = Candidate;
 			TArray<FHBPrototypeRoom> Rooms;
 			FString Error;
-			if (HBDungeonRuleLayout::Generate(Catalog, Settings, Dungeon->DungeonRules, Rooms, Error)
+			if (HBDungeonRuleLayout::Generate(Catalog, Settings, Dungeon->GetGenerationRules(), Rooms, Error)
 				&& Rooms.ContainsByPredicate([](const FHBPrototypeRoom& Room)
 				{
 					return Room.ModuleMap.ToSoftObjectPath().GetLongPackageName() == TestMGMapPath;
@@ -759,5 +818,468 @@ bool FHBTestMGGameplayMapTest::RunTest(const FString&)
 		return true;
 	}));
 	return true;
+}
+
+namespace
+{
+    constexpr int32 DeepAndDeeperSeed = 836511139;
+    constexpr int32 In2RoomId = 11;
+    constexpr TCHAR In2SourceMap[] = TEXT("/Game/Levels/Floor2/Adventure2-1");
+
+    TSharedRef<FJsonObject> ExportEditableSettings(const UObject& Object)
+    {
+        const auto Result = MakeShared<FJsonObject>();
+        for (TFieldIterator<FProperty> It(Object.GetClass()); It; ++It)
+        {
+            if (!It->HasAnyPropertyFlags(CPF_Edit) || It->HasAnyPropertyFlags(CPF_Transient)) continue;
+            FString Value;
+            It->ExportTextItem_Direct(Value, It->ContainerPtrToValuePtr<void>(&Object), nullptr,
+                const_cast<UObject*>(&Object), PPF_None);
+            Result->SetStringField(It->GetName(), Value);
+        }
+        return Result;
+    }
+
+    FString JsonText(const TSharedRef<FJsonObject>& Object)
+    {
+        FString Text;
+        FJsonSerializer::Serialize(Object, TJsonWriterFactory<>::Create(&Text));
+        return Text;
+    }
+
+    TMap<FString, bool> SourcePackageDirtyStates()
+    {
+        TMap<FString, bool> Result;
+        for (TObjectIterator<UPackage> It; It; ++It)
+            if (It->GetName().StartsWith(TEXT("/Game/")) && !It->HasAnyPackageFlags(PKG_PlayInEditor))
+                Result.Add(It->GetName(), It->IsDirty());
+        return Result;
+    }
+
+    // A test-owned observer, with no production hooks and no strong world/actor references.
+    // Capture before Fail clears Rooms; failure strings already own their query evidence.
+    struct FDeepAndDeeperObservation : FOutputDevice
+    {
+        TSharedRef<FJsonObject> Report = MakeShared<FJsonObject>();
+        TArray<FString> Logs;
+        TMap<FString, TSharedRef<FJsonObject>> RoomActorCatalog;
+        FString LayoutSignature;
+        TWeakObjectPtr<AHBDungeonRuntime> Dungeon;
+        FDelegateHandle InitializedHandle, TickHandle, LayoutHandle;
+        bool bCorrection = false;
+        bool bInstalled = false;
+        bool bCapturingLogs = false;
+        bool bCapturedPoints = false;
+        bool bTargetFound = false;
+        bool bLoadoutAttempted = false;
+
+        explicit FDeepAndDeeperObservation(bool bInCorrection) : bCorrection(bInCorrection)
+        {
+            Report->SetStringField(TEXT("Case"), bCorrection ? TEXT("In2CapsuleCorrection") : TEXT("AuthoredBaseline"));
+            Report->SetStringField(TEXT("Execution"), TEXT("Standalone PIE; original maps are never saved"));
+            Report->SetNumberField(TEXT("RequestedSeed"), DeepAndDeeperSeed);
+            Report->SetNumberField(TEXT("ActiveSeed"), 0);
+            Report->SetStringField(TEXT("TargetSourceMap"), In2SourceMap);
+            Report->SetNumberField(TEXT("TargetRoomId"), In2RoomId);
+            Report->SetStringField(TEXT("TargetPointId"), TEXT("In2"));
+        }
+
+        virtual ~FDeepAndDeeperObservation() override { Uninstall(); }
+        virtual bool IsMemoryOnly() const override { return true; }
+        virtual void Serialize(const TCHAR* Message, ELogVerbosity::Type, const FName& Category) override
+        {
+            if (bCapturingLogs && (Category == TEXT("LogHBEncounterSubsystem")
+                || Category == TEXT("LogHBChestSpawn") || Category == TEXT("LogHBDungeonRuntime")))
+                Logs.Add(Category.ToString() + TEXT(": ") + Message);
+        }
+
+        void CaptureLayout()
+        {
+            if (!Dungeon.IsValid() || Dungeon->Rooms.IsEmpty()) return;
+            Report->SetNumberField(TEXT("ActiveSeed"), Dungeon->ActiveSeed);
+            Report->SetNumberField(TEXT("GenerationId"), Dungeon->GenerationId);
+            TArray<TSharedPtr<FJsonValue>> Layout;
+            LayoutSignature.Reset();
+            for (const FHBPrototypeRoom& Room : Dungeon->Rooms)
+            {
+                const auto Item = MakeShared<FJsonObject>();
+                Item->SetNumberField(TEXT("RoomId"), Room.Id);
+                Item->SetNumberField(TEXT("ParentRoomId"), Room.ParentId);
+                Item->SetNumberField(TEXT("Floor"), Room.Floor);
+                Item->SetStringField(TEXT("ModuleId"), Room.ModuleId.ToString());
+                Item->SetStringField(TEXT("ModuleMap"), Room.ModuleMap.ToSoftObjectPath().ToString());
+                Item->SetStringField(TEXT("Transform"), Room.Transform.ToString());
+                Item->SetStringField(TEXT("Bounds"), Room.Bounds.ToString());
+                Item->SetBoolField(TEXT("IsStartRoom"), Room.bIsStartRoom);
+                FString FullRoom;
+                FHBPrototypeRoom::StaticStruct()->ExportText(FullRoom, &Room, nullptr, nullptr, PPF_None, nullptr);
+                Item->SetStringField(TEXT("FullRoomSnapshot"), FullRoom);
+                LayoutSignature += FullRoom + TEXT("\n");
+                Layout.Add(MakeShared<FJsonValueObject>(Item));
+            }
+            Report->SetArrayField(TEXT("Layout"), Layout);
+        }
+
+        void CapturePoints()
+        {
+            if (bCapturedPoints || !Dungeon.IsValid()
+                || Dungeon->State != EHBDungeonRuntimeState::PreparingEncounters) return;
+            bCapturedPoints = true;
+            TArray<TSharedPtr<FJsonValue>> Points;
+            for (const FHBPrototypeRoom& Room : Dungeon->Rooms)
+            {
+                if (Room.Id != In2RoomId) continue;
+                const FString SourceMap = Room.ModuleMap.ToSoftObjectPath().GetLongPackageName();
+                Report->SetStringField(TEXT("ActualRoom11SourceMap"), SourceMap);
+                ULevel* Level = Dungeon->GetLoadedRoomLevel(Room.Id);
+                if (!Level) continue;
+                TArray<TSharedPtr<FJsonValue>> Classes, Entries;
+                for (AActor* Actor : Level->Actors)
+                {
+                    if (!IsValid(Actor)) continue;
+                    const auto ActorInfo = MakeShared<FJsonObject>();
+                    ActorInfo->SetStringField(TEXT("ActorPath"), Actor->GetPathName());
+                    ActorInfo->SetStringField(TEXT("ActorLabel"), Actor->GetActorLabel());
+                    ActorInfo->SetStringField(TEXT("ActorClass"), Actor->GetClass()->GetPathName());
+                    ActorInfo->SetStringField(TEXT("Transform"), Actor->GetActorTransform().ToString());
+                    TArray<TSharedPtr<FJsonValue>> Components;
+                    TInlineComponentArray<UPrimitiveComponent*> Primitives(Actor);
+                    for (const auto* Primitive : Primitives)
+                    {
+                        const auto Component = MakeShared<FJsonObject>();
+                        Component->SetStringField(TEXT("ComponentPath"), Primitive->GetPathName());
+                        Component->SetStringField(TEXT("CollisionProfile"), Primitive->GetCollisionProfileName().ToString());
+                        Component->SetNumberField(TEXT("CollisionEnabled"), static_cast<int32>(Primitive->GetCollisionEnabled()));
+                        Component->SetStringField(TEXT("Bounds"), Primitive->Bounds.GetBox().ToString());
+                        if (const auto* Mesh = Cast<UStaticMeshComponent>(Primitive); Mesh && Mesh->GetStaticMesh())
+                            Component->SetStringField(TEXT("StaticMesh"), Mesh->GetStaticMesh()->GetPathName());
+                        Components.Add(MakeShared<FJsonValueObject>(Component));
+                    }
+                    ActorInfo->SetArrayField(TEXT("PrimitiveComponents"), Components);
+                    RoomActorCatalog.Add(Actor->GetPathName(), ActorInfo);
+                    const auto AddEntry = [&Entries](const FString& Kind, const FString& Path, const FVector& Location)
+                    {
+                        const auto Entry = MakeShared<FJsonObject>();
+                        Entry->SetStringField(TEXT("Kind"), Kind);
+                        Entry->SetStringField(TEXT("SourcePath"), Path);
+                        Entry->SetStringField(TEXT("Location"), Location.ToString());
+                        Entries.Add(MakeShared<FJsonValueObject>(Entry));
+                    };
+                    if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); Portal && IsValid(Portal->TargetPortal))
+                        AddEntry(TEXT("ActivePortalArrival"), Portal->GetPathName(), Portal->Arrival->GetComponentLocation());
+                    if (const auto* Start = Cast<APlayerStart>(Actor); Start && Room.bIsStartRoom && !Start->IsActorBeingDestroyed())
+                        AddEntry(TEXT("StartRoomPlayerStart"), Start->GetPathName(), Start->GetActorLocation());
+                    if (auto* Setup = Cast<AHBEncounterSetupActor>(Actor); IsValid(Setup) && Setup->Encounter)
+                    {
+                        Report->SetObjectField(TEXT("Room11EncounterSettings"), ExportEditableSettings(*Setup->Encounter));
+                        for (const FHBEncounterGroup& Group : Setup->Encounter->Groups)
+                            for (const FHBEncounterMonsterOption& Option : Group.Monsters)
+                            {
+                                if (!Option.EnemyClass) continue;
+                                const auto Class = MakeShared<FJsonObject>();
+                                Class->SetStringField(TEXT("GroupId"), Group.GroupId.ToString());
+                                Class->SetStringField(TEXT("ClassPath"), Option.EnemyClass->GetPathName());
+                                const auto* Defaults = Option.EnemyClass->GetDefaultObject<AEnemyCharacterBase>();
+                                const auto* Capsule = Defaults ? Defaults->GetCapsuleComponent() : nullptr;
+                                if (Capsule)
+                                {
+                                    Class->SetNumberField(TEXT("CapsuleRadius"), Capsule->GetScaledCapsuleRadius());
+                                    Class->SetNumberField(TEXT("CapsuleHalfHeight"), Capsule->GetScaledCapsuleHalfHeight());
+                                    Class->SetStringField(TEXT("CollisionProfile"), Capsule->GetCollisionProfileName().ToString());
+                                }
+                                Classes.Add(MakeShared<FJsonValueObject>(Class));
+                            }
+                    }
+                    auto* Point = Cast<AHBEnemySpawnPoint>(Actor);
+                    if (!IsValid(Point) || Point->PointId != TEXT("In2")) continue;
+                    const auto Item = MakeShared<FJsonObject>();
+                    Item->SetStringField(TEXT("ActorPath"), Point->GetPathName());
+                    Item->SetStringField(TEXT("ActorLabel"), Point->GetActorLabel());
+                    Item->SetStringField(TEXT("Transform"), Point->GetActorTransform().ToString());
+                    Item->SetObjectField(TEXT("AuthoredSettings"), ExportEditableSettings(*Point));
+                    // Never identify a room by a transient streaming name or force an old layout.
+                    if (SourceMap == In2SourceMap)
+                    {
+                        bTargetFound = true;
+                        if (bCorrection)
+                        {
+                            Point->bAllowPositionCorrection = true;
+                            Point->bUseCapsuleBasedCorrection = true;
+                            Point->CorrectionRadiusMultiplier = 2.f;
+                        }
+                    }
+                    Item->SetObjectField(TEXT("EffectiveSettings"), ExportEditableSettings(*Point));
+                    Points.Add(MakeShared<FJsonValueObject>(Item));
+                }
+                // Keep the runtime's entry indexing: portal/start actors, then used connectors.
+                for (AActor* Actor : Level->Actors)
+                    if (IsValid(Actor))
+                    {
+                        TInlineComponentArray<UHBDungeonConnectorComponent*> Connectors(Actor);
+                        for (const auto* Connector : Connectors)
+                            if (Room.UsedConnectorIds.Contains(Connector->GetEffectiveConnectorId()))
+                            {
+                                const auto Entry = MakeShared<FJsonObject>();
+                                Entry->SetStringField(TEXT("Kind"), TEXT("UsedConnector"));
+                                Entry->SetStringField(TEXT("ConnectorId"), Connector->GetEffectiveConnectorId().ToString());
+                                Entry->SetStringField(TEXT("SourcePath"), Connector->GetPathName());
+                                Entry->SetStringField(TEXT("Location"), Connector->GetComponentLocation().ToString());
+                                Entries.Add(MakeShared<FJsonValueObject>(Entry));
+                            }
+                    }
+                Report->SetArrayField(TEXT("ActiveRoom11Entries"), Entries);
+                Report->SetArrayField(TEXT("ConfiguredEnemyClasses"), Classes);
+            }
+            Report->SetArrayField(TEXT("In2Points"), Points);
+            Report->SetBoolField(TEXT("ExactTargetFound"), bTargetFound);
+            Report->SetBoolField(TEXT("CorrectionAppliedToPIECopy"), bCorrection && bTargetFound);
+        }
+
+        void Install(FAutomationTestBase* Test)
+        {
+            bInstalled = true;
+            if (GLog) GLog->AddOutputDevice(this);
+            // AddOutputDevice can replay the backlog. Only subsequent messages belong to this case.
+            bCapturingLogs = true;
+            InitializedHandle = FWorldDelegates::OnWorldInitializedActors.AddLambda(
+                [this, Test](const UWorld::FActorsInitializedParams& Params)
+                {
+                    UWorld* World = Params.World;
+                    if (!World || World->WorldType != EWorldType::PIE || Dungeon.IsValid()) return;
+                    for (TActorIterator<AHBDungeonRuntime> It(World); It; ++It)
+                    {
+                        Dungeon = *It;
+                        const bool bBeforeGeneration = Dungeon->State == EHBDungeonRuntimeState::Idle
+                            && Dungeon->GenerationId == 0 && !World->HasBegunPlay();
+                        Report->SetBoolField(TEXT("SeedAssignedBeforeGeneration"), bBeforeGeneration);
+                        Test->TestTrue(TEXT("Fixed seed is assigned before BeginPlay/StartGeneration"), bBeforeGeneration);
+                        if (!bBeforeGeneration) return;
+                        Dungeon->bRandomSeedOnStart = false;
+                        Dungeon->Seed = DeepAndDeeperSeed;
+                        Report->SetObjectField(TEXT("PIEDungeonSettings"), ExportEditableSettings(*Dungeon));
+                        LayoutHandle = Dungeon->OnLayoutPlanned.AddLambda([this]() { CaptureLayout(); });
+                        break;
+                    }
+                });
+            TickHandle = FWorldDelegates::OnWorldPreActorTick.AddLambda(
+                [this, Test](UWorld* World, ELevelTick, float)
+                {
+                    if (Dungeon.IsValid() && Dungeon->GetWorld() == World)
+                    {
+                        // Supply the lobby's default loadout for direct PIE, as in the existing smoke test.
+                        auto* PC = World->GetFirstPlayerController();
+                        auto* PS = PC ? PC->GetPlayerState<AHB_PlayerState>() : nullptr;
+                        const auto* Mode = World->GetAuthGameMode();
+                        const auto* Defaults = Mode && Mode->DefaultPawnClass
+                            ? Cast<AHBPlayerCharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
+                        if (!bLoadoutAttempted && PS && !PS->GetSelectedJob() && Defaults && Defaults->GetJobData())
+                        {
+                            bLoadoutAttempted = true;
+                            FHBStartingLoadout Loadout;
+                            FText Error;
+                            const bool bValid = MakeDefaultStartingLoadout(Defaults->GetJobData(), Loadout, Error)
+                                && PS->TrySetStartingLoadout(Loadout, Error);
+                            Report->SetBoolField(TEXT("DirectPIEDefaultLoadoutApplied"), bValid);
+                            if (!bValid) Test->AddError(Error.ToString());
+                        }
+                        if (LayoutSignature.IsEmpty()) CaptureLayout();
+                        CapturePoints();
+                    }
+                });
+        }
+
+        void Uninstall()
+        {
+            if (!bInstalled) return;
+            bCapturingLogs = false;
+            FWorldDelegates::OnWorldInitializedActors.Remove(InitializedHandle);
+            FWorldDelegates::OnWorldPreActorTick.Remove(TickHandle);
+            if (Dungeon.IsValid()) Dungeon->OnLayoutPlanned.Remove(LayoutHandle);
+            if (GLog) GLog->RemoveOutputDevice(this);
+            bInstalled = false;
+        }
+
+        void Finish(const FString& State, const FString& Status)
+        {
+            Report->SetStringField(TEXT("RuntimeState"), State);
+            Report->SetStringField(TEXT("RuntimeStatus"), Status);
+            Report->SetBoolField(TEXT("CapturedBeforeEncounterPreparation"), bCapturedPoints);
+            Report->SetBoolField(TEXT("RuntimeCleanupClearedRooms"), Dungeon.IsValid() && Dungeon->Rooms.IsEmpty());
+            const FString SpawnLine = FString::Printf(TEXT("Room %d point In2 spawned "), In2RoomId);
+            const FString AttemptLine = FString::Printf(TEXT("Room=%d Point=In2 Class="), In2RoomId);
+            bool bSpawned = false, bAttempted = false;
+            TSet<FString> AttemptedClasses, BlockingActorPaths;
+            TArray<TSharedPtr<FJsonValue>> Evidence;
+            for (const FString& Line : Logs)
+            {
+                Evidence.Add(MakeShared<FJsonValueString>(Line));
+                bSpawned |= Line.Contains(SpawnLine);
+                bAttempted |= Line.Contains(AttemptLine);
+                if (Line.Contains(AttemptLine))
+                {
+                    const int32 ClassStart = Line.Find(TEXT("Class=")) + 6;
+                    const int32 ClassEnd = Line.Find(TEXT(" "), ESearchCase::CaseSensitive, ESearchDir::FromStart, ClassStart);
+                    AttemptedClasses.Add(Line.Mid(ClassStart, ClassEnd - ClassStart));
+                    for (const auto& Pair : RoomActorCatalog)
+                        if (Line.Contains(TEXT(" ActorPath=") + Pair.Key + TEXT(" ")))
+                            BlockingActorPaths.Add(Pair.Key);
+                }
+            }
+            const bool bRequiredFailure = Status.StartsWith(TEXT("Room 11 encounter:"))
+                && Status.Contains(TEXT("required point In2 was not filled."));
+            // Required failure owns only In2's class/query evidence, even without Verbose logging.
+            if (bRequiredFailure)
+            {
+                int32 SearchFrom = 0;
+                for (int32 ClassTag = Status.Find(TEXT(" Class=")); ClassTag != INDEX_NONE;
+                    ClassTag = Status.Find(TEXT(" Class="), ESearchCase::CaseSensitive, ESearchDir::FromStart, SearchFrom))
+                {
+                    const int32 ClassStart = ClassTag + 7;
+                    const int32 ClassEnd = Status.Find(TEXT(" "), ESearchCase::CaseSensitive, ESearchDir::FromStart, ClassStart);
+                    if (ClassEnd == INDEX_NONE) break;
+                    AttemptedClasses.Add(Status.Mid(ClassStart, ClassEnd - ClassStart));
+                    SearchFrom = ClassEnd;
+                }
+                for (const auto& Pair : RoomActorCatalog)
+                    if (Status.Contains(TEXT(" ActorPath=") + Pair.Key + TEXT(" "))
+                        || Status.Contains(Pair.Key + TEXT(":"))) BlockingActorPaths.Add(Pair.Key);
+            }
+            Report->SetStringField(TEXT("In2Outcome"), bSpawned ? TEXT("Spawned")
+                : bRequiredFailure ? TEXT("RequiredPointUnfilled")
+                : bAttempted ? TEXT("Attempted; no spawn observed") : TEXT("Not observed; inspect earlier runtime failure"));
+            Report->SetBoolField(TEXT("In2SpawnRolledBack"), bSpawned && State == TEXT("Failed"));
+            TArray<TSharedPtr<FJsonValue>> ClassPaths, Blockers;
+            TArray<FString> SortedClasses = AttemptedClasses.Array(), SortedBlockers = BlockingActorPaths.Array();
+            SortedClasses.Sort();
+            SortedBlockers.Sort();
+            for (const FString& Path : SortedClasses) ClassPaths.Add(MakeShared<FJsonValueString>(Path));
+            for (const FString& Path : SortedBlockers) Blockers.Add(MakeShared<FJsonValueObject>(RoomActorCatalog.FindChecked(Path)));
+            Report->SetArrayField(TEXT("In2AttemptedClasses"), ClassPaths);
+            Report->SetArrayField(TEXT("ActualIn2BlockingActors"), Blockers);
+            Report->SetArrayField(TEXT("RuntimeEvidence"), Evidence);
+            Uninstall();
+        }
+    };
+
+    class FHBObserveDeepAndDeeper : public IAutomationLatentCommand
+    {
+        FAutomationTestBase* Test;
+        TSharedRef<FDeepAndDeeperObservation> Observation;
+        double Started = 0.;
+    public:
+        FHBObserveDeepAndDeeper(FAutomationTestBase* InTest, TSharedRef<FDeepAndDeeperObservation> InObservation)
+            : Test(InTest), Observation(InObservation) {}
+        virtual bool Update() override
+        {
+            if (Started == 0.) Started = FPlatformTime::Seconds();
+            auto* Dungeon = Observation->Dungeon.Get();
+            if (Dungeon && (Dungeon->State == EHBDungeonRuntimeState::Failed || Dungeon->IsReady()))
+            {
+                Observation->Finish(Dungeon->IsReady() ? TEXT("Ready") : TEXT("Failed"), Dungeon->Status);
+                Test->TestEqual(TEXT("Observed actual generation seed"),
+                    static_cast<int32>(Observation->Report->GetNumberField(TEXT("ActiveSeed"))), DeepAndDeeperSeed);
+                Test->TestFalse(TEXT("Actual layout was captured before cleanup"), Observation->LayoutSignature.IsEmpty());
+                Test->AddInfo(FString::Printf(TEXT("%s: runtime=%s In2=%s"),
+                    *Observation->Report->GetStringField(TEXT("Case")),
+                    *Observation->Report->GetStringField(TEXT("RuntimeState")),
+                    *Observation->Report->GetStringField(TEXT("In2Outcome"))));
+                return true;
+            }
+            const double Timeout = Dungeon ? Dungeon->LoadTimeoutSeconds + Dungeon->EncounterTimeoutSeconds + 30. : 90.;
+            if (FPlatformTime::Seconds() - Started < Timeout) return false;
+            Observation->Finish(TEXT("ObserverTimeout"), Dungeon ? Dungeon->Status : TEXT("No initialized PIE dungeon"));
+            Test->AddError(TEXT("DeepAndDeeper observation did not reach a terminal runtime state."));
+            return true;
+        }
+    };
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDeepAndDeeperDiagnosticsTest,
+    "HeavenBreach.PCGModule.Encounter.DeepAndDeeper.SpawnDiagnostics",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBDeepAndDeeperDiagnosticsTest::RunTest(const FString&)
+{
+    const FString Map = TEXT("/Game/Levels/DeepAndDeeper");
+    if (!FPackageName::DoesPackageExist(Map)) { AddError(TEXT("DeepAndDeeper map is missing.")); return false; }
+    // This is an observation test, not an assertion that the authored dungeon is Ready.
+    // Only the two existing fail notifications and the known direct-PIE input asset error are expected.
+    AddExpectedErrorPlain(TEXT("LogHBDungeonRuntime: FAILED:"), EAutomationExpectedErrorFlags::Contains, 0);
+    AddExpectedErrorPlain(TEXT("HeavenBreachGM | Dungeon unavailable; player start blocked |"), EAutomationExpectedErrorFlags::Contains, 0);
+    AddExpectedErrorPlain(TEXT("Null input trigger detected in mapping to input action 'IA_Interact'"), EAutomationExpectedErrorFlags::Contains, 0);
+    EPlayNetMode PreviousMode;
+    int32 PreviousClients;
+    GetDefault<ULevelEditorPlaySettings>()->GetPlayNetMode(PreviousMode);
+    GetDefault<ULevelEditorPlaySettings>()->GetPlayNumberOfClients(PreviousClients);
+    const auto Baseline = MakeShared<FDeepAndDeeperObservation>(false);
+    const auto Correction = MakeShared<FDeepAndDeeperObservation>(true);
+    const auto EditorBefore = MakeShared<FString>();
+    const auto DirtyBefore = MakeShared<TMap<FString, bool>>();
+    ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(Map));
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, Baseline, EditorBefore, DirtyBefore]()
+    {
+        auto* Dungeon = FindEditorDungeon();
+        if (!Dungeon) { AddError(TEXT("DeepAndDeeper has no editor dungeon generator.")); return true; }
+        *EditorBefore = JsonText(ExportEditableSettings(*Dungeon));
+        *DirtyBefore = SourcePackageDirtyStates();
+        GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(EPlayNetMode::PIE_Standalone);
+        GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(1);
+        Baseline->Install(this);
+        return true;
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+    ADD_LATENT_AUTOMATION_COMMAND(FHBObserveDeepAndDeeper(this, Baseline));
+    ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, Correction]()
+    {
+        for (const auto& Context : GEngine->GetWorldContexts()) if (Context.WorldType == EWorldType::PIE) return false;
+        Correction->Install(this);
+        return true;
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+    ADD_LATENT_AUTOMATION_COMMAND(FHBObserveDeepAndDeeper(this, Correction));
+    ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+    ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand(
+        [this, Baseline, Correction, EditorBefore, DirtyBefore, PreviousMode, PreviousClients]()
+    {
+        for (const auto& Context : GEngine->GetWorldContexts()) if (Context.WorldType == EWorldType::PIE) return false;
+        Baseline->Uninstall();
+        Correction->Uninstall();
+        GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNetMode(PreviousMode);
+        GetMutableDefault<ULevelEditorPlaySettings>()->SetPlayNumberOfClients(PreviousClients);
+        const auto Report = MakeShared<FJsonObject>();
+        Report->SetObjectField(TEXT("Baseline"), Baseline->Report);
+        Report->SetObjectField(TEXT("Correction"), Correction->Report);
+        const bool bSameLayout = !Baseline->LayoutSignature.IsEmpty()
+            && Baseline->LayoutSignature == Correction->LayoutSignature;
+        Report->SetBoolField(TEXT("SameActualLayout"), bSameLayout);
+        TestTrue(TEXT("Comparison uses the same actual fixed-seed layout"), bSameLayout);
+        auto* EditorDungeon = FindEditorDungeon();
+        const bool bEditorUnchanged = EditorDungeon && *EditorBefore == JsonText(ExportEditableSettings(*EditorDungeon));
+        Report->SetBoolField(TEXT("OriginalEditorDungeonUnchanged"), bEditorUnchanged);
+        TestTrue(TEXT("Original editor dungeon settings remain unchanged"), bEditorUnchanged);
+        TArray<TSharedPtr<FJsonValue>> DirtyChanges;
+        for (const auto& Pair : SourcePackageDirtyStates())
+        {
+            const bool* Before = DirtyBefore->Find(Pair.Key);
+            if ((Before && *Before != Pair.Value) || (!Before && Pair.Value))
+                DirtyChanges.Add(MakeShared<FJsonValueString>(Pair.Key));
+        }
+        Report->SetArrayField(TEXT("SourcePackageDirtyChanges"), DirtyChanges);
+        TestTrue(TEXT("No original content package dirty state changed"), DirtyChanges.IsEmpty());
+        EPlayNetMode RestoredMode;
+        int32 RestoredClients;
+        GetDefault<ULevelEditorPlaySettings>()->GetPlayNetMode(RestoredMode);
+        GetDefault<ULevelEditorPlaySettings>()->GetPlayNumberOfClients(RestoredClients);
+        const bool bPlaySettingsRestored = RestoredMode == PreviousMode && RestoredClients == PreviousClients;
+        Report->SetBoolField(TEXT("PlaySettingsRestored"), bPlaySettingsRestored);
+        TestTrue(TEXT("PIE play settings restored"), bPlaySettingsRestored);
+        const FString Directory = FPaths::ProjectSavedDir() / TEXT("Automation/PCGDeepAndDeeper");
+        IFileManager::Get().MakeDirectory(*Directory, true);
+        const FString Path = Directory / TEXT("SpawnDiagnostics.json");
+        TestTrue(TEXT("DeepAndDeeper evidence report saved"), FFileHelper::SaveStringToFile(JsonText(Report), *Path));
+        AddInfo(TEXT("Observation test success does not imply dungeon Ready. Evidence: ") + Path);
+        return true;
+    }));
+    return true;
 }
 #endif

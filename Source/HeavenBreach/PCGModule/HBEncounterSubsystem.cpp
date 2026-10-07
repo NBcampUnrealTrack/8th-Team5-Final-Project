@@ -1,4 +1,8 @@
-#include "PCGModule/HBEncounterSubsystem.h"
+﻿#include "PCGModule/HBEncounterSubsystem.h"
+#include "PCGModule/HBSpawnGroundQuery.h"
+#include "PCGModule/HBSpawnNavigationTargets.h"
+#include "PCGModule/HBSpawnNavigationAgents.h"
+#include "PCGModule/HBSpawnDiagnostics.h"
 #include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
 #include "PCGModule/HBRoomSpawnExclusionVolume.h"
@@ -56,13 +60,15 @@ namespace
 	}
 
 	bool TryOptionsAtPoint(const AHBEnemySpawnPoint& Point, const FHBEncounterGroup& Group,
-		FRandomStream& Random, TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
-		FHBEncounterSpawnChoice& OutChoice, FString& LastFailure)
+		FRandomStream& Random, TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
+		FHBEncounterSpawnChoice& OutChoice, FHBSpawnSelectionReport& Report)
 	{
 		TArray<FHBEncounterMonsterOption> Remaining;
 		for (const FHBEncounterMonsterOption& Option : Group.Monsters)
 			if (Option.EnemyClass && Option.Weight > 0 && AllowsClass(Point, Option.EnemyClass.Get()))
 				Remaining.Add(Option);
+		if (Remaining.IsEmpty())
+			Report.RecordSkip(Point.PointId, Group.GroupId, EHBSpawnFailureReason::NoCompatibleClass);
 		while (!Remaining.IsEmpty())
 		{
 			int32 TotalWeight = 0;
@@ -75,11 +81,19 @@ namespace
 				if (Roll <= 0) break;
 			}
 			FHBEncounterSpawnChoice Choice{Point.PointId, const_cast<AHBEnemySpawnPoint*>(&Point),
-				Remaining[Pick].EnemyClass, Group.Grade};
+				Remaining[Pick].EnemyClass, Group.Grade, Group.bRequireEntryPath,
+				Point.bOverrideNavigationAnchor ? Point.NavigationAnchorId : Group.NavigationAnchorId,
+				Remaining[Pick].SpawnScale};
 			Remaining.RemoveAt(Pick);
 			FString Reason;
-			if (TryPlace(Choice, Reason)) { OutChoice = Choice; return true; }
-			LastFailure = FString::Printf(TEXT("Point %s: %s"), *Point.PointId.ToString(), *Reason);
+			FHBSpawnPlacementReport PlacementReport;
+			if (TryPlace(Choice, Reason, PlacementReport))
+			{
+				Report.RecordPlaced(Point.PointId, Group.GroupId, Choice.EnemyClass->GetPathName(), &PlacementReport);
+				OutChoice = Choice;
+				return true;
+			}
+			Report.RecordClassFailure(Point.PointId, Group.GroupId, Choice.EnemyClass->GetPathName(), Reason, &PlacementReport);
 		}
 		return false;
 	}
@@ -88,14 +102,30 @@ namespace
 bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 	const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
 	TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&)> TryPlace,
-	TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError)
+	TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport)
+{
+	return SelectAndPlaceWithDiagnostics(Config, Points, DungeonSeed, RoomId,
+		[&](const FHBEncounterSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport&)
+		{ return TryPlace(Choice, Reason); }, OutPlaced, OutError, OutReport);
+}
+
+bool HBEncounterSelection::SelectAndPlaceWithDiagnostics(const UHBEncounterComponent& Config,
+	const TArray<AHBEnemySpawnPoint*>& Points, int32 DungeonSeed, int32 RoomId,
+	TFunctionRef<bool(const FHBEncounterSpawnChoice&, FString&, FHBSpawnPlacementReport&)> TryPlace,
+	TArray<FHBEncounterSpawnChoice>& OutPlaced, FString& OutError, FHBSpawnSelectionReport* OutReport)
 {
 	OutPlaced.Reset();
 	OutError.Reset();
+	FHBSpawnSelectionReport LocalReport;
+	FHBSpawnSelectionReport& Report = OutReport ? *OutReport : LocalReport;
+	Report = FHBSpawnSelectionReport();
+	Report.RoomId = RoomId;
+	Report.DungeonSeed = DungeonSeed;
 	TArray<FString> ConfigErrors;
 	if (!Config.Validate(ConfigErrors))
 	{
 		OutError = FString::Join(ConfigErrors, TEXT("; "));
+		Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
 		return false;
 	}
 	TArray<AHBEnemySpawnPoint*> SortedPoints = Points;
@@ -110,14 +140,15 @@ bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 		if (Point->PointId.IsNone() || AllIds.Contains(Point->PointId))
 		{
 			OutError = TEXT("Spawn Point IDs must be nonempty and unique within the room instance.");
+			Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
 			return false;
 		}
 		AllIds.Add(Point->PointId);
+		Report.AddPoint(Point->PointId, Point->bRequired);
 	}
 	FRandomStream Random(MakeRoomSeed(DungeonSeed, RoomId));
 	TSet<FName> UsedIds;
 	TMap<FName, int32> PlacedByGroup;
-	FString LastFailure;
 	for (EHBEncounterGrade Grade : {EHBEncounterGrade::Boss, EHBEncounterGrade::Elite, EHBEncounterGrade::Common})
 	{
 		for (const FHBEncounterGroup& Group : Config.Groups)
@@ -128,50 +159,83 @@ bool HBEncounterSelection::SelectAndPlace(const UHBEncounterComponent& Config,
 			if (bConditionSpawned)
 			{
 				if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, EHBSpawnCountSelectionMode::Weighted,
-					Group.CountWeightsIfConditionSpawned, Random, Target, OutError)) return false;
+					Group.CountWeightsIfConditionSpawned, Random, Target, OutError))
+				{
+					Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
+					return false;
+				}
 			}
 			else if (!HBSpawnCountSelection::Select(Group.MinCount, Group.MaxCount, Group.CountSelectionMode,
-				Group.CountWeights, Random, Target, OutError)) return false;
+				Group.CountWeights, Random, Target, OutError))
+			{
+				Report.FailureReason = EHBSpawnFailureReason::InvalidConfiguration;
+				return false;
+			}
+			FHBSpawnGroupReport& GroupReport = Report.Groups.AddDefaulted_GetRef();
+			GroupReport.GroupId = Group.GroupId;
+			GroupReport.MinCount = Group.MinCount;
+			GroupReport.Target = Target;
 			TArray<AHBEnemySpawnPoint*> Required;
 			TArray<AHBEnemySpawnPoint*> Optional;
 			for (AHBEnemySpawnPoint* Point : SortedPoints)
 			{
-				if (UsedIds.Contains(Point->PointId) || !AllowsGrade(*Point, Grade)
-					|| (!Point->GroupId.IsNone() && Point->GroupId != Group.GroupId)) continue;
+				if (UsedIds.Contains(Point->PointId)) continue;
+				if (!AllowsGrade(*Point, Grade))
+				{
+					Report.RecordSkip(Point->PointId, Group.GroupId, EHBSpawnFailureReason::GradeMismatch);
+					continue;
+				}
+				if (!Point->GroupId.IsNone() && Point->GroupId != Group.GroupId)
+				{
+					Report.RecordSkip(Point->PointId, Group.GroupId, EHBSpawnFailureReason::GroupMismatch);
+					continue;
+				}
 				(Point->bRequired ? Required : Optional).Add(Point);
 			}
 			ShufflePoints(Required, Random);
 			ShufflePoints(Optional, Random);
 			Required.Append(Optional);
 			int32 Placed = 0;
-			for (AHBEnemySpawnPoint* Point : Required)
+			for (int32 PointIndex = 0; PointIndex < Required.Num(); ++PointIndex)
 			{
-				if (Placed >= Target) break;
+				if (Placed >= Target)
+				{
+					for (int32 SkippedIndex = PointIndex; SkippedIndex < Required.Num(); ++SkippedIndex)
+						Report.RecordSkip(Required[SkippedIndex]->PointId, Group.GroupId, EHBSpawnFailureReason::TargetReached);
+					break;
+				}
+				AHBEnemySpawnPoint* Point = Required[PointIndex];
 				FHBEncounterSpawnChoice Choice;
-				if (TryOptionsAtPoint(*Point, Group, Random, TryPlace, Choice, LastFailure))
+				if (TryOptionsAtPoint(*Point, Group, Random, TryPlace, Choice, Report))
 				{
 					OutPlaced.Add(Choice);
 					UsedIds.Add(Choice.PointId);
+					Report.RecordPlaced(Choice.PointId);
 					++Placed;
 				}
 			}
 			PlacedByGroup.Add(Group.GroupId, Placed);
+			GroupReport.Placed = Placed;
 			if (Placed < Group.MinCount)
 			{
-				OutError = FString::Printf(TEXT("Room %d group %s placed %d of required %d. %s"),
-					RoomId, *Group.GroupId.ToString(), Placed, Group.MinCount, *LastFailure);
+				Report.FailureReason = GroupReport.FailureReason = EHBSpawnFailureReason::MinCountNotMet;
+				Report.FailedGroupId = Group.GroupId;
+				OutError = FString::Printf(TEXT("Room %d group %s placed %d of required %d. FailureReason=MinCountNotMet Target=%d Seed=%d %s"),
+					RoomId, *Group.GroupId.ToString(), Placed, Group.MinCount, Target, DungeonSeed,
+					*Report.FormatGroupResults(Group.GroupId));
 				return false;
 			}
 			if (Placed < Target)
 				UE_LOG(LogHBEncounterSubsystem, Warning, TEXT("Room %d group %s placed %d of selected %d. %s"),
-					RoomId, *Group.GroupId.ToString(), Placed, Target, *LastFailure);
+					RoomId, *Group.GroupId.ToString(), Placed, Target, *Report.FormatGroupResults(Group.GroupId));
 		}
 	}
 	for (const AHBEnemySpawnPoint* Point : SortedPoints)
 		if (Point->bRequired && !UsedIds.Contains(Point->PointId))
 		{
-			OutError = FString::Printf(TEXT("Room %d required point %s was not filled. %s"),
-				RoomId, *Point->PointId.ToString(), *LastFailure);
+			Report.FailureReason = EHBSpawnFailureReason::RequiredPointUnfilled;
+			Report.FailedPointId = Point->PointId;
+			OutError = Report.FormatRequiredFailure(Point->PointId, false);
 			return false;
 		}
 	return true;
@@ -194,6 +258,13 @@ bool UHBEncounterSubsystem::CanManageRoomSpawns() const
 bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
 	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FVector>& EntryLocations, FString& OutError, bool bDeferActivation)
 {
+	return StartEncounterWithEntries(GenerationId, DungeonSeed, RoomId, RoomLevel, RoomBounds,
+		HBRoomSpawnEntries::FromLocations(EntryLocations), OutError, bDeferActivation);
+}
+
+bool UHBEncounterSubsystem::StartEncounterWithEntries(int32 GenerationId, int32 DungeonSeed, int32 RoomId,
+	ULevel* RoomLevel, const FBox& RoomBounds, const TArray<FHBRoomSpawnEntry>& Entries, FString& OutError, bool bDeferActivation)
+{
 	OutError.Reset();
 	UWorld* World = GetWorld();
 	if (!CanManageRoomSpawns())
@@ -206,11 +277,17 @@ bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed
 		OutError = TEXT("Encounter requires a positive generation ID and nonnegative room ID.");
 		return false;
 	}
-	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || EntryLocations.IsEmpty())
+	if (!IsValid(RoomLevel) || RoomLevel->GetWorld() != World || !RoomBounds.IsValid || Entries.IsEmpty())
 	{
 		OutError = TEXT("Encounter needs its loaded room level, valid bounds and an entry location.");
 		return false;
 	}
+	for (const FHBRoomSpawnEntry& Entry : Entries)
+		if (!Entry.IsFinite())
+		{
+			OutError = TEXT("Encounter entry connection and navigation locations must be finite.");
+			return false;
+		}
 	for (const FRoomState& State : RoomStates)
 	{
 		if (State.GenerationId == GenerationId && State.DungeonSeed != DungeonSeed)
@@ -245,18 +322,35 @@ bool UHBEncounterSubsystem::StartEncounter(int32 GenerationId, int32 DungeonSeed
 		OutError = TEXT("Encounter Setup has no authority or settings component.");
 		return false;
 	}
+	TMap<FName, FVector> NavigationAnchors;
+	if (!HBSpawnNavigationTargets::Collect(*RoomLevel, RoomBounds, NavigationAnchors, OutError)) return false;
+	for (const AHBEnemySpawnPoint* Point : Points)
+		if (Point->bOverrideNavigationAnchor && !Point->NavigationAnchorId.IsNone() && !NavigationAnchors.Contains(Point->NavigationAnchorId))
+		{
+			OutError = FString::Printf(TEXT("Point %s navigation anchor %s was not found in this room instance."),
+				*Point->PointId.ToString(), *Point->NavigationAnchorId.ToString());
+			return false;
+		}
+	for (const FHBEncounterGroup& Group : Setup->Encounter->Groups)
+		if (!Group.NavigationAnchorId.IsNone() && !NavigationAnchors.Contains(Group.NavigationAnchorId))
+		{
+			OutError = FString::Printf(TEXT("Group %s navigation anchor %s was not found in this room instance."),
+				*Group.GroupId.ToString(), *Group.NavigationAnchorId.ToString());
+			return false;
+		}
 	FRoomState& State = RoomStates.AddDefaulted_GetRef();
+	State.NavigationAnchors = MoveTemp(NavigationAnchors);
 	State.Level = RoomLevel;
 	State.GenerationId = GenerationId;
 	State.RoomId = RoomId;
 	State.DungeonSeed = DungeonSeed;
 	State.bDeferActivation = bDeferActivation;
 	TArray<FHBEncounterSpawnChoice> Placed;
-	const bool bSucceeded = HBEncounterSelection::SelectAndPlace(*Setup->Encounter, Points, DungeonSeed, RoomId,
-		[&](const FHBEncounterSpawnChoice& Choice, FString& Reason)
+	const bool bSucceeded = HBEncounterSelection::SelectAndPlaceWithDiagnostics(*Setup->Encounter, Points, DungeonSeed, RoomId,
+		[&](const FHBEncounterSpawnChoice& Choice, FString& Reason, FHBSpawnPlacementReport& PlacementReport)
 		{
 			AEnemyCharacterBase* Enemy = nullptr;
-			if (!TrySpawn(Choice, *Setup->Encounter, *Setup, *RoomLevel, RoomBounds, EntryLocations, State, Enemy, Reason)) return false;
+			if (!TrySpawn(Choice, *Setup->Encounter, *Setup, *RoomLevel, RoomBounds, Entries, State, Enemy, Reason, PlacementReport)) return false;
 			State.SpawnedEnemies.Add(Enemy);
 			Enemy->OnDied.AddUObject(this, &UHBEncounterSubsystem::HandleEnemyDied);
 			++State.AliveCount;
@@ -357,121 +451,188 @@ int32 UHBEncounterSubsystem::GetAliveCount(int32 GenerationId, int32 RoomId, con
 
 bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, const UHBEncounterComponent& Config,
 	AHBEncounterSetupActor& Setup, ULevel& RoomLevel, const FBox& RoomBounds,
-	const TArray<FVector>& EntryLocations, const FRoomState& State,
-	AEnemyCharacterBase*& OutEnemy, FString& OutReason)
+	const TArray<FHBRoomSpawnEntry>& Entries, const FRoomState& State,
+	AEnemyCharacterBase*& OutEnemy, FString& OutReason, FHBSpawnPlacementReport& PlacementReport)
 {
 	OutEnemy = nullptr;
 	UWorld* World = GetWorld();
 	const auto* Defaults = Choice.EnemyClass ? Choice.EnemyClass->GetDefaultObject<AEnemyCharacterBase>() : nullptr;
 	const UCapsuleComponent* Capsule = Defaults ? Defaults->GetCapsuleComponent() : nullptr;
-	if (!CanManageRoomSpawns() || !IsValid(Choice.Point) || !Capsule || Choice.Point->GetLevel() != &RoomLevel)
+	if (!CanManageRoomSpawns() || !IsValid(Choice.Point) || !Capsule || Choice.Point->GetLevel() != &RoomLevel
+		|| !FMath::IsFinite(Choice.SpawnScale) || Choice.SpawnScale <= 0.f)
 	{
 		OutReason = TEXT("Missing world, room-owned point or enemy capsule.");
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidConfiguration, OutReason);
 		return false;
 	}
-	const float Radius = Capsule->GetScaledCapsuleRadius();
-	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+	const float Radius = Capsule->GetScaledCapsuleRadius() * Choice.SpawnScale;
+	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight() * Choice.SpawnScale;
 	if ((Choice.Point->MaxCapsuleRadius > 0 && Radius > Choice.Point->MaxCapsuleRadius)
 		|| (Choice.Point->MaxCapsuleHalfHeight > 0 && HalfHeight > Choice.Point->MaxCapsuleHalfHeight))
 	{
 		OutReason = TEXT("Enemy capsule exceeds the point's size limit.");
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::CapsuleSizeExceeded, OutReason);
+		return false;
+	}
+	TArray<FHBSpawnNavigationTarget> PathTargets;
+	if (Choice.bRequireEntryPath && !HBSpawnNavigationTargets::Resolve(Choice.NavigationAnchorId,
+		State.NavigationAnchors, Entries, PathTargets, OutReason))
+	{
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidConfiguration, OutReason);
 		return false;
 	}
 	const FVector Marker = Choice.Point->GetActorLocation();
+	FHBSpawnGroundSearchSettings SearchSettings;
+	SearchSettings.bAllowPositionCorrection = Choice.Point->bAllowPositionCorrection;
+	SearchSettings.Basis = Choice.Point->bUseCapsuleBasedCorrection
+		? EHBSpawnCorrectionBasis::EnemyCapsule : EHBSpawnCorrectionBasis::LegacyFixed;
+	SearchSettings.ShapeRadius = Radius;
+	SearchSettings.ShapeHalfExtents = FVector(Radius, Radius, HalfHeight);
+	SearchSettings.RadiusMultiplier = Choice.Point->CorrectionRadiusMultiplier;
 	FCollisionQueryParams Query(SCENE_QUERY_STAT(HBEnemyFloor), false);
 	Query.AddIgnoredActor(Choice.Point);
+	FCollisionQueryParams FloorQuery = Query;
+	for (const TWeakObjectPtr<AEnemyCharacterBase>& Other : State.SpawnedEnemies)
+		if (IsValid(Other.Get())) FloorQuery.AddIgnoredActor(Other.Get());
 	FHitResult Floor;
-	if (!World->LineTraceSingleByChannel(Floor, Marker + FVector(0, 0, 100), Marker - FVector(0, 0, 200), ECC_WorldStatic, Query)
-		|| Floor.ImpactNormal.Z < Config.MinFloorUpDot)
-	{
-		OutReason = TEXT("No safe floor or floor slope is too steep.");
-		return false;
-	}
+	if (!HBSpawnGroundQuery::FindPlacementWithDiagnostics(*World, Marker, Choice.Point->GetActorQuat(), RoomBounds,
+		Config.MinFloorUpDot, FloorQuery,
+		[&](const FHitResult& CandidateFloor, FString& Reason, FHBSpawnCandidateReport& Evidence)
+		{
+			const FVector Ground = CandidateFloor.ImpactPoint;
+			const FVector SpawnLocation = Ground + FVector(0, 0, HalfHeight + 2.f);
+			if (!RoomBounds.IsInsideOrOn(SpawnLocation))
+			{
+				Reason = TEXT("Projected spawn is outside the room bounds.");
+				Evidence.Cause = EHBSpawnFailureReason::OutsideRoom;
+				return false;
+			}
+			for (const FHBRoomSpawnEntry& Entry : Entries)
+				if (FVector::Dist2D(Ground, Entry.ConnectionLocation) < Config.MinEntryDistance + Radius)
+				{
+					Reason = TEXT("Spawn blocks a room entry or player start.");
+					Evidence.Cause = EHBSpawnFailureReason::EntrySpacing;
+					return false;
+				}
+			for (const TWeakObjectPtr<AEnemyCharacterBase>& OtherPtr : State.SpawnedEnemies)
+				if (AEnemyCharacterBase* Other = OtherPtr.Get())
+				{
+					const UCapsuleComponent* OtherCapsule = Other->GetCapsuleComponent();
+					const float OtherRadius = OtherCapsule->GetScaledCapsuleRadius();
+					const float OtherHalfHeight = OtherCapsule->GetScaledCapsuleHalfHeight();
+					if (HBEncounterPlacement::AreCapsulesTooClose(SpawnLocation, Radius, HalfHeight,
+						Other->GetActorLocation(), OtherRadius, OtherHalfHeight, Config.MinMonsterSpacing))
+					{
+						Reason = TEXT("Spawn is too close to another monster.");
+						Evidence.Cause = EHBSpawnFailureReason::MonsterSpacing;
+						return false;
+					}
+				}
+			for (AActor* Actor : RoomLevel.Actors)
+				if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion))
+				{
+					const FBox Box = Exclusion->Bounds->Bounds.GetBox().ExpandBy(FVector(Radius, Radius, HalfHeight));
+					if (Box.IsInsideOrOn(SpawnLocation))
+					{
+						Reason = TEXT("Spawn overlaps an authored exclusion region.");
+						Evidence.Cause = EHBSpawnFailureReason::ExcludedArea;
+						return false;
+					}
+				}
+			const int32 CapsuleCheckIndex = PlacementReport.CapsuleChecks++;
+			Evidence.CapsuleCheckIndex = CapsuleCheckIndex;
+			const FQuat CapsuleRotation = Choice.Point->GetActorQuat();
+			const FName CapsuleProfile = Capsule->GetCollisionProfileName();
+			const FCollisionShape CapsuleShape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+			if (World->OverlapBlockingTestByProfile(SpawnLocation, CapsuleRotation, CapsuleProfile, CapsuleShape, Query))
+			{
+				FHBSpawnCapsuleFailure& Failure = PlacementReport.CapsuleFailures.Add_GetRef(
+					HBSpawnDiagnostics::CollectCapsuleFailure(*World, Marker, CandidateFloor, SpawnLocation,
+						CapsuleRotation, CapsuleProfile, CapsuleShape, Query, CapsuleCheckIndex));
+				Failure.CandidateIndex = Evidence.CandidateIndex;
+				UE_LOG(LogHBEncounterSubsystem, Verbose, TEXT("GenerationId=%d Seed=%d Room=%d Point=%s Class=%s %s"),
+					State.GenerationId, State.DungeonSeed, State.RoomId, *Choice.PointId.ToString(),
+					*Choice.EnemyClass->GetPathName(), *Failure.Format());
+				Reason = TEXT("Enemy capsule overlaps blocking geometry.");
+				Evidence.Cause = EHBSpawnFailureReason::CapsuleOverlap;
+				return false;
+			}
+			UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+			FNavAgentProperties EffectiveAgent;
+			const FNavAgentProperties* Agent = HBSpawnNavigationAgents::GetCharacterAgent(Defaults, EffectiveAgent, Choice.SpawnScale)
+				? &EffectiveAgent : nullptr;
+			const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, SpawnLocation) : nullptr;
+			FNavLocation OnNav;
+			FHBSpawnNavCheck& GroundCheck = Evidence.NavigationChecks.AddDefaulted_GetRef();
+			if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Ground,
+				FVector(Radius, Radius, HalfHeight), Config.MaxNavProjectionDistance, Config.MaxNavProjectionHeight,
+				&RoomBounds, false, OnNav, GroundCheck))
+			{
+				Reason = TEXT("No nearby navigation surface for this enemy's agent.");
+				Evidence.Cause = EHBSpawnFailureReason::NavProjectionFailed;
+				return false;
+			}
+			if (Choice.bRequireEntryPath)
+			{
+				bool bReachable = false;
+				for (const FHBSpawnNavigationTarget& Target : PathTargets)
+				{
+					FNavLocation EntryOnNav;
+					FHBSpawnNavCheck& EntryCheck = Evidence.NavigationChecks.AddDefaulted_GetRef();
+					EntryCheck.Stage = EHBSpawnNavStage::EntryPath;
+					EntryCheck.EntryIndex = Target.EntryIndex;
+					EntryCheck.NavigationAnchorId = Target.AnchorId;
+					EntryCheck.bHasEntryConnectionLocation = Target.bHasConnectionLocation;
+					EntryCheck.EntryConnectionLocation = Target.ConnectionLocation;
+					const FBox* TargetBounds = Target.AnchorId.IsNone() ? nullptr : &RoomBounds;
+					if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Target.Location,
+						FVector(Radius, Radius, HalfHeight), Config.MaxNavProjectionDistance * 2.f,
+						Config.MaxNavProjectionHeight * 2.f, TargetBounds, false, EntryOnNav, EntryCheck)) continue;
+					FPathFindingQuery PathQuery(this, *NavData, OnNav.Location, EntryOnNav.Location);
+					PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
+					const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
+					const bool bPathSucceeded = Path.IsSuccessful();
+					const bool bPathValid = Path.Path.IsValid();
+					if (EntryCheck.SetPathResult(bPathSucceeded, bPathValid,
+						bPathValid && Path.Path->IsPartial()))
+					{
+						bReachable = true;
+						break;
+					}
+				}
+				if (!bReachable)
+				{
+					Reason = TEXT("Enemy has no complete navigation path to a room entry.");
+					Evidence.Cause = EHBSpawnFailureReason::NoCompleteEntryPath;
+					Evidence.Details = FString::Printf(TEXT("EntriesAvailable=%d EntriesChecked=%d Direction=PlacementToEntry"),
+						PathTargets.Num(), Evidence.NavigationChecks.Num() - 1);
+					return false;
+				}
+			}
+			return true;
+		}, Floor, OutReason, PlacementReport, SearchSettings)) return false;
 	const FVector Ground = Floor.ImpactPoint;
 	const FVector SpawnLocation = Ground + FVector(0, 0, HalfHeight + 2.f);
-	if (!RoomBounds.IsInsideOrOn(SpawnLocation))
-	{
-		OutReason = TEXT("Projected spawn is outside the room bounds.");
-		return false;
-	}
-	for (const FVector& Entry : EntryLocations)
-		if (FVector::Dist2D(Ground, Entry) < Config.MinEntryDistance + Radius)
-		{
-			OutReason = TEXT("Spawn blocks a room entry or player start.");
-			return false;
-		}
-	for (const TWeakObjectPtr<AEnemyCharacterBase>& OtherPtr : State.SpawnedEnemies)
-		if (AEnemyCharacterBase* Other = OtherPtr.Get())
-		{
-			const UCapsuleComponent* OtherCapsule = Other->GetCapsuleComponent();
-			const float OtherRadius = OtherCapsule->GetScaledCapsuleRadius();
-			const float OtherHalfHeight = OtherCapsule->GetScaledCapsuleHalfHeight();
-			if (HBEncounterPlacement::AreCapsulesTooClose(SpawnLocation, Radius, HalfHeight,
-				Other->GetActorLocation(), OtherRadius, OtherHalfHeight, Config.MinMonsterSpacing))
-			{
-				OutReason = TEXT("Spawn is too close to another monster.");
-				return false;
-			}
-		}
-	for (AActor* Actor : RoomLevel.Actors)
-		if (const auto* Exclusion = Cast<AHBRoomSpawnExclusionVolume>(Actor); IsValid(Exclusion))
-		{
-			const FBox Box = Exclusion->Bounds->Bounds.GetBox().ExpandBy(FVector(Radius, Radius, HalfHeight));
-			if (Box.IsInsideOrOn(SpawnLocation))
-			{
-				OutReason = TEXT("Spawn overlaps an authored exclusion region.");
-				return false;
-			}
-		}
-	if (World->OverlapBlockingTestByProfile(SpawnLocation, Choice.Point->GetActorQuat(), Capsule->GetCollisionProfileName(),
-		FCollisionShape::MakeCapsule(Radius, HalfHeight), Query))
-	{
-		OutReason = TEXT("Enemy capsule overlaps blocking geometry.");
-		return false;
-	}
-	UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
-	const UCharacterMovementComponent* Movement = Defaults->GetCharacterMovement();
-	const FNavAgentProperties* Agent = Movement ? &Movement->GetNavAgentPropertiesRef() : nullptr;
-	const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, SpawnLocation) : nullptr;
-	FNavLocation OnNav;
-	if (!NavData || !Nav->ProjectPointToNavigation(Ground, OnNav, FVector(Radius, Radius, HalfHeight), NavData)
-		|| FVector::Dist2D(Ground, OnNav.Location) > Config.MaxNavProjectionDistance
-		|| FMath::Abs(Ground.Z - OnNav.Location.Z) > Config.MaxNavProjectionHeight
-		|| !RoomBounds.IsInsideOrOn(OnNav.Location))
-	{
-		OutReason = TEXT("No nearby navigation surface for this enemy's agent.");
-		return false;
-	}
-	bool bReachable = false;
-	for (const FVector& Entry : EntryLocations)
-	{
-		FNavLocation EntryOnNav;
-		if (!Nav->ProjectPointToNavigation(Entry, EntryOnNav, FVector(Radius, Radius, HalfHeight), NavData)
-			|| FVector::Dist2D(Entry, EntryOnNav.Location) > Config.MaxNavProjectionDistance * 2.f
-			|| FMath::Abs(Entry.Z - EntryOnNav.Location.Z) > Config.MaxNavProjectionHeight * 2.f) continue;
-		FPathFindingQuery PathQuery(this, *NavData, OnNav.Location, EntryOnNav.Location);
-		PathQuery.SetAllowPartialPaths(false).SetNavAgentProperties(*Agent);
-		const FPathFindingResult Path = Nav->FindPathSync(*Agent, PathQuery);
-		if (Path.IsSuccessful() && Path.Path.IsValid() && !Path.Path->IsPartial())
-		{
-			bReachable = true;
-			break;
-		}
-	}
-	if (!bReachable)
-	{
-		OutReason = TEXT("Enemy has no complete navigation path to a room entry.");
-		return false;
-	}
+	if (FVector::Dist2D(Marker, Ground) > KINDA_SMALL_NUMBER)
+		UE_LOG(LogHBEncounterSubsystem, Display, TEXT("Room %d point %s floor adjusted %.1f cm: marker=%s ground=%s actor=%s component=%s."),
+			State.RoomId, *Choice.PointId.ToString(), FVector::Dist2D(Marker, Ground),
+			*Marker.ToString(), *Ground.ToString(), *GetNameSafe(Floor.GetActor()), *GetNameSafe(Floor.GetComponent()));
 	FActorSpawnParameters Params;
 	Params.Owner = &Setup;
 	Params.OverrideLevel = &RoomLevel;
-	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
+	// UE's pre-spawn encroachment test uses the unscaled class template. Scaled
+	// spawns already passed our real capsule test and receive a post-construction
+	// check below so a Blueprint cannot silently change that validated shape.
+	const bool bScaledSpawn = Choice.SpawnScale != 1.f;
+	Params.SpawnCollisionHandlingOverride = bScaledSpawn
+		? ESpawnActorCollisionHandlingMethod::AlwaysSpawn : ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
 	Params.bDeferConstruction = State.bDeferActivation;
-	OutEnemy = World->SpawnActor<AEnemyCharacterBase>(Choice.EnemyClass, SpawnLocation, Choice.Point->GetActorRotation(), Params);
+	const FTransform SpawnTransform(Choice.Point->GetActorRotation(), SpawnLocation, FVector(Choice.SpawnScale));
+	OutEnemy = World->SpawnActor<AEnemyCharacterBase>(Choice.EnemyClass, SpawnTransform, Params);
 	if (!IsValid(OutEnemy))
 	{
 		OutReason = TEXT("SpawnActor was rejected by collision handling.");
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::SpawnCollision, OutReason);
 		return false;
 	}
 	if (State.bDeferActivation)
@@ -480,16 +641,41 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 		// after ordinary spawning would already have executed OnPossess and AI tasks.
 		const EAutoPossessAI PreviousAutoPossess = OutEnemy->AutoPossessAI;
 		OutEnemy->AutoPossessAI = EAutoPossessAI::Disabled;
-		OutEnemy->FinishSpawning(FTransform(Choice.Point->GetActorRotation(), SpawnLocation));
+		OutEnemy->FinishSpawning(SpawnTransform);
 		OutEnemy->AutoPossessAI = PreviousAutoPossess;
 	}
 	if (!IsValid(OutEnemy) || OutEnemy->IsActorBeingDestroyed())
-	{ OutReason = TEXT("Enemy was destroyed while completing its spawn."); OutEnemy = nullptr; return false; }
+	{
+		OutReason = TEXT("Enemy was destroyed while completing its spawn.");
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidSpawnedActor, OutReason);
+		OutEnemy = nullptr;
+		return false;
+	}
+	if (bScaledSpawn)
+	{
+		const UCapsuleComponent* SpawnedCapsule = OutEnemy->GetCapsuleComponent();
+		if (!SpawnedCapsule || !FMath::IsNearlyEqual(SpawnedCapsule->GetScaledCapsuleRadius(), Radius, 0.01f)
+			|| !FMath::IsNearlyEqual(SpawnedCapsule->GetScaledCapsuleHalfHeight(), HalfHeight, 0.01f))
+		{
+			OutReason = TEXT("Constructed enemy capsule differs from the validated PCG spawn scale.");
+			PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidSpawnedActor, OutReason);
+			OutEnemy->Destroy(); OutEnemy = nullptr;
+			return false;
+		}
+		if (World->EncroachingBlockingGeometry(OutEnemy, OutEnemy->GetActorLocation(), OutEnemy->GetActorRotation(), nullptr))
+		{
+			OutReason = TEXT("Scaled enemy overlaps blocking geometry after construction.");
+			PlacementReport.RecordFailure(EHBSpawnFailureReason::SpawnCollision, OutReason);
+			OutEnemy->Destroy(); OutEnemy = nullptr;
+			return false;
+		}
+	}
 	if (!OutEnemy->GetIsReplicated() || !OutEnemy->IsReplicatingMovement() || OutEnemy->bOnlyRelevantToOwner
 		|| OutEnemy->GetLevel() != &RoomLevel)
 	{
 		OutReason = FString::Printf(TEXT("Spawned enemy %s must replicate actor/movement to other players and belong to its source room level."),
 			*GetNameSafe(Choice.EnemyClass.Get()));
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidSpawnedActor, OutReason);
 		OutEnemy->Destroy();
 		OutEnemy = nullptr;
 		return false;
@@ -501,6 +687,7 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 		OutReason = State.bDeferActivation
 			? TEXT("Pending enemy needs an AI controller class, ASC and living state; Blueprint must not possess it before match start.")
 			: TEXT("Spawned enemy has no AI controller, ASC or living state.");
+		PlacementReport.RecordFailure(EHBSpawnFailureReason::InvalidSpawnedActor, OutReason);
 		OutEnemy->Destroy();
 		OutEnemy = nullptr;
 		return false;

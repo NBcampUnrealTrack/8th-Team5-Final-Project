@@ -2,6 +2,7 @@
 #include "PCGModule/HBEncounterSetupActor.h"
 #include "AI/EnemyCharacterBase.h"
 #include "Misc/AutomationTest.h"
+#include <limits>
 
 #if WITH_DEV_AUTOMATION_TESTS
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBEncounterAuthoringComponentTest,
@@ -39,6 +40,16 @@ bool FHBEncounterAuthoringComponentTest::RunTest(const FString&)
 	Encounter->Groups[0].Monsters[0].Weight = 0;
 	TestFalse(TEXT("Nonpositive weight is rejected"), Encounter->Validate(Errors));
 	Encounter->Groups[0].Monsters[0].Weight = 3;
+	TestEqual(TEXT("Existing PCG options preserve their original size"), Encounter->Groups[0].Monsters[0].SpawnScale, 1.f);
+	Encounter->Groups[0].Monsters[0].SpawnScale = 0.85f;
+	TestTrue(TEXT("An authored PCG spawn scale is accepted"), Encounter->Validate(Errors));
+	for (float InvalidScale : {0.f, -1.f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
+	{
+		Encounter->Groups[0].Monsters[0].SpawnScale = InvalidScale;
+		TestFalse(TEXT("Invalid spawn scale is rejected before placement"), Encounter->Validate(Errors));
+		TestTrue(TEXT("Invalid scale retains its authoring cause"), FString::Join(Errors, TEXT(" ")).Contains(TEXT("SpawnScale")));
+	}
+	Encounter->Groups[0].Monsters[0].SpawnScale = 1.f;
 	Encounter->Groups[0].Monsters.Empty();
 	TestFalse(TEXT("Positive count needs a monster class"), Encounter->Validate(Errors));
 	return true;

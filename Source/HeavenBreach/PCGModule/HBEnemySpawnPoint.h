@@ -22,6 +22,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Point")
 	FName GroupId;
 
+	/** Override the group's path target. An empty override ID explicitly uses active room entries. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Navigation")
+	bool bOverrideNavigationAnchor = false;
+
+	/** Room-owned target used when overriding the group. Explicit IDs never fall back to entries. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Navigation", meta=(EditCondition="bOverrideNavigationAnchor"))
+	FName NavigationAnchorId;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Point")
 	bool bAllowCommon = true;
 
@@ -41,6 +49,18 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Point", meta=(ClampMin="0"))
 	float MaxCapsuleHalfHeight = 0.f;
+
+	/** When disabled only the authored position is checked. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Position Correction")
+	bool bAllowPositionCorrection = true;
+
+	/** Opt in to the selected class's capsule radius; otherwise retain the legacy 10/20/30 cm rings. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Position Correction", meta=(EditCondition="bAllowPositionCorrection"))
+	bool bUseCapsuleBasedCorrection = false;
+
+	/** Maximum horizontal adjustment = selected capsule radius * multiplier. Zero checks only the marker. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Position Correction", meta=(ClampMin="0", UIMax="4", EditCondition="bAllowPositionCorrection && bUseCapsuleBasedCorrection"))
+	float CorrectionRadiusMultiplier = 2.f;
 
 	/** A required point must be filled; its grade and class still come from the room profile. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Encounter|Point")

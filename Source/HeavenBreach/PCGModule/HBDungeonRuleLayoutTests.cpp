@@ -13,6 +13,7 @@
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "Misc/AutomationTest.h"
+#include "UObject/UnrealType.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 #include "IpNetDriver.h"
@@ -116,6 +117,51 @@ bool FHBConnectorRolesTest::RunTest(const FString&)
     for (auto& Door : C.Modules[5].Connectors) Door.Role = R::None;
     TestFalse(TEXT("Boss needs explicit entrance"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
     TestTrue(TEXT("Missing entrance diagnostic"), Error.Contains(TEXT("Boss Entrance")));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBConnectorNavigationEntryTest, "HeavenBreach.PCGModule.Connector.NavigationEntry",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBConnectorNavigationEntryTest::RunTest(const FString&)
+{
+    const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(false)
+        .RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
+    UWorld* World = UWorld::CreateWorld(EWorldType::EditorPreview, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
+    GEngine->CreateNewWorldContext(EWorldType::EditorPreview).SetCurrentWorld(World);
+    auto* Definition = World->SpawnActor<AHBDungeonModuleDefinition>();
+    Definition->ModuleId = TEXT("NavigationEntryRoom");
+    Definition->RoomInfo->RoomRole = EHBPrototypeRoomRole::Adventure;
+    World->SpawnActor<AHBDungeonOccupancy>();
+    auto* Marker = World->SpawnActor<AHBDungeonConnector>();
+    auto* Connector = Marker->FindComponentByClass<UHBDungeonConnectorComponent>();
+    if (TestNotNull(TEXT("Connector marker exposes its authoring component"), Connector))
+    {
+        Connector->ConnectorId = TEXT("Entry");
+        Marker->SetActorLocationAndRotation(FVector(1000, 2000, 300), FRotator(0, 90, 0));
+        const FTransform Connection = Connector->GetComponentTransform();
+        TestTrue(TEXT("Default zero offset uses the existing connection coordinate"),
+            Connector->NavigationEntryOffset.IsZero() && Connector->GetNavigationEntryLocation().Equals(Connection.GetLocation()));
+        const auto* Property = FindFProperty<FStructProperty>(Connector->GetClass(), TEXT("NavigationEntryOffset"));
+        if (TestNotNull(TEXT("Navigation offset is a reflected authoring property"), Property))
+            TestTrue(TEXT("Offset is editable in BP defaults and placed connector instances"),
+                Property->HasAllPropertyFlags(CPF_Edit | CPF_BlueprintVisible)
+                && !Property->HasAnyPropertyFlags(CPF_BlueprintReadOnly | CPF_DisableEditOnInstance | CPF_DisableEditOnTemplate));
+        const auto* Function = Connector->FindFunction(TEXT("GetNavigationEntryLocation"));
+        TestTrue(TEXT("World-space navigation target is available as a pure Blueprint function"),
+            Function && Function->HasAllFunctionFlags(FUNC_BlueprintCallable | FUNC_BlueprintPure));
+        Connector->NavigationEntryOffset = FVector(-200, 0, 40);
+        TestTrue(TEXT("Local inward offset rotates with the room and retains vertical adjustment"),
+            Connector->GetNavigationEntryLocation().Equals(FVector(1000, 1800, 340), 0.01));
+        TestTrue(TEXT("Offset leaves the physical connector transform untouched"), Connector->GetComponentTransform().Equals(Connection));
+        TArray<FHBModuleCatalogEntry> Catalog;
+        TArray<FString> Errors;
+        if (TestTrue(TEXT("Module with an offset target remains valid for assembly"), HBDungeonModuleCatalog::Build({World}, Catalog, Errors))
+            && TestEqual(TEXT("Catalog retains the authored room"), Catalog.Num(), 1)
+            && TestEqual(TEXT("Catalog retains the authored connector"), Catalog[0].Connectors.Num(), 1))
+            TestTrue(TEXT("Assembly catalog uses the physical marker, not the navigation target"),
+                Catalog[0].Connectors[0].LocalTransform.Equals(Connection));
+    }
+    World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
     return true;
 }
 
@@ -235,6 +281,73 @@ bool FHBAdventureFloorResetTest::RunTest(const FString&)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBConsecutiveRoleLimitsTest, "HeavenBreach.PCGModule.Rules.ConsecutiveRoleLimits",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBConsecutiveRoleLimitsTest::RunTest(const FString&)
+{
+	FCatalog Adventure;
+	Adventure.Modules.RemoveAll([](const auto& M) { return M.Role == EHBPrototypeRoomRole::Recovery || M.Role == EHBPrototypeRoomRole::Upgrade; });
+	Adventure.Rules.Floor1MainRooms = 4; Adventure.Rules.Floor2MainRooms = 5;
+	Adventure.Rules.Floor1BranchRooms = 0; Adventure.Rules.Floor2BranchRooms = 1;
+	TArray<FHBPrototypeRoom> Rooms, Replay; FString Error;
+	TestFalse(TEXT("Default Adventure limit rejects four on either floor"), HBDungeonRuleLayout::Generate(Adventure.Modules, Adventure.Settings, Adventure.Rules, Rooms, Error));
+	Adventure.Rules.MaxConsecutiveAdventureRooms = 4;
+	if (!TestTrue(TEXT("Adventure limit four permits the selected layout"), HBDungeonRuleLayout::Generate(Adventure.Modules, Adventure.Settings, Adventure.Rules, Rooms, Error)))
+	{ AddError(Error); return false; }
+	TestTrue(TEXT("Validator uses Adventure limit four"), HBDungeonRuleLayout::Validate(Adventure.Modules, Adventure.Settings, Adventure.Rules, Rooms, Error));
+	auto Stricter = Adventure.Rules; Stricter.MaxConsecutiveAdventureRooms = 3;
+	TestFalse(TEXT("Same layout fails independent validation under Adventure limit three"), HBDungeonRuleLayout::Validate(Adventure.Modules, Adventure.Settings, Stricter, Rooms, Error));
+	TestTrue(TEXT("Adventure diagnostic reports the configured limit"), Error.Contains(TEXT("More than 3 consecutive Adventure")));
+
+	for (const auto Role : {EHBPrototypeRoomRole::Recovery, EHBPrototypeRoomRole::Upgrade})
+	{
+		FCatalog C;
+		// Two Adventures are forced before a pair of special rooms ending floor 1.
+		// The same special role starts floor 2, exercising both streak and quota reset.
+		C.Rules.Floor1MainRooms = 4; C.Rules.Floor2MainRooms = 3;
+		C.Rules.Floor1BranchRooms = 0; C.Rules.Floor2BranchRooms = 1;
+		C.Rules.MaxConsecutiveAdventureRooms = 2;
+		C.Modules[3].Role = C.Modules[4].Role = Role;
+		for (auto& M : C.Modules)
+			if (M.Role == Role && M.Map != C.Rules.Floor2EntryMap) M.AllowedFloor = EHBAllowedFloor::Floor1;
+		C.Modules.RemoveAll([Role](const auto& M)
+		{
+			return (M.Role == EHBPrototypeRoomRole::Recovery || M.Role == EHBPrototypeRoomRole::Upgrade) && M.Role != Role;
+		});
+		int32& Limit = Role == EHBPrototypeRoomRole::Recovery ? C.Rules.MaxConsecutiveRecoveryRooms : C.Rules.MaxConsecutiveEnhancementRooms;
+		int32& Quota = Role == EHBPrototypeRoomRole::Recovery ? C.Rules.MaxRecoveryRoomsPerFloor : C.Rules.MaxEnhancementRoomsPerFloor;
+		Quota = 2;
+		FLayoutLogCapture Log;
+		TestFalse(TEXT("Special limit one rejects the required adjacent pair despite quota two"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+		TestTrue(TEXT("Candidate filter reports the correct role streak"), Log.Text().Contains(Role == EHBPrototypeRoomRole::Recovery ? TEXT("RecoveryStreakLimit") : TEXT("EnhancementStreakLimit")));
+		Limit = 2;
+		if (!TestTrue(TEXT("Special limit two and quota two allow the adjacent pair"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error)))
+		{ AddError(Error); return false; }
+		TestEqual(TEXT("Special pair begins on floor 1"), Rooms[2].Role, Role);
+		TestEqual(TEXT("Selected exit completes the special pair"), Rooms[3].Role, Role);
+		TestEqual(TEXT("Same special role can start the next floor"), Rooms[4].Role, Role);
+		TestTrue(TEXT("Independent validator resets special streak and quota at the floor boundary"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+		TestTrue(TEXT("Custom role limits replay with the same seed"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Replay, Error));
+		TestEqual(TEXT("Custom role limit replay is deterministic"), RuleLayoutSignature(Rooms), RuleLayoutSignature(Replay));
+		Limit = 1;
+		TestFalse(TEXT("Validator rejects the adjacent pair under special limit one"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+		TestTrue(TEXT("Special streak diagnostic includes the configured limit"), Error.Contains(TEXT("More than 1 consecutive")));
+		Limit = 2; Quota = 1;
+		TestFalse(TEXT("Validator enforces the separate per-floor quota"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+		TestTrue(TEXT("Quota diagnostic includes the configured limit"), Error.Contains(TEXT("per-floor limit of 1")));
+		TestFalse(TEXT("Candidate filter also enforces the separate per-floor quota"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Replay, Error));
+	}
+
+	FCatalog Disabled;
+	Disabled.Rules.MaxConsecutiveAdventureRooms = 4;
+	Disabled.Rules.MaxRecoveryRoomsPerFloor = Disabled.Rules.MaxEnhancementRoomsPerFloor = 0;
+	if (!TestTrue(TEXT("Zero special quotas permit an Adventure-only ordinary layout"), HBDungeonRuleLayout::Generate(Disabled.Modules, Disabled.Settings, Disabled.Rules, Rooms, Error)))
+	{ AddError(Error); return false; }
+	TestTrue(TEXT("Zero quotas exclude both special roles, including branches"), !Rooms.ContainsByPredicate([](const auto& R)
+	{ return R.Role == EHBPrototypeRoomRole::Recovery || R.Role == EHBPrototypeRoomRole::Upgrade; }));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBRuleRejectionTest, "HeavenBreach.PCGModule.Rules.InvalidSettings",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FHBRuleRejectionTest::RunTest(const FString&)
@@ -250,6 +363,11 @@ bool FHBRuleRejectionTest::RunTest(const FString&)
 	R = C.Rules; R.Floor2EntryPortalId = TEXT("Missing"); Reject(TEXT("Missing selected portal"), C.Modules, R);
 	R = C.Rules; R.BossCorridorMap = C.Modules[0].Map; Reject(TEXT("A room cannot masquerade as a corridor"), C.Modules, R);
 	R = C.Rules; R.Floor2BranchRooms = R.Floor1BranchRooms; Reject(TEXT("Floor 2 requires more branches"), C.Modules, R);
+	R = C.Rules; R.MaxConsecutiveAdventureRooms = 0; Reject(TEXT("Adventure consecutive limit must be positive"), C.Modules, R);
+	R = C.Rules; R.MaxConsecutiveRecoveryRooms = 0; Reject(TEXT("Recovery consecutive limit must be positive"), C.Modules, R);
+	R = C.Rules; R.MaxConsecutiveEnhancementRooms = -1; Reject(TEXT("Enhancement consecutive limit must be positive"), C.Modules, R);
+	R = C.Rules; R.MaxRecoveryRoomsPerFloor = -1; Reject(TEXT("Recovery per-floor limit cannot be negative"), C.Modules, R);
+	R = C.Rules; R.MaxEnhancementRoomsPerFloor = -1; Reject(TEXT("Enhancement per-floor limit cannot be negative"), C.Modules, R);
 	auto Modules = C.Modules; Modules[4].AllowedFloor = EHBAllowedFloor::Floor1; Reject(TEXT("Entry forbidden on floor 2"), Modules, C.Rules);
 	Modules = C.Modules; Modules[3].Portals.Reset(); Reject(TEXT("User must place the source portal"), Modules, C.Rules);
 	Modules = C.Modules; Modules[5].AllowedFloor = EHBAllowedFloor::Floor1; Reject(TEXT("No eligible boss"), Modules, C.Rules);

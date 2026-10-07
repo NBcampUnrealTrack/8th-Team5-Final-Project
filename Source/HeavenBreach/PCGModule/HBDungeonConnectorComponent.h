@@ -35,5 +35,11 @@ public:
 	FName ConnectorId;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon|Connector")
 	EHBDungeonConnectorRole Role = EHBDungeonConnectorRole::None;
+	/** Component-local path-check target offset in cm. -X points into the room; zero uses the connection marker.
+	 *  Does not affect room assembly or entry spawn spacing. Keep the target on reachable room navigation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon|Connector")
+	FVector NavigationEntryOffset = FVector::ZeroVector;
+	UFUNCTION(BlueprintPure, Category="Dungeon|Connector")
+	FVector GetNavigationEntryLocation() const;
 	FName GetEffectiveConnectorId() const;
 };
