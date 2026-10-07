@@ -57,6 +57,12 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerGiveArrows(int32 Count);
 
+	UFUNCTION(Exec)
+	void HBGiveItem(FName RowName, int32 Count = 1);
+
+	UFUNCTION(Server, Reliable)
+	void ServerGiveItem(FName RowName, int32 Count);
+
 	UFUNCTION(BlueprintCallable, Category = "Player|UI")
 	void ToggleSkillAugment();
 
