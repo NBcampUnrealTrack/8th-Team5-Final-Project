@@ -71,7 +71,12 @@ struct FItemViewData
 	float HealAmount = 0.f;
 	UPROPERTY(BlueprintReadOnly)
 	float ManaAmount = 0.f;
-	bool IsConsumable() const { return HealAmount > 0.f || ManaAmount > 0.f; }
+	UPROPERTY(BlueprintReadOnly)
+	float FallDamageReduction = 0.f;
+	UPROPERTY(BlueprintReadOnly)
+	float BuffDuration = 0.f;
+	bool HasTimedBuff() const { return FallDamageReduction > 0.f && BuffDuration > 0.f; }
+	bool IsConsumable() const { return HealAmount > 0.f || ManaAmount > 0.f || HasTimedBuff(); }
 
 	UPROPERTY(BlueprintReadOnly, Category = "Bag")
 	FIntPoint BagGridSize = FIntPoint::ZeroValue;
