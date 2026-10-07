@@ -2,6 +2,9 @@
 #include "UI/Audio/HBUIAudioLibrary.h"
 #include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
 
+#include "UI/Friends/HB_FriendsPanel.h"
+
+#include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "GameFramework/PlayerController.h"
@@ -28,6 +31,29 @@ void UHBLobbyWidget::NativeConstruct()
 	{
 		StartMatchButton = Cast<UButton>(StartMatchButtonModule->GetWidgetFromName(TEXT("Button_Action")));
 	}
+	if (FriendsButtonModule)
+	{
+		// 모듈 안의 버튼 이름을 모르므로 먼저 다른 모듈과 같은 이름을 시도하고, 없으면 첫 버튼을 쓴다.
+		FriendsButton = Cast<UButton>(FriendsButtonModule->GetWidgetFromName(TEXT("Button_Action")));
+		if (!FriendsButton && FriendsButtonModule->WidgetTree)
+		{
+			FriendsButtonModule->WidgetTree->ForEachWidget([this](UWidget* Widget)
+			{
+				if (!FriendsButton)
+				{
+					FriendsButton = Cast<UButton>(Widget);
+				}
+			});
+		}
+	}
+	if (FriendsButton)
+	{
+		FriendsButton->OnClicked.AddUniqueDynamic(this, &UHBLobbyWidget::HandleFriendsClicked);
+	}
+	else if (FriendsButtonModule)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LobbyWidget | FriendsButtonModule 안에서 Button 을 찾지 못했다. 친구 목록이 열리지 않는다."));
+	}
 	if (ReadyButton)
 	{
 		ReadyButton->OnClicked.AddUniqueDynamic(this, &UHBLobbyWidget::HandleFindRoomClicked);
@@ -49,6 +75,10 @@ void UHBLobbyWidget::NativeDestruct()
 {
 	if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.RemoveDynamic(this, &ThisClass::HandleReadyAudio);
 	AudioPlayerState = nullptr;
+	if (FriendsButton)
+	{
+		FriendsButton->OnClicked.RemoveDynamic(this, &UHBLobbyWidget::HandleFriendsClicked);
+	}
 	if (ReadyButton)
 	{
 		ReadyButton->OnClicked.RemoveDynamic(this, &UHBLobbyWidget::HandleFindRoomClicked);
@@ -99,6 +129,14 @@ void UHBLobbyWidget::RefreshLobbyActions()
 void UHBLobbyWidget::HandleReadyAudio(bool bReady)
 {
 	UHBUIAudioLibrary::PlayForOwner(this, bReady ? EHBUIAudioEvent::LobbyReady : EHBUIAudioEvent::Cancel);
+}
+
+void UHBLobbyWidget::HandleFriendsClicked()
+{
+	if (FriendsPanel)
+	{
+		FriendsPanel->Toggle();
+	}
 }
 
 void UHBLobbyWidget::HandleFindRoomClicked()
