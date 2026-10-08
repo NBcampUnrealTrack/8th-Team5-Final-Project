@@ -16,6 +16,7 @@ class UInputAction;
 class UInputMappingContext;
 class UInventoryUIComponent;
 class UHB_SkillAugment;
+class UHB_StatusWindow;
 class UHB_SpectateWidget;
 class UUserWidget;
 struct FInputActionValue;
@@ -57,6 +58,8 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerGiveArrows(int32 Count);
 
+	// K 키. 열려 있으면 닫는다. 닫혀 있으면 고를 증강이 있을 때 증강 화면을,
+	// 없으면 스탯창을 연다.
 	UFUNCTION(Exec)
 	void HBGiveItem(FName RowName, int32 Count = 1);
 
@@ -65,6 +68,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Player|UI")
 	void ToggleSkillAugment();
+
+	// 증강을 고른 직후 증강 화면을 닫고 스탯창을 연다. 증강 화면이 부른다.
+	void FinishAugmentSelection();
 
 	// 상자 / 시체 등 외부 인벤토리를 Menu 레이어에 띄운다.
 	// InteractionComponent 의 OnRequestOpenContainer 를 받은 쪽에서 호출한다.
@@ -189,6 +195,15 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UHB_SkillAugment> SkillAugmentScreen;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
+	TSubclassOf<UHB_StatusWindow> StatusWindowClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHB_StatusWindow> StatusWindow;
+
+	void OpenStatusWindow();
+	void CloseStatusWindow();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Player|Inventory")
 	TObjectPtr<UInventoryUIComponent> InventoryUI;

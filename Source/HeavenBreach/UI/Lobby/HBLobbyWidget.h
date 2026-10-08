@@ -7,6 +7,7 @@
 #include "HBLobbyWidget.generated.h"
 
 class UButton;
+class UHB_FriendsPanel;
 class AHBLobbyPlayerState;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBLobbyActionRequested);
 /**
@@ -58,6 +59,16 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UUserWidget> StartMatchButtonModule;
 #pragma endregion
+
+#pragma region Friends
+	/** WBP_Lobby_FriendsButton. 안에 있는 버튼을 눌렀을 때 친구 목록을 연다. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UUserWidget> FriendsButtonModule;
+
+	/** 이 화면 위에 얹어 둔 WBP_FriendsPanel. 친구 버튼으로 열고 닫는다. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UHB_FriendsPanel> FriendsPanel;
+#pragma endregion
 	
 private:
 	UPROPERTY(Transient)
@@ -65,6 +76,13 @@ private:
 
 	UFUNCTION()
 	void HandleReadyAudio(bool bReady);
+
+	// FriendsButtonModule 안의 버튼. 모듈 내부 구조에 의존하지 않으려고 이름이 아니라 타입으로 찾는다.
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> FriendsButton;
+
+	UFUNCTION()
+	void HandleFriendsClicked();
 
 	UFUNCTION()
 	void HandleFindRoomClicked();

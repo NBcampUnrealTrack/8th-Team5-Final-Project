@@ -598,6 +598,7 @@ void AHB_PlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AHB_PlayerState, CurrentExperience);
 	DOREPLIFETIME(AHB_PlayerState, TeamId);
 	DOREPLIFETIME(AHB_PlayerState, TakenAugments);
+	DOREPLIFETIME(AHB_PlayerState, UpgradeHistory);
 	DOREPLIFETIME(AHB_PlayerState, PendingUpgradeChoices);
 	DOREPLIFETIME(AHB_PlayerState, CurrentUpgradeCandidates);
 	DOREPLIFETIME(AHB_PlayerState, StartingLoadout);
@@ -804,6 +805,7 @@ void AHB_PlayerState::ResetMatchProgression()
 	// 핸들 컨테이너 둘은 RemoveAllAugmentEffects 안에서 같이 비워진다.
 	RemoveAllAugmentEffects();
 	TakenAugments.Reset();
+	UpgradeHistory.Reset();
 
 	BroadcastProgression();
 	OnSkillUpgradesChanged.Broadcast();
@@ -1123,6 +1125,14 @@ void AHB_PlayerState::ApplyUpgradeCandidate(const FName CandidateId)
 	{
 		return;
 	}
+
+	// Candidate 는 아래 GenerateUpgradeCandidates 가 후보 배열을 비우기 전에만 유효하다.
+	FHBUpgradePick Pick;
+	Pick.Type = Candidate->Type;
+	Pick.TargetSkillId = Candidate->TargetSkillId;
+	Pick.AugmentTag = Candidate->AugmentTag;
+	Pick.Tier = Candidate->Tier;
+	UpgradeHistory.Add(Pick);
 
 	--PendingUpgradeChoices;
 	OnSkillUpgradesChanged.Broadcast();

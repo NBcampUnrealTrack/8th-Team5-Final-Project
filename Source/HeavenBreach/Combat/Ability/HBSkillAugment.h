@@ -181,3 +181,34 @@ struct HEAVENBREACH_API FHBUpgradeCandidate
 	UPROPERTY(BlueprintReadOnly)
 	TSoftObjectPtr<UTexture2D> Icon;
 };
+
+/**
+ * 레벨업 때 고른 카드 한 번의 기록.
+ *
+ * 왜 필요한가: TakenAugments 는 "무엇을 몇 단계까지" 만 담아서 고른 순서와
+ * 같은 증강을 두 번 고른 사실이 남지 않는다. 스탯창이 선택마다 노드 하나를
+ * 시간 순서대로 그리려면 선택 한 번당 한 줄이 필요하다.
+ *
+ * 문구와 아이콘은 담지 않는다. 복제 비용 때문이고, UI 가 AugmentTag /
+ * TargetSkillId 로 데이터를 다시 찾는다. 이 값들은 후보 카드의 값을 그대로 옮긴다.
+ */
+USTRUCT(BlueprintType)
+struct HEAVENBREACH_API FHBUpgradePick
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	EHBUpgradeCandidateType Type = EHBUpgradeCandidateType::Augment;
+
+	// 어느 스킬의 증강인가. 공통 강화면 비어 있다. NewPassive 면 얻은 패시브의 SkillId.
+	UPROPERTY(BlueprintReadOnly)
+	FName TargetSkillId;
+
+	// Type == Augment 일 때만 유효하다.
+	UPROPERTY(BlueprintReadOnly)
+	FGameplayTag AugmentTag;
+
+	// 그 선택으로 올라간 단계. 단계 없는 증강과 패시브는 1.
+	UPROPERTY(BlueprintReadOnly)
+	int32 Tier = 1;
+};
