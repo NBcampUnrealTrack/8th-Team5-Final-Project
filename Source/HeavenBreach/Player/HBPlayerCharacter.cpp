@@ -141,8 +141,14 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 	ShoesMeshComp->SetLeaderPoseComponent(GetMesh());
 	ShoesMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	BodyUnderlayMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("BodyUnderlayMeshComp"));
+	BodyUnderlayMeshComp->SetupAttachment(GetMesh());
+	BodyUnderlayMeshComp->SetLeaderPoseComponent(GetMesh());
+	BodyUnderlayMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
 	ModularBodySourceMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Character/SK_HB_Warrior.SK_HB_Warrior")));
 	BaseUpperBodyMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Body/SK_HB_BaseBody_Upper.SK_HB_BaseBody_Upper")));
+	BodyUnderlayChestMeshes.Add(TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Armor/Rare/Chest/SK_Warrior_Rare_Armor.SK_Warrior_Rare_Armor"))));
 	BaseLowerBodyMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Body/SK_HB_BaseBody_Lower.SK_HB_BaseBody_Lower")));
 	#pragma endregion
 #pragma endregion
@@ -2986,6 +2992,7 @@ bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
 			ChestMeshComp->SetSkeletalMesh(nullptr);
 			LegsMeshComp->SetSkeletalMesh(nullptr);
 			ShoesMeshComp->SetSkeletalMesh(nullptr);
+			BodyUnderlayMeshComp->SetSkeletalMesh(nullptr);
 		}
 		bModularBodyActive = false;
 		return false;
@@ -3002,6 +3009,7 @@ bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
 	}
 	USkeletalMesh* UpperPairedOverride = nullptr; // Legs 아이템이 지정한 상체 보정 메시
 	USkeletalMesh* LowerPairedOverride = nullptr; // Chest 아이템이 지정한 하체 보정 메시
+	USkeletalMesh* LegsPairedUpper = nullptr;
 
 	if (bEnableEquipmentVisualTest)
 	{
@@ -3031,9 +3039,13 @@ bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
 		LowerEquipment = LegsData ? LoadMesh(LegsData->WorldMeshPath) : nullptr;
 
 		// 반대쪽 슬롯이 비어있을 때만 짝 맞춤 보정 메시를 적용한다.
-		if (!UpperEquipment && LegsData)
+		if (LegsData)
 		{
-			UpperPairedOverride = LoadMesh(LegsData->PairedBodyMeshPath);
+			LegsPairedUpper = LoadMesh(LegsData->PairedBodyMeshPath);
+		}
+		if (!UpperEquipment)
+		{
+			UpperPairedOverride = LegsPairedUpper;
 		}
 		if (!LowerEquipment && ChestData)
 		{
@@ -3045,6 +3057,7 @@ bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
 	if (!IsCompatible(LowerEquipment)) LowerEquipment = nullptr;
 	if (!IsCompatible(UpperPairedOverride)) UpperPairedOverride = nullptr;
 	if (!IsCompatible(LowerPairedOverride)) LowerPairedOverride = nullptr;
+	if (!IsCompatible(LegsPairedUpper)) LegsPairedUpper = nullptr;
 
 	const auto ApplyPart = [this](USkeletalMeshComponent* Component, USkeletalMesh* PartMesh)
 		{
@@ -3054,6 +3067,12 @@ bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
 	ApplyPart(ChestMeshComp, UpperEquipment ? UpperEquipment : (UpperPairedOverride ? UpperPairedOverride : UpperBody));
 	ApplyPart(LegsMeshComp, LowerEquipment ? LowerEquipment : (LowerPairedOverride ? LowerPairedOverride : Legs));
 	ApplyPart(ShoesMeshComp, nullptr);
+	USkeletalMesh* UpperUnderlay = (LowerEquipment && LegsPairedUpper) ? LegsPairedUpper : UpperBody;
+	const bool bChestNeedsUnderlay = UpperEquipment && BodyUnderlayChestMeshes.ContainsByPredicate([UpperEquipment](const TSoftObjectPtr<USkeletalMesh>& ChestMesh)
+		{
+			return ChestMesh.ToSoftObjectPath() == FSoftObjectPath(UpperEquipment);
+		});
+	ApplyPart(BodyUnderlayMeshComp, bChestNeedsUnderlay ? UpperUnderlay : nullptr);
 	bModularBodyActive = true;
 	SetSourceBodySectionsVisible(false);
 	return true;
@@ -3094,6 +3113,7 @@ void AHBPlayerCharacter::OnConstruction(const FTransform& Transform)
 		ChestMeshComp->SetSkeletalMesh(nullptr);
 		LegsMeshComp->SetSkeletalMesh(nullptr);
 		ShoesMeshComp->SetSkeletalMesh(nullptr);
+		BodyUnderlayMeshComp->SetSkeletalMesh(nullptr);
 		SetHairVisibleForHelmet(true);
 	}
 	RefreshEquippedVisuals();
