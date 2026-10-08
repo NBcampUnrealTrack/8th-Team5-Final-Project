@@ -576,6 +576,11 @@ bool UInventoryComponent::UseItem(FGuid InInstanceId)
 
 	FItemInstance Item;
 	FItemViewData ViewData;
+	if (!OnItemUseBegan.IsBound() && !OnItemUsed.IsBound())
+	{
+		return false;
+	}
+
 	if (!CanUseItem(InInstanceId, Item, ViewData))
 	{
 		return false;
@@ -834,6 +839,21 @@ bool UInventoryComponent::ToggleFavorite(FGuid InInstanceId)
 		return false;
 	}
 	Entries[EntryIndex].Item.bIsFavorite = !Entries[EntryIndex].Item.bIsFavorite;
+	OnInventoryChanged.Broadcast();
+	return true;
+}
+bool UInventoryComponent::SetItemDurability(FGuid InInstanceId, float InDurability)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+	Entries[EntryIndex].Item.CurrentDurability = InDurability;
 	OnInventoryChanged.Broadcast();
 	return true;
 }
@@ -1344,6 +1364,66 @@ void UInventoryComponent::DebugAddItem(FName InRowName, int32 InCount)
 		*InRowName.ToString(), InCount, bAdded ? TEXT("OK") : TEXT("FAIL"), Remainder);
 
 	DebugPrintGrid();
+}
+
+int32 UInventoryComponent::DebugGiveItemByRow(FName InRowName, int32 InCount)
+{
+	if (GetOwnerRole() != ROLE_Authority || InRowName.IsNone() || InCount <= 0)
+	{
+		return 0;
+	}
+
+	static const TCHAR* TablePaths[] = {
+		TEXT("/Game/Items/DataTables/DT_Item.DT_Item"),
+		TEXT("/Game/Items/DataTables/DT_Weapon.DT_Weapon"),
+		TEXT("/Game/Items/DataTables/DT_Shield.DT_Shield"),
+	};
+
+	FDataTableRowHandle Row;
+	for (const TCHAR* Path : TablePaths)
+	{
+		UDataTable* Table = LoadObject<UDataTable>(nullptr, Path);
+		if (Table && Table->GetRowMap().Contains(InRowName))
+		{
+			Row.DataTable = Table;
+			Row.RowName = InRowName;
+			break;
+		}
+	}
+
+	FItemViewData ViewData;
+	if (Row.DataTable == nullptr || !ResolveItemViewData(Row, ViewData))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GiveItem] '%s' not found in DT_Item/DT_Weapon/DT_Shield"), *InRowName.ToString());
+		return 0;
+	}
+
+	int32 Added = 0;
+	int32 Remaining = InCount;
+	while (Remaining > 0)
+	{
+		FItemInstance NewItem;
+		NewItem.ItemRow = Row;
+		NewItem.InstanceId = FGuid::NewGuid();
+		NewItem.StackCount = ViewData.IsStackable() ? FMath::Min(Remaining, FMath::Max(1, ViewData.MaxStack)) : 1;
+		if (ViewData.IsEquippable())
+		{
+			NewItem.CurrentDurability = GetMaxDurabilityForGrade(ViewData.Grade);
+		}
+
+		int32 Remainder = 0;
+		TryAddItem(NewItem, Remainder);
+		const int32 Placed = FMath::Max(0, NewItem.StackCount - Remainder);
+		Added += Placed;
+		Remaining -= NewItem.StackCount;
+		if (Placed < NewItem.StackCount)
+		{
+			break;
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[GiveItem] %s x%d -> %d added"), *InRowName.ToString(), InCount, Added);
+	return Added;
 }
 
 void UInventoryComponent::DebugMoveFirstItem(FIntPoint InNewPosition)

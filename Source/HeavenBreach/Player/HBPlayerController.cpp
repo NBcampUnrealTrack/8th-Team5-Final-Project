@@ -997,6 +997,23 @@ void AHBPlayerController::HBGiveArrows(const int32 Count)
 	ServerGiveArrows(Count);
 }
 
+void AHBPlayerController::HBGiveItem(FName RowName, int32 Count)
+{
+	ServerGiveItem(RowName, FMath::Max(1, Count));
+}
+
+void AHBPlayerController::ServerGiveItem_Implementation(FName RowName, int32 Count)
+{
+#if !UE_BUILD_SHIPPING
+	const AHBPlayerCharacter* Avatar = GetPawn<AHBPlayerCharacter>();
+	UInventoryComponent* Inventory = Avatar ? Avatar->GetInventory() : nullptr;
+	if (Inventory)
+	{
+		Inventory->DebugGiveItemByRow(RowName, FMath::Max(1, Count));
+	}
+#endif
+}
+
 void AHBPlayerController::ServerGiveArrows_Implementation(const int32 Count)
 {
 #if !UE_BUILD_SHIPPING

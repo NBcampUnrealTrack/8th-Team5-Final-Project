@@ -13,6 +13,11 @@ namespace
 		FGuid ItemId;
 		int32 Count = 0;
 	};
+
+	int32 GetRemainingRecipeUses(const FItemInstance& InItem, const FCraftRecipeRow& InRecipe)
+	{
+		return InItem.CurrentDurability < 0.f ? InRecipe.MaxUses : FMath::RoundToInt(InItem.CurrentDurability);
+	}
 }
 
 UCraftComponent::UCraftComponent()
@@ -102,6 +107,10 @@ bool UCraftComponent::CanCraft() const
 	{
 		return false;
 	}
+	if (Recipe.Ingredients.Num() > Slots.Num())
+	{
+		return false;
+	}
 	for (int32 i = 0; i < Recipe.Ingredients.Num(); ++i)
 	{
 		if (!Slots[i].IsValid())
@@ -122,7 +131,11 @@ bool UCraftComponent::CanCraft() const
 
 bool UCraftComponent::IsRecipeUnlocked(const FCraftRecipeRow& InRecipe) const
 {
-	if (!TargetStash || InRecipe.RecipeItem.IsNull())
+	if (InRecipe.RecipeItem.RowName.IsNone())
+	{
+		return true;
+	}
+	if (!TargetStash)
 	{
 		return false;
 	}
@@ -134,6 +147,47 @@ bool UCraftComponent::IsRecipeUnlocked(const FCraftRecipeRow& InRecipe) const
 		}
 	}
 	return false;
+}
+
+bool UCraftComponent::GetSelectedRecipeRequirement(FItemViewData& OutViewData, FText& OutStatusText, bool& bOutOwned) const
+{
+	OutViewData = FItemViewData();
+	OutStatusText = FText::GetEmpty();
+	bOutOwned = false;
+
+	FCraftRecipeRow Recipe;
+	if (!GetSelectedRecipe(Recipe) || Recipe.RecipeItem.RowName.IsNone())
+	{
+		return false;
+	}
+
+	if (!ResolveItemViewData(Recipe.RecipeItem, OutViewData))
+	{
+		OutViewData.DisplayName = Recipe.RecipeItem.RowName.ToString();
+	}
+
+	bOutOwned = IsRecipeUnlocked(Recipe);
+	if (!bOutOwned)
+	{
+		OutStatusText = FText::FromString(TEXT("\uBBF8\uBCF4\uC720"));
+		return true;
+	}
+	if (!Recipe.IsLimitedUse() || !TargetStash)
+	{
+		OutStatusText = FText::FromString(TEXT("\uBCF4\uC720"));
+		return true;
+	}
+
+	int32 TotalUses = 0;
+	for (const FInventoryEntry& Entry : TargetStash->GetEntries())
+	{
+		if (Entry.Item.ItemRow == Recipe.RecipeItem)
+		{
+			TotalUses += GetRemainingRecipeUses(Entry.Item, Recipe) * FMath::Max(1, Entry.Item.StackCount);
+		}
+	}
+	OutStatusText = FText::FromString(FString::Printf(TEXT("\uBCF4\uC720 (%d\uD68C \uB0A8\uC74C)"), TotalUses));
+	return true;
 }
 
 void UCraftComponent::PlaceToFirstMatchingSlot(FGuid InInstanceId)
@@ -656,12 +710,31 @@ bool UCraftComponent::ConsumeRecipeItemIfLimited(const FCraftRecipeRow& InRecipe
 	{
 		return false;
 	}
+	const FInventoryEntry* Target = nullptr;
+	int32 TargetUses = 0;
 	for (const FInventoryEntry& Entry : TargetStash->GetEntries())
 	{
-		if (Entry.Item.ItemRow == InRecipe.RecipeItem)
+		if (Entry.Item.ItemRow != InRecipe.RecipeItem)
 		{
-			return TargetStash->RemoveStackCount(Entry.Item.InstanceId, 1);
+			continue;
+		}
+		const int32 Uses = GetRemainingRecipeUses(Entry.Item, InRecipe);
+		if (!Target || Uses < TargetUses)
+		{
+			Target = &Entry;
+			TargetUses = Uses;
 		}
 	}
-	return false;
+	if (!Target)
+	{
+		return false;
+	}
+
+	const FGuid TargetId = Target->Item.InstanceId;
+	const int32 RemainingUses = TargetUses - 1;
+	if (RemainingUses <= 0 || Target->Item.StackCount > 1)
+	{
+		return TargetStash->RemoveStackCount(TargetId, 1);
+	}
+	return TargetStash->SetItemDurability(TargetId, static_cast<float>(RemainingUses));
 }

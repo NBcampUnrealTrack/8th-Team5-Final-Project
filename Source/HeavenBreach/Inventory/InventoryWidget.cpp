@@ -1172,7 +1172,9 @@
 			return false;
 		}
 		const bool bCanOpenBag = ViewData.IsBag() && !BoundInventory->IsBagStorage() && Item.bRevealed;
-		const bool bCanUse = ViewData.IsConsumable() || bCanOpenBag;
+		const AHB_PlayerState* MenuPlayerState = GetOwningPlayerState<AHB_PlayerState>();
+		const bool bCanConsumeHere = MenuPlayerState != nullptr && MenuPlayerState->GetInventory() == BoundInventory;
+		const bool bCanUse = (ViewData.IsConsumable() && bCanConsumeHere) || bCanOpenBag;
 		const bool bCanSplit = Item.StackCount > 1;
 		ActiveContextMenu->SetupForItem(bCanUse, bCanSplit, Item.bIsFavorite);
 		if (bCanOpenBag)
@@ -1601,6 +1603,11 @@
 		if (TryOpenBagItem(Item))
 		{
 			return true;
+		}
+		const AHB_PlayerState* OwnerPlayerState = GetOwningPlayerState<AHB_PlayerState>();
+		if (OwnerPlayerState == nullptr || OwnerPlayerState->GetInventory() != BoundInventory)
+		{
+			return false;
 		}
 		BoundInventory->Server_UseItem(Item.InstanceId);
 		return true;
