@@ -12,6 +12,7 @@ class AHBDungeonPortal;
 class AHBDungeonDoorSeal;
 class ANavMeshBoundsVolume;
 class AHeavenBreachGameState;
+class AExtractionZone;
 struct FHBDungeonSnapshot;
 UENUM(BlueprintType)
 enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, PreparingEncounters, Ready, Failed };
@@ -61,11 +62,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay") TSubclassOf<AHBDungeonDoorSeal> DoorSealClass;
     /** Half-size in cm; connectors mark the floor center, with +X pointing out. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay", meta=(ClampMin="1")) FVector DoorSealExtent = FVector(30, 160, 220);
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Extraction", meta=(ClampMin="0")) int32 MinExtractionPointsPerFloor = 1;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Extraction", meta=(ClampMin="0")) int32 MaxExtractionPointsPerFloor = 2;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Extraction", meta=(ClampMin="0")) int32 MinExtractionRoomDepth = 1;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Extraction", meta=(ClampMin="0", Units="cm")) float MinExtractionSeparation = 3000.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Extraction", meta=(ClampMin="0")) float ExtractionDepthWeight = 0.5f;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") EHBDungeonRuntimeState State = EHBDungeonRuntimeState::Idle;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") FString Status;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") int32 ActiveSeed = 0;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") int32 GenerationId = 0;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") TArray<FHBPrototypeRoom> Rooms;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Result") TArray<TObjectPtr<AExtractionZone>> ActiveExtractionPoints;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Debug") TArray<FHBModuleCatalogEntry> ModuleCatalog;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon - Debug") TArray<FString> CatalogErrors;
     UPROPERTY(BlueprintAssignable) FHBDungeonReady OnReady;
@@ -103,6 +110,7 @@ private:
     bool PrepareEncounters(FString& Error);
     bool CreateDungeonNavigationBounds(FString& Error);
     bool IsEncounterNavigationReady() const;
+    void SelectExtractionPoints();
     void MarkReady();
     void ClearGenerated();
     bool bEncountersActive = false;

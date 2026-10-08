@@ -9,6 +9,7 @@
 #include "Core/GameFlow/HeavenBreachGameMode.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "Components/LightComponent.h"
 
 AExtractionZone::AExtractionZone()
 {
@@ -59,7 +60,7 @@ bool AExtractionZone::CanInteract_Implementation(AActor* Interactor) const
 		return false;
 	}
 
-	return IsPawnInZone(Pawn) && !ChannelingPlayers.Contains(const_cast<APawn*>(Pawn));
+	return bExtractionActive && IsPawnInZone(Pawn) && !ChannelingPlayers.Contains(const_cast<APawn*>(Pawn));
 }
 
 void AExtractionZone::Interact_Implementation(AActor* Interactor)
@@ -70,7 +71,7 @@ void AExtractionZone::Interact_Implementation(AActor* Interactor)
 	}
 
 	APawn* Pawn = Cast<APawn>(Interactor);
-	if (Pawn == nullptr || !IsPawnInZone(Pawn) || ChannelingPlayers.Contains(Pawn))
+	if (!bExtractionActive || Pawn == nullptr || !IsPawnInZone(Pawn) || ChannelingPlayers.Contains(Pawn))
 	{
 		return;
 	}
@@ -82,6 +83,36 @@ void AExtractionZone::Interact_Implementation(AActor* Interactor)
 	}
 
 	StartChannel(Pawn);
+}
+
+void AExtractionZone::SetExtractionActive(bool bActive)
+{
+	if (bExtractionActive == bActive)
+	{
+		return;
+	}
+	bExtractionActive = bActive;
+
+	if (!bActive)
+	{
+		TArray<APawn*> Channeling;
+		ChannelingPlayers.GetKeys(Channeling);
+		for (APawn* Pawn : Channeling)
+		{
+			CancelChannel(Pawn);
+		}
+	}
+
+	SetActorHiddenInGame(!bActive);
+	SetActorEnableCollision(bActive);
+
+	TInlineComponentArray<ULightComponent*> Lights(this);
+	for (ULightComponent* Light : Lights)
+	{
+		Light->SetVisibility(bActive);
+	}
+
+	BP_OnExtractionActiveChanged(bActive);
 }
 
 FText AExtractionZone::GetInteractPrompt_Implementation() const

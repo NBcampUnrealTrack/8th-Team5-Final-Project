@@ -10,6 +10,7 @@
 #include "PCGModule/HBChestSpawnSubsystem.h"
 #include "PCGModule/HBChestSpawnPoint.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
+#include "Escape/ExtractionZone.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "Player/HBPlayerController.h"
 #include "PCGPrototype/HBPCGPreview.h"
@@ -521,6 +522,131 @@ bool AHBDungeonRuntime::ActivateEncounters(FString& Error)
     return true;
 }
 
+void AHBDungeonRuntime::SelectExtractionPoints()
+{
+    struct FCandidate
+    {
+        AExtractionZone* Zone = nullptr;
+        int32 RoomId = INDEX_NONE;
+        int32 Floor = 0;
+        bool bPreferred = true;
+        double Weight = 1.0;
+        FVector Location = FVector::ZeroVector;
+        FString Key;
+    };
+    ActiveExtractionPoints.Reset();
+    auto RoomById = [this](int32 Id) -> const FHBPrototypeRoom*
+    {
+        return Rooms.FindByPredicate([Id](const FHBPrototypeRoom& R) { return R.Id == Id; });
+    };
+    auto FloorDepth = [&](const FHBPrototypeRoom& Room)
+    {
+        int32 Result = 0;
+        const FHBPrototypeRoom* Current = &Room;
+        for (int32 Guard = 0; Guard < Rooms.Num(); ++Guard)
+        {
+            const FHBPrototypeRoom* Parent = Current->ParentId == INDEX_NONE ? nullptr : RoomById(Current->ParentId);
+            if (!Parent || Parent->Floor != Room.Floor) break;
+            ++Result;
+            Current = Parent;
+        }
+        return Result;
+    };
+    TArray<FCandidate> Candidates;
+    TSet<int32> FloorSet;
+    for (const FHBPrototypeRoom& Room : Rooms)
+    {
+        FloorSet.Add(Room.Floor);
+        ULevel* Level = GetLoadedRoomLevel(Room.Id);
+        if (!Level) continue;
+        const int32 Depth = FloorDepth(Room);
+        const bool bAllowedRoom = Room.Role == EHBPrototypeRoomRole::Adventure && !Room.bCorridor && !Room.bIsStartRoom;
+        for (AActor* Actor : Level->Actors)
+        {
+            AExtractionZone* Zone = Cast<AExtractionZone>(Actor);
+            if (!IsValid(Zone) || !Zone->IsExtractionCandidate()) continue;
+            if (!bAllowedRoom) { Zone->SetExtractionActive(false); continue; }
+            FCandidate& Candidate = Candidates.AddDefaulted_GetRef();
+            Candidate.Zone = Zone;
+            Candidate.RoomId = Room.Id;
+            Candidate.Floor = Room.Floor;
+            Candidate.bPreferred = Depth >= MinExtractionRoomDepth;
+            Candidate.Weight = FMath::Max(0.01, static_cast<double>(Zone->GetSelectionWeight())) * (1.0 + ExtractionDepthWeight * Depth);
+            Candidate.Location = Zone->GetActorLocation();
+            Candidate.Key = FString::Printf(TEXT("%05d:%s"), Room.Id, *Zone->GetFName().ToString());
+        }
+    }
+    Candidates.Sort([](const FCandidate& A, const FCandidate& B) { return A.Key < B.Key; });
+    TArray<int32> Floors = FloorSet.Array();
+    Floors.Sort();
+    const int32 MinCount = FMath::Max(1, MinExtractionPointsPerFloor);
+    const int32 MaxCount = FMath::Max(MinCount, MaxExtractionPointsPerFloor);
+    TSet<AExtractionZone*> Selected;
+    for (const int32 Floor : Floors)
+    {
+        const uint32 StreamSeed = static_cast<uint32>(ActiveSeed) * 2654435761u ^ static_cast<uint32>(Floor * 7919 + 101);
+        FRandomStream Stream(static_cast<int32>(StreamSeed & 0x7fffffff));
+        const int32 Wanted = Stream.RandRange(MinCount, MaxCount);
+        int32 FloorCandidates = 0;
+        for (const FCandidate& Candidate : Candidates)
+            if (Candidate.Floor == Floor) ++FloorCandidates;
+        TArray<int32> Picked;
+        auto PickUntil = [&](int32 Target, bool bPreferredOnly, bool bSeparate, bool bDistinctRoom)
+        {
+            while (Picked.Num() < Target)
+            {
+                TArray<int32> Valid;
+                double Total = 0;
+                for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+                {
+                    const FCandidate& Candidate = Candidates[Index];
+                    if (Candidate.Floor != Floor || Picked.Contains(Index) || (bPreferredOnly && !Candidate.bPreferred)) continue;
+                    bool bAllowed = true;
+                    for (const int32 Other : Picked)
+                        if ((bDistinctRoom && Candidates[Other].RoomId == Candidate.RoomId)
+                            || (bSeparate && FVector::Dist(Candidates[Other].Location, Candidate.Location) < MinExtractionSeparation))
+                        { bAllowed = false; break; }
+                    if (!bAllowed) continue;
+                    Valid.Add(Index);
+                    Total += Candidate.Weight;
+                }
+                if (Valid.IsEmpty() || Total <= 0) return;
+                double Roll = Stream.FRand() * Total;
+                int32 Choice = Valid.Last();
+                for (const int32 Index : Valid)
+                {
+                    Roll -= Candidates[Index].Weight;
+                    if (Roll <= 0) { Choice = Index; break; }
+                }
+                Picked.Add(Choice);
+            }
+        };
+        PickUntil(Wanted, true, true, true);
+        PickUntil(MinCount, true, false, true);
+        PickUntil(MinCount, false, false, true);
+        PickUntil(MinCount, false, false, false);
+        if (Picked.Num() < Wanted)
+            UE_LOG(LogHBDungeonRuntime, Warning, TEXT("Extraction Floor=%d wanted %d, selected %d of %d candidates."),
+                Floor, Wanted, Picked.Num(), FloorCandidates);
+        if (Picked.IsEmpty())
+            UE_LOG(LogHBDungeonRuntime, Error, TEXT("Extraction Floor=%d has no extraction point. Add candidates to more Adventure modules."), Floor);
+        for (const int32 Index : Picked)
+        {
+            Selected.Add(Candidates[Index].Zone);
+            UE_LOG(LogHBDungeonRuntime, Display, TEXT("Extraction Floor=%d Room=%d Point=%s Weight=%.2f Preferred=%d"),
+                Floor, Candidates[Index].RoomId, *Candidates[Index].Zone->GetName(), Candidates[Index].Weight,
+                Candidates[Index].bPreferred ? 1 : 0);
+        }
+    }
+    for (const FCandidate& Candidate : Candidates)
+    {
+        const bool bActive = Selected.Contains(Candidate.Zone);
+        Candidate.Zone->SetExtractionActive(bActive);
+        if (bActive) ActiveExtractionPoints.Add(Candidate.Zone);
+    }
+    UE_LOG(LogHBDungeonRuntime, Display, TEXT("Extraction points active=%d candidates=%d seed=%d"),
+        ActiveExtractionPoints.Num(), Candidates.Num(), ActiveSeed);
+}
 void AHBDungeonRuntime::MarkReady()
 {
     State = EHBDungeonRuntimeState::Ready;
@@ -556,10 +682,12 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
     if (GetNetMode() == NM_Client)
     {
         if (!PrepareClientGameplay(Error)) { Fail(Error); return; }
+        SelectExtractionPoints();
         MarkReady();
         return;
     }
     if (!PrepareServerGameplay(Error)) { Fail(Error); return; }
+    SelectExtractionPoints();
     if (!CreateDungeonNavigationBounds(Error)) { Fail(Error); return; }
     bool bHasRoomSpawns = false;
     for (const auto& Stream : Streams)
@@ -578,6 +706,7 @@ void AHBDungeonRuntime::ClearGenerated()
     // Cancel queued Plan/Load nodes before releasing the room instances they use.
     if (IsValid(PCG) && GetNetMode() != NM_Client) PCG->CancelGeneration();
     bEncountersActive = false;
+    ActiveExtractionPoints.Reset();
 	if (UWorld* World = GetWorld(); World && World->GetNetMode() != NM_Client)
 	{
 		if (UHBEncounterSubsystem* EncounterSubsystem = World->GetSubsystem<UHBEncounterSubsystem>())
