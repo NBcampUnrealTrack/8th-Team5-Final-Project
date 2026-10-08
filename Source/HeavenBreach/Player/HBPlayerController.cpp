@@ -22,7 +22,6 @@
 #include "UI/HB_ContainerScreen.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "UI/Skill/HB_SkillAugment.h"
-#include "UI/Status/HB_StatusWindow.h"
 #include "Core/GameFlow/HBMatchResultSubsystem.h"
 #include "Blueprint/UserWidget.h"
 #include "UI/Settings/HBSettingsSubsystem.h"
@@ -781,19 +780,11 @@ void AHBPlayerController::ToggleSkillAugment()
 		return;
 	}
 
-	if (StatusWindow != nullptr)
-	{
-		CloseStatusWindow();
-		return;
-	}
-
-	// 고를 증강이 남아 있으면 증강 화면이 먼저다. 고르고 나면 FinishAugmentSelection 이
-	// 스탯창을 연다. 남은 선택권이 없으면 증강 화면을 열지 않는다. 후보는 레벨업 때만
-	// 생기므로 가드가 없으면 카드 0장짜리 빈 화면이 뜬다.
+	// 남은 선택권이 없으면 열지 않는다. 후보는 레벨업 때만 생기므로
+	// 가드가 없으면 카드 0장짜리 빈 화면이 뜬다.
 	const AHB_PlayerState* HBPS = GetPlayerState<AHB_PlayerState>();
 	if (HBPS == nullptr || HBPS->GetPendingUpgradeChoices() <= 0)
 	{
-		OpenStatusWindow();
 		return;
 	}
 
@@ -804,43 +795,6 @@ void AHBPlayerController::ToggleSkillAugment()
 			{
 				SkillAugmentScreen = nullptr;
 			});
-	}
-}
-
-void AHBPlayerController::FinishAugmentSelection()
-{
-	if (SkillAugmentScreen != nullptr)
-	{
-		SkillAugmentScreen->DeactivateWidget();
-		SkillAugmentScreen = nullptr;
-	}
-
-	OpenStatusWindow();
-}
-
-void AHBPlayerController::OpenStatusWindow()
-{
-	if (StatusWindow != nullptr)
-	{
-		return;
-	}
-
-	StatusWindow = UHB_StatusWindow::OpenOn(this, StatusWindowClass);
-	if (StatusWindow != nullptr)
-	{
-		StatusWindow->OnDeactivated().AddWeakLambda(this, [this]()
-			{
-				StatusWindow = nullptr;
-			});
-	}
-}
-
-void AHBPlayerController::CloseStatusWindow()
-{
-	if (StatusWindow != nullptr)
-	{
-		StatusWindow->DeactivateWidget();
-		StatusWindow = nullptr;
 	}
 }
 
