@@ -148,6 +148,7 @@ AHBPlayerCharacter::AHBPlayerCharacter()
 
 	ModularBodySourceMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Character/SK_HB_Warrior.SK_HB_Warrior")));
 	BaseUpperBodyMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Body/SK_HB_BaseBody_Upper.SK_HB_BaseBody_Upper")));
+	BodyUnderlayChestMeshes.Add(TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Armor/Rare/Chest/SK_Warrior_Rare_Armor.SK_Warrior_Rare_Armor"))));
 	BaseLowerBodyMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Warrior/Meshes/Body/SK_HB_BaseBody_Lower.SK_HB_BaseBody_Lower")));
 	#pragma endregion
 #pragma endregion
@@ -3067,7 +3068,11 @@ bool AHBPlayerCharacter::RefreshModularEquipmentVisuals()
 	ApplyPart(LegsMeshComp, LowerEquipment ? LowerEquipment : (LowerPairedOverride ? LowerPairedOverride : Legs));
 	ApplyPart(ShoesMeshComp, nullptr);
 	USkeletalMesh* UpperUnderlay = (LowerEquipment && LegsPairedUpper) ? LegsPairedUpper : UpperBody;
-	ApplyPart(BodyUnderlayMeshComp, UpperEquipment ? UpperUnderlay : nullptr);
+	const bool bChestNeedsUnderlay = UpperEquipment && BodyUnderlayChestMeshes.ContainsByPredicate([UpperEquipment](const TSoftObjectPtr<USkeletalMesh>& ChestMesh)
+		{
+			return ChestMesh.ToSoftObjectPath() == FSoftObjectPath(UpperEquipment);
+		});
+	ApplyPart(BodyUnderlayMeshComp, bChestNeedsUnderlay ? UpperUnderlay : nullptr);
 	bModularBodyActive = true;
 	SetSourceBodySectionsVisible(false);
 	return true;

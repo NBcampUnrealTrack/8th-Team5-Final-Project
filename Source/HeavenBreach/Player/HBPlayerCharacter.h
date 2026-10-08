@@ -875,6 +875,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
 	TSoftObjectPtr<USkeletalMesh> ModularBodySourceMesh;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
+	TArray<TSoftObjectPtr<USkeletalMesh>> BodyUnderlayChestMeshes;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing=OnRep_BaseBodyMeshes, Category="Player|Equipment|Temporary Test")
 	TSoftObjectPtr<USkeletalMesh> BaseUpperBodyMesh;
 
