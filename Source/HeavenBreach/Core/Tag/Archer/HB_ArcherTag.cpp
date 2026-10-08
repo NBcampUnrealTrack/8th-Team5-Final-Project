@@ -34,4 +34,6 @@ namespace ArcherTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Tracked_Deep1, "State.Archer.Tracked.Deep1", "표식 - 깊은 표식 1단계(+25%)");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Tracked_Deep2, "State.Archer.Tracked.Deep2", "표식 - 깊은 표식 2단계(+30%)");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Tracked_Deep3, "State.Archer.Tracked.Deep3", "표식 - 깊은 표식 3단계(+35%)");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Bow_HunterMark, "GameplayCue.Bow.HunterMark", "사냥꾼의 표식 - 대상 머리 위 표식(표식 GE 가 붙어 있는 동안)");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Bow_HunterMarkCast, "GameplayCue.Bow.HunterMarkCast", "사냥꾼의 표식 - 적용 순간 손 입자·범위 펄스");
 }

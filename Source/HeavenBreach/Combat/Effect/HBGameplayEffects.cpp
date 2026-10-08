@@ -216,6 +216,9 @@ UGE_HunterMark::UGE_HunterMark()
 	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
 	GEComponents.Add(TagComponent);
 	ApplyGrantedTag(*TagComponent, ArcherTag::TAG_State_Tracked);
+
+	// 대상 머리 위 표식. GE 가 붙어 있는 동안 모든 화면에 보이고, 끝나면 사라진다(AHBGCN_HunterMarkGlyph).
+	GameplayCues.Add(FGameplayEffectCue(ArcherTag::TAG_GameplayCue_Bow_HunterMark, 0.f, 1.f));
 }
 
 UGE_SwiftStepPassive::UGE_SwiftStepPassive()
