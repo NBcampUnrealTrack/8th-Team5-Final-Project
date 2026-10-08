@@ -122,6 +122,8 @@ void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	{
 		// 몽타주가 없으면 부모가 바로 끝내서 후퇴·발사를 못 한다. 직접 커밋하고 FireDelay+0.1 뒤 끝낸다.
 		// 이 경로는 부모의 발동 큐·자버프·발동 중 GE 를 거치지 않는다. 회피는 셋 다 쓰지 않는다.
+		// 부모를 안 거치므로 시전 ID(잔류 마력)도 직접 받는다. 서버만.
+		BeginCastId(ActorInfo);
 		if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
 		{
 			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
@@ -265,6 +267,7 @@ void UGA_BowEvasiveShot::FireArrow()
 	FHBArrowLaunchOptions Options;
 	Options.MaxPierceCount = 0;
 	Options.bSkillArrow = true;
+	Options.SkillCastId = CastId;
 
 	const float FinalCoef = DamageCoef * GetAugmentParam(SkillParamTag::TAG_SkillParam_Damage, 1.f);
 	const AHBPlayerArrow* Arrow = HBBowShot::SpawnArrow(Player, UseArrowClass, ArrowSpeed, FinalCoef, UseArrowRow,AimTraceDistance, SpawnForwardOffset, Options);

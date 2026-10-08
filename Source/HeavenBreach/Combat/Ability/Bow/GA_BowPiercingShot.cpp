@@ -68,6 +68,10 @@ void UGA_BowPiercingShot::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	bArrowSpawned = false;
 	bFinishCancelled = false;
 	bCancelling = false;
+
+	// 부모를 안 부르므로 시전 ID(잔류 마력)를 직접 받는다. 서버만.
+	BeginCastId(ActorInfo);
+
 	PrepareTask.Reset();
 	DrawTask.Reset();
 	DrawStartTime = 0.f;
@@ -360,6 +364,7 @@ void UGA_BowPiercingShot::SpawnPiercingArrow()
 	FHBArrowLaunchOptions Options;
 	Options.MaxPierceCount = MaxPierceCount;
 	Options.bSkillArrow = true;
+	Options.SkillCastId = CastId;
 
 	AHBPlayerCharacter* Player = GetPlayer();
 	TSubclassOf<AHBPlayerArrow> UseArrowClass;

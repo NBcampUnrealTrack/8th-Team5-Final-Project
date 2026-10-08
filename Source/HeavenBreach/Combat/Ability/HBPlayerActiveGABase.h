@@ -58,7 +58,16 @@ public:
 	// 그 스킬은 UAbilityTask_WaitInputPress/Release 로 받고, 우클릭은 캐릭터가 CancelAbility 로 처리한다.
 	virtual bool WantsAimInput() const { return false; }
 
+	// 이번 발동의 시전 ID(잔류 마력 1회 제한용). 서버에서만 유효하고 클라·발동 전에는 0.
+	int32 GetCastId() const { return CastId; }
+
 protected:
+	// 서버면 캐릭터에서 새 시전 ID 를 받아 CastId 에 넣는다. 부모 ActivateAbility 를 부르지 않는 스킬은 직접 부른다.
+	void BeginCastId(const FGameplayAbilityActorInfo* ActorInfo);
+
+	// 이번 발동의 시전 ID. 투사체를 쏘는 스킬은 FHBArrowLaunchOptions::SkillCastId 등으로 넘긴다.
+	int32 CastId = 0;
+
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;

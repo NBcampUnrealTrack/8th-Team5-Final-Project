@@ -261,3 +261,102 @@ class HEAVENBREACH_API UGE_HunterBreathAugment : public UGameplayEffect
 public:
 	UGE_HunterBreathAugment();
 };
+
+/** 마법 "원소 구체" 쿨다운. 시간은 SetByCaller.Cooldown */
+UCLASS()
+class HEAVENBREACH_API UGE_MagicOrbCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_MagicOrbCooldown();
+};
+
+/** 마법 "순간이동" 쿨다운. 시간은 SetByCaller.Cooldown */
+UCLASS()
+class HEAVENBREACH_API UGE_MagicTeleportCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_MagicTeleportCooldown();
+};
+
+/** 마법 "서리 지대" 쿨다운. 시간은 SetByCaller.Cooldown */
+UCLASS()
+class HEAVENBREACH_API UGE_MagicFrostCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_MagicFrostCooldown();
+};
+
+/** 마법 "마력 폭발" 쿨다운. 시간은 SetByCaller.Cooldown */
+UCLASS()
+class HEAVENBREACH_API UGE_MagicExplosionCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_MagicExplosionCooldown();
+};
+
+/** 시전 중 이동속도 감소. 이동속도 배율 -0.5, 무한(GA 가 직접 뗀다) */
+UCLASS()
+class HEAVENBREACH_API UGE_CastingSlow : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_CastingSlow();
+};
+
+/** 서리 지대 안의 적 감속. 적 MoveSpeedRate 에 SetByCaller.AugmentMagnitude(음수), State.Magic.Frosted 부여. 무한(영역 GA 가 뗀다) */
+UCLASS()
+class HEAVENBREACH_API UGE_FrostSlow : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_FrostSlow();
+};
+
+/** 패시브 "집중". State.Magic.Focus 태그만 부여한다(시전 시간 배율은 코드가 읽는다) */
+UCLASS()
+class HEAVENBREACH_API UGE_FocusPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_FocusPassive();
+};
+
+/** 패시브 "마력 순환". State.Magic.ManaCycle 태그만 부여한다(액티브 스태미나 배율은 코드가 읽는다, 달리기·방어 제외) */
+UCLASS()
+class HEAVENBREACH_API UGE_ManaCyclePassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_ManaCyclePassive();
+};
+
+/** 패시브 "잔류 마력". State.Magic.ResidualMana 태그만 부여한다 */
+UCLASS()
+class HEAVENBREACH_API UGE_ResidualManaPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_ResidualManaPassive();
+};
+
+/** 패시브 "유리 대포". 스킬 피해 배율 +0.25, 받는 피해 배율 +0.15 */
+UCLASS()
+class HEAVENBREACH_API UGE_GlassCannonPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_GlassCannonPassive();
+};
+
+/** "유리 대포 강화" 증강. 스킬 피해 배율에 SetByCaller.AugmentMagnitude(추가분) */
+UCLASS()
+class HEAVENBREACH_API UGE_GlassCannonAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_GlassCannonAugment();
+};

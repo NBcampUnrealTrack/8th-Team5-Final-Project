@@ -15,4 +15,7 @@ namespace SkillParamTag
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_SkillParam_MitigateBreak, "SkillParam.MitigateBreak", "패링 - 대상이 받는 피해 증가율");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_SkillParam_MitigateTime, "SkillParam.MitigateTime", "패링 - 피해 증가 지속시간");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_SkillParam_Distance, "SkillParam.Distance", "마법 스킬 - 거리(cm 최종값)");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_SkillParam_Slow, "SkillParam.Slow", "마법 스킬 - 감속(최종값 0~1)");
 }
