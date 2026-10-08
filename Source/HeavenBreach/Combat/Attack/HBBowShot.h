@@ -39,4 +39,7 @@ namespace HBBowShot
 	 * 스킬에 직접 지정한 값이 있으면 그것이 우선이다. 둘 다 행이 없으면 한 번만 경고를 남긴다(무한 화살로 동작).
 	 */
 	HEAVENBREACH_API void ResolveArrowDefaults(const AHBPlayerCharacter* Player, TSubclassOf<AHBPlayerArrow>& InOutClass, FDataTableRowHandle& InOutRow);
+
+	/** 장착한 활의 스킬 몽타주 키(FHBWeaponPresentation::BowVariant). 외형 행이 없으면 NAME_None */
+	HEAVENBREACH_API FName GetBowVariant(const AHBPlayerCharacter* Player);
 }

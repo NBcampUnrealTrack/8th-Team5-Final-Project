@@ -274,6 +274,7 @@ void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	
 	DOREPLIFETIME(ThisClass,bIsSprinting);
 	DOREPLIFETIME_CONDITION(ThisClass, bDrawingBow, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(ThisClass, bInBowSkillPose, COND_SkipOwner);
 	DOREPLIFETIME(ThisClass,MovementSpeedMultiplier);
 	DOREPLIFETIME(ThisClass,SelectedSkillQId);
 	DOREPLIFETIME(ThisClass,SelectedSkillEId);
@@ -1776,6 +1777,12 @@ void AHBPlayerCharacter::ServerTestAddExp_Implementation(int32 Amount)
 	TestAddExp(Amount);
 }
 
+void AHBPlayerCharacter::TestSetSkills(const FName SkillQId, const FName SkillEId)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[TestSetSkills] Q=%s E=%s"), *SkillQId.ToString(), *SkillEId.ToString());
+	RequestApplyLoadout(SkillQId, SkillEId, SelectedPassiveSkillIds);
+}
+
 void AHBPlayerCharacter::TestGrantPassive(const FName PassiveSkillId)
 {
 	// 부여는 서버 권한에서만 유효하다. 내구도 테스트와 같은 구조다.
@@ -2703,6 +2710,11 @@ void AHBPlayerCharacter::RefreshCharacterAnimClass()
 void AHBPlayerCharacter::SetBowDrawing(const bool bDrawing)
 {
 	bDrawingBow = bDrawing;
+}
+
+void AHBPlayerCharacter::SetInBowSkillPose(const bool bInPose)
+{
+	bInBowSkillPose = bInPose;
 }
 
 UStaticMesh* AHBPlayerCharacter::GetHeldArrowMesh() const

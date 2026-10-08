@@ -52,6 +52,10 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Animation|Bow")
 	bool bBowDrawing = false;
 
+	// 활 스킬 동작 중인가. AHBPlayerCharacter::IsInBowSkillPose. 테스트 AnimBP 의 bBowSkillActive 자리.
+	UPROPERTY(BlueprintReadOnly, Category = "Animation|Bow")
+	bool bBowSkillPose = false;
+
 	// 손에 든 스켈레탈 무기(활). 테스트 AnimBP 의 BowVisual 자리. 활이 아니면 메시가 비어 있다.
 	UPROPERTY(BlueprintReadOnly, Category = "Animation|Bow")
 	TObjectPtr<USkeletalMeshComponent> WeaponSkeletalMesh;

@@ -31,12 +31,19 @@ public:
 	// 테스트·UI 용. CDO 에서 불러도 된다.
 	const FGameplayTagContainer& GetRequiredWeaponTags() const { return RequiredWeaponTags; }
 
+	// 장착한 활의 BowVariant 로 VariantMontages 를 찾는다. 없으면 부모의 Montage.
+	virtual UAnimMontage* GetMontageToPlay() const override;
+
 protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
 	// ================ 애셋에서 지정 ================
-	// 몽타주는 부모의 Montage 를 쓴다.
+	// 기본 몽타주는 부모의 Montage. 활 종류별로 다르면 VariantMontages 에 넣는다.
+
+	/** 활 종류별 몽타주(_LongDraw). 키는 장착한 활 외형 행의 BowVariant(AA/AC/AN). 없으면 부모의 Montage */
+	UPROPERTY(EditDefaultsOnly, Category = "EvasiveShot")
+	TMap<FName, TObjectPtr<UAnimMontage>> VariantMontages;
 
 	UPROPERTY(EditDefaultsOnly, Category = "EvasiveShot")
 	TSubclassOf<AHBPlayerArrow> ArrowClass;

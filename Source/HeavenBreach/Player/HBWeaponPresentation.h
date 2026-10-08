@@ -56,6 +56,13 @@ struct HEAVENBREACH_API FHBWeaponPresentation : public FTableRowBase
 	/** 활마다 다른 시위 IK 보정값. AnimBP 가 메시 에셋을 비교하던 자리 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow")
 	float StringIKOffset = 0.f;
+
+	/**
+	 * 활 스킬 몽타주를 고르는 키(AA / AC / AN). 스킬 GA 의 활별 몽타주 표에서 이 키를 찾는다.
+	 * 비어 있거나 표에 없으면 GA 의 기본 몽타주를 쓴다. 스킬 몽타주 자체는 이 행에 넣지 않는다(기문 님 인계 5장).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow")
+	FName BowVariant;
 };
 
 namespace HBWeaponPresentation

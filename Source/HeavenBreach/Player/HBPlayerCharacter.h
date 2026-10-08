@@ -214,6 +214,13 @@ public:
 	// 활 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
 	void SetBowDrawing(bool bDrawing);
 
+	// 활 스킬(관통·표식·회피) 동작 중인가. 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다(기문 님 테스트의 bBowSkillActive).
+	UFUNCTION(BlueprintPure, Category = "Player|Bow")
+	bool IsInBowSkillPose() const { return bInBowSkillPose; }
+
+	// 활 스킬 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
+	void SetInBowSkillPose(bool bInPose);
+
 	// 장전 중 손에 보이는 화살 메시. 외형 행에 없으면 nullptr.
 	UFUNCTION(BlueprintPure, Category = "Player|Bow")
 	UStaticMesh* GetHeldArrowMesh() const;
@@ -594,6 +601,11 @@ private:
 	// 같은 이름의 BP 변수가 있어 충돌하면 그쪽 변수가 bBowDrawing_0 으로 바뀌어 테스트가 깨진다.
 	UPROPERTY(Replicated)
 	bool bDrawingBow = false;
+
+	// 활 스킬 동작 중. bDrawingBow 와 같은 방식(COND_SkipOwner).
+	// 이름을 bBowSkillActive 로 하지 않는다: BP_Test_BowCharacter(이 클래스의 자식)에 같은 이름의 BP 변수가 있다.
+	UPROPERTY(Replicated)
+	bool bInBowSkillPose = false;
 
 	// 무기에 따른 교체 전의 AnimBP(BP 기본값 또는 직업 데이터). 무기를 내려놓으면 이걸로 돌아간다.
 	UPROPERTY()
@@ -1049,6 +1061,12 @@ public:
 	// 직업 데이터의 PassiveSkills 에 있는 ID 만 통한다. 이미 가진 것은 무시된다.
 	UFUNCTION(Exec, Category = "Debug")
 	void TestGrantPassive(FName PassiveSkillId);
+
+	// 테스트용: 로비 없이 Q/E 스킬을 바꾼다. 패시브는 지금 것을 유지한다.
+	//   예) TestSetSkills Bow.PiercingShot Bow.HunterMark
+	// 직업 데이터의 ActiveSkills 에 있는 ID 만 통한다(RequestApplyLoadout 이 검사).
+	UFUNCTION(Exec, Category = "Debug")
+	void TestSetSkills(FName SkillQId, FName SkillEId);
 
 protected:
 	UFUNCTION(Server, Reliable)

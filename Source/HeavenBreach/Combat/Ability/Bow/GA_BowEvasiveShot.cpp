@@ -68,6 +68,17 @@ bool UGA_BowEvasiveShot::CanActivateAbility(const FGameplayAbilitySpecHandle Han
 
 // ---------------- 발동 ----------------
 
+UAnimMontage* UGA_BowEvasiveShot::GetMontageToPlay() const
+{
+	// 부모 ActivateAbility 안과 발동 직후에 불리므로 CurrentActorInfo 가 유효하다.
+	const FName Variant = HBBowShot::GetBowVariant(GetPlayerFrom(GetCurrentActorInfo()));
+	if (const TObjectPtr<UAnimMontage>* Found = Variant.IsNone() ? nullptr : VariantMontages.Find(Variant))
+	{
+		return *Found;
+	}
+	return Super::GetMontageToPlay();
+}
+
 void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	bArrowFired = false;
@@ -120,6 +131,12 @@ void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		{
 			World->GetTimerManager().SetTimer(FinishTimerHandle, FTimerDelegate::CreateUObject(this, &UGA_BowEvasiveShot::FinishWithoutMontage), FireDelay + 0.1f, false);
 		}
+	}
+
+	// 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다. 서버·소유 클라에서 세팅, 다른 클라는 복제.
+	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
+	{
+		PosePlayer->SetInBowSkillPose(true);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 회피 공격: 발동  Auth=%d  Local=%d  Montage=%d  RootMotionByMontage=%d"),
@@ -301,6 +318,11 @@ void UGA_BowEvasiveShot::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 		FTimerManager& Timers = World->GetTimerManager();
 		Timers.ClearTimer(FireTimerHandle);
 		Timers.ClearTimer(FinishTimerHandle);
+	}
+
+	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
+	{
+		PosePlayer->SetInBowSkillPose(false);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 회피 공격: 종료  Auth=%d  Cancelled=%d  발사=%d"),
