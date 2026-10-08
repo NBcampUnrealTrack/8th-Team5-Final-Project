@@ -24,6 +24,17 @@ public:
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual FText GetInteractPrompt_Implementation() const override;
 
+	UFUNCTION(BlueprintCallable, Category = "Extraction|Random")
+	void SetExtractionActive(bool bActive);
+
+	UFUNCTION(BlueprintPure, Category = "Extraction|Random")
+	bool IsExtractionActive() const { return bExtractionActive; }
+
+	UFUNCTION(BlueprintPure, Category = "Extraction|Random")
+	bool IsExtractionCandidate() const { return bExtractionCandidate; }
+
+	float GetSelectionWeight() const { return SelectionWeight; }
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -40,6 +51,18 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extraction")
 	FText InteractPrompt = FText::FromString(TEXT("탈출 [F]"));
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extraction|Random")
+	bool bExtractionCandidate = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extraction|Random", meta = (ClampMin = "0.01"))
+	float SelectionWeight = 1.0f;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "Extraction|Random")
+	bool bExtractionActive = true;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Extraction", meta = (DisplayName = "On Extraction Active Changed"))
+	void BP_OnExtractionActiveChanged(bool bActive);
 
 	UFUNCTION()
 	void OnZoneEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
