@@ -864,6 +864,9 @@ protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<USkeletalMeshComponent> ShoesMeshComp;
 
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> BodyUnderlayMeshComp;
+
 	/** Upper equipment replaces upper body, neck and hands; lower equipment replaces legs and feet. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
 	bool bUseModularEquipment = true;
