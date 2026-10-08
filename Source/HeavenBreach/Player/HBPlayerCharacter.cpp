@@ -2666,6 +2666,15 @@ void AHBPlayerCharacter::RefreshWeaponVisual()
 
 		UStaticMesh* WeaponMesh = WeaponData ? LoadObject<UStaticMesh>(nullptr, *WeaponData->EquipMeshPath) : nullptr;
 		WeaponMeshComp->SetStaticMesh(WeaponMesh);
+
+		// 외형 행이 위치를 정하면(스태프 중앙 그립) 그것을, 아니면 처음 위치로 되돌린다.
+		if (!bHasDefaultWeaponMeshRelative)
+		{
+			DefaultWeaponMeshRelative = WeaponMeshComp->GetRelativeTransform();
+			bHasDefaultWeaponMeshRelative = true;
+		}
+		const bool bOverride = CachedWeaponPresentation && CachedWeaponPresentation->bOverrideStaticMeshTransform;
+		WeaponMeshComp->SetRelativeTransform(bOverride ? CachedWeaponPresentation->StaticMeshRelativeTransform : DefaultWeaponMeshRelative);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[WeaponVisual] %s Role=%d  Item=%s Type=%s  Table=%s Presentation=%d  Skeletal=%s(Visible=%d Socket=%s)  Static=%s"),

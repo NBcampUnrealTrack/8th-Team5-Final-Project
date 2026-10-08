@@ -607,6 +607,10 @@ private:
 	UPROPERTY(Replicated)
 	bool bInBowSkillPose = false;
 
+	// 정적 무기 표시의 처음 상대 위치. 외형 행이 위치를 바꾼 무기에서 다른 무기로 바꿀 때 되돌린다.
+	FTransform DefaultWeaponMeshRelative;
+	bool bHasDefaultWeaponMeshRelative = false;
+
 	// 무기에 따른 교체 전의 AnimBP(BP 기본값 또는 직업 데이터). 무기를 내려놓으면 이걸로 돌아간다.
 	UPROPERTY()
 	TSubclassOf<UAnimInstance> BaseAnimClass;

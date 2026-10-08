@@ -35,6 +35,16 @@ struct HEAVENBREACH_API FHBWeaponPresentation : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mesh")
 	FName AttachSocket = TEXT("BowSocket");
 
+	/**
+	 * 정적 무기(SkeletalMesh 가 빈 행)의 위치를 무기 소켓(PrimaryWeaponSocket) 기준으로 바꿀지.
+	 * 스태프처럼 중앙을 쥐어야 하는 무기용. 끄면 캐릭터 BP 의 원래 상대 위치를 쓴다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mesh")
+	bool bOverrideStaticMeshTransform = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (EditCondition = "bOverrideStaticMeshTransform"))
+	FTransform StaticMeshRelativeTransform;
+
 	/** 이 무기를 들었을 때 캐릭터 AnimBP. 비어 있으면 기본 AnimBP */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	TSubclassOf<UAnimInstance> CharacterAnimClass;
