@@ -44,6 +44,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Skills")
 	void ApplySkillLoadout(const FHBStartingLoadout& InLoadout);
 
+	UFUNCTION(Exec)
+	void HBGiveItem(FName RowName, int32 Count = 1);
+
+	UFUNCTION(Exec)
+	void HBGiveRecipe(FName RecipeOrResultRow, int32 Times = 1);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -59,6 +65,12 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerApplySkillLoadout(const FHBStartingLoadout& InLoadout);
+
+	UFUNCTION(Server, Reliable)
+	void ServerGiveItem(FName RowName, int32 Count);
+
+	UFUNCTION(Server, Reliable)
+	void ServerGiveRecipe(FName RecipeOrResultRow, int32 Times);
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|UI")
 	TSubclassOf<UHBLobbyHUDWidget> LobbyWidgetClass;

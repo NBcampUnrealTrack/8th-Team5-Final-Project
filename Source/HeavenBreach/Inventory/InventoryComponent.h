@@ -108,6 +108,7 @@ public:
 	void CancelItemUse(FGuid InInstanceId);
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool ToggleFavorite(FGuid InInstanceId);
+	bool SetItemDurability(FGuid InInstanceId, float InDurability);
 
 	/** InItemId(ItemRow.RowName) 아이템 사용 쿨타임 남은 시간(초). 쿨타임 중이 아니면 0.
 	 * 쿨타임은 아이템 종류별로 독립이라 슬롯이 아니라 "무슨 아이템인지"를 넘겨줘야 한다.
@@ -157,6 +158,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Exec, Category = "Inventory|Debug")
 	void DebugAddItem(FName InRowName, int32 InCount = 1);
+
+	int32 DebugGiveItemByRow(FName InRowName, int32 InCount);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Debug")
 	void DebugMoveFirstItem(FIntPoint InNewPosition);

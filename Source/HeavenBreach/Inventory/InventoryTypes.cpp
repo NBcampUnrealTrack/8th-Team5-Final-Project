@@ -3,6 +3,7 @@
 #include "Engine/Texture2D.h"
 #include "AbilitySystemComponent.h"
 #include "Item/ItemStatBinding.h"
+#include "Craft/CraftTypes.h"
 
 
 namespace
@@ -117,6 +118,29 @@ FString GetEquipSlotDisplayName(EEquipSlotType InSlot)
 	}
 }
 
+static int32 FindBlueprintMaxUses(FName InBlueprintRow)
+{
+	static TWeakObjectPtr<UDataTable> CachedRecipeTable;
+	if (!CachedRecipeTable.IsValid())
+	{
+		CachedRecipeTable = LoadObject<UDataTable>(nullptr, TEXT("/Game/Craft/DT_CraftRecipe.DT_CraftRecipe"));
+	}
+	const UDataTable* RecipeTable = CachedRecipeTable.Get();
+	if (RecipeTable == nullptr || RecipeTable->GetRowStruct() != FCraftRecipeRow::StaticStruct())
+	{
+		return 0;
+	}
+	for (const TPair<FName, uint8*>& Pair : RecipeTable->GetRowMap())
+	{
+		const FCraftRecipeRow* Recipe = reinterpret_cast<const FCraftRecipeRow*>(Pair.Value);
+		if (Recipe != nullptr && Recipe->IsLimitedUse() && Recipe->RecipeItem.RowName == InBlueprintRow)
+		{
+			return Recipe->MaxUses;
+		}
+	}
+	return 0;
+}
+
 FString BuildStatTextForItem(const FItemInstance& InItem)
 {
 	FString StatText;
@@ -175,6 +199,12 @@ FString BuildStatTextForItem(const FItemInstance& InItem)
 			{
 				EffectLines.Add(FString::Printf(TEXT("낙하 피해 감소: %d%%"), FMath::RoundToInt(FMath::Clamp(GeneralRow->FallDamageReduction, 0.f, 1.f) * 100.f)));
 				EffectLines.Add(FString::Printf(TEXT("지속 시간: %d초"), FMath::RoundToInt(GeneralRow->BuffDuration)));
+			}
+			const int32 MaxUses = FindBlueprintMaxUses(InItem.ItemRow.RowName);
+			if (MaxUses > 0)
+			{
+				const int32 RemainingUses = InItem.CurrentDurability < 0.f ? MaxUses : FMath::RoundToInt(InItem.CurrentDurability);
+				EffectLines.Add(FString::Printf(TEXT("남은 제작 횟수: %d / %d"), RemainingUses, MaxUses));
 			}
 			for (const FString& EffectLine : EffectLines)
 			{

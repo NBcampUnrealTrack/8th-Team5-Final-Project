@@ -15,6 +15,11 @@
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
+#include "Player/PlayerState/HB_PlayerState.h"
+#include "Inventory/StashComponent.h"
+#include "Craft/CraftComponent.h"
+#include "Craft/CraftTypes.h"
+#include "Engine/DataTable.h"
 
 void AHBLobbyPlayerController::ClientLobbyClosed_Implementation()
 {
@@ -442,4 +447,73 @@ void AHBLobbyPlayerController::ServerApplySkillLoadout_Implementation(const FHBS
 		*Sanitized.SkillEId.ToString(),
 		*Sanitized.PassiveSkillId.ToString()
 		);
+}
+
+void AHBLobbyPlayerController::HBGiveItem(FName RowName, int32 Count)
+{
+	ServerGiveItem(RowName, FMath::Max(1, Count));
+}
+
+void AHBLobbyPlayerController::HBGiveRecipe(FName RecipeOrResultRow, int32 Times)
+{
+	ServerGiveRecipe(RecipeOrResultRow, FMath::Max(1, Times));
+}
+
+void AHBLobbyPlayerController::ServerGiveItem_Implementation(FName RowName, int32 Count)
+{
+#if !UE_BUILD_SHIPPING
+	const AHB_PlayerState* HBPlayerState = GetPlayerState<AHB_PlayerState>();
+	UStashComponent* Stash = HBPlayerState ? HBPlayerState->GetStash() : nullptr;
+	if (Stash)
+	{
+		Stash->DebugGiveItemByRow(RowName, FMath::Max(1, Count));
+	}
+#endif
+}
+
+void AHBLobbyPlayerController::ServerGiveRecipe_Implementation(FName RecipeOrResultRow, int32 Times)
+{
+#if !UE_BUILD_SHIPPING
+	const AHB_PlayerState* HBPlayerState = GetPlayerState<AHB_PlayerState>();
+	UStashComponent* Stash = HBPlayerState ? HBPlayerState->GetStash() : nullptr;
+	const UCraftComponent* Craft = HBPlayerState ? HBPlayerState->GetCraft() : nullptr;
+	const UDataTable* RecipeTable = Craft ? Craft->GetRecipeTable() : nullptr;
+	if (!Stash || !RecipeTable)
+	{
+		return;
+	}
+
+	const FCraftRecipeRow* Recipe = RecipeTable->FindRow<FCraftRecipeRow>(RecipeOrResultRow, TEXT("HBGiveRecipe"), false);
+	if (!Recipe)
+	{
+		for (const TPair<FName, uint8*>& Pair : RecipeTable->GetRowMap())
+		{
+			const FCraftRecipeRow* Candidate = reinterpret_cast<const FCraftRecipeRow*>(Pair.Value);
+			if (Candidate && Candidate->ResultItem.RowName == RecipeOrResultRow)
+			{
+				Recipe = Candidate;
+				break;
+			}
+		}
+	}
+	if (!Recipe)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GiveRecipe] '%s' not found (recipe row or result item row)"), *RecipeOrResultRow.ToString());
+		return;
+	}
+
+	const int32 SafeTimes = FMath::Max(1, Times);
+	if (!Recipe->RecipeItem.RowName.IsNone())
+	{
+		Stash->DebugGiveItemByRow(Recipe->RecipeItem.RowName, 1);
+	}
+	for (const FCraftIngredient& Ingredient : Recipe->Ingredients)
+	{
+		Stash->DebugGiveItemByRow(Ingredient.ItemRow.RowName, Ingredient.Count * SafeTimes);
+	}
+	if (Recipe->GoldCost > 0)
+	{
+		Stash->DebugGiveItemByRow(TEXT("ITM_002"), Recipe->GoldCost * SafeTimes);
+	}
+#endif
 }

@@ -60,6 +60,12 @@ public:
 
 	// K 키. 열려 있으면 닫는다. 닫혀 있으면 고를 증강이 있을 때 증강 화면을,
 	// 없으면 스탯창을 연다.
+	UFUNCTION(Exec)
+	void HBGiveItem(FName RowName, int32 Count = 1);
+
+	UFUNCTION(Server, Reliable)
+	void ServerGiveItem(FName RowName, int32 Count);
+
 	UFUNCTION(BlueprintCallable, Category = "Player|UI")
 	void ToggleSkillAugment();
 

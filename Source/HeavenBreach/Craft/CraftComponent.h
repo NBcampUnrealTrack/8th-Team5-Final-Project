@@ -51,6 +51,9 @@ public:
 	bool IsRecipeUnlocked(const FCraftRecipeRow& InRecipe) const;
 
 	UFUNCTION(BlueprintPure, Category = "Craft")
+	bool GetSelectedRecipeRequirement(FItemViewData& OutViewData, FText& OutStatusText, bool& bOutOwned) const;
+
+	UFUNCTION(BlueprintPure, Category = "Craft")
 	static bool GetItemViewData(const FDataTableRowHandle& InRow, FItemViewData& OutViewData);
 
 	UPROPERTY(BlueprintAssignable, Category = "Craft")
