@@ -7,6 +7,9 @@
 
 class UTextBlock;
 class UProgressBar;
+class UImage;
+class UWidget;
+class UMaterialInstanceDynamic;
 class UInteractionComponent;
 
 /**
@@ -36,9 +39,35 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> HoldProgressBar;
 
+	// Optional. Ring drawn around the F key. Its material has a 0..1 scalar parameter
+	// (HoldPercentParameter) that fills the border clockwise. Shown only while holding.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> HoldRingImage;
+
+	// Optional. Dark overlay placed over the F key. Fades in while holding, fades out on release.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> KeyDimOverlay;
+
+	// How fast the overlay fades (per second).
+	UPROPERTY(EditDefaultsOnly, Category = "Interaction", meta = (ClampMin = "1.0"))
+	float DimFadeSpeed = 14.0f;
+
+	// Name of the 0..1 scalar parameter in the ring material.
+	UPROPERTY(EditDefaultsOnly, Category = "Interaction")
+	FName HoldPercentParameter = TEXT("Percent");
+
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 private:
 	TWeakObjectPtr<UInteractionComponent> InteractionSource;
+
+	void SetHoldMode(bool bHolding);
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> HoldRingMID;
+
+	bool bHoldMode = false;
+
+	float KeyDim = 0.0f;
 };

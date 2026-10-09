@@ -37,7 +37,7 @@ protected:
 	int32 CorpseRows = 8;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Corpse")
-	FText InteractPrompt = FText::FromString(TEXT("시체 뒤지기 [F]"));
+	FText InteractPrompt = FText::FromString(TEXT("시체 뒤지기"));
 
 	UFUNCTION()
 	void OnRep_CorpseRows();
