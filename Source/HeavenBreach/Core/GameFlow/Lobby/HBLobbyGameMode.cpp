@@ -38,6 +38,14 @@ AHBLobbyGameMode::AHBLobbyGameMode()
 		));
 }
 
+void AHBLobbyGameMode::StartPlay()
+{
+	Super::StartPlay();
+	if (bAutomaticallyHostInviteHub && HasAuthority())
+		if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+			Sessions->NotifyInviteHubEntered(GetWorld());
+}
+
 void AHBLobbyGameMode::PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
 {
     Super::PreLogin(Options, Address, UniqueId, ErrorMessage);
@@ -54,7 +62,9 @@ void AHBLobbyGameMode::EvaluateCanStartMatch()
     if (!State || !HasAuthority()) return;
     auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
     const bool bReady = GetNetMode() == NM_ListenServer && State->AreGuestsReady(RequiredReadyPlayerCount)
-        && Sessions && !Sessions->IsLobbyOperationInProgress() && !Sessions->IsMatchAdmissionClosed();
+        && Sessions && Sessions->IsLocalLobbyHost()
+        && Sessions->GetLobbyOperationState() == EHBLobbyOperationState::InLobby
+        && !Sessions->IsLobbyOperationInProgress() && !Sessions->IsMatchAdmissionClosed();
     State->SetCanStartMatch(bReady);
 }
 

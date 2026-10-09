@@ -56,6 +56,23 @@ enum class EHBLobbyOperationState : uint8
 	Leaving
 };
 
+/** Map-independent lifecycle of a personal, invite-only listen hub. */
+UENUM(BlueprintType)
+enum class EHBInviteHubState : uint8
+{
+	Disabled,
+	WaitingForSteam,
+	PreparingHost,
+	Hosting,
+	LeavingForInvite,
+	JoiningInvite,
+	Guest,
+	InMatch,
+	Returning,
+	Suspended,
+	Failed
+};
+
 /** Snapshot of the latest search. SessionId remains the selection key across refreshes. */
 USTRUCT(BlueprintType)
 struct FHBLobbySearchEntry
@@ -106,6 +123,23 @@ class HEAVENBREACH_API UHBOnlineSessionSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	/** Called by the authoritative lobby GameMode; clients never create a personal session here. */
+	void NotifyInviteHubEntered(UWorld* HubWorld);
+	UFUNCTION(BlueprintPure, Category = "Online|Hub")
+	EHBInviteHubState GetInviteHubState() const { return InviteHubState; }
+	UFUNCTION(BlueprintPure, Category = "Online|Hub")
+	FString GetInviteHubError() const { return InviteHubError; }
+	UFUNCTION(BlueprintPure, Category = "Online|Hub")
+	bool IsAutomaticInviteHubEnabled() const { return bAutomaticInviteHubEnabled; }
+	UFUNCTION(BlueprintPure, Category = "Online|Hub")
+	bool IsLocalLobbyHost() const;
+	/** Called after results or when leaving a party; this API does not skip the result screen. */
+	UFUNCTION(BlueprintCallable, Category = "Online|Hub")
+	bool RequestReturnToOwnHub(const FString& Notice = TEXT(""));
+	UFUNCTION(BlueprintCallable, Category = "Online|Hub")
+	bool RetryInviteHub();
+	FString GetOwnHubMap() const { return OwnHubMap; }
+
 	bool RequestHostRoom(const FString& Name, const FString& Password, TSoftObjectPtr<UWorld> LobbyMap);
 	bool RequestJoinRoom(const FString& SessionId, const FString& Password);
 	bool RefreshSteamFriends();
@@ -115,7 +149,7 @@ public:
 	bool GetPendingInvite(FHBLobbySearchEntry& Entry) const;
 	bool AcceptPendingInvite(const FString& Password);
 	void DeclinePendingInvite();
-	void SetLobbyReturnMap(const FString& Package) { LobbyReturnMap = Package; }
+	void SetLobbyReturnMap(const FString& Package) { if (!bAutomaticInviteHubEnabled) LobbyReturnMap = Package; }
 	bool RequestLeaveToMenu(const FString& Notice = FString());
 	FString ConsumeMenuNotice();
 	FString GetHostedRoomName() const { return HostedRoomName; }
@@ -219,7 +253,24 @@ public:
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
 
 private:
-	bool RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password);
+	bool RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password, bool bInviteOnly = false);
+	void SetInviteHubState(EHBInviteHubState State, const FString& Error = FString());
+	bool TickInviteHub(float DeltaSeconds);
+	bool BeginHubInvite(const FOnlineSessionSearchResult& Result, const FString& Password);
+	bool ValidateHubInvite(const FOnlineSessionSearchResult& Result);
+	void NotifyInviteHubSessionReady(bool bHost);
+	void NotifyInviteHubSessionLeft();
+	bool bAutomaticInviteHubEnabled = false;
+	FString OwnHubMap;
+	FString HostedInviteProof;
+	FString PendingJoinInviteProof;
+	EHBInviteHubState InviteHubState = EHBInviteHubState::Disabled;
+	FString InviteHubError;
+	double SteamReadyDeadline = 0.0;
+	TSharedPtr<FOnlineSessionSearchResult> QueuedHubInvite;
+	FString QueuedHubPassword;
+	FTSTicker::FDelegateHandle InviteHubTickerHandle;
+	friend class FHBInviteHubGuardsTest;
 	bool JoinLobbyResult(const FOnlineSessionSearchResult& Result, const FString& Password);
 	void InitializeMultiplayerLobby();
 	void DeinitializeMultiplayerLobby();

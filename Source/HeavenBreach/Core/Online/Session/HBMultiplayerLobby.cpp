@@ -32,6 +32,7 @@ void UHBOnlineSessionSubsystem::InitializeMultiplayerLobby()
             && LobbyOperationState == EHBLobbyOperationState::InLobby)
         {
             bMatchAdmissionClosed = true;
+            if (bAutomaticInviteHubEnabled) SetInviteHubState(EHBInviteHubState::InMatch);
             PublishGamePresence(TEXT("Busy"));
         }
     });
@@ -68,6 +69,8 @@ bool UHBOnlineSessionSubsystem::RequestJoinRoom(const FString& SessionId, const 
 
 FString UHBOnlineSessionSubsystem::CheckLobbyPassword(const FString& Options) const
 {
+    if (!HostedInviteProof.IsEmpty() && UGameplayStatics::ParseOption(Options, TEXT("HBInviteProof")) != HostedInviteProof)
+        return TEXT("HB_INVITE_REQUIRED");
     if (!HostedPasswordProof.IsEmpty() && UGameplayStatics::ParseOption(Options, TEXT("HBProof")) != HostedPasswordProof)
         return TEXT("HB_PASSWORD_INVALID");
     return FString();
@@ -88,7 +91,7 @@ void UHBOnlineSessionSubsystem::PublishGamePresence(const FString& State)
     Status.StatusStr = State == TEXT("Match") ? TEXT("HeavenBreach 게임 중") : TEXT("HeavenBreach 접속 중");
     Status.Properties.Add(TEXT("HB_PROJECT"), FString(TEXT("HeavenBreach")));
     Status.Properties.Add(TEXT("HB_STATE"), State);
-    Status.Properties.Add(TEXT("Joinable"), FString(State == TEXT("Match") ? TEXT("false") : TEXT("true")));
+    Status.Properties.Add(TEXT("Joinable"), FString(State == TEXT("Lobby") ? TEXT("true") : TEXT("false")));
     Presence->SetPresence(*UserId, Status);
 }
 
@@ -131,7 +134,9 @@ bool UHBOnlineSessionSubsystem::RefreshSteamFriends()
 
 bool UHBOnlineSessionSubsystem::InviteSteamFriend(const FString& UserId)
 {
-    if (LobbyOperationState != EHBLobbyOperationState::InLobby || bMatchAdmissionClosed || IsLobbyOperationInProgress()) return false;
+    if (LobbyOperationState != EHBLobbyOperationState::InLobby || bMatchAdmissionClosed || IsLobbyOperationInProgress() || !IsLocalLobbyHost()) return false;
+    const auto* Session = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(LobbySession) : nullptr;
+    if (!Session || !Session->SessionSettings.bAllowInvites || Session->NumOpenPublicConnections <= 0) return false;
     IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
     const auto Friends = OSS ? OSS->GetFriendsInterface() : nullptr;
     if (!Friends.IsValid() || !SessionInterface.IsValid()) return false;
@@ -156,9 +161,16 @@ void UHBOnlineSessionSubsystem::HandleSteamInvite(bool bSuccess, int32 LocalUser
     if (!bSuccess || LocalUser != LocalUserIndex(GetGameInstance()) || !UserId.IsValid() || !Result.IsValid()) return;
     FString Project;
     if (!Result.Session.SessionSettings.Get(FName(TEXT("HB_PROJECT")), Project) || Project != TEXT("HeavenBreach")) return;
+    if (bAutomaticInviteHubEnabled && (bMatchAdmissionClosed || QueuedHubInvite.IsValid()))
+    {
+        AuxiliaryError = TEXT("현재 게임이나 초대 전환이 끝난 뒤 다시 초대해주세요.");
+        return;
+    }
     PendingInvite = MakeShared<FOnlineSessionSearchResult>(Result);
-    // Password prompts use the same join path as the room list. A connected
-    // player returns to the menu before joining the accepted invitation.
+    // Steam has already shown its acceptance UI. The hub subsystem performs
+    // cleanup and joining; no in-game widget is required.
+    if (bAutomaticInviteHubEnabled && !IsLobbyOperationInProgress())
+        if (!AcceptPendingInvite(FString())) PendingInvite.Reset();
 }
 
 bool UHBOnlineSessionSubsystem::GetPendingInvite(FHBLobbySearchEntry& Entry) const
@@ -177,7 +189,11 @@ bool UHBOnlineSessionSubsystem::AcceptPendingInvite(const FString& Password)
 {
     if (!PendingInvite.IsValid()) return false;
     const auto Result = *PendingInvite;
-    if (!JoinLobbyResult(Result, Password)) return false;
+    if (bAutomaticInviteHubEnabled)
+    {
+        if (!BeginHubInvite(Result, Password)) return false;
+    }
+    else if (!JoinLobbyResult(Result, Password)) return false;
     PendingInvite.Reset();
     return true;
 }
@@ -191,6 +207,8 @@ bool UHBOnlineSessionSubsystem::RequestLeaveToMenu(const FString& Notice)
     if (bReturnAfterLeave) return true;
     if (IsLobbyOperationInProgress()) return false;
     MenuNotice = Notice;
+    if (bAutomaticInviteHubEnabled && InviteHubState != EHBInviteHubState::LeavingForInvite)
+        SetInviteHubState(EHBInviteHubState::Returning);
     bReturnAfterLeave = true;
     if (GetWorld() && GetWorld()->GetNetMode() == NM_ListenServer)
         for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
@@ -212,6 +230,8 @@ bool UHBOnlineSessionSubsystem::ReturnToMenu(float)
     HostedRoomName.Reset();
     HostedPasswordProof.Reset();
     HostedPasswordSalt.Reset();
+    HostedInviteProof.Reset();
+    PendingJoinInviteProof.Reset();
     ConnectedLobbyMap.Reset();
     bMatchAdmissionClosed = false;
     PreTravelSettings.Reset();

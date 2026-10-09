@@ -18,6 +18,7 @@ class HEAVENBREACH_API AHBLobbyGameMode : public AGameMode
 	
 public:
 	AHBLobbyGameMode();
+	virtual void StartPlay() override;
 	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
 	
 	void EvaluateCanStartMatch();
@@ -50,6 +51,10 @@ public:
 	UHBJobData* GetDefaultJob() const;
 
 protected:
+	/** Automatic Steam hub hosting; disable for an explicitly managed lobby. */
+	UPROPERTY(EditDefaultsOnly, Category = "Lobby|Hub")
+	bool bAutomaticallyHostInviteHub = true;
+
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 
