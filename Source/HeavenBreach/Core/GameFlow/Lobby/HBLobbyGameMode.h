@@ -20,6 +20,9 @@ public:
 	AHBLobbyGameMode();
 	virtual void StartPlay() override;
 	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
+	virtual void RestartPlayer(AController* NewPlayer) override;
+	/** Shared anchor lookup for authority spawning and owning-client seat updates. */
+	static AActor* FindLobbySeat(UWorld* World, int32 SeatIndex);
 	
 	void EvaluateCanStartMatch();
 	void HandleReadyStateChanged();
@@ -55,7 +58,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby|Hub")
 	bool bAutomaticallyHostInviteHub = true;
 
-	virtual void PostLogin(APlayerController* NewPlayer) override;
+	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby")
@@ -75,6 +78,11 @@ protected:
 	TArray<TObjectPtr<UHBJobData>> SelectableJobs;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FHBLobbySeatsTest;
+#endif
+	void RefreshLobbySeats(APlayerController* Joining = nullptr, AController* Exiting = nullptr);
+
 	/**
 	 * 입장한 플레이어에게 기본 시작 구성을 넣는다.
 	 *

@@ -22,6 +22,12 @@
 #include "Craft/CraftTypes.h"
 #include "Engine/DataTable.h"
 
+AHBLobbyPlayerController::AHBLobbyPlayerController()
+{
+	// Possession/OnRep_Pawn must not replace L_Lobby's authored fixed camera.
+	bAutoManageActiveCameraTarget = false;
+}
+
 void AHBLobbyPlayerController::ClientLobbyClosed_Implementation()
 {
 	if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())

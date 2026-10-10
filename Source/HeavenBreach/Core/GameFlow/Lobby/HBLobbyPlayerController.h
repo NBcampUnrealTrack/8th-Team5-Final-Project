@@ -20,6 +20,8 @@ class HEAVENBREACH_API AHBLobbyPlayerController : public APlayerController
 	GENERATED_BODY()
 	
 public:
+	AHBLobbyPlayerController();
+
 	UFUNCTION(Client, Reliable)
 	void ClientLobbyClosed();
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Ready")

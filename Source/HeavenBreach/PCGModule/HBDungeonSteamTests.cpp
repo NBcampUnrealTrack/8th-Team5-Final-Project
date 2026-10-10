@@ -10,6 +10,12 @@
 #include "Blueprint/UserWidget.h"
 #include "Core/GameFlow/Lobby/HBLobbyGameMode.h"
 #include "Core/GameFlow/Lobby/HBLobbyGameState.h"
+#include "Player/HBPlayerCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimationAsset.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/TargetPoint.h"
 #include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
 #include "UI/Lobby/HBLobbyHUDWidget.h"
 #include "UI/Lobby/HBLobbyWidget.h"
@@ -45,6 +51,32 @@ namespace
     const TCHAR* LobbyMap = TEXT("/Game/Levels/Lobby/L_Lobby.L_Lobby");
     const TCHAR* DungeonMap = TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay.Test_MGGamePlay");
     const TCHAR* SteamDriverClass = TEXT("/Script/SteamSockets.SteamSocketsNetDriver");
+
+    AHBPlayerCharacter* VerifyHostPawn(FAutomationTestBase* Test, UWorld* World)
+    {
+        auto* Controller = World->GetFirstPlayerController();
+        auto* State = Controller ? Controller->GetPlayerState<AHBLobbyPlayerState>() : nullptr;
+        auto* Pawn = Controller ? Cast<AHBPlayerCharacter>(Controller->GetPawn()) : nullptr;
+        Test->TestTrue(TEXT("Host possesses its lobby pawn at seat zero"), State && State->GetLobbySeatIndex() == 0 && Pawn);
+        if (!Pawn) return nullptr;
+        Test->TestTrue(TEXT("Lobby pawn and position replicate to every guest"), Pawn->GetIsReplicated() && Pawn->IsReplicatingMovement() && Pawn->bAlwaysRelevant);
+        Test->TestNotNull(TEXT("Lobby pawn displays the existing job mesh"), Pawn->GetMesh()->GetSkeletalMeshAsset());
+		Test->TestEqual(TEXT("Lobby character cannot move or fall"), Pawn->GetCharacterMovement()->MovementMode.GetValue(), MOVE_None);
+		Test->TestFalse(TEXT("Lobby character never collides with another seat"), Pawn->GetActorEnableCollision());
+		auto* Idle = Pawn->GetMesh()->GetSingleNodeInstance();
+		Test->TestTrue(TEXT("Lobby character keeps the arms-down idle"), Idle && Idle->GetCurrentAsset()
+			&& Idle->GetCurrentAsset()->GetName() == TEXT("AN_PlayerIdle1"));
+        Test->TestTrue(TEXT("Possession preserves the authored lobby camera"), Controller->GetViewTarget() && Controller->GetViewTarget() != Pawn);
+        int32 HostAnchors = 0;
+        for (TActorIterator<ATargetPoint> It(World); It; ++It)
+            if (It->ActorHasTag(TEXT("LobbyCharacterSlot")) && It->ActorHasTag(TEXT("LobbySlot_0")))
+            {
+                ++HostAnchors;
+                Test->TestTrue(TEXT("Host pawn uses TP_LobbyCharacter_00 transform"), Pawn->GetActorTransform().Equals(It->GetActorTransform()));
+            }
+        Test->TestEqual(TEXT("Production lobby has exactly one host anchor"), HostAnchors, 1);
+        return Pawn;
+    }
 
     bool VerifyFriendRow(FAutomationTestBase* Test, UHB_FriendsPanel* Panel,
         UHBOnlineSessionSubsystem* Sessions, const FString& LocalId)
@@ -87,6 +119,7 @@ namespace
     {
         TWeakObjectPtr<UGameInstance> Instance;
         TWeakObjectPtr<UNetDriver> LobbyDriver;
+        TWeakObjectPtr<AHBPlayerCharacter> LobbyPawn;
         TArray<TWeakObjectPtr<AActor>> EndingActors;
         FHBStartingLoadout LobbyLoadout;
         FString SessionId;
@@ -169,6 +202,7 @@ namespace
                     Session->SessionSettings.bAllowJoinViaPresenceFriendsOnly && Session->SessionSettings.bAllowInvites);
                 Test->TestTrue(TEXT("Recovered local host is authorized"), Sessions->IsLocalLobbyHost());
                 Test->TestFalse(TEXT("Recovery releases match admission"), Sessions->IsMatchAdmissionClosed());
+                VerifyHostPawn(Test, World);
                 Test->AddInfo(TEXT("Automatic friends-only Steam hub restored and stable for three seconds; remote friend/invitation joining remains unverified."));
                 return true;
             }
@@ -332,6 +366,7 @@ namespace
                     Test->TestEqual(TEXT("Rejected self invitation keeps the healthy hub"), Sessions->GetInviteHubState(), EHBInviteHubState::Hosting);
                 }
                 Fixture->LobbyDriver = Driver;
+                Fixture->LobbyPawn = VerifyHostPawn(Test, World);
                 Fixture->LobbyLoadout = State->GetStartingLoadout();
                 Fixture->SessionId = Session->GetSessionIdStr();
                 Test->TestFalse(TEXT("Steam assigned a real lobby ID"), Fixture->SessionId.IsEmpty());
@@ -395,6 +430,7 @@ namespace
                     return Wait(TEXT("Steam lobby-to-dungeon seamless travel did not complete."));
                 Test->TestEqual(TEXT("Gameplay retains the same SteamSockets driver"), World->GetNetDriver(), Fixture->LobbyDriver.Get());
                 Test->TestEqual(TEXT("Gameplay is still a listen server"), World->GetNetMode(), NM_ListenServer);
+                Test->TestTrue(TEXT("Seamless departure ends the lobby display pawn"), !Fixture->LobbyPawn.IsValid() || !Fixture->LobbyPawn->HasActorBegunPlay());
 				if (Fixture->bLobbyUI)
 					Test->TestTrue(TEXT("Lobby departure removes the old HUD"), !Fixture->LobbyHUD.IsValid() || !Fixture->LobbyHUD->IsInViewport());
                 FNamedOnlineSession* Session = Online->GetNamedSession(SteamTestSession);
@@ -485,6 +521,11 @@ namespace
             if (!Mode || !Mode->IsMatchInProgress() ||
                 (!Fixture->bSessionOnly && !Runtime->AreEncountersActive()) || !Player || !Player->GetPawn())
                 return Wait(TEXT("Steam host did not start gameplay after dungeon preparation."));
+			if (auto* Character = Cast<AHBPlayerCharacter>(Player->GetPawn()))
+			{
+				Test->TestTrue(TEXT("Gameplay restores character movement"), Character->GetCharacterMovement()->MovementMode != MOVE_None);
+				Test->TestTrue(TEXT("Gameplay restores character collision"), Character->GetActorEnableCollision());
+			}
             if (Fixture->EndReason != EHBPostMatchReason::None)
             {
                 FString LoginError;
