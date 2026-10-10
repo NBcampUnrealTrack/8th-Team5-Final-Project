@@ -6,6 +6,7 @@
 #include "PlayerState/HBLobbyPlayerState.h"
 #include "UI/Lobby/HBLobbyWidget.h"
 #include "UI/Lobby/HBLobbyHUDWidget.h"
+#include "UI/Friends/HB_FriendsPanel.h"
 #include "HBLobbyGameMode.h"
 #include "HBLobbyGameState.h"
 #include "Player/Job/HBJobData.h"
@@ -20,6 +21,12 @@
 #include "Craft/CraftComponent.h"
 #include "Craft/CraftTypes.h"
 #include "Engine/DataTable.h"
+
+AHBLobbyPlayerController::AHBLobbyPlayerController()
+{
+	// Possession/OnRep_Pawn must not replace L_Lobby's authored fixed camera.
+	bAutoManageActiveCameraTarget = false;
+}
 
 void AHBLobbyPlayerController::ClientLobbyClosed_Implementation()
 {
@@ -131,6 +138,21 @@ void AHBLobbyPlayerController::BeginPlay()
 	}
 	
 	LobbyWidget->AddToViewport();
+	LobbyContent = Cast<UHBLobbyWidget>(LobbyWidget->GetContentWidget(EHBLobbyHUDMenu::Lobby));
+	if (LobbyContent)
+	{
+		LobbyContent->OnStartRequested.AddUniqueDynamic(this, &ThisClass::HandleStartRequested);
+		LobbyContent->OnReadyRequested.AddUniqueDynamic(this, &ThisClass::HandleReadyRequested);
+		if (auto* Panel = LobbyContent->GetFriendsPanel())
+		{
+			Panel->OnRefreshRequested.AddUniqueDynamic(this, &ThisClass::HandleFriendsRefresh);
+			Panel->OnInviteRequested.AddUniqueDynamic(this, &ThisClass::HandleFriendInvite);
+			Panel->OnJoinRequested.AddUniqueDynamic(this, &ThisClass::HandleFriendJoin);
+		}
+		// Shipping also needs late PlayerState replication and async friend completion updates.
+		GetWorldTimerManager().SetTimer(LobbyUITimer, this, &ThisClass::RefreshLobbyUI, 0.25f, true);
+		RefreshLobbyUI();
+	}
 	
 	FInputModeUIOnly InputMode;
 	//InputMode.SetWidgetToFocus(LobbyWidget->TakeWidget());
@@ -142,6 +164,21 @@ void AHBLobbyPlayerController::BeginPlay()
 
 void AHBLobbyPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	GetWorldTimerManager().ClearTimer(LobbyUITimer);
+	if (LobbyContent)
+	{
+		LobbyContent->OnStartRequested.RemoveDynamic(this, &ThisClass::HandleStartRequested);
+		LobbyContent->OnReadyRequested.RemoveDynamic(this, &ThisClass::HandleReadyRequested);
+		if (auto* Panel = LobbyContent->GetFriendsPanel())
+		{
+			Panel->OnRefreshRequested.RemoveDynamic(this, &ThisClass::HandleFriendsRefresh);
+			Panel->OnInviteRequested.RemoveDynamic(this, &ThisClass::HandleFriendInvite);
+			Panel->OnJoinRequested.RemoveDynamic(this, &ThisClass::HandleFriendJoin);
+		}
+	}
+	LobbyContent = nullptr;
+	DisplayedFriends.Reset();
+	bWaitingForFriends = false;
 	// Undo the viewport input block set by UIOnly. CommonUI's Game config does
 	// not clear it, and SetInputMode may no longer work on a swapped controller.
 	if (UGameViewportClient* Viewport = LobbyInputViewport.Get())
@@ -165,6 +202,92 @@ void AHBLobbyPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	LobbyDebugPlayers.Empty();
 	Super::EndPlay(EndPlayReason);
+}
+
+void AHBLobbyPlayerController::HandleReadyRequested()
+{
+	if (auto* State = GetPlayerState<AHBLobbyPlayerState>(); State && LobbyContent && !LobbyContent->IsLocalLobbyHost())
+		SetReady(!State->IsReady());
+	RefreshLobbyUI();
+}
+
+void AHBLobbyPlayerController::HandleStartRequested()
+{
+	if (LobbyContent && LobbyContent->IsLocalLobbyHost()) RequestStartGame();
+	RefreshLobbyUI();
+}
+
+void AHBLobbyPlayerController::HandleFriendsRefresh()
+{
+	auto* Panel = LobbyContent ? LobbyContent->GetFriendsPanel() : nullptr;
+	if (!Panel) return;
+	auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	bWaitingForFriends = Sessions && (Sessions->IsReadingFriends() || Sessions->RefreshSteamFriends());
+	Panel->SetLoading(bWaitingForFriends);
+	NextFriendsRefresh = GetWorld()->GetTimeSeconds() + 5.;
+	if (!bWaitingForFriends) UpdateFriendsPanel(true);
+}
+
+void AHBLobbyPlayerController::HandleFriendInvite(const FString& UserId)
+{
+	if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>(); !Sessions || !Sessions->InviteSteamFriend(UserId))
+		UE_LOG(LogTemp, Warning, TEXT("Lobby UI | Steam friend invite rejected: %s"), *UserId);
+	RefreshLobbyUI();
+}
+
+void AHBLobbyPlayerController::HandleFriendJoin(const FString& UserId)
+{
+	if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>(); !Sessions || !Sessions->RequestJoinSteamFriend(UserId))
+		UE_LOG(LogTemp, Warning, TEXT("Lobby UI | Steam friend join rejected: %s"), *UserId);
+	RefreshLobbyUI();
+}
+
+void AHBLobbyPlayerController::RefreshLobbyUI()
+{
+	if (!IsLocalController() || !LobbyContent) return;
+	LobbyContent->RefreshLobbyActions();
+	auto* Panel = LobbyContent->GetFriendsPanel();
+	if (!Panel || !Panel->IsOpen()) return;
+	auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	const bool bReadFinished = bWaitingForFriends && (!Sessions || !Sessions->IsReadingFriends());
+	if (bReadFinished) bWaitingForFriends = false;
+	// Rebuild rows only when their values change or a requested read finishes.
+	UpdateFriendsPanel(bReadFinished);
+	if (!bWaitingForFriends && GetWorld()->GetTimeSeconds() >= NextFriendsRefresh)
+		HandleFriendsRefresh();
+}
+
+void AHBLobbyPlayerController::UpdateFriendsPanel(bool bForce)
+{
+	auto* Panel = LobbyContent ? LobbyContent->GetFriendsPanel() : nullptr;
+	if (!Panel) return;
+	TArray<FHBFriendListItem> Items;
+	if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+		for (const auto& Friend : Sessions->GetSteamFriends())
+		{
+			// Keep unknown/menu/offline presence out of the two-state lobby UI.
+			if (Friend.State != TEXT("Lobby") && Friend.State != TEXT("Match")) continue;
+			FHBFriendListItem& Item = Items.AddDefaulted_GetRef();
+			Item.UserId = Friend.UserId;
+			Item.DisplayName = FText::FromString(Friend.DisplayName);
+			Item.Status = Friend.State == TEXT("Lobby") ? EHBFriendStatus::InLobby : EHBFriendStatus::InMatch;
+			Item.bCanInvite = Item.Status == EHBFriendStatus::InLobby && Friend.bCanInvite;
+			Item.bCanJoin = Item.Status == EHBFriendStatus::InLobby && Friend.bCanJoin;
+		}
+	bool bChanged = Items.Num() != DisplayedFriends.Num();
+	for (int32 Index = 0; !bChanged && Index < Items.Num(); ++Index)
+	{
+		const auto& A = Items[Index];
+		const auto& B = DisplayedFriends[Index];
+		bChanged = A.UserId != B.UserId || !A.DisplayName.EqualTo(B.DisplayName) || A.Status != B.Status
+			|| A.bCanInvite != B.bCanInvite || A.bCanJoin != B.bCanJoin;
+	}
+	if (bForce || bChanged)
+	{
+		DisplayedFriends = MoveTemp(Items);
+		Panel->SetFriends(DisplayedFriends);
+		Panel->SetLoading(bWaitingForFriends);
+	}
 }
 
 void AHBLobbyPlayerController::ShowLobbyDebugEvent(const FString& Message)

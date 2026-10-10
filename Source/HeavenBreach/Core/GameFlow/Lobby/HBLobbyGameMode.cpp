@@ -6,20 +6,14 @@
 #include "HBLobbyPlayerController.h"
 #include "PlayerState/HBLobbyPlayerState.h"
 #include "HBLobbyGameState.h"
+#include "Player/HBPlayerCharacter.h"
+#include "Engine/TargetPoint.h"
+#include "EngineUtils.h"
 #include "Core/Online/Session/HBGameSession.h"
 #include "Player/Job/HBJobData.h"
 #include "Player/Job/HBStartingLoadout.h"
-#include "Misc/ConfigCacheIni.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Engine/GameInstance.h"
-
-namespace HBLobbyFlow
-{
-	const TCHAR* ConfigSection = TEXT("HeavenBreach.Lobby");
-	const TCHAR* GameplayMapKey = TEXT("GameplayMap");
-	const TCHAR* DefaultGameplayMap =
-		TEXT("/Game/Levels/TierA/Maps/Floor_A.Floor_A");
-}
 
 AHBLobbyGameMode::AHBLobbyGameMode()
 {
@@ -28,14 +22,16 @@ AHBLobbyGameMode::AHBLobbyGameMode()
 	GameStateClass = AHBLobbyGameState::StaticClass();
 	GameSessionClass = AHBGameSession::StaticClass();
 	
-	DefaultPawnClass = nullptr;
+	DefaultPawnClass = AHBPlayerCharacter::StaticClass();
 	bUseSeamlessTravel = true;
+}
 
-	// Keep the native default usable without editing the lobby map or its
-	// Blueprint GameMode asset.
-	GameplayMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(
-		HBLobbyFlow::DefaultGameplayMap
-		));
+void AHBLobbyGameMode::StartPlay()
+{
+	Super::StartPlay();
+	if (bAutomaticallyHostInviteHub && HasAuthority())
+		if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>())
+			Sessions->NotifyInviteHubEntered(GetWorld());
 }
 
 void AHBLobbyGameMode::PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
@@ -54,7 +50,9 @@ void AHBLobbyGameMode::EvaluateCanStartMatch()
     if (!State || !HasAuthority()) return;
     auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
     const bool bReady = GetNetMode() == NM_ListenServer && State->AreGuestsReady(RequiredReadyPlayerCount)
-        && Sessions && !Sessions->IsLobbyOperationInProgress() && !Sessions->IsMatchAdmissionClosed();
+        && Sessions && Sessions->IsLocalLobbyHost()
+        && Sessions->GetLobbyOperationState() == EHBLobbyOperationState::InLobby
+        && !Sessions->IsLobbyOperationInProgress() && !Sessions->IsMatchAdmissionClosed();
     State->SetCanStartMatch(bReady);
 }
 
@@ -100,17 +98,7 @@ void AHBLobbyGameMode::TryStartGame()
 		return;
 	}
 
-	FString ConfiguredGameplayMap;
-	const bool bHasConfiguredGameplayMap = bUseConfiguredGameplayMap && GConfig != nullptr &&
-		GConfig->GetString(
-			HBLobbyFlow::ConfigSection,
-			HBLobbyFlow::GameplayMapKey,
-			ConfiguredGameplayMap,
-			GEngineIni
-			);
-
-	RequestMatchTravel(bHasConfiguredGameplayMap
-		? TSoftObjectPtr<UWorld>(FSoftObjectPath(ConfiguredGameplayMap)) : GameplayMap);
+	RequestMatchTravel(GameplayMap);
 }
 
 bool AHBLobbyGameMode::RequestMatchTravel(TSoftObjectPtr<UWorld> Destination)
@@ -165,11 +153,9 @@ UHBJobData* AHBLobbyGameMode::GetDefaultJob() const
 	return nullptr;
 }
 
-void AHBLobbyGameMode::PostLogin(APlayerController* NewPlayer)
+void AHBLobbyGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
 {
-	Super::PostLogin(NewPlayer);
-
-	if (!HasAuthority())
+	if (!HasAuthority() || !NewPlayer)
 	{
 		return;
 	}
@@ -180,11 +166,83 @@ void AHBLobbyGameMode::PostLogin(APlayerController* NewPlayer)
         if (auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>()) State->RoomName = Sessions->GetHostedRoomName();
         State->ForceNetUpdate();
     }
-	InitializeLobbyLoadout(NewPlayer);
+	if (auto* Player = NewPlayer->GetPlayerState<AHBLobbyPlayerState>(); Player && !Player->HasSelectedJob())
+		InitializeLobbyLoadout(NewPlayer);
+	RefreshLobbySeats(NewPlayer);
 
 	// A newly connected player changes the group that is approving the match.
 	ResetStartConfirmations();
 	EvaluateCanStartMatch();
+	Super::HandleStartingNewPlayer_Implementation(NewPlayer);
+}
+
+AActor* AHBLobbyGameMode::FindLobbySeat(UWorld* World, int32 SeatIndex)
+{
+	if (!World || SeatIndex < 0 || SeatIndex >= 4) return nullptr;
+	const FName SeatTag(*FString::Printf(TEXT("LobbySlot_%d"), SeatIndex));
+	AActor* Found = nullptr;
+	for (TActorIterator<ATargetPoint> It(World); It; ++It)
+		if (It->ActorHasTag(TEXT("LobbyCharacterSlot")) && It->ActorHasTag(SeatTag))
+		{
+			if (Found)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Lobby | Duplicate seat anchor: %s"), *SeatTag.ToString());
+				return nullptr;
+			}
+			Found = *It;
+		}
+	return Found;
+}
+
+void AHBLobbyGameMode::RefreshLobbySeats(APlayerController* Joining, AController* Exiting)
+{
+	auto* State = GetGameState<AHBLobbyGameState>();
+	if (!HasAuthority() || !State || !State->HostPlayerState) return;
+	TArray<AHBLobbyPlayerState*> Players;
+	for (APlayerState* Player : State->PlayerArray)
+	{
+		auto* LobbyPlayer = Cast<AHBLobbyPlayerState>(Player);
+		auto* Controller = LobbyPlayer ? Cast<APlayerController>(LobbyPlayer->GetOwner()) : nullptr;
+		if (IsValid(Controller) && Controller != Exiting && !LobbyPlayer->IsInactive()
+			&& Controller->PlayerState == LobbyPlayer
+			&& (Controller == Joining || LobbyPlayer->GetLobbySeatIndex() != INDEX_NONE))
+			Players.Add(LobbyPlayer);
+	}
+	// Preserve accepted join order using the existing seats, even if PlayerArray changes order.
+	Players.StableSort([State](const AHBLobbyPlayerState& A, const AHBLobbyPlayerState& B)
+	{
+		auto Rank = [State](const AHBLobbyPlayerState& Player)
+		{
+			if (&Player == State->HostPlayerState) return 0;
+			return Player.GetLobbySeatIndex() == INDEX_NONE ? MAX_int32 : Player.GetLobbySeatIndex();
+		};
+		return Rank(A) < Rank(B);
+	});
+	int32 NextGuestSeat = 1;
+	for (auto* Player : Players)
+	{
+		const int32 Seat = Player == State->HostPlayerState ? 0 : NextGuestSeat++;
+		Player->SetLobbySeatIndex(Seat < 4 ? Seat : INDEX_NONE);
+		if (Seat >= 4) continue;
+		RestartPlayer(Cast<APlayerController>(Player->GetOwner()));
+	}
+}
+
+void AHBLobbyGameMode::RestartPlayer(AController* NewPlayer)
+{
+	auto* Player = NewPlayer ? NewPlayer->GetPlayerState<AHBLobbyPlayerState>() : nullptr;
+	if (!HasAuthority() || !Player || !DefaultPawnClass || Player->GetLobbySeatIndex() == INDEX_NONE) return;
+	AActor* Seat = FindLobbySeat(GetWorld(), Player->GetLobbySeatIndex());
+	if (!Seat)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Lobby | Missing seat anchor for player '%s', seat=%d."),
+			*Player->GetPlayerName(), Player->GetLobbySeatIndex());
+		return;
+	}
+	NewPlayer->StartSpot = Seat;
+	// Compaction only moves an existing pawn; possession and ClientRestart are for spawning.
+	if (!NewPlayer->GetPawn()) Super::RestartPlayer(NewPlayer);
+	Player->ApplyLobbySeat();
 }
 
 void AHBLobbyGameMode::InitializeLobbyLoadout(APlayerController* NewPlayer)
@@ -248,12 +306,28 @@ void AHBLobbyGameMode::InitializeLobbyLoadout(APlayerController* NewPlayer)
 
 void AHBLobbyGameMode::Logout(AController* Exiting)
 {
+	AHBLobbyPlayerState* Leaving = Exiting ? Exiting->GetPlayerState<AHBLobbyPlayerState>() : nullptr;
+	if (HasAuthority())
+	{
+		if (Leaving) Leaving->SetLobbySeatIndex(INDEX_NONE);
+		if (Exiting && Exiting->GetPawn()) Exiting->UnPossess();
+	}
 	Super::Logout(Exiting);
 
 	if (!HasAuthority())
 	{
 		return;
 	}
+	if (auto* State = GetGameState<AHBLobbyGameState>())
+	{
+		State->RemovePlayerState(Leaving);
+		if (State->HostPlayerState == Leaving)
+		{
+			State->HostPlayerState = nullptr;
+			State->ForceNetUpdate();
+		}
+	}
+	RefreshLobbySeats(nullptr, Exiting);
 
 	// Removing a player also changes the approved group; stale confirmations
 	// must never make the smaller group start automatically.

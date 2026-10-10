@@ -37,6 +37,10 @@ public:
 
 	bool IsReady() const { return bIsReady; }
 	bool IsStartConfirmed() const { return bStartConfirmed; }
+	UFUNCTION(BlueprintPure, Category = "Lobby|Seat")
+	int32 GetLobbySeatIndex() const { return LobbySeatIndex; }
+	void SetLobbySeatIndex(int32 SeatIndex);
+	void ApplyLobbySeat();
 
 	/**
 	 * 부모의 StartingLoadout.Job 에서 이름만 꺼낸다.
@@ -61,6 +65,10 @@ public:
 	FOnSelectedJobChanged OnSelectedJobChanged;
 
 protected:
+	/** Server-assigned seat. Client arrival order never determines presentation. */
+	UPROPERTY(ReplicatedUsing = OnRep_LobbySeatIndex, BlueprintReadOnly, Category = "Lobby|Seat")
+	int32 LobbySeatIndex = INDEX_NONE;
+
 	UPROPERTY(
 		ReplicatedUsing = OnRep_IsReady,
 		BlueprintReadOnly,
@@ -92,6 +100,11 @@ protected:
 	void OnRep_StartConfirmed();
 
 private:
+	UFUNCTION()
+	void OnRep_LobbySeatIndex();
+	UFUNCTION()
+	void HandleLobbyPawnSet(APlayerState* Player, APawn* NewPawn, APawn* OldPawn);
+
 	/** 직업이 실제로 바뀐 경우에만 알리려고 직전 값을 기억한다. */
 	FName LastNotifiedJobId = NAME_None;
 };

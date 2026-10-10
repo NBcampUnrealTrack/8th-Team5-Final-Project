@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "UI/Friends/HB_FriendsTypes.h"
 #include "HBLobbyPlayerController.generated.h"
 
 class UHBLobbyHUDWidget;
@@ -19,6 +20,8 @@ class HEAVENBREACH_API AHBLobbyPlayerController : public APlayerController
 	GENERATED_BODY()
 	
 public:
+	AHBLobbyPlayerController();
+
 	UFUNCTION(Client, Reliable)
 	void ClientLobbyClosed();
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Ready")
@@ -76,6 +79,26 @@ protected:
 	TSubclassOf<UHBLobbyHUDWidget> LobbyWidgetClass;
 	
 private:
+	void RefreshLobbyUI();
+	void UpdateFriendsPanel(bool bForce = false);
+	UFUNCTION()
+	void HandleReadyRequested();
+	UFUNCTION()
+	void HandleStartRequested();
+	UFUNCTION()
+	void HandleFriendsRefresh();
+	UFUNCTION()
+	void HandleFriendInvite(const FString& UserId);
+	UFUNCTION()
+	void HandleFriendJoin(const FString& UserId);
+	FTimerHandle LobbyUITimer;
+	TArray<FHBFriendListItem> DisplayedFriends;
+	bool bWaitingForFriends = false;
+	double NextFriendsRefresh = 0.;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHBLobbyWidget> LobbyContent;
+
 	// Client-side diagnostics use replicated state; no extra server RPCs.
 	struct FLobbyDebugPlayer
 	{

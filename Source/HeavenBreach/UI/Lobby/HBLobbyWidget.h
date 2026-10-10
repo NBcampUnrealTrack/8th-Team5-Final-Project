@@ -20,10 +20,7 @@ class HEAVENBREACH_API UHBLobbyWidget : public UUserWidget
 
 public:
 #pragma region LobbyActionRequests
-	/** UI requests only. Connect room and match behavior in the owning screen. */
-	UPROPERTY(BlueprintAssignable, Category = "Lobby|Actions")
-	FHBLobbyActionRequested OnFindRoomRequested;
-
+	/** The owning lobby controller handles these requests. */
 	UPROPERTY(BlueprintAssignable, Category = "Lobby|Actions")
 	FHBLobbyActionRequested OnStartRequested;
 
@@ -36,7 +33,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Actions")
 	void RefreshLobbyActions();
 
-	/** Designer preview only; runtime uses the owning local controller's authority. */
+	UHB_FriendsPanel* GetFriendsPanel() const { return FriendsPanel; }
+
+	/** Designer preview only; runtime uses the current Steam lobby ownership. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lobby|Preview")
 	bool bPreviewAsHost = true;
 #pragma endregion
@@ -85,8 +84,8 @@ private:
 	void HandleFriendsClicked();
 
 	UFUNCTION()
-	void HandleFindRoomClicked();
+	void HandleReadyClicked();
 	
 	UFUNCTION()
-	void HandlePrimaryActionClicked();
+	void HandleStartClicked();
 };

@@ -46,12 +46,21 @@ namespace HBOnline
 			Settings.BuildUniqueId == GetBuildUniqueId();
 	}
 
-	bool IsJoinableListenLobby(const FOnlineSessionSearchResult& Result, const TSharedPtr<const FUniqueNetId>& LocalUser)
+	bool IsJoinableListenLobby(const FOnlineSessionSearchResult& Result, const TSharedPtr<const FUniqueNetId>& LocalUser,
+		bool bRequireFriendsOnlyHub = false)
 	{
-		return LocalUser.IsValid() && LocalUser->IsValid() && Result.IsValid() &&
-			IsListenLobbySettings(Result.Session.SessionSettings) &&
-			Result.Session.SessionSettings.bAllowJoinInProgress && Result.Session.NumOpenPublicConnections > 0 &&
-			Result.Session.OwningUserId.IsValid() && *Result.Session.OwningUserId != *LocalUser;
+		const auto& Settings = Result.Session.SessionSettings;
+		if (!LocalUser.IsValid() || !LocalUser->IsValid() || !Result.IsValid() || !IsListenLobbySettings(Settings) ||
+			!Settings.bAllowJoinInProgress || Result.Session.NumOpenPublicConnections <= 0 ||
+			!Result.Session.OwningUserId.IsValid() || *Result.Session.OwningUserId == *LocalUser) return false;
+		if (!bRequireFriendsOnlyHub) return true;
+		FString Marker, Proof, Locked;
+		FGuid AdmissionProof;
+		return Settings.NumPublicConnections == 4 && Settings.NumPrivateConnections == 0 &&
+			Settings.bShouldAdvertise && Settings.bAllowJoinViaPresence && Settings.bAllowJoinViaPresenceFriendsOnly &&
+			Settings.bAllowInvites && Settings.Get(FName(TEXT("HB_INVITE_HUB")), Marker) && Marker == TEXT("1") &&
+			Settings.Get(FName(TEXT("HB_INVITE_PROOF")), Proof) && FGuid::ParseExact(Proof, EGuidFormats::Digits, AdmissionProof) &&
+			AdmissionProof.IsValid() && Settings.Get(FName(TEXT("HB_LOCKED")), Locked) && Locked == TEXT("0");
 	}
 
 	bool IsLocallyOwnedListenLobby(const FNamedOnlineSession* Session, const TSharedPtr<const FUniqueNetId>& LocalUser)
@@ -123,6 +132,49 @@ bool FHBListenLobbyFilterTest::RunTest(const FString& Parameters)
 	Candidate = Valid; Candidate.Session.SessionInfo.Reset();
 	Rejected(TEXT("Invalid session info is rejected"), Candidate);
 	TestFalse(TEXT("Missing local identity is rejected"), HBOnline::IsJoinableListenLobby(Valid, nullptr));
+	TestFalse(TEXT("Public room cannot be used as a personal hub"), HBOnline::IsJoinableListenLobby(Valid, LocalUser, true));
+	auto Hub = Valid;
+	Hub.Session.SessionSettings.NumPublicConnections = 4;
+	Hub.Session.SessionSettings.bShouldAdvertise = true;
+	Hub.Session.SessionSettings.bAllowJoinViaPresence = true;
+	Hub.Session.SessionSettings.bAllowJoinViaPresenceFriendsOnly = true;
+	Hub.Session.SessionSettings.bAllowInvites = true;
+	Hub.Session.SessionSettings.Set(FName(TEXT("HB_INVITE_HUB")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	Hub.Session.SessionSettings.Set(FName(TEXT("HB_INVITE_PROOF")), FString(TEXT("0123456789abcdef0123456789abcdef")), EOnlineDataAdvertisementType::ViaOnlineService);
+	Hub.Session.SessionSettings.Set(FName(TEXT("HB_LOCKED")), FString(TEXT("0")), EOnlineDataAdvertisementType::ViaOnlineService);
+	TestTrue(TEXT("Friends-only hub is accepted through the common join filter"), HBOnline::IsJoinableListenLobby(Hub, LocalUser, true));
+	auto RejectedHub = [&](const TCHAR* Reason, const FOnlineSessionSearchResult& Result)
+	{
+		TestFalse(Reason, HBOnline::IsJoinableListenLobby(Result, LocalUser, true));
+	};
+	Candidate = Hub; Candidate.Session.SessionSettings.bShouldAdvertise = false;
+	RejectedHub(TEXT("Non-advertised settings would create a private Steam lobby"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.bAllowJoinViaPresenceFriendsOnly = false;
+	RejectedHub(TEXT("Public presence access is not a friends-only hub"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.bAllowJoinViaPresence = false;
+	RejectedHub(TEXT("Friend joining must be enabled before switching sessions"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.bAllowInvites = false;
+	RejectedHub(TEXT("Friends-only hubs must retain invitations"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.NumPublicConnections = 3;
+	RejectedHub(TEXT("Personal hub capacity includes exactly four players"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.NumPrivateConnections = 1;
+	RejectedHub(TEXT("Private slots cannot exceed the four-player capacity"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.Remove(FName(TEXT("HB_INVITE_HUB")));
+	RejectedHub(TEXT("Friend session must identify itself as a personal hub"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.Remove(FName(TEXT("HB_INVITE_PROOF")));
+	RejectedHub(TEXT("Hub admission data must be available before leaving the current session"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.Set(FName(TEXT("HB_INVITE_PROOF")), FString(TEXT("invalid")), EOnlineDataAdvertisementType::ViaOnlineService);
+	RejectedHub(TEXT("Malformed admission data is rejected"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.Set(FName(TEXT("HB_INVITE_PROOF")), FString(TEXT("00000000000000000000000000000000")), EOnlineDataAdvertisementType::ViaOnlineService);
+	RejectedHub(TEXT("Empty admission GUID is rejected"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.Set(FName(TEXT("HB_LOCKED")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+	RejectedHub(TEXT("Password rooms cannot enter the password-free hub transition"), Candidate);
+	Candidate = Hub; Candidate.Session.SessionSettings.bAllowJoinInProgress = false;
+	RejectedHub(TEXT("Starting or playing hub rejects new participants"), Candidate);
+	Candidate = Hub; Candidate.Session.NumOpenPublicConnections = 0;
+	RejectedHub(TEXT("Full hub is rejected before switching"), Candidate);
+	Candidate = Hub; Candidate.Session.OwningUserId = LocalUser;
+	RejectedHub(TEXT("Own hub cannot be a session-switch target"), Candidate);
 	return true;
 }
 #endif
@@ -279,6 +331,9 @@ void UHBOnlineSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UHBOnlineSessionSubsystem::Deinitialize()
 {
+	FTSTicker::GetCoreTicker().RemoveTicker(InviteHubTickerHandle);
+	InviteHubTickerHandle.Reset();
+	QueuedHubSession.Reset();
 	DeinitializeMultiplayerLobby();
 	FTSTicker::GetCoreTicker().RemoveTicker(ServerTravelTickerHandle);
 	ServerTravelTickerHandle.Reset();
@@ -330,15 +385,22 @@ void UHBOnlineSessionSubsystem::SetServerTravelState(EHBServerTravelState State,
 	ServerTravelState = State;
 	ServerTravelError = Error;
 	if (State == EHBServerTravelState::ClosingLobby || State == EHBServerTravelState::Traveling || State == EHBServerTravelState::RestoringLobby)
+	{
+		if (bAutomaticInviteHubEnabled) SetInviteHubState(EHBInviteHubState::InMatch);
 		PublishGamePresence(TEXT("Busy"));
+	}
 	else if (State == EHBServerTravelState::Failed && !bMatchAdmissionClosed && GetWorld() && GetWorld()->GetNetMode() == NM_ListenServer)
+	{
+		if (bAutomaticInviteHubEnabled) SetInviteHubState(EHBInviteHubState::Hosting);
 		PublishGamePresence(TEXT("Lobby"));
+	}
 	UE_LOG(LogTemp, Log, TEXT("Online | ServerTravel | State: %d | %s"), static_cast<int32>(State), *Error);
 }
 
 bool UHBOnlineSessionSubsystem::RequestServerMatchTravel(TSoftObjectPtr<UWorld> Destination)
 {
-	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid() || bMatchAdmissionClosed) return false;
+	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid() || bMatchAdmissionClosed ||
+		(bAutomaticInviteHubEnabled && InviteHubState != EHBInviteHubState::Hosting)) return false;
 	UWorld* World = GetWorld();
 	AHBLobbyGameMode* Mode = World ? World->GetAuthGameMode<AHBLobbyGameMode>() : nullptr;
 	if (!Mode || World->GetNetMode() != NM_ListenServer || !Mode->bUseSeamlessTravel ||
@@ -376,7 +438,7 @@ bool UHBOnlineSessionSubsystem::RequestServerMatchTravel(TSoftObjectPtr<UWorld> 
 	FOnlineSessionSettings Closed = *PreTravelSettings;
 	Closed.bAllowJoinInProgress = false;
 	Closed.bAllowJoinViaPresence = false;
-	Closed.bAllowJoinViaPresenceFriendsOnly = false;
+	// Steam also uses FriendsOnly to select the lobby type. Keep it while closing admission.
 	Closed.bAllowInvites = false;
 	Closed.Set(FName(TEXT("HB_MAP")), Target, EOnlineDataAdvertisementType::ViaOnlineService);
 	TravelSessionUpdateHandle = SessionInterface->AddOnUpdateSessionCompleteDelegate_Handle(
@@ -486,8 +548,13 @@ bool UHBOnlineSessionSubsystem::RequestHostLobby(int32 MaxPlayers, TSoftObjectPt
 	return RequestHostLobbyInternal(MaxPlayers, LobbyMap, TEXT("HeavenBreach"), FString());
 }
 
-bool UHBOnlineSessionSubsystem::RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password)
+bool UHBOnlineSessionSubsystem::RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password, bool bFriendsOnlyHub)
 {
+	if (bAutomaticInviteHubEnabled && !bFriendsOnlyHub)
+	{
+		AuxiliaryError = TEXT("The personal hub is created automatically; use Steam invitations or friend sessions.");
+		return false;
+	}
 	// Reject overlapping operations without changing the active operation's state.
 	if (IsLobbyOperationInProgress() ||
 		LeaveLobbyCompleteDelegateHandle.IsValid())
@@ -500,9 +567,10 @@ bool UHBOnlineSessionSubsystem::RequestHostLobbyInternal(int32 MaxPlayers, TSoft
 	{
 		return FailLobbyOperation(TEXT("Host requires a standalone game world; leave the current connection first"));
 	}
-	if (MaxPlayers < 1 || MaxPlayers > 4)
+	if (MaxPlayers < 1 || MaxPlayers > 4 || (bFriendsOnlyHub && (MaxPlayers != 4 || !Password.IsEmpty())))
 	{
-		return FailLobbyOperation(TEXT("Host player count must be between 1 and 4, including the host"));
+		return FailLobbyOperation(bFriendsOnlyHub ? TEXT("Personal hubs require four slots and no password")
+			: TEXT("Host player count must be between 1 and 4, including the host"));
 	}
 	const FString MapPackage = LobbyMap.ToSoftObjectPath().GetLongPackageName();
 	FString MapFilename;
@@ -541,12 +609,22 @@ bool UHBOnlineSessionSubsystem::RequestHostLobbyInternal(int32 MaxPlayers, TSoft
 	Settings.NumPrivateConnections = 0;
 	Settings.bIsLANMatch = false;
 	Settings.bIsDedicated = false;
+	// Steam OSS requires advertising plus FriendsOnly to create a friends-only lobby.
+	// Steam excludes that lobby type from public room searches.
 	Settings.bShouldAdvertise = true;
 	Settings.bAllowJoinInProgress = true;
 	Settings.bUsesPresence = true;
 	Settings.bUseLobbiesIfAvailable = true;
 	Settings.bAllowJoinViaPresence = true;
+	Settings.bAllowJoinViaPresenceFriendsOnly = bFriendsOnlyHub;
 	Settings.bAllowInvites = true;
+	HostedHubProof = bFriendsOnlyHub ? FGuid::NewGuid().ToString(EGuidFormats::Digits) : FString();
+	if (bFriendsOnlyHub)
+	{
+		Settings.Set(FName(TEXT("HB_INVITE_HUB")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
+		// Preserve the wire keys; invitations and friend joins share this admission data.
+		Settings.Set(FName(TEXT("HB_INVITE_PROOF")), HostedHubProof, EOnlineDataAdvertisementType::ViaOnlineService);
+	}
 	Settings.Set(HBOnline::ProjectKey, FString(HBOnline::ProjectValue), EOnlineDataAdvertisementType::ViaOnlineService);
 	Settings.Set(FName(TEXT("HB_LOBBY")), FString(TEXT("1")), EOnlineDataAdvertisementType::ViaOnlineService);
 	Settings.Set(FName(TEXT("HB_MAP")), MapPackage, EOnlineDataAdvertisementType::ViaOnlineService);
@@ -606,6 +684,7 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 	{
 		const bool bInLobby = UWorld::RemovePIEPrefix(LoadedWorld->GetOutermost()->GetName()) == ConnectedLobbyMap;
 		bMatchAdmissionClosed = !bInLobby;
+		if (bAutomaticInviteHubEnabled) SetInviteHubState(bInLobby ? EHBInviteHubState::Guest : EHBInviteHubState::InMatch);
 		PublishGamePresence(bInLobby ? TEXT("Lobby") : TEXT("Match"));
 		return;
 	}
@@ -620,8 +699,10 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 			return;
 		}
 		bJoinRequestActive = false;
+		NotifyInviteHubSessionReady(false);
 		ConnectedLobbyMap = UWorld::RemovePIEPrefix(LoadedWorld->GetOutermost()->GetName());
 		PendingJoinProof.Reset();
+		PendingHubJoinProof.Reset();
 		UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Connected to Steam listen host"));
 		SetLobbyOperationState(EHBLobbyOperationState::InLobby);
 		PublishGamePresence(TEXT("Lobby"));
@@ -640,6 +721,7 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 	UE_LOG(LogTemp, Log, TEXT("Online | Host | Ready | Map: %s | Driver: %s"), *PendingHostMap, *Driver->GetClass()->GetName());
 	bHostRequestActive = false;
 	PendingHostMap.Reset();
+	NotifyInviteHubSessionReady(true);
 	SetLobbyOperationState(EHBLobbyOperationState::InLobby);
 	PublishGamePresence(TEXT("Lobby"));
 	// PostLogin ran while host creation was still busy. Reevaluate now so a
@@ -649,6 +731,14 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 
 void UHBOnlineSessionSubsystem::HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error)
 {
+	if (World && World->GetGameInstance() == GetGameInstance()) ResetFriendSessionSearch(true);
+	if (bAutomaticInviteHubEnabled && World && World->GetGameInstance() == GetGameInstance() &&
+		(InviteHubState == EHBInviteHubState::Returning || InviteHubState == EHBInviteHubState::LeavingForInvite))
+	{
+		QueuedHubSession.Reset();
+		SetInviteHubState(EHBInviteHubState::Failed, FString::Printf(TEXT("Hub return travel failed: %s"), *Error));
+		return;
+	}
 	if (ServerTravelState == EHBServerTravelState::Traveling && World && World->GetGameInstance() == GetGameInstance())
 	{
 		FailServerTravel(FString::Printf(TEXT("Server travel failed (%d): %s"), static_cast<int32>(FailureType), *Error));
@@ -713,7 +803,12 @@ void UHBOnlineSessionSubsystem::HandleHostCleanupComplete(FName SessionName, boo
 	HostFailureReason.Reset();
 	if (!bWasSuccessful) Error += TEXT("; session cleanup failed. Leave the existing session before retrying.");
 	FailLobbyOperation(Error);
-	if (!LobbyReturnMap.IsEmpty() && bWasSuccessful) RequestLeaveToMenu(Error);
+	if (bAutomaticInviteHubEnabled)
+	{
+		HostedHubProof.Reset();
+		SetInviteHubState(EHBInviteHubState::Failed, Error);
+	}
+	else if (!LobbyReturnMap.IsEmpty() && bWasSuccessful) RequestLeaveToMenu(Error);
 }
 
 bool UHBOnlineSessionSubsystem::RequestCreateLobby(int32 MaxPlayers)
@@ -760,6 +855,11 @@ bool UHBOnlineSessionSubsystem::FindLobbies()
 
 bool UHBOnlineSessionSubsystem::FindLobbiesInternal(bool bJoinFirstResult)
 {
+	if (bAutomaticInviteHubEnabled)
+	{
+		AuxiliaryError = TEXT("Personal hubs use Steam invitations or friend sessions, not public room search.");
+		return false;
+	}
 	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return false;
 	bJoinFirstLobbyAfterFind = false;
 	LobbySearch.Reset();
@@ -840,13 +940,14 @@ bool UHBOnlineSessionSubsystem::JoinLobby(int32 InSearchResultIndex)
 
 bool UHBOnlineSessionSubsystem::JoinLobbyResult(const FOnlineSessionSearchResult& Result, const FString& Password)
 {
+	if (bAutomaticInviteHubEnabled && InviteHubState != EHBInviteHubState::JoiningInvite) return false;
 	if (IsLobbyOperationInProgress() || LeaveLobbyCompleteDelegateHandle.IsValid()) return false;
 	int32 LocalUser;
 	if (!ValidateLobbyClient(LocalUser)) return false;
 	const IOnlineIdentityPtr Identity = IOnlineSubsystem::Get()->GetIdentityInterface();
 	const TSharedPtr<const FUniqueNetId> UserId = Identity->GetUniquePlayerId(LocalUser);
 	if (Result.Session.NumOpenPublicConnections <= 0) return FailLobbyOperation(TEXT("HB_ROOM_FULL"));
-	if (!HBOnline::IsJoinableListenLobby(Result, UserId))
+	if (!HBOnline::IsJoinableListenLobby(Result, UserId, bAutomaticInviteHubEnabled))
 		return FailLobbyOperation(TEXT("Selected lobby is full, incompatible, self-owned, or not a HeavenBreach listen lobby"));
 	FString Locked, Salt;
 	Result.Session.SessionSettings.Get(FName(TEXT("HB_LOCKED")), Locked);
@@ -854,6 +955,12 @@ bool UHBOnlineSessionSubsystem::JoinLobbyResult(const FOnlineSessionSearchResult
 	if (Locked == TEXT("1") && (Password.IsEmpty() || Salt.IsEmpty()))
 		return FailLobbyOperation(TEXT("HB_PASSWORD_REQUIRED"));
 	PendingJoinProof = Locked == TEXT("1") ? HBLobbyProtocol::PasswordProof(Password, Salt) : FString();
+	FString InviteHub;
+	Result.Session.SessionSettings.Get(FName(TEXT("HB_INVITE_HUB")), InviteHub);
+	PendingHubJoinProof.Reset();
+	if (InviteHub == TEXT("1") &&
+		(!Result.Session.SessionSettings.Get(FName(TEXT("HB_INVITE_PROOF")), PendingHubJoinProof) || PendingHubJoinProof.IsEmpty()))
+		return FailLobbyOperation(TEXT("Hub session is missing admission data"));
 	bJoinRequestActive = true;
 	JoinFailureReason.Reset();
 	bJoinFirstLobbyAfterFind = false;
@@ -1118,6 +1225,7 @@ bool UHBOnlineSessionSubsystem::TravelToJoinedLobby(FName InSessionName)
 	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Connecting through Steam-resolved session"));
 	// Do not parse Steam endpoints as Host:Port or change any UI/input state here.
 	if (!PendingJoinProof.IsEmpty()) ConnectString += TEXT("?HBProof=") + PendingJoinProof;
+	if (!PendingHubJoinProof.IsEmpty()) ConnectString += TEXT("?HBInviteProof=") + PendingHubJoinProof;
 	PlayerController->ClientTravel(ConnectString, TRAVEL_Absolute);
 	return true;
 }
@@ -1158,6 +1266,7 @@ void UHBOnlineSessionSubsystem::HandleJoinCleanupComplete(FName SessionName, boo
 	bJoinRequestActive = false;
 	FString Error = JoinFailureReason;
 	PendingJoinProof.Reset();
+	PendingHubJoinProof.Reset();
 	ConnectedLobbyMap.Reset();
 	JoinFailureReason.Reset();
 	LobbySearch.Reset();
@@ -1168,6 +1277,7 @@ void UHBOnlineSessionSubsystem::HandleJoinCleanupComplete(FName SessionName, boo
 
 void UHBOnlineSessionSubsystem::HandleLocalMapDeparture(const FWorldContext& WorldContext, const FString& MapName)
 {
+	if (WorldContext.OwningGameInstance == GetGameInstance() && !WorldContext.PendingNetGame) ResetFriendSessionSearch(true);
 	// A local LoadMap leaves the connection; seamless/network travel retains it.
 	// Observe the departure without changing its destination or result UI reason.
 	UWorld* SourceWorld = WorldContext.World();
@@ -1180,13 +1290,22 @@ void UHBOnlineSessionSubsystem::HandleLocalMapDeparture(const FWorldContext& Wor
 		FailLobbyOperation(TEXT("Cannot clean up Steam lobby on local map departure: session interface unavailable"));
 		return;
 	}
+	if (bAutomaticInviteHubEnabled) SetInviteHubState(EHBInviteHubState::Suspended);
 	UE_LOG(LogTemp, Log, TEXT("Online | Lobby | Local map departure to %s; leaving this player's Steam lobby"), *MapName);
+	if (SourceWorld->GetNetMode() == NM_ListenServer)
+		for (FConstPlayerControllerIterator It = SourceWorld->GetPlayerControllerIterator(); It; ++It)
+			if (auto* PC = It->IsValid() ? Cast<AHBLobbyPlayerController>(It->Get()) : nullptr; PC && !PC->IsLocalController())
+				PC->ClientLobbyClosed();
 	if (SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName)) LeaveLobby();
 	else ResetLobbyAfterLeave();
 }
 
 void UHBOnlineSessionSubsystem::ResetLobbyAfterLeave()
 {
+	ResetFriendSessionSearch(true);
+	NotifyInviteHubSessionLeft();
+	HostedHubProof.Reset();
+	PendingHubJoinProof.Reset();
 	bMatchAdmissionClosed = false;
 	HostedPasswordProof.Reset();
 	HostedPasswordSalt.Reset();
@@ -1257,6 +1376,7 @@ void UHBOnlineSessionSubsystem::HandleNetworkFailure(
 	{
 		return;
 	}
+	ResetFriendSessionSearch(true);
 	if (InWorld && ServerTravelState == EHBServerTravelState::Traveling)
 	{
 		FailServerTravel(FString::Printf(TEXT("Server travel network failure: %s"), *InErrorString));
@@ -1283,4 +1403,42 @@ void UHBOnlineSessionSubsystem::HandleNetworkFailure(
 		FailLobbyOperation(FString::Printf(TEXT("Listen session network failure: %s"), *InErrorString));
 		if (!LobbyReturnMap.IsEmpty()) RequestLeaveToMenu(TEXT("호스트 연결이 종료되었습니다."));
 	}
+}
+
+bool UHBOnlineSessionSubsystem::IsLocalLobbyHost() const
+{
+	UWorld* World = GetWorld();
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	const IOnlineIdentityPtr Identity = OSS ? OSS->GetIdentityInterface() : nullptr;
+	const ULocalPlayer* Player = GetGameInstance() ? GetGameInstance()->GetFirstGamePlayer() : nullptr;
+	const int32 LocalUser = Player ? Player->GetControllerId() : INDEX_NONE;
+	const auto UserId = Identity.IsValid() && LocalUser >= 0 && Identity->GetLoginStatus(LocalUser) == ELoginStatus::LoggedIn
+		? Identity->GetUniquePlayerId(LocalUser) : nullptr;
+	return World && World->GetNetMode() == NM_ListenServer && OSS &&
+		OSS->GetSubsystemName() == FName(TEXT("STEAM")) && SessionInterface.IsValid() &&
+		OSS->GetSessionInterface() == SessionInterface &&
+		HBOnline::IsLocallyOwnedListenLobby(SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName), UserId);
+}
+
+bool UHBOnlineSessionSubsystem::ValidateHubSession(const FOnlineSessionSearchResult& Result)
+{
+	IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+	const IOnlineIdentityPtr Identity = OSS ? OSS->GetIdentityInterface() : nullptr;
+	const ULocalPlayer* Player = GetGameInstance() ? GetGameInstance()->GetFirstGamePlayer() : nullptr;
+	const int32 LocalUser = Player ? Player->GetControllerId() : INDEX_NONE;
+	const auto UserId = Identity.IsValid() && LocalUser >= 0 && Identity->GetLoginStatus(LocalUser) == ELoginStatus::LoggedIn
+		? Identity->GetUniquePlayerId(LocalUser) : nullptr;
+	if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) || !SessionInterface.IsValid() ||
+		OSS->GetSessionInterface() != SessionInterface || !HBOnline::IsJoinableListenLobby(Result, UserId, true))
+	{
+		AuxiliaryError = TEXT("Hub session is full, closed, self-owned, incompatible, or not a friends-only hub.");
+		return false;
+	}
+	const FNamedOnlineSession* Current = SessionInterface->GetNamedSession(HBOnline::PartyLobbySessionName);
+	if (Current && Current->SessionInfo.IsValid() && Current->SessionInfo->GetSessionId() == Result.Session.SessionInfo->GetSessionId())
+	{
+		AuxiliaryError = TEXT("Already connected to this hub session.");
+		return false;
+	}
+	return true;
 }
