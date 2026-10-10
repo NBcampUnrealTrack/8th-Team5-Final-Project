@@ -16,12 +16,6 @@ class AExtractionZone;
 struct FHBDungeonSnapshot;
 UENUM(BlueprintType)
 enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, PreparingEncounters, Ready, Failed };
-UENUM(BlueprintType)
-enum class EHBDungeonPortalPlacementMode : uint8
-{
-    FixedRoomPortals UMETA(DisplayName="Fixed Room Portals"),
-    RandomPoints UMETA(DisplayName="Random Point Pairs")
-};
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FHBDungeonFailed, const FString&, Reason);
 

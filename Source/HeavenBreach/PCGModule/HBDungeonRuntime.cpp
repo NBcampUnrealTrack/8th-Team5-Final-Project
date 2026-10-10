@@ -105,6 +105,8 @@ void AHBDungeonRuntime::StartGeneration()
 FHBDungeonGenerationRules AHBDungeonRuntime::GetGenerationRules() const
 {
     auto Rules = DungeonRules;
+    Rules.PortalPlacementMode = PortalPlacementMode;
+    Rules.PortalPairCount = PortalPairCount;
     Rules.MaxConsecutiveAdventureRooms = MaxConsecutiveAdventureRooms;
     Rules.MaxConsecutiveRecoveryRooms = MaxConsecutiveRecoveryRooms;
     Rules.MaxConsecutiveEnhancementRooms = MaxConsecutiveEnhancementRooms;

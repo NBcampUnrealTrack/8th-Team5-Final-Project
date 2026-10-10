@@ -12,6 +12,14 @@ struct FHBDungeonPortalDefinition
     FTransform ArrivalTransform;
 };
 
+USTRUCT(BlueprintType)
+struct FHBDungeonPortalPointDefinition
+{
+    GENERATED_BODY()
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Portal Point") FName PointId;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Portal Point") FTransform LocalTransform;
+};
+
 /** Derived from the referenced map; roles are never entered again on the generator. */
 USTRUCT(BlueprintType)
 struct HEAVENBREACH_API FHBModuleCatalogEntry
@@ -29,6 +37,8 @@ struct HEAVENBREACH_API FHBModuleCatalogEntry
     TArray<FHBDungeonConnectorDefinition> Connectors;
     TArray<FHBDungeonOccupancyDefinition> Occupancy;
     TArray<FHBDungeonPortalDefinition> Portals;
+    /** Authored candidates, independent of the fixed portal actor list. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Module") TArray<FHBDungeonPortalPointDefinition> PortalPoints;
 };
 
 namespace HBDungeonModuleCatalog

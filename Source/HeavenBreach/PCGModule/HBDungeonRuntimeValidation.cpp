@@ -25,7 +25,10 @@ bool HBDungeonRuntimeValidation::ValidateLayoutForLoading(const TArray<FHBProtot
             !R.Transform.IsValid() || !R.Transform.GetScale3D().Equals(FVector::OneVector, 0.0001) ||
             (Index == 0 ? R.ParentId != INDEX_NONE : R.ParentId < 0 || R.ParentId >= Index))
         { Error = TEXT("Layout needs contiguous room IDs, valid modules/transforms and preceding parent IDs."); return false; }
-        if (R.Connection != EHBDungeonConnection::Door && R.Connection != EHBDungeonConnection::Portal)
+        if (R.Floor < 1 || R.Floor > 2)
+        { Error = TEXT("Room floor must be 1 or 2."); return false; }
+        if (R.Connection != EHBDungeonConnection::Door && R.Connection != EHBDungeonConnection::Portal
+            && R.Connection != EHBDungeonConnection::FloorTransition)
         { Error = TEXT("Unknown room connection type."); return false; }
         if (R.Connection == EHBDungeonConnection::Portal)
         {
@@ -35,6 +38,13 @@ bool HBDungeonRuntimeValidation::ValidateLayoutForLoading(const TArray<FHBProtot
             { Error = TEXT("A portal endpoint cannot be reused by another connection in the same room instance."); return false; }
             PortalEndpoints[R.ParentId].Add(R.ParentPortalId);
             PortalEndpoints[Index].Add(R.EntryPortalId);
+        }
+        if (R.Connection == EHBDungeonConnection::FloorTransition)
+        {
+            if (Index == 0 || Rooms[R.ParentId].Floor != 1 || R.Floor != 2 || !Rooms[R.ParentId].bFloorExit
+                || R.bBranch || R.bCorridor || !R.ParentPortalId.IsNone() || !R.EntryPortalId.IsNone()
+                || !R.ParentConnectorId.IsNone() || !R.EntryConnectorId.IsNone())
+            { Error = TEXT("Logical floor transitions require floor 1 to 2 without fixed portal or door IDs."); return false; }
         }
         TSet<FName> Seen;
         for (FName Id : R.UsedConnectorIds)
@@ -107,6 +117,9 @@ bool HBDungeonRuntimeValidation::ValidateLocalPortalInstances(const TArray<FHBPr
     const TArray<TObjectPtr<ULevelStreamingDynamic>>& Streams, FString& Error)
 {
     if (!ValidateLayoutForLoading(Rooms, Error)) return false;
+    // A logical edge is not a connected portal pair. Do not report a playable layout before materialization.
+    if (Rooms.ContainsByPredicate([](const auto& R) { return R.Connection == EHBDungeonConnection::FloorTransition; }))
+    { Error = TEXT("Random point portal pairs must be spawned and validated before preparing gameplay."); return false; }
     if (Streams.Num() != Rooms.Num()) { Error = TEXT("Missing local room streams."); return false; }
     for (const auto& Stream : Streams)
         if (!IsValid(Stream) || !Stream->IsLevelLoaded() || !Stream->IsLevelVisible())

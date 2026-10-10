@@ -3,6 +3,7 @@
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBDungeonOccupancyComponent.h"
 #include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBPortalSpawnPoint.h"
 #include "PCGModule/HBEncounterSetupActor.h"
 #include "PCGModule/HBEncounterComponent.h"
 #include "PCGModule/HBEnemySpawnPoint.h"
@@ -348,6 +349,7 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 				AddIssue(OutIssues, TEXT("BossFloor"), Info[0], TEXT("Boss rooms cannot be restricted to Floor1."));
 		}
 		TSet<FName> PortalIds;
+		TSet<FName> PortalPointIds;
 		for (AActor* Actor : Level->Actors)
 		{
 			if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal))
@@ -356,6 +358,14 @@ bool AHBDungeonModuleDefinition::ValidateLevel(ULevel* Level, TArray<FHBDungeonM
 				if (!Portal->ValidateDefinition(Error)) AddIssue(OutIssues, TEXT("PortalDefinition"), Actor, Error);
 				if (PortalIds.Contains(Portal->PortalId)) AddIssue(OutIssues, TEXT("PortalId"), Actor, TEXT("PortalId must be unique within the room map."));
 				PortalIds.Add(Portal->PortalId);
+			}
+			if (const auto* Point = Cast<AHBPortalSpawnPoint>(Actor); IsValid(Point))
+			{
+				FString Error;
+				if (!Point->ValidateDefinition(Error)) AddIssue(OutIssues, TEXT("PortalPointDefinition"), Actor, Error);
+				if (PortalPointIds.Contains(Point->PointId))
+					AddIssue(OutIssues, TEXT("PortalPointId"), Actor, TEXT("Portal PointId must be unique within the source map."));
+				PortalPointIds.Add(Point->PointId);
 			}
 		}
 

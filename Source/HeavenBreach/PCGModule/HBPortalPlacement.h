@@ -20,6 +20,8 @@ namespace HBPortalPlacement
 		FPointKey Key;
 		/** Logical room floor (1 or 2), never derived from world height. */
 		int32 Floor = 0;
+		/** Authored point transform composed with the selected room instance; not a searched arrival. */
+		FTransform SpawnTransform = FTransform::Identity;
 	};
 
 	/** One reciprocal pair, rather than two independent directed links. PairId is generation-local. */
