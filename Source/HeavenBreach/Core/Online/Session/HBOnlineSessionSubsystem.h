@@ -9,6 +9,8 @@
 #include "HBOnlineSessionSubsystem.generated.h"
 
 class UNetDriver;
+class FOnlineFriend;
+class FOnlineUserPresence;
 struct FWorldContext;
 
 namespace ENetworkFailure
@@ -56,6 +58,24 @@ enum class EHBLobbyOperationState : uint8
 	Leaving
 };
 
+/** Map-independent lifecycle of a personal Steam friends-only listen hub. */
+UENUM(BlueprintType)
+enum class EHBInviteHubState : uint8
+{
+	Disabled,
+	WaitingForSteam,
+	PreparingHost,
+	Hosting,
+	// Existing Blueprint names cover both invitations and friend session switches.
+	LeavingForInvite,
+	JoiningInvite,
+	Guest,
+	InMatch,
+	Returning,
+	Suspended,
+	Failed
+};
+
 /** Snapshot of the latest search. SessionId remains the selection key across refreshes. */
 USTRUCT(BlueprintType)
 struct FHBLobbySearchEntry
@@ -78,7 +98,10 @@ struct FHBSteamFriendEntry
 	GENERATED_BODY()
 	UPROPERTY(BlueprintReadOnly) FString UserId;
 	UPROPERTY(BlueprintReadOnly) FString DisplayName;
+	/** Existing Steam HB_STATE value: Lobby or Match. Other states are excluded. */
+	UPROPERTY(BlueprintReadOnly) FString State;
 	UPROPERTY(BlueprintReadOnly) bool bCanInvite = false;
+	UPROPERTY(BlueprintReadOnly) bool bCanJoin = false;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
@@ -106,16 +129,36 @@ class HEAVENBREACH_API UHBOnlineSessionSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	/** Called by the authoritative lobby GameMode; clients never create a personal session here. */
+	void NotifyInviteHubEntered(UWorld* HubWorld);
+	UFUNCTION(BlueprintPure, Category = "Online|Hub")
+	EHBInviteHubState GetInviteHubState() const { return InviteHubState; }
+	UFUNCTION(BlueprintPure, Category = "Online|Hub")
+	FString GetInviteHubError() const { return InviteHubError; }
+	UFUNCTION(BlueprintPure, Category = "Online|Hub")
+	bool IsAutomaticInviteHubEnabled() const { return bAutomaticInviteHubEnabled; }
+	UFUNCTION(BlueprintPure, Category = "Online|Hub")
+	bool IsLocalLobbyHost() const;
+	/** Called after results or when leaving a party; this API does not skip the result screen. */
+	UFUNCTION(BlueprintCallable, Category = "Online|Hub")
+	bool RequestReturnToOwnHub(const FString& Notice = TEXT(""));
+	UFUNCTION(BlueprintCallable, Category = "Online|Hub")
+	bool RetryInviteHub();
+	FString GetOwnHubMap() const { return OwnHubMap; }
+
 	bool RequestHostRoom(const FString& Name, const FString& Password, TSoftObjectPtr<UWorld> LobbyMap);
 	bool RequestJoinRoom(const FString& SessionId, const FString& Password);
 	bool RefreshSteamFriends();
-	TArray<FHBSteamFriendEntry> GetSteamFriends() const { return SteamFriends; }
+	TArray<FHBSteamFriendEntry> GetSteamFriends() const;
 	bool IsReadingFriends() const { return bReadingFriends; }
 	bool InviteSteamFriend(const FString& UserId);
+	/** Finds this friend's current lobby without leaving ours. True means the lookup was accepted. */
+	UFUNCTION(BlueprintCallable, Category = "Online|Friends")
+	bool RequestJoinSteamFriend(const FString& UserId);
 	bool GetPendingInvite(FHBLobbySearchEntry& Entry) const;
 	bool AcceptPendingInvite(const FString& Password);
 	void DeclinePendingInvite();
-	void SetLobbyReturnMap(const FString& Package) { LobbyReturnMap = Package; }
+	void SetLobbyReturnMap(const FString& Package) { if (!bAutomaticInviteHubEnabled) LobbyReturnMap = Package; }
 	bool RequestLeaveToMenu(const FString& Notice = FString());
 	FString ConsumeMenuNotice();
 	FString GetHostedRoomName() const { return HostedRoomName; }
@@ -174,7 +217,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Online|Lobby")
 	bool IsLobbyOperationInProgress() const
 	{
-		return IsServerTravelInProgress() || LobbyOperationState == EHBLobbyOperationState::Creating ||
+		return FindFriendSessionCompleteHandle.IsValid() || IsServerTravelInProgress() || LobbyOperationState == EHBLobbyOperationState::Creating ||
 			LobbyOperationState == EHBLobbyOperationState::Finding ||
 			LobbyOperationState == EHBLobbyOperationState::Joining ||
 			LobbyOperationState == EHBLobbyOperationState::OpeningHostMap ||
@@ -219,11 +262,33 @@ public:
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
 
 private:
-	bool RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password);
+	bool RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password, bool bFriendsOnlyHub = false);
+	void SetInviteHubState(EHBInviteHubState State, const FString& Error = FString());
+	bool TickInviteHub(float DeltaSeconds);
+	bool CanSwitchHubSession() const;
+	bool BeginHubSessionSwitch(const FOnlineSessionSearchResult& Result);
+	bool ValidateHubSession(const FOnlineSessionSearchResult& Result);
+	void NotifyInviteHubSessionReady(bool bHost);
+	void NotifyInviteHubSessionLeft();
+	bool bAutomaticInviteHubEnabled = false;
+	FString OwnHubMap;
+	FString HostedHubProof;
+	FString PendingHubJoinProof;
+	EHBInviteHubState InviteHubState = EHBInviteHubState::Disabled;
+	FString InviteHubError;
+	double SteamReadyDeadline = 0.0;
+	TSharedPtr<FOnlineSessionSearchResult> QueuedHubSession;
+	FTSTicker::FDelegateHandle InviteHubTickerHandle;
+	friend class FHBInviteHubGuardsTest;
 	bool JoinLobbyResult(const FOnlineSessionSearchResult& Result, const FString& Password);
 	void InitializeMultiplayerLobby();
 	void DeinitializeMultiplayerLobby();
 	void HandleSteamInvite(bool bSuccess, int32 LocalUser, FUniqueNetIdPtr UserId, const FOnlineSessionSearchResult& Result);
+	static bool ReadSteamFriendPresence(const FOnlineUserPresence& Presence, FHBSteamFriendEntry& Entry);
+	TSharedPtr<FOnlineFriend> FindSteamFriend(const FString& UserId) const;
+	bool CanInviteSteamFriends() const;
+	void HandleFindFriendSessionComplete(int32 LocalUser, bool bSuccess, const TArray<FOnlineSessionSearchResult>& Results, uint64 RequestId);
+	void ResetFriendSessionSearch(bool bCancelSearch = false);
 	bool ReturnToMenu(float DeltaSeconds);
 	FString HostedRoomName;
 	FString HostedPasswordProof;
@@ -238,6 +303,11 @@ private:
 	TArray<FHBSteamFriendEntry> SteamFriends;
 	TSharedPtr<FOnlineSessionSearchResult> PendingInvite;
 	FDelegateHandle InviteAcceptedHandle;
+	FDelegateHandle FindFriendSessionCompleteHandle;
+	int32 FriendSessionLocalUser = INDEX_NONE;
+	uint64 FriendSessionRequestId = 0;
+	TSharedPtr<const FUniqueNetId> PendingFriendId;
+	FString PendingFriendLobbyId;
 	FDelegateHandle LobbySeamlessTravelHandle;
 	FTSTicker::FDelegateHandle ReturnMenuTickerHandle;
 	friend class FHBServerTravelGuardsTest;

@@ -27,7 +27,7 @@ FText UHB_FriendEntryWidget::GetStatusText(EHBFriendStatus Status)
 	case EHBFriendStatus::InMenu:
 		return NSLOCTEXT("Friends", "StatusInMenu", "메뉴");
 	case EHBFriendStatus::InLobby:
-		return NSLOCTEXT("Friends", "StatusInLobby", "방 안");
+		return NSLOCTEXT("Friends", "StatusInLobby", "로비");
 	case EHBFriendStatus::InMatch:
 		return NSLOCTEXT("Friends", "StatusInMatch", "게임 중");
 	case EHBFriendStatus::Offline:

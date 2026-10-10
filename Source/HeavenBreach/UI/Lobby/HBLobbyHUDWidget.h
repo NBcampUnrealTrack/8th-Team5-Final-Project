@@ -93,6 +93,8 @@ protected:
 	void OnLobbyMenuSelected(EHBLobbyHUDMenu NewMenu);
 
 public:
+	UWidget* GetContentWidget(EHBLobbyHUDMenu Menu) const;
+
 	/** Lets a nested content widget (e.g. the character selection screen) switch the HUD back to a given menu without Blueprint wiring. */
 	UFUNCTION(BlueprintCallable, Category = "Lobby HUD")
 	void SwitchToMenu(EHBLobbyHUDMenu NewMenu) { SelectMenu(NewMenu); }
@@ -116,7 +118,6 @@ private:
 	void SelectMenu(EHBLobbyHUDMenu NewMenu);
 	void UpdateButtonStyles();
 	void ApplySelectedStyle(UButton* Button, const FButtonStyle& DefaultStyle) const;
-	UWidget* GetContentWidget(EHBLobbyHUDMenu Menu) const;
 
 	FButtonStyle LobbyButtonStyle;
 	FButtonStyle ChoiceSkillButtonStyle;

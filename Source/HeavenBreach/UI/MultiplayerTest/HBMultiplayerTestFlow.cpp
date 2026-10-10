@@ -36,8 +36,9 @@ AHBMultiplayerTestMenuGameMode::AHBMultiplayerTestMenuGameMode()
 AHBMultiplayerTestLobbyGameMode::AHBMultiplayerTestLobbyGameMode()
 {
     PlayerControllerClass = AHBMultiplayerTestLobbyController::StaticClass();
+	// This legacy 2D test lobby has no character seat anchors.
+	DefaultPawnClass = nullptr;
     GameplayMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay.Test_MGGamePlay")));
-    bUseConfiguredGameplayMap = false;
     RequiredReadyPlayerCount = 2;
     static ConstructorHelpers::FObjectFinder<UHBJobData> Job(TEXT("/Game/Characters/Warrior/DA_Job_Warrior.DA_Job_Warrior"));
     if (Job.Succeeded()) SelectableJobs.Add(Job.Object);

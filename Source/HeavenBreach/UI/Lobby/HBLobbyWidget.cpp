@@ -1,6 +1,9 @@
 #include "UI/Lobby/HBLobbyWidget.h"
 #include "UI/Audio/HBUIAudioLibrary.h"
 #include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
+#include "Core/GameFlow/Lobby/HBLobbyGameState.h"
+#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
+#include "Engine/GameInstance.h"
 
 #include "UI/Friends/HB_FriendsPanel.h"
 
@@ -9,6 +12,21 @@
 #include "Components/TextBlock.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/UnrealType.h"
+
+namespace
+{
+	void SetActionLabel(UUserWidget* Module, const FText& Label)
+	{
+		if (!Module) return;
+		// RefreshVisual reads these Blueprint properties again when the module updates.
+		for (const FName PropertyName : {FName(TEXT("ButtonLabel")), FName(TEXT("ButtonTooltip"))})
+			if (FTextProperty* Property = FindFProperty<FTextProperty>(Module->GetClass(), PropertyName))
+				Property->SetPropertyValue_InContainer(Module, Label);
+		if (auto* Text = Cast<UTextBlock>(Module->GetWidgetFromName(TEXT("Text_Label"))))
+			Text->SetText(Label);
+		Module->SetToolTipText(Label);
+	}
+}
 
 void UHBLobbyWidget::NativePreConstruct()
 {
@@ -19,8 +37,6 @@ void UHBLobbyWidget::NativePreConstruct()
 void UHBLobbyWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-	AudioPlayerState = GetOwningPlayerState<AHBLobbyPlayerState>();
-	if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.AddUniqueDynamic(this, &ThisClass::HandleReadyAudio);
 
 	// Keep the existing widget names so the assembled Blueprint retains its layout.
 	if (ReadyButtonModule)
@@ -56,17 +72,15 @@ void UHBLobbyWidget::NativeConstruct()
 	}
 	if (ReadyButton)
 	{
-		ReadyButton->OnClicked.AddUniqueDynamic(this, &UHBLobbyWidget::HandleFindRoomClicked);
+		ReadyButton->OnClicked.AddUniqueDynamic(this, &ThisClass::HandleReadyClicked);
+		// The replicated ready state supplies the confirmation/cancel sound.
+		FButtonStyle Style = ReadyButton->GetStyle();
+		Style.PressedSlateSound.SetResourceObject(nullptr);
+		ReadyButton->SetStyle(Style);
 	}
 	if (StartMatchButton)
 	{
-		StartMatchButton->OnClicked.AddUniqueDynamic(this, &UHBLobbyWidget::HandlePrimaryActionClicked);
-		if (!IsLocalLobbyHost())
-		{
-			FButtonStyle Style = StartMatchButton->GetStyle();
-			Style.PressedSlateSound.SetResourceObject(nullptr);
-			StartMatchButton->SetStyle(Style);
-		}
+		StartMatchButton->OnClicked.AddUniqueDynamic(this, &ThisClass::HandleStartClicked);
 	}
 	RefreshLobbyActions();
 }
@@ -81,11 +95,11 @@ void UHBLobbyWidget::NativeDestruct()
 	}
 	if (ReadyButton)
 	{
-		ReadyButton->OnClicked.RemoveDynamic(this, &UHBLobbyWidget::HandleFindRoomClicked);
+		ReadyButton->OnClicked.RemoveDynamic(this, &ThisClass::HandleReadyClicked);
 	}
 	if (StartMatchButton)
 	{
-		StartMatchButton->OnClicked.RemoveDynamic(this, &UHBLobbyWidget::HandlePrimaryActionClicked);
+		StartMatchButton->OnClicked.RemoveDynamic(this, &ThisClass::HandleStartClicked);
 	}
 	Super::NativeDestruct();
 }
@@ -97,37 +111,48 @@ bool UHBLobbyWidget::IsLocalLobbyHost() const
 	{
 		return bPreviewAsHost;
 	}
-	const APlayerController* PlayerController = GetOwningPlayer();
-	// The listen host owns an authoritative local controller; a joining client does not.
-	return IsValid(PlayerController) && PlayerController->IsLocalController() && PlayerController->HasAuthority();
+	const auto* Player = GetOwningPlayer();
+	const auto* Instance = GetGameInstance();
+	const auto* Sessions = Instance ? Instance->GetSubsystem<UHBOnlineSessionSubsystem>() : nullptr;
+	return IsValid(Player) && Player->IsLocalController() && Sessions && Sessions->IsLocalLobbyHost();
 }
 
 void UHBLobbyWidget::RefreshLobbyActions()
 {
-	if (!StartMatchButtonModule)
+	auto* PlayerState = GetOwningPlayerState<AHBLobbyPlayerState>();
+	// A remote PlayerState can arrive after NativeConstruct.
+	if (!IsDesignTime() && AudioPlayerState != PlayerState)
 	{
-		return;
+		if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.RemoveDynamic(this, &ThisClass::HandleReadyAudio);
+		AudioPlayerState = PlayerState;
+		if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.AddUniqueDynamic(this, &ThisClass::HandleReadyAudio);
 	}
-	const FText Label = IsLocalLobbyHost()
-		? NSLOCTEXT("LobbyActions", "Start", "시작")
-		: NSLOCTEXT("LobbyActions", "Ready", "준비");
-	// Keep the module's RefreshVisual from restoring an outdated label.
-	for (const FName PropertyName : {FName(TEXT("ButtonLabel")), FName(TEXT("ButtonTooltip"))})
-	{
-		if (FTextProperty* TextProperty = FindFProperty<FTextProperty>(StartMatchButtonModule->GetClass(), PropertyName))
-		{
-			TextProperty->SetPropertyValue_InContainer(StartMatchButtonModule, Label);
-		}
-	}
-	if (UTextBlock* Text = Cast<UTextBlock>(StartMatchButtonModule->GetWidgetFromName(TEXT("Text_Label"))))
-	{
-		Text->SetText(Label);
-	}
-	StartMatchButtonModule->SetToolTipText(Label);
+	const auto* Player = GetOwningPlayer();
+	const auto* State = GetWorld() ? GetWorld()->GetGameState<AHBLobbyGameState>() : nullptr;
+	const auto* Instance = GetGameInstance();
+	const auto* Sessions = Instance ? Instance->GetSubsystem<UHBOnlineSessionSubsystem>() : nullptr;
+	const bool bHost = IsLocalLobbyHost();
+	const bool bInLobby = Player && Player->IsLocalController() && PlayerState && State && State->HostPlayerState
+		&& State->PlayerArray.Contains(PlayerState) && Sessions
+		&& Sessions->GetLobbyOperationState() == EHBLobbyOperationState::InLobby
+		&& !Sessions->IsLobbyOperationInProgress() && !Sessions->IsMatchAdmissionClosed();
+	const bool bCanStart = IsDesignTime() ? bHost
+		: bInLobby && bHost && State->HostPlayerState == PlayerState && State->CanStartMatch();
+	const bool bCanReady = IsDesignTime() ? !bHost
+		: bInLobby && !bHost && Player->GetNetMode() == NM_Client && State->HostPlayerState != PlayerState
+			&& (PlayerState->IsReady() || PlayerState->HasSelectedJob());
+	SetActionLabel(StartMatchButtonModule, NSLOCTEXT("LobbyActions", "Start", "시작"));
+	SetActionLabel(ReadyButtonModule, PlayerState && PlayerState->IsReady()
+		? NSLOCTEXT("LobbyActions", "CancelReady", "준비 취소") : NSLOCTEXT("LobbyActions", "Ready", "준비"));
+	if (StartMatchButtonModule) StartMatchButtonModule->SetIsEnabled(bCanStart);
+	if (StartMatchButton) StartMatchButton->SetIsEnabled(bCanStart);
+	if (ReadyButtonModule) ReadyButtonModule->SetIsEnabled(bCanReady);
+	if (ReadyButton) ReadyButton->SetIsEnabled(bCanReady);
 }
 
 void UHBLobbyWidget::HandleReadyAudio(bool bReady)
 {
+	RefreshLobbyActions();
 	UHBUIAudioLibrary::PlayForOwner(this, bReady ? EHBUIAudioEvent::LobbyReady : EHBUIAudioEvent::Cancel);
 }
 
@@ -139,21 +164,19 @@ void UHBLobbyWidget::HandleFriendsClicked()
 	}
 }
 
-void UHBLobbyWidget::HandleFindRoomClicked()
-{
-	OnFindRoomRequested.Broadcast();
-}
-
-void UHBLobbyWidget::HandlePrimaryActionClicked()
+void UHBLobbyWidget::HandleReadyClicked()
 {
 	RefreshLobbyActions();
-	if (IsLocalLobbyHost())
+	if (ReadyButton && ReadyButton->GetIsEnabled() && !IsLocalLobbyHost())
+		OnReadyRequested.Broadcast();
+}
+
+void UHBLobbyWidget::HandleStartClicked()
+{
+	RefreshLobbyActions();
+	if (StartMatchButton && StartMatchButton->GetIsEnabled() && IsLocalLobbyHost())
 	{
 		OnStartRequested.Broadcast();
-	}
-	else
-	{
-		OnReadyRequested.Broadcast();
 	}
 }
 #pragma endregion

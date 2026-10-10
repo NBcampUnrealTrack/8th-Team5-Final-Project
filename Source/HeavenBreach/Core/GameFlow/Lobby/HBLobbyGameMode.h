@@ -18,7 +18,11 @@ class HEAVENBREACH_API AHBLobbyGameMode : public AGameMode
 	
 public:
 	AHBLobbyGameMode();
+	virtual void StartPlay() override;
 	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
+	virtual void RestartPlayer(AController* NewPlayer) override;
+	/** Shared anchor lookup for authority spawning and owning-client seat updates. */
+	static AActor* FindLobbySeat(UWorld* World, int32 SeatIndex);
 	
 	void EvaluateCanStartMatch();
 	void HandleReadyStateChanged();
@@ -50,15 +54,19 @@ public:
 	UHBJobData* GetDefaultJob() const;
 
 protected:
-	virtual void PostLogin(APlayerController* NewPlayer) override;
+	/** Automatic Steam hub hosting; disable for an explicitly managed lobby. */
+	UPROPERTY(EditDefaultsOnly, Category = "Lobby|Hub")
+	bool bAutomaticallyHostInviteHub = true;
+
+	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby")
 	int32 RequiredReadyPlayerCount = 2;
 	
+	/** Match destination configured in the lobby GameMode Blueprint. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|Travel")
 	TSoftObjectPtr<UWorld> GameplayMap;
-	bool bUseConfiguredGameplayMap = true;
 
 	/**
 	 * 이 로비에서 고를 수 있는 직업들. BP_HBLobbyGameMode 에서 채운다.
@@ -70,6 +78,11 @@ protected:
 	TArray<TObjectPtr<UHBJobData>> SelectableJobs;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FHBLobbySeatsTest;
+#endif
+	void RefreshLobbySeats(APlayerController* Joining = nullptr, AController* Exiting = nullptr);
+
 	/**
 	 * 입장한 플레이어에게 기본 시작 구성을 넣는다.
 	 *

@@ -9,6 +9,21 @@
 #include "Core/GameFlow/HBMatchResultSubsystem.h"
 #include "Blueprint/UserWidget.h"
 #include "Core/GameFlow/Lobby/HBLobbyGameMode.h"
+#include "Core/GameFlow/Lobby/HBLobbyGameState.h"
+#include "Player/HBPlayerCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimationAsset.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/TargetPoint.h"
+#include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
+#include "UI/Lobby/HBLobbyHUDWidget.h"
+#include "UI/Lobby/HBLobbyWidget.h"
+#include "UI/Friends/HB_FriendsPanel.h"
+#include "UI/Friends/HB_FriendEntryWidget.h"
+#include "Components/Button.h"
+#include "Components/PanelWidget.h"
+#include "Components/TextBlock.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "AI/EnemyCharacterBase.h"
@@ -37,16 +52,90 @@ namespace
     const TCHAR* DungeonMap = TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay.Test_MGGamePlay");
     const TCHAR* SteamDriverClass = TEXT("/Script/SteamSockets.SteamSocketsNetDriver");
 
+    AHBPlayerCharacter* VerifyHostPawn(FAutomationTestBase* Test, UWorld* World)
+    {
+        auto* Controller = World->GetFirstPlayerController();
+        auto* State = Controller ? Controller->GetPlayerState<AHBLobbyPlayerState>() : nullptr;
+        auto* Pawn = Controller ? Cast<AHBPlayerCharacter>(Controller->GetPawn()) : nullptr;
+        Test->TestTrue(TEXT("Host possesses its lobby pawn at seat zero"), State && State->GetLobbySeatIndex() == 0 && Pawn);
+        if (!Pawn) return nullptr;
+        Test->TestTrue(TEXT("Lobby pawn and position replicate to every guest"), Pawn->GetIsReplicated() && Pawn->IsReplicatingMovement() && Pawn->bAlwaysRelevant);
+        Test->TestNotNull(TEXT("Lobby pawn displays the existing job mesh"), Pawn->GetMesh()->GetSkeletalMeshAsset());
+		Test->TestEqual(TEXT("Lobby character cannot move or fall"), Pawn->GetCharacterMovement()->MovementMode.GetValue(), MOVE_None);
+		Test->TestFalse(TEXT("Lobby character never collides with another seat"), Pawn->GetActorEnableCollision());
+		auto* Idle = Pawn->GetMesh()->GetSingleNodeInstance();
+		Test->TestTrue(TEXT("Lobby character keeps the arms-down idle"), Idle && Idle->GetCurrentAsset()
+			&& Idle->GetCurrentAsset()->GetName() == TEXT("AN_PlayerIdle1"));
+        Test->TestTrue(TEXT("Possession preserves the authored lobby camera"), Controller->GetViewTarget() && Controller->GetViewTarget() != Pawn);
+        int32 HostAnchors = 0;
+        for (TActorIterator<ATargetPoint> It(World); It; ++It)
+            if (It->ActorHasTag(TEXT("LobbyCharacterSlot")) && It->ActorHasTag(TEXT("LobbySlot_0")))
+            {
+                ++HostAnchors;
+                Test->TestTrue(TEXT("Host pawn uses TP_LobbyCharacter_00 transform"), Pawn->GetActorTransform().Equals(It->GetActorTransform()));
+            }
+        Test->TestEqual(TEXT("Production lobby has exactly one host anchor"), HostAnchors, 1);
+        return Pawn;
+    }
+
+    bool VerifyFriendRow(FAutomationTestBase* Test, UHB_FriendsPanel* Panel,
+        UHBOnlineSessionSubsystem* Sessions, const FString& LocalId)
+    {
+        FHBFriendListItem Item;
+        // Use only this test account: no invite or join can reach another user.
+        Item.UserId = LocalId;
+        Item.DisplayName = FText::FromString(TEXT("UI 테스트 사용자"));
+        Item.Status = EHBFriendStatus::InLobby;
+        Item.bCanInvite = Item.bCanJoin = true;
+        Panel->SetFriends({Item});
+        auto* Rows = Cast<UPanelWidget>(Panel->GetWidgetFromName(TEXT("FriendListContainer")));
+        auto* Entry = Rows && Rows->GetChildrenCount() == 1 ? Cast<UHB_FriendEntryWidget>(Rows->GetChildAt(0)) : nullptr;
+        auto* Name = Entry ? Cast<UTextBlock>(Entry->GetWidgetFromName(TEXT("Text_Name"))) : nullptr;
+        auto* Status = Entry ? Cast<UTextBlock>(Entry->GetWidgetFromName(TEXT("Text_Status"))) : nullptr;
+        auto* Invite = Entry ? Cast<UButton>(Entry->GetWidgetFromName(TEXT("Button_Invite"))) : nullptr;
+        auto* Join = Entry ? Cast<UButton>(Entry->GetWidgetFromName(TEXT("Button_Join"))) : nullptr;
+        if (!Name || !Status || !Invite || !Join)
+        { Test->AddError(TEXT("Production WBP_FriendEntry is missing its name, status or action buttons.")); return false; }
+        Test->TestEqual(TEXT("Production friend row displays the supplied nickname"), Name->GetText().ToString(), Item.DisplayName.ToString());
+        Test->TestEqual(TEXT("Lobby friend row uses the requested lobby label"), Status->GetText().ToString(), FString(TEXT("로비")));
+        Test->TestTrue(TEXT("Lobby friend actions use the supplied availability"), Invite->GetIsEnabled() && Join->GetIsEnabled());
+        Test->TestTrue(TEXT("Friend row forwards invitations to the existing panel"), Entry->OnInviteClicked.Contains(Panel, FName(TEXT("HandleEntryInvite"))));
+        Test->TestTrue(TEXT("Panel forwards invitations to the local controller"), Panel->OnInviteRequested.Contains(Panel->GetOwningPlayer(), FName(TEXT("HandleFriendInvite"))));
+        // The real Session subsystem must safely reject this synthetic self join.
+        Join->OnClicked.Broadcast();
+        Test->TestEqual(TEXT("Friend join click reaches the existing Steam preflight"), Sessions->GetLastLobbyOperationError(),
+            FString(TEXT("이 게임의 참가 가능한 로비에 있는 Steam 친구를 선택해주세요.")));
+        Test->TestEqual(TEXT("Rejected UI join keeps the current lobby"), Sessions->GetLobbyOperationState(), EHBLobbyOperationState::InLobby);
+        Test->TestFalse(TEXT("Rejected UI join releases the operation lock"), Sessions->IsLobbyOperationInProgress());
+        Item.Status = EHBFriendStatus::InMatch;
+        Item.bCanInvite = Item.bCanJoin = false;
+        Entry->SetItem(Item);
+        Test->TestEqual(TEXT("Playing friend row uses the requested match label"), Status->GetText().ToString(), FString(TEXT("게임 중")));
+        Test->TestFalse(TEXT("Playing friend disables both actions"), Invite->GetIsEnabled() || Join->GetIsEnabled());
+        return true;
+    }
+
     struct FHBSteamHostFixture
     {
         TWeakObjectPtr<UGameInstance> Instance;
         TWeakObjectPtr<UNetDriver> LobbyDriver;
+        TWeakObjectPtr<AHBPlayerCharacter> LobbyPawn;
         TArray<TWeakObjectPtr<AActor>> EndingActors;
         FHBStartingLoadout LobbyLoadout;
         FString SessionId;
+        bool bAutomaticHub = false;
+        bool bFriendsReadRequested = false;
+		bool bLobbyUI = false;
+		TWeakObjectPtr<UHBLobbyHUDWidget> LobbyHUD;
+        // Isolate session/results lifecycle when dungeon authoring is unavailable.
+        // The normal mode still verifies PCG, enemies and chests without this flag.
+        bool bSessionOnly = false;
+        FString RestoredHubId;
+        double HubStableSince = 0.;
         EHBPostMatchReason EndReason = EHBPostMatchReason::None;
         EHBPostMatchReason ObservedResultReason = EHBPostMatchReason::None;
         FDelegateHandle ResultDepartureHandle;
+        FDelegateHandle GameplayInitializationHandle;
     };
 
     // Explicitly opted-in, standalone -game test. It creates one real Steam
@@ -54,7 +143,7 @@ namespace
     // verify search, joining and replication across a real client connection.
     class FHBSteamHostTravel : public IAutomationLatentCommand
     {
-        enum class EPhase { Host, Travel, Prepare, Match, Result };
+        enum class EPhase { Host, Travel, Prepare, Match, Result, ReturnHub };
         FAutomationTestBase* Test;
         TSharedRef<FHBSteamHostFixture> Fixture;
         EPhase Phase = EPhase::Host;
@@ -92,6 +181,32 @@ namespace
                 return true;
             }
 
+            if (Phase == EPhase::ReturnHub)
+            {
+                auto* Session = Online->GetNamedSession(SteamTestSession);
+                if (Sessions->GetInviteHubState() != EHBInviteHubState::Hosting || !Session ||
+                    World->GetNetMode() != NM_ListenServer || Sessions->IsLobbyOperationInProgress())
+                    return Wait(TEXT("Personal Steam hub did not recover after leaving gameplay/results."));
+                if (Fixture->HubStableSince == 0.)
+                {
+                    Fixture->HubStableSince = FPlatformTime::Seconds();
+                    Fixture->RestoredHubId = Session->GetSessionIdStr();
+                    Test->TestNotEqual(TEXT("Recovery creates a fresh personal Steam lobby"), Fixture->RestoredHubId, Fixture->SessionId);
+                }
+                if (FPlatformTime::Seconds() - Fixture->HubStableSince < 3.) return false;
+                Test->TestEqual(TEXT("Automatic hosting does not repeatedly recreate the hub"), Session->GetSessionIdStr(), Fixture->RestoredHubId);
+                Test->TestEqual(TEXT("Recovery returns to the player's original hub map"), World->GetOutermost()->GetName(), Sessions->GetOwnHubMap());
+                Test->TestTrue(TEXT("Recovered hub allows friends and invitations for exactly four players"),
+                    Session->SessionSettings.NumPublicConnections == 4 && Session->SessionSettings.NumPrivateConnections == 0 &&
+                    Session->SessionSettings.bShouldAdvertise && Session->SessionSettings.bAllowJoinViaPresence &&
+                    Session->SessionSettings.bAllowJoinViaPresenceFriendsOnly && Session->SessionSettings.bAllowInvites);
+                Test->TestTrue(TEXT("Recovered local host is authorized"), Sessions->IsLocalLobbyHost());
+                Test->TestFalse(TEXT("Recovery releases match admission"), Sessions->IsMatchAdmissionClosed());
+                VerifyHostPawn(Test, World);
+                Test->AddInfo(TEXT("Automatic friends-only Steam hub restored and stable for three seconds; remote friend/invitation joining remains unverified."));
+                return true;
+            }
+
             if (Phase == EPhase::Result)
             {
                 if (World->GetOutermost()->GetName() != TEXT("/Game/Levels/ExtractionResult") ||
@@ -99,13 +214,15 @@ namespace
                     return Wait(TEXT("Post-match travel or automatic Steam cleanup did not complete."));
                 Test->TestEqual(TEXT("Existing result map loads as standalone"), World->GetNetMode(), NM_Standalone);
                 Test->TestNotNull(TEXT("Result map creates its local player without an admission fatal"), World->GetFirstPlayerController());
-                Test->TestEqual(TEXT("Result travel preserves the death/extraction/timeout reason"), Fixture->ObservedResultReason, Fixture->EndReason);
+                const EHBPostMatchReason ExpectedReason = Fixture->EndReason == EHBPostMatchReason::MatchEnded
+                    ? EHBPostMatchReason::Died : Fixture->EndReason;
+                Test->TestEqual(TEXT("Result travel preserves death/extraction and timeout forfeiture"), Fixture->ObservedResultReason, ExpectedReason);
                 Test->TestNull(TEXT("Result travel automatically removes this player's Steam session"), Online->GetNamedSession(SteamTestSession));
                 Test->TestEqual(TEXT("Result travel resets the lobby operation"), Sessions->GetLobbyOperationState(), EHBLobbyOperationState::Idle);
                 Test->TestEqual(TEXT("Result travel resets the server travel operation"), Sessions->GetServerTravelState(), EHBServerTravelState::Idle);
                 Test->TestFalse(TEXT("Result travel clears persistent admission state"), Sessions->IsMatchAdmissionClosed());
                 Test->TestTrue(TEXT("Result travel releases the old Steam listen driver"), !Fixture->LobbyDriver.IsValid());
-                const FName ExpectedWidget(Fixture->EndReason == EHBPostMatchReason::Died ? TEXT("WBP_DeathResult_C") : TEXT("WBP_ExtractionResult_C"));
+                const FName ExpectedWidget(ExpectedReason == EHBPostMatchReason::Died ? TEXT("WBP_DeathResult_C") : TEXT("WBP_ExtractionResult_C"));
                 bool bResultWidgetVisible = false;
                 for (TObjectIterator<UUserWidget> It; It; ++It)
                     if (It->GetWorld() == World && It->IsInViewport() && It->GetClass()->GetFName() == ExpectedWidget)
@@ -114,6 +231,14 @@ namespace
                 for (const auto& Actor : Fixture->EndingActors)
                     Test->TestTrue(TEXT("Result travel ends the generated gameplay actors"), !Actor.IsValid() || !Actor->HasActorBegunPlay());
                 Test->AddInfo(FString::Printf(TEXT("Existing ExtractionResult travel verified with automatic Steam cleanup; reason=%d."), static_cast<int32>(Fixture->EndReason)));
+                if (Fixture->bAutomaticHub)
+                {
+                    Test->TestEqual(TEXT("Results suspend personal hosting"), Sessions->GetInviteHubState(), EHBInviteHubState::Suspended);
+                    if (!Sessions->RequestReturnToOwnHub())
+                    { Test->AddError(TEXT("Results could not request personal hub return.")); return true; }
+                    Next(EPhase::ReturnHub);
+                    return false;
+                }
                 return true;
             }
 
@@ -143,20 +268,147 @@ namespace
                 const ULocalPlayer* LocalPlayer = Instance->GetFirstGamePlayer();
                 const auto LocalId = Identity.IsValid() && LocalPlayer
                     ? Identity->GetUniquePlayerId(LocalPlayer->GetControllerId()) : nullptr;
+				UHBLobbyWidget* LobbyUI = nullptr;
+				UButton* StartButton = nullptr;
+				UHB_FriendsPanel* FriendsPanel = nullptr;
+				if (Fixture->bLobbyUI)
+				{
+					int32 HUDCount = 0;
+					for (TObjectIterator<UHBLobbyHUDWidget> It; It; ++It)
+						if (It->GetWorld() == World && It->GetOwningPlayer() == Player && It->IsInViewport())
+						{ ++HUDCount; Fixture->LobbyHUD = *It; }
+					Test->TestEqual(TEXT("Lobby has exactly one local HUD"), HUDCount, 1);
+					auto* HUD = Fixture->LobbyHUD.Get();
+					LobbyUI = HUD ? Cast<UHBLobbyWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Lobby)) : nullptr;
+					auto* StartModule = LobbyUI ? Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("StartMatchButtonModule"))) : nullptr;
+					StartButton = StartModule ? Cast<UButton>(StartModule->GetWidgetFromName(TEXT("Button_Action"))) : nullptr;
+					FriendsPanel = LobbyUI ? LobbyUI->GetFriendsPanel() : nullptr;
+					if (!LobbyUI || !StartButton || !FriendsPanel)
+					{ Test->AddError(TEXT("Production lobby HUD is missing its lobby, start button or friends panel.")); return true; }
+					Test->TestTrue(TEXT("Production lobby actions are connected"), LobbyUI->OnStartRequested.IsBound() && LobbyUI->OnReadyRequested.IsBound());
+					Test->TestTrue(TEXT("Production friend actions are connected"), FriendsPanel->OnRefreshRequested.IsBound() && FriendsPanel->OnInviteRequested.IsBound() && FriendsPanel->OnJoinRequested.IsBound());
+				}
+                if (Fixture->bAutomaticHub)
+                {
+                    if (!Fixture->bFriendsReadRequested)
+                    {
+                        Fixture->bFriendsReadRequested = true;
+						if (Fixture->bLobbyUI) FriendsPanel->Open();
+                        else if (!Sessions->RefreshSteamFriends())
+                        { Test->AddError(TEXT("Real Steam friend list read could not start.")); return true; }
+                        return false;
+                    }
+                    if (Sessions->IsReadingFriends()) return Wait(TEXT("Real Steam friend list read did not finish."));
+					if (Fixture->bLobbyUI)
+					{
+						auto* Loading = FriendsPanel->GetWidgetFromName(TEXT("LoadingIndicator"));
+						if (Loading && Loading->GetVisibility() != ESlateVisibility::Collapsed)
+							return Wait(TEXT("Lobby UI did not release loading after the Steam friends read."));
+						if (auto* Rows = Cast<UPanelWidget>(FriendsPanel->GetWidgetFromName(TEXT("FriendListContainer"))))
+						{
+							const auto Friends = Sessions->GetSteamFriends();
+							Test->TestEqual(TEXT("Production panel receives the real Steam friend list"), Rows->GetChildrenCount(), Friends.Num());
+							for (int32 Index = 0; Index < Rows->GetChildrenCount(); ++Index)
+							{
+								auto* Entry = Cast<UHB_FriendEntryWidget>(Rows->GetChildAt(Index));
+								if (!Entry) { Test->AddError(TEXT("Friend row has the wrong native parent.")); return true; }
+								const auto* Friend = Friends.FindByPredicate([Entry](const auto& Value) { return Value.UserId == Entry->GetItem().UserId; });
+								if (!Friend) { Test->AddError(TEXT("Friend row does not correspond to Steam data.")); return true; }
+								Test->TestEqual(TEXT("Friend row preserves the Steam nickname"), Entry->GetItem().DisplayName.ToString(), Friend->DisplayName);
+								Test->TestEqual(TEXT("Friend row preserves join availability"), Entry->GetItem().bCanJoin, Friend->bCanJoin);
+								Test->TestEqual(TEXT("Friend row preserves invitation availability"), Entry->GetItem().bCanInvite, Friend->bCanInvite);
+							}
+						}
+						else { Test->AddError(TEXT("Production friend panel has no list container.")); return true; }
+					}
+                    Test->TestTrue(TEXT("Real Steam friend list read completed without error"), Sessions->GetLastLobbyOperationError().IsEmpty());
+                    const auto Friends = Sessions->GetSteamFriends();
+                    for (const auto& Friend : Friends)
+                    {
+                        Test->TestTrue(TEXT("Live friend list includes only lobby and match states"), Friend.State == TEXT("Lobby") || Friend.State == TEXT("Match"));
+                        if (Friend.State == TEXT("Match"))
+                            Test->TestFalse(TEXT("Live playing friend cannot be invited or joined"), Friend.bCanInvite || Friend.bCanJoin);
+                    }
+                    Test->AddInfo(FString::Printf(TEXT("Real Steam friend list verified; visible friends=%d; remote joining remains unverified."), Friends.Num()));
+					if (Fixture->bLobbyUI)
+					{
+						if (!LocalId.IsValid() || !VerifyFriendRow(Test, FriendsPanel, Sessions, LocalId->ToString())) return true;
+						FriendsPanel->Close();
+					}
+                }
                 Test->TestTrue(TEXT("Steam session belongs to the logged-in host"),
                     LocalId.IsValid() && Session->OwningUserId.IsValid() && *LocalId == *Session->OwningUserId);
                 Test->TestTrue(TEXT("Host uses a non-LAN, non-dedicated presence lobby"),
                     !Session->SessionSettings.bIsLANMatch && !Session->SessionSettings.bIsDedicated
                     && Session->SessionSettings.bUsesPresence && Session->SessionSettings.bUseLobbiesIfAvailable);
+                if (Fixture->bAutomaticHub)
+                {
+                    Test->TestEqual(TEXT("Hub creates itself without a room creation request"), Sessions->GetInviteHubState(), EHBInviteHubState::Hosting);
+                    Test->TestEqual(TEXT("Automatic hub includes the host in its four slots"), Session->SessionSettings.NumPublicConnections, 4);
+                    Test->TestTrue(TEXT("Automatic hub allows friends and invitations"), Session->SessionSettings.bShouldAdvertise &&
+                        Session->SessionSettings.bAllowJoinViaPresence && Session->SessionSettings.bAllowJoinViaPresenceFriendsOnly &&
+                        Session->SessionSettings.bAllowInvites && Session->SessionSettings.NumPrivateConnections == 0);
+                    Test->TestEqual(TEXT("Direct endpoint cannot bypass hub admission"), Sessions->CheckLobbyPassword(TEXT("")), FString(TEXT("HB_INVITE_REQUIRED")));
+                    FString Proof;
+                    Session->SessionSettings.Get(FName(TEXT("HB_INVITE_PROOF")), Proof);
+                    Test->TestTrue(TEXT("Friends-only lobby supplies shared admission data"), Sessions->CheckLobbyPassword(TEXT("?HBInviteProof=") + Proof).IsEmpty());
+                    const auto* LobbyState = World->GetGameState<AHBLobbyGameState>();
+                    Test->TestTrue(TEXT("Solo hub is ready for host start"), LobbyState && LobbyState->CanStartMatch());
+                    const FString OwnLobbyId = Session->GetSessionIdStr();
+                    Test->TestFalse(TEXT("Friend join API rejects the local host"), Sessions->RequestJoinSteamFriend(LocalId->ToString()));
+                    Test->TestEqual(TEXT("Rejected self join keeps the original Steam lobby"), Session->GetSessionIdStr(), OwnLobbyId);
+                    Test->TestFalse(TEXT("Rejected self join does not leave a lookup in progress"), Sessions->IsLobbyOperationInProgress());
+                    FOnlineSessionSearchResult OwnInvite;
+                    OwnInvite.Session = *Session;
+                    Online->TriggerOnSessionUserInviteAcceptedDelegates(true, LocalPlayer->GetControllerId(), LocalId, OwnInvite);
+                    FHBLobbySearchEntry PendingEntry;
+                    Test->TestFalse(TEXT("Self invitation is consumed without a UI prompt"), Sessions->GetPendingInvite(PendingEntry));
+                    Test->TestEqual(TEXT("Rejected self invitation keeps the healthy hub"), Sessions->GetInviteHubState(), EHBInviteHubState::Hosting);
+                }
                 Fixture->LobbyDriver = Driver;
+                Fixture->LobbyPawn = VerifyHostPawn(Test, World);
                 Fixture->LobbyLoadout = State->GetStartingLoadout();
                 Fixture->SessionId = Session->GetSessionIdStr();
                 Test->TestFalse(TEXT("Steam assigned a real lobby ID"), Fixture->SessionId.IsEmpty());
                 // UE 5.7 Steam OSS populates OwningUserId/HostingPlayerNum but
                 // leaves bHosting false. Do not manufacture that flag here:
                 // the public travel API must accept an actual Steam host.
-                Test->AddInfo(FString::Printf(TEXT("Real Steam lobby and SteamSockets listen driver verified; bHosting=%d; requesting internal match travel."), Session->bHosting));
-                if (!Lobby->RequestMatchTravel(TSoftObjectPtr<UWorld>(FSoftObjectPath(DungeonMap))))
+                Test->AddInfo(FString::Printf(TEXT("Real Steam lobby and SteamSockets listen driver verified; bHosting=%d; start path=%s."),
+                    Session->bHosting, Fixture->bLobbyUI ? TEXT("production lobby button") : TEXT("internal match travel")));
+                const TCHAR* Destination = Fixture->bSessionOnly ? TEXT("/Engine/Maps/Entry.Entry") : DungeonMap;
+				if (Fixture->bLobbyUI)
+				{
+					auto* LobbyState = World->GetGameState<AHBLobbyGameState>();
+					auto* HostState = Player->GetPlayerState<AHBLobbyPlayerState>();
+					auto* ReadyModule = Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("ReadyButtonModule")));
+					auto* ReadyButton = ReadyModule ? Cast<UButton>(ReadyModule->GetWidgetFromName(TEXT("Button_Action"))) : nullptr;
+					if (!LobbyState || !HostState || !ReadyButton)
+					{ Test->AddError(TEXT("Production lobby is missing ready state/button.")); return true; }
+					LobbyUI->RefreshLobbyActions();
+					Test->TestTrue(TEXT("Solo Steam host can use the start button"), StartButton->GetIsEnabled());
+					Test->TestFalse(TEXT("Host cannot use the guest ready button"), ReadyButton->GetIsEnabled());
+					const bool bHostReady = HostState->IsReady();
+					ReadyButton->OnClicked.Broadcast();
+					Test->TestEqual(TEXT("Disabled ready click does not change host readiness"), HostState->IsReady(), bHostReady);
+					LobbyState->SetCanStartMatch(false);
+					StartButton->OnClicked.Broadcast();
+					Test->TestFalse(TEXT("Unready start click does not close admission"), Sessions->IsMatchAdmissionClosed());
+					Test->TestFalse(TEXT("Start button follows replicated readiness"), StartButton->GetIsEnabled());
+					LobbyState->SetCanStartMatch(true);
+					LobbyUI->RefreshLobbyActions();
+					// Exercise the same property used by the production Blueprint; never save the fixture's map.
+					auto* MapProperty = FindFProperty<FSoftObjectProperty>(Lobby->GetClass(), TEXT("GameplayMap"));
+					if (!MapProperty) { Test->AddError(TEXT("Lobby GameMode has no GameplayMap property.")); return true; }
+					const FSoftObjectPtr PreviousMap = MapProperty->GetPropertyValue_InContainer(Lobby);
+					Test->TestFalse(TEXT("Production Blueprint configures a gameplay destination"), PreviousMap.IsNull());
+					Test->AddInfo(FString::Printf(TEXT("Production lobby Blueprint GameplayMap=%s"), *PreviousMap.ToSoftObjectPath().ToString()));
+					MapProperty->SetPropertyValue_InContainer(Lobby, FSoftObjectPtr(FSoftObjectPath(Destination)));
+					StartButton->OnClicked.Broadcast();
+					MapProperty->SetPropertyValue_InContainer(Lobby, PreviousMap);
+					Test->TestTrue(TEXT("Production start click records the host's start confirmation"), HostState->IsStartConfirmed());
+					Test->TestFalse(TEXT("Accepted start immediately disables the button"), StartButton->GetIsEnabled());
+				}
+                else if (!Lobby->RequestMatchTravel(TSoftObjectPtr<UWorld>(FSoftObjectPath(Destination))))
                 {
                     Test->AddError(Sessions->GetServerTravelError());
                     return true;
@@ -178,24 +430,47 @@ namespace
                     return Wait(TEXT("Steam lobby-to-dungeon seamless travel did not complete."));
                 Test->TestEqual(TEXT("Gameplay retains the same SteamSockets driver"), World->GetNetDriver(), Fixture->LobbyDriver.Get());
                 Test->TestEqual(TEXT("Gameplay is still a listen server"), World->GetNetMode(), NM_ListenServer);
+                Test->TestTrue(TEXT("Seamless departure ends the lobby display pawn"), !Fixture->LobbyPawn.IsValid() || !Fixture->LobbyPawn->HasActorBegunPlay());
+				if (Fixture->bLobbyUI)
+					Test->TestTrue(TEXT("Lobby departure removes the old HUD"), !Fixture->LobbyHUD.IsValid() || !Fixture->LobbyHUD->IsInViewport());
                 FNamedOnlineSession* Session = Online->GetNamedSession(SteamTestSession);
                 if (!Mode || !Session)
                 { Test->AddError(TEXT("Travel lost the gameplay GameMode or original Steam session.")); return true; }
                 Test->TestEqual(TEXT("Travel retains the original Steam lobby ID"), Session->GetSessionIdStr(), Fixture->SessionId);
                 FString AdvertisedMap;
                 Session->SessionSettings.Get(FName(TEXT("HB_MAP")), AdvertisedMap);
-                Test->TestEqual(TEXT("Steam metadata identifies the destination map"), AdvertisedMap, FSoftObjectPath(DungeonMap).GetLongPackageName());
+                Test->TestEqual(TEXT("Steam metadata identifies the destination map"), AdvertisedMap,
+                    FSoftObjectPath(Fixture->bSessionOnly ? TEXT("/Engine/Maps/Entry.Entry") : DungeonMap).GetLongPackageName());
                 Test->TestTrue(TEXT("Match Steam lobby disallows joining and invites"),
                     Sessions->IsMatchAdmissionClosed() && !Session->SessionSettings.bAllowJoinInProgress
                     && !Session->SessionSettings.bAllowJoinViaPresence && !Session->SessionSettings.bAllowInvites);
+                if (Fixture->bAutomaticHub)
+                    Test->TestTrue(TEXT("Match retains the friends-only Steam lobby type"),
+                        Session->SessionSettings.bShouldAdvertise && Session->SessionSettings.bAllowJoinViaPresenceFriendsOnly);
+                if (Fixture->bSessionOnly)
+                {
+                    auto* Player = World->GetFirstPlayerController();
+                    auto* PlayerState = Player ? Player->GetPlayerState<AHB_PlayerState>() : nullptr;
+                    Test->TestTrue(TEXT("Session-only seamless travel retains the lobby loadout"),
+                        PlayerState && PlayerState->GetStartingLoadout() == Fixture->LobbyLoadout);
+                    Fixture->EndingActors = {Mode};
+                    if (Fixture->EndReason == EHBPostMatchReason::MatchEnded)
+                        FindFProperty<FFloatProperty>(Mode->GetClass(), TEXT("MatchDurationSeconds"))->SetPropertyValue_InContainer(Mode, 2.f);
+                    Mode->StartMatch();
+                    Next(EPhase::Match);
+                    return false;
+                }
                 Next(EPhase::Prepare);
             }
 
             AHBDungeonRuntime* Runtime = Mode ? Mode->GetDungeonGenerator() : nullptr;
-            if (!Runtime) return Wait(TEXT("Steam gameplay world has no dungeon runtime."));
-            if (Runtime->State == EHBDungeonRuntimeState::Failed)
-            { Test->AddError(Runtime->Status); return true; }
-            if (!Runtime->IsReady()) return Wait(FString::Printf(TEXT("Steam host dungeon preparation timed out: %s"), *Runtime->Status));
+            if (!Fixture->bSessionOnly)
+            {
+                if (!Runtime) return Wait(TEXT("Steam gameplay world has no dungeon runtime."));
+                if (Runtime->State == EHBDungeonRuntimeState::Failed)
+                { Test->AddError(Runtime->Status); return true; }
+                if (!Runtime->IsReady()) return Wait(FString::Printf(TEXT("Steam host dungeon preparation timed out: %s"), *Runtime->Status));
+            }
 
             if (Phase == EPhase::Prepare)
             {
@@ -243,8 +518,14 @@ namespace
             }
 
             auto* Player = World->GetFirstPlayerController();
-            if (!Mode->IsMatchInProgress() || !Runtime->AreEncountersActive() || !Player || !Player->GetPawn())
+            if (!Mode || !Mode->IsMatchInProgress() ||
+                (!Fixture->bSessionOnly && !Runtime->AreEncountersActive()) || !Player || !Player->GetPawn())
                 return Wait(TEXT("Steam host did not start gameplay after dungeon preparation."));
+			if (auto* Character = Cast<AHBPlayerCharacter>(Player->GetPawn()))
+			{
+				Test->TestTrue(TEXT("Gameplay restores character movement"), Character->GetCharacterMovement()->MovementMode != MOVE_None);
+				Test->TestTrue(TEXT("Gameplay restores character collision"), Character->GetActorEnableCollision());
+			}
             if (Fixture->EndReason != EHBPostMatchReason::None)
             {
                 FString LoginError;
@@ -259,6 +540,13 @@ namespace
                 return false;
             }
             Test->AddInfo(TEXT("Steam host match started with active encounters and a possessed player pawn. Remote Steam joining/replication remains unverified."));
+            if (Fixture->bAutomaticHub)
+            {
+                if (!Sessions->RequestReturnToOwnHub())
+                { Test->AddError(TEXT("Gameplay could not request personal hub return.")); return true; }
+                Next(EPhase::ReturnHub);
+                return false;
+            }
             return true;
         }
     };
@@ -284,6 +572,8 @@ namespace
                 Started = FPlatformTime::Seconds();
                 FCoreUObjectDelegates::PreLoadMapWithContext.Remove(Fixture->ResultDepartureHandle);
                 Fixture->ResultDepartureHandle.Reset();
+                FWorldDelegates::OnWorldInitializedActors.Remove(Fixture->GameplayInitializationHandle);
+                Fixture->GameplayInitializationHandle.Reset();
             }
             if (FPlatformTime::Seconds() - Started > 180.)
             { Test->AddError(TEXT("Steam test cleanup timed out; inspect lobby/travel cleanup errors.")); return true; }
@@ -346,9 +636,17 @@ bool FHBDungeonSteamHostTravelTest::RunTest(const FString&)
     { AddError(TEXT("Start -game on /Engine/Maps/Entry with a logged-in Steam local player and no existing session.")); return false; }
 
     AddExpectedErrorPlain(TEXT("Null input trigger detected in mapping to input action 'IA_Interact'"), EAutomationExpectedErrorFlags::Contains, 0);
-    AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
-    AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
     const auto Fixture = MakeShared<FHBSteamHostFixture>();
+    Fixture->bAutomaticHub = FParse::Param(FCommandLine::Get(), TEXT("HBTestAutoHub"));
+    Fixture->bSessionOnly = FParse::Param(FCommandLine::Get(), TEXT("HBTestSessionOnly"));
+	Fixture->bLobbyUI = FParse::Param(FCommandLine::Get(), TEXT("HBTestLobbyUI"));
+	if (Fixture->bLobbyUI && !Fixture->bAutomaticHub)
+	{ AddError(TEXT("HBTestLobbyUI requires HBTestAutoHub.")); return false; }
+    if (!Fixture->bSessionOnly)
+    {
+        AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
+        AddExpectedErrorPlain(TEXT("Missing external data requirements"), EAutomationExpectedErrorFlags::Contains, 0);
+    }
     Fixture->Instance = Instance;
     FString EndCase;
     if (FParse::Value(FCommandLine::Get(), TEXT("HBTestPostMatch="), EndCase))
@@ -369,7 +667,29 @@ bool FHBDungeonSteamHostTravelTest::RunTest(const FString&)
                         Fixture->ObservedResultReason = Result->GetPostMatchReason();
             });
     }
-    const bool bAccepted = Sessions->RequestHostLobby(2, TSoftObjectPtr<UWorld>(FSoftObjectPath(LobbyMap)));
+    if (Fixture->bSessionOnly)
+    {
+        Fixture->GameplayInitializationHandle = FWorldDelegates::OnWorldInitializedActors.AddLambda(
+            [Fixture](const FActorsInitializedParams& Params)
+            {
+                UWorld* World = Params.World;
+                if (!World || World->GetGameInstance() != Fixture->Instance.Get() ||
+                    UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) != TEXT("/Engine/Maps/Entry")) return;
+                if (auto* Mode = World->GetAuthGameMode<AHeavenBreachGameMode>())
+                {
+                    // Empty maps can start in PostLogin, before the latent command
+                    // observes travel completion. Configure this fixture beforehand.
+                    FindFProperty<FBoolProperty>(Mode->GetClass(), TEXT("bAutoStartMatch"))->SetPropertyValue_InContainer(Mode, false);
+                    if (Fixture->EndReason == EHBPostMatchReason::MatchEnded)
+                        FindFProperty<FFloatProperty>(Mode->GetClass(), TEXT("MatchDurationSeconds"))->SetPropertyValue_InContainer(Mode, 2.f);
+                }
+            });
+    }
+    bool bAccepted = true;
+    if (Fixture->bAutomaticHub)
+        UGameplayStatics::OpenLevel(Instance, FName(*FSoftObjectPath(LobbyMap).GetLongPackageName()), true);
+    else
+        bAccepted = Sessions->RequestHostLobby(2, TSoftObjectPtr<UWorld>(FSoftObjectPath(LobbyMap)));
     if (bAccepted)
         FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBSteamHostTravel>(this, Fixture));
     else AddError(Sessions->GetLastLobbyOperationError());

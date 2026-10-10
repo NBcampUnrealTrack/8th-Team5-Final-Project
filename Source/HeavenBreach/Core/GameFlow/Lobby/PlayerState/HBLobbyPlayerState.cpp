@@ -5,16 +5,22 @@
 
 #include "Net/UnrealNetwork.h"
 #include "Player/Job/HBJobData.h"
+#include "Core/GameFlow/Lobby/HBLobbyGameMode.h"
+#include "Core/GameFlow/Lobby/HBLobbyGameState.h"
+#include "Engine/World.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 AHBLobbyPlayerState::AHBLobbyPlayerState()
 {
 	bIsReady = false;
 	bStartConfirmed = false;
+	OnPawnSet.AddDynamic(this, &ThisClass::HandleLobbyPawnSet);
 
 	// 기본 직업은 여기서 정하지 않는다.
 	// 직업은 이제 부모의 StartingLoadout 이 들고 있고, 그 값은 실제 DA 를
 	// 가리켜야 하는데 생성자 시점에는 GameMode 의 직업 목록에 닿을 수 없다.
-	// AHBLobbyGameMode::PostLogin 이 입장 시 채운다.
+	// AHBLobbyGameMode::HandleStartingNewPlayer 가 입장 시 채운다.
 }
 
 FName AHBLobbyPlayerState::GetSelectedJobId() const
@@ -70,6 +76,50 @@ void AHBLobbyPlayerState::SetReady(bool bNewReady)
 	ForceNetUpdate();
 }
 
+void AHBLobbyPlayerState::SetLobbySeatIndex(int32 SeatIndex)
+{
+	if (!HasAuthority() || LobbySeatIndex == SeatIndex) return;
+	LobbySeatIndex = SeatIndex;
+	ApplyLobbySeat();
+	ForceNetUpdate();
+}
+
+void AHBLobbyPlayerState::OnRep_LobbySeatIndex()
+{
+	ApplyLobbySeat();
+}
+
+void AHBLobbyPlayerState::ApplyLobbySeat()
+{
+	UWorld* World = GetWorld();
+	APawn* Pawn = GetPawn();
+	if (!World || !World->GetGameState<AHBLobbyGameState>() || !Pawn || LobbySeatIndex == INDEX_NONE) return;
+	AActor* Seat = AHBLobbyGameMode::FindLobbySeat(World, LobbySeatIndex);
+	if (!Seat) return;
+	Pawn->SetActorEnableCollision(false);
+	if (auto* Character = Cast<ACharacter>(Pawn))
+	{
+		Character->GetCharacterMovement()->StopMovementImmediately();
+		Character->GetCharacterMovement()->DisableMovement();
+	}
+	// Character movement does not replicate server transforms to autonomous owners.
+	// The replicated seat also positions their pawn locally, in either arrival order.
+	Pawn->SetActorTransform(Seat->GetActorTransform(), false, nullptr, ETeleportType::TeleportPhysics);
+	if (HasAuthority()) Pawn->ForceNetUpdate();
+}
+
+void AHBLobbyPlayerState::HandleLobbyPawnSet(APlayerState* Player, APawn* NewPawn, APawn* OldPawn)
+{
+	if (HasAuthority() && OldPawn && OldPawn != NewPawn && GetWorld()
+		&& GetWorld()->GetAuthGameMode<AHBLobbyGameMode>() && !OldPawn->IsActorBeingDestroyed())
+	{
+		// UnPossessed is still clearing the controller when this delegate runs.
+		// Defer destruction until that call completes; Logout may see no pawn already.
+		OldPawn->SetLifeSpan(0.01f);
+	}
+	ApplyLobbySeat();
+}
+
 void AHBLobbyPlayerState::SetStartConfirmed(bool bNewStartConfirmed)
 {
 	if (!HasAuthority() || bStartConfirmed == bNewStartConfirmed)
@@ -77,7 +127,7 @@ void AHBLobbyPlayerState::SetStartConfirmed(bool bNewStartConfirmed)
 		return;
 	}
 
-	// The dedicated server owns this flag; clients can only request their own
+	// The server owns this flag; clients can only request their own
 	// confirmation through their PlayerController RPC.
 	bStartConfirmed = bNewStartConfirmed;
 	OnStartConfirmationChanged.Broadcast(bStartConfirmed);
@@ -90,6 +140,7 @@ void AHBLobbyPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 
 	DOREPLIFETIME(AHBLobbyPlayerState, bIsReady);
 	DOREPLIFETIME(AHBLobbyPlayerState, bStartConfirmed);
+	DOREPLIFETIME(AHBLobbyPlayerState, LobbySeatIndex);
 }
 
 void AHBLobbyPlayerState::OnRep_IsReady()

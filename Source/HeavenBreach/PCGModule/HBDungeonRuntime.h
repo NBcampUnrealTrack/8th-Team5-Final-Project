@@ -16,6 +16,12 @@ class AExtractionZone;
 struct FHBDungeonSnapshot;
 UENUM(BlueprintType)
 enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, PreparingEncounters, Ready, Failed };
+UENUM(BlueprintType)
+enum class EHBDungeonPortalPlacementMode : uint8
+{
+    FixedRoomPortals UMETA(DisplayName="Fixed Room Portals"),
+    RandomPoints UMETA(DisplayName="Random Point Pairs")
+};
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FHBDungeonFailed, const FString&, Reason);
 
@@ -60,6 +66,15 @@ public:
     UPROPERTY(BlueprintReadOnly, Category="Dungeon Gameplay", meta=(DeprecatedProperty, DeprecationMessage="Use RoomInfo start candidates; PlayerStart tags are no longer required."))
     FName SpawnTag = TEXT("DungeonSpawn");
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay") TSubclassOf<AHBDungeonDoorSeal> DoorSealClass;
+    /** Fixed mode uses authored room portal IDs. Random mode selects and pairs points across logical floors 1 and 2. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Portals")
+    EHBDungeonPortalPlacementMode PortalPlacementMode = EHBDungeonPortalPlacementMode::FixedRoomPortals;
+    /** Portal actor Blueprint spawned at selected points; its Arrival component defines the destination offset and facing. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Portals", meta=(EditCondition="PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints", EditConditionHides))
+    TSubclassOf<AHBDungeonPortal> PortalClass;
+    /** Total cross-floor pairs, not additional pairs. N pairs spawn 2N portals and require N valid points on each floor. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Portals", meta=(ClampMin="1", UIMin="1", EditCondition="PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints", EditConditionHides))
+    int32 PortalPairCount = 1;
     /** Half-size in cm; connectors mark the floor center, with +X pointing out. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon Gameplay", meta=(ClampMin="1")) FVector DoorSealExtent = FVector(30, 160, 220);
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Extraction", meta=(ClampMin="0")) int32 MinExtractionPointsPerFloor = 1;
