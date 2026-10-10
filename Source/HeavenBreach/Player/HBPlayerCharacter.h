@@ -864,6 +864,9 @@ protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<USkeletalMeshComponent> ShoesMeshComp;
 
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
+	TObjectPtr<USkeletalMeshComponent> BodyUnderlayMeshComp;
+
 	/** Upper equipment replaces upper body, neck and hands; lower equipment replaces legs and feet. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
 	bool bUseModularEquipment = true;
@@ -871,6 +874,9 @@ protected:
 	/** Only this source body has its body sections replaced. Other job meshes retain their appearance. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
 	TSoftObjectPtr<USkeletalMesh> ModularBodySourceMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Player|Equipment|Modular Body")
+	TArray<TSoftObjectPtr<USkeletalMesh>> BodyUnderlayChestMeshes;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing=OnRep_BaseBodyMeshes, Category="Player|Equipment|Temporary Test")
 	TSoftObjectPtr<USkeletalMesh> BaseUpperBodyMesh;

@@ -20,8 +20,12 @@
 		{
 			"Name": "DLSS",
 			"Enabled": true,
-			"PlatformAllowList": ["Win64"],
-			"TargetDenyList": ["Server"]
+			"PlatformAllowList": [
+				"Win64"
+			],
+			"TargetDenyList": [
+				"Server"
+			]
 		},
 		{
 			"Name": "GameplayAbilities",
@@ -56,6 +60,10 @@
 		},
 		{
 			"Name": "PCG",
+			"Enabled": true
+		},
+		{
+			"Name": "GeometryScripting",
 			"Enabled": true
 		}
 	]
