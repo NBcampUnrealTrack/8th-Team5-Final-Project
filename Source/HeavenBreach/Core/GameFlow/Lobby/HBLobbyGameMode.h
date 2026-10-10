@@ -61,9 +61,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby")
 	int32 RequiredReadyPlayerCount = 2;
 	
+	/** Match destination configured in the lobby GameMode Blueprint. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|Travel")
 	TSoftObjectPtr<UWorld> GameplayMap;
-	bool bUseConfiguredGameplayMap = true;
 
 	/**
 	 * 이 로비에서 고를 수 있는 직업들. BP_HBLobbyGameMode 에서 채운다.

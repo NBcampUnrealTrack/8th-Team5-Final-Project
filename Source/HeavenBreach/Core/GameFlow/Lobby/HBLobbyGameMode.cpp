@@ -9,17 +9,8 @@
 #include "Core/Online/Session/HBGameSession.h"
 #include "Player/Job/HBJobData.h"
 #include "Player/Job/HBStartingLoadout.h"
-#include "Misc/ConfigCacheIni.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Engine/GameInstance.h"
-
-namespace HBLobbyFlow
-{
-	const TCHAR* ConfigSection = TEXT("HeavenBreach.Lobby");
-	const TCHAR* GameplayMapKey = TEXT("GameplayMap");
-	const TCHAR* DefaultGameplayMap =
-		TEXT("/Game/Levels/TierA/Maps/Floor_A.Floor_A");
-}
 
 AHBLobbyGameMode::AHBLobbyGameMode()
 {
@@ -30,12 +21,6 @@ AHBLobbyGameMode::AHBLobbyGameMode()
 	
 	DefaultPawnClass = nullptr;
 	bUseSeamlessTravel = true;
-
-	// Keep the native default usable without editing the lobby map or its
-	// Blueprint GameMode asset.
-	GameplayMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(
-		HBLobbyFlow::DefaultGameplayMap
-		));
 }
 
 void AHBLobbyGameMode::StartPlay()
@@ -110,17 +95,7 @@ void AHBLobbyGameMode::TryStartGame()
 		return;
 	}
 
-	FString ConfiguredGameplayMap;
-	const bool bHasConfiguredGameplayMap = bUseConfiguredGameplayMap && GConfig != nullptr &&
-		GConfig->GetString(
-			HBLobbyFlow::ConfigSection,
-			HBLobbyFlow::GameplayMapKey,
-			ConfiguredGameplayMap,
-			GEngineIni
-			);
-
-	RequestMatchTravel(bHasConfiguredGameplayMap
-		? TSoftObjectPtr<UWorld>(FSoftObjectPath(ConfiguredGameplayMap)) : GameplayMap);
+	RequestMatchTravel(GameplayMap);
 }
 
 bool AHBLobbyGameMode::RequestMatchTravel(TSoftObjectPtr<UWorld> Destination)

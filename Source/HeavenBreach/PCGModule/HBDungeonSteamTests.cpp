@@ -10,6 +10,14 @@
 #include "Blueprint/UserWidget.h"
 #include "Core/GameFlow/Lobby/HBLobbyGameMode.h"
 #include "Core/GameFlow/Lobby/HBLobbyGameState.h"
+#include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
+#include "UI/Lobby/HBLobbyHUDWidget.h"
+#include "UI/Lobby/HBLobbyWidget.h"
+#include "UI/Friends/HB_FriendsPanel.h"
+#include "UI/Friends/HB_FriendEntryWidget.h"
+#include "Components/Button.h"
+#include "Components/PanelWidget.h"
+#include "Components/TextBlock.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "AI/EnemyCharacterBase.h"
@@ -38,6 +46,43 @@ namespace
     const TCHAR* DungeonMap = TEXT("/Game/Levels/Test_CW/GameplaySmoke/Test_MGGamePlay.Test_MGGamePlay");
     const TCHAR* SteamDriverClass = TEXT("/Script/SteamSockets.SteamSocketsNetDriver");
 
+    bool VerifyFriendRow(FAutomationTestBase* Test, UHB_FriendsPanel* Panel,
+        UHBOnlineSessionSubsystem* Sessions, const FString& LocalId)
+    {
+        FHBFriendListItem Item;
+        // Use only this test account: no invite or join can reach another user.
+        Item.UserId = LocalId;
+        Item.DisplayName = FText::FromString(TEXT("UI 테스트 사용자"));
+        Item.Status = EHBFriendStatus::InLobby;
+        Item.bCanInvite = Item.bCanJoin = true;
+        Panel->SetFriends({Item});
+        auto* Rows = Cast<UPanelWidget>(Panel->GetWidgetFromName(TEXT("FriendListContainer")));
+        auto* Entry = Rows && Rows->GetChildrenCount() == 1 ? Cast<UHB_FriendEntryWidget>(Rows->GetChildAt(0)) : nullptr;
+        auto* Name = Entry ? Cast<UTextBlock>(Entry->GetWidgetFromName(TEXT("Text_Name"))) : nullptr;
+        auto* Status = Entry ? Cast<UTextBlock>(Entry->GetWidgetFromName(TEXT("Text_Status"))) : nullptr;
+        auto* Invite = Entry ? Cast<UButton>(Entry->GetWidgetFromName(TEXT("Button_Invite"))) : nullptr;
+        auto* Join = Entry ? Cast<UButton>(Entry->GetWidgetFromName(TEXT("Button_Join"))) : nullptr;
+        if (!Name || !Status || !Invite || !Join)
+        { Test->AddError(TEXT("Production WBP_FriendEntry is missing its name, status or action buttons.")); return false; }
+        Test->TestEqual(TEXT("Production friend row displays the supplied nickname"), Name->GetText().ToString(), Item.DisplayName.ToString());
+        Test->TestEqual(TEXT("Lobby friend row uses the requested lobby label"), Status->GetText().ToString(), FString(TEXT("로비")));
+        Test->TestTrue(TEXT("Lobby friend actions use the supplied availability"), Invite->GetIsEnabled() && Join->GetIsEnabled());
+        Test->TestTrue(TEXT("Friend row forwards invitations to the existing panel"), Entry->OnInviteClicked.Contains(Panel, FName(TEXT("HandleEntryInvite"))));
+        Test->TestTrue(TEXT("Panel forwards invitations to the local controller"), Panel->OnInviteRequested.Contains(Panel->GetOwningPlayer(), FName(TEXT("HandleFriendInvite"))));
+        // The real Session subsystem must safely reject this synthetic self join.
+        Join->OnClicked.Broadcast();
+        Test->TestEqual(TEXT("Friend join click reaches the existing Steam preflight"), Sessions->GetLastLobbyOperationError(),
+            FString(TEXT("이 게임의 참가 가능한 로비에 있는 Steam 친구를 선택해주세요.")));
+        Test->TestEqual(TEXT("Rejected UI join keeps the current lobby"), Sessions->GetLobbyOperationState(), EHBLobbyOperationState::InLobby);
+        Test->TestFalse(TEXT("Rejected UI join releases the operation lock"), Sessions->IsLobbyOperationInProgress());
+        Item.Status = EHBFriendStatus::InMatch;
+        Item.bCanInvite = Item.bCanJoin = false;
+        Entry->SetItem(Item);
+        Test->TestEqual(TEXT("Playing friend row uses the requested match label"), Status->GetText().ToString(), FString(TEXT("게임 중")));
+        Test->TestFalse(TEXT("Playing friend disables both actions"), Invite->GetIsEnabled() || Join->GetIsEnabled());
+        return true;
+    }
+
     struct FHBSteamHostFixture
     {
         TWeakObjectPtr<UGameInstance> Instance;
@@ -47,6 +92,8 @@ namespace
         FString SessionId;
         bool bAutomaticHub = false;
         bool bFriendsReadRequested = false;
+		bool bLobbyUI = false;
+		TWeakObjectPtr<UHBLobbyHUDWidget> LobbyHUD;
         // Isolate session/results lifecycle when dungeon authoring is unavailable.
         // The normal mode still verifies PCG, enemies and chests without this flag.
         bool bSessionOnly = false;
@@ -187,16 +234,59 @@ namespace
                 const ULocalPlayer* LocalPlayer = Instance->GetFirstGamePlayer();
                 const auto LocalId = Identity.IsValid() && LocalPlayer
                     ? Identity->GetUniquePlayerId(LocalPlayer->GetControllerId()) : nullptr;
+				UHBLobbyWidget* LobbyUI = nullptr;
+				UButton* StartButton = nullptr;
+				UHB_FriendsPanel* FriendsPanel = nullptr;
+				if (Fixture->bLobbyUI)
+				{
+					int32 HUDCount = 0;
+					for (TObjectIterator<UHBLobbyHUDWidget> It; It; ++It)
+						if (It->GetWorld() == World && It->GetOwningPlayer() == Player && It->IsInViewport())
+						{ ++HUDCount; Fixture->LobbyHUD = *It; }
+					Test->TestEqual(TEXT("Lobby has exactly one local HUD"), HUDCount, 1);
+					auto* HUD = Fixture->LobbyHUD.Get();
+					LobbyUI = HUD ? Cast<UHBLobbyWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Lobby)) : nullptr;
+					auto* StartModule = LobbyUI ? Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("StartMatchButtonModule"))) : nullptr;
+					StartButton = StartModule ? Cast<UButton>(StartModule->GetWidgetFromName(TEXT("Button_Action"))) : nullptr;
+					FriendsPanel = LobbyUI ? LobbyUI->GetFriendsPanel() : nullptr;
+					if (!LobbyUI || !StartButton || !FriendsPanel)
+					{ Test->AddError(TEXT("Production lobby HUD is missing its lobby, start button or friends panel.")); return true; }
+					Test->TestTrue(TEXT("Production lobby actions are connected"), LobbyUI->OnStartRequested.IsBound() && LobbyUI->OnReadyRequested.IsBound());
+					Test->TestTrue(TEXT("Production friend actions are connected"), FriendsPanel->OnRefreshRequested.IsBound() && FriendsPanel->OnInviteRequested.IsBound() && FriendsPanel->OnJoinRequested.IsBound());
+				}
                 if (Fixture->bAutomaticHub)
                 {
                     if (!Fixture->bFriendsReadRequested)
                     {
                         Fixture->bFriendsReadRequested = true;
-                        if (!Sessions->RefreshSteamFriends())
+						if (Fixture->bLobbyUI) FriendsPanel->Open();
+                        else if (!Sessions->RefreshSteamFriends())
                         { Test->AddError(TEXT("Real Steam friend list read could not start.")); return true; }
                         return false;
                     }
                     if (Sessions->IsReadingFriends()) return Wait(TEXT("Real Steam friend list read did not finish."));
+					if (Fixture->bLobbyUI)
+					{
+						auto* Loading = FriendsPanel->GetWidgetFromName(TEXT("LoadingIndicator"));
+						if (Loading && Loading->GetVisibility() != ESlateVisibility::Collapsed)
+							return Wait(TEXT("Lobby UI did not release loading after the Steam friends read."));
+						if (auto* Rows = Cast<UPanelWidget>(FriendsPanel->GetWidgetFromName(TEXT("FriendListContainer"))))
+						{
+							const auto Friends = Sessions->GetSteamFriends();
+							Test->TestEqual(TEXT("Production panel receives the real Steam friend list"), Rows->GetChildrenCount(), Friends.Num());
+							for (int32 Index = 0; Index < Rows->GetChildrenCount(); ++Index)
+							{
+								auto* Entry = Cast<UHB_FriendEntryWidget>(Rows->GetChildAt(Index));
+								if (!Entry) { Test->AddError(TEXT("Friend row has the wrong native parent.")); return true; }
+								const auto* Friend = Friends.FindByPredicate([Entry](const auto& Value) { return Value.UserId == Entry->GetItem().UserId; });
+								if (!Friend) { Test->AddError(TEXT("Friend row does not correspond to Steam data.")); return true; }
+								Test->TestEqual(TEXT("Friend row preserves the Steam nickname"), Entry->GetItem().DisplayName.ToString(), Friend->DisplayName);
+								Test->TestEqual(TEXT("Friend row preserves join availability"), Entry->GetItem().bCanJoin, Friend->bCanJoin);
+								Test->TestEqual(TEXT("Friend row preserves invitation availability"), Entry->GetItem().bCanInvite, Friend->bCanInvite);
+							}
+						}
+						else { Test->AddError(TEXT("Production friend panel has no list container.")); return true; }
+					}
                     Test->TestTrue(TEXT("Real Steam friend list read completed without error"), Sessions->GetLastLobbyOperationError().IsEmpty());
                     const auto Friends = Sessions->GetSteamFriends();
                     for (const auto& Friend : Friends)
@@ -206,6 +296,11 @@ namespace
                             Test->TestFalse(TEXT("Live playing friend cannot be invited or joined"), Friend.bCanInvite || Friend.bCanJoin);
                     }
                     Test->AddInfo(FString::Printf(TEXT("Real Steam friend list verified; visible friends=%d; remote joining remains unverified."), Friends.Num()));
+					if (Fixture->bLobbyUI)
+					{
+						if (!LocalId.IsValid() || !VerifyFriendRow(Test, FriendsPanel, Sessions, LocalId->ToString())) return true;
+						FriendsPanel->Close();
+					}
                 }
                 Test->TestTrue(TEXT("Steam session belongs to the logged-in host"),
                     LocalId.IsValid() && Session->OwningUserId.IsValid() && *LocalId == *Session->OwningUserId);
@@ -243,9 +338,42 @@ namespace
                 // UE 5.7 Steam OSS populates OwningUserId/HostingPlayerNum but
                 // leaves bHosting false. Do not manufacture that flag here:
                 // the public travel API must accept an actual Steam host.
-                Test->AddInfo(FString::Printf(TEXT("Real Steam lobby and SteamSockets listen driver verified; bHosting=%d; requesting internal match travel."), Session->bHosting));
+                Test->AddInfo(FString::Printf(TEXT("Real Steam lobby and SteamSockets listen driver verified; bHosting=%d; start path=%s."),
+                    Session->bHosting, Fixture->bLobbyUI ? TEXT("production lobby button") : TEXT("internal match travel")));
                 const TCHAR* Destination = Fixture->bSessionOnly ? TEXT("/Engine/Maps/Entry.Entry") : DungeonMap;
-                if (!Lobby->RequestMatchTravel(TSoftObjectPtr<UWorld>(FSoftObjectPath(Destination))))
+				if (Fixture->bLobbyUI)
+				{
+					auto* LobbyState = World->GetGameState<AHBLobbyGameState>();
+					auto* HostState = Player->GetPlayerState<AHBLobbyPlayerState>();
+					auto* ReadyModule = Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("ReadyButtonModule")));
+					auto* ReadyButton = ReadyModule ? Cast<UButton>(ReadyModule->GetWidgetFromName(TEXT("Button_Action"))) : nullptr;
+					if (!LobbyState || !HostState || !ReadyButton)
+					{ Test->AddError(TEXT("Production lobby is missing ready state/button.")); return true; }
+					LobbyUI->RefreshLobbyActions();
+					Test->TestTrue(TEXT("Solo Steam host can use the start button"), StartButton->GetIsEnabled());
+					Test->TestFalse(TEXT("Host cannot use the guest ready button"), ReadyButton->GetIsEnabled());
+					const bool bHostReady = HostState->IsReady();
+					ReadyButton->OnClicked.Broadcast();
+					Test->TestEqual(TEXT("Disabled ready click does not change host readiness"), HostState->IsReady(), bHostReady);
+					LobbyState->SetCanStartMatch(false);
+					StartButton->OnClicked.Broadcast();
+					Test->TestFalse(TEXT("Unready start click does not close admission"), Sessions->IsMatchAdmissionClosed());
+					Test->TestFalse(TEXT("Start button follows replicated readiness"), StartButton->GetIsEnabled());
+					LobbyState->SetCanStartMatch(true);
+					LobbyUI->RefreshLobbyActions();
+					// Exercise the same property used by the production Blueprint; never save the fixture's map.
+					auto* MapProperty = FindFProperty<FSoftObjectProperty>(Lobby->GetClass(), TEXT("GameplayMap"));
+					if (!MapProperty) { Test->AddError(TEXT("Lobby GameMode has no GameplayMap property.")); return true; }
+					const FSoftObjectPtr PreviousMap = MapProperty->GetPropertyValue_InContainer(Lobby);
+					Test->TestFalse(TEXT("Production Blueprint configures a gameplay destination"), PreviousMap.IsNull());
+					Test->AddInfo(FString::Printf(TEXT("Production lobby Blueprint GameplayMap=%s"), *PreviousMap.ToSoftObjectPath().ToString()));
+					MapProperty->SetPropertyValue_InContainer(Lobby, FSoftObjectPtr(FSoftObjectPath(Destination)));
+					StartButton->OnClicked.Broadcast();
+					MapProperty->SetPropertyValue_InContainer(Lobby, PreviousMap);
+					Test->TestTrue(TEXT("Production start click records the host's start confirmation"), HostState->IsStartConfirmed());
+					Test->TestFalse(TEXT("Accepted start immediately disables the button"), StartButton->GetIsEnabled());
+				}
+                else if (!Lobby->RequestMatchTravel(TSoftObjectPtr<UWorld>(FSoftObjectPath(Destination))))
                 {
                     Test->AddError(Sessions->GetServerTravelError());
                     return true;
@@ -267,6 +395,8 @@ namespace
                     return Wait(TEXT("Steam lobby-to-dungeon seamless travel did not complete."));
                 Test->TestEqual(TEXT("Gameplay retains the same SteamSockets driver"), World->GetNetDriver(), Fixture->LobbyDriver.Get());
                 Test->TestEqual(TEXT("Gameplay is still a listen server"), World->GetNetMode(), NM_ListenServer);
+				if (Fixture->bLobbyUI)
+					Test->TestTrue(TEXT("Lobby departure removes the old HUD"), !Fixture->LobbyHUD.IsValid() || !Fixture->LobbyHUD->IsInViewport());
                 FNamedOnlineSession* Session = Online->GetNamedSession(SteamTestSession);
                 if (!Mode || !Session)
                 { Test->AddError(TEXT("Travel lost the gameplay GameMode or original Steam session.")); return true; }
@@ -468,6 +598,9 @@ bool FHBDungeonSteamHostTravelTest::RunTest(const FString&)
     const auto Fixture = MakeShared<FHBSteamHostFixture>();
     Fixture->bAutomaticHub = FParse::Param(FCommandLine::Get(), TEXT("HBTestAutoHub"));
     Fixture->bSessionOnly = FParse::Param(FCommandLine::Get(), TEXT("HBTestSessionOnly"));
+	Fixture->bLobbyUI = FParse::Param(FCommandLine::Get(), TEXT("HBTestLobbyUI"));
+	if (Fixture->bLobbyUI && !Fixture->bAutomaticHub)
+	{ AddError(TEXT("HBTestLobbyUI requires HBTestAutoHub.")); return false; }
     if (!Fixture->bSessionOnly)
     {
         AddExpectedErrorPlain(TEXT("Could not find context actor of type EnemyCharacterBase"), EAutomationExpectedErrorFlags::Contains, 0);
