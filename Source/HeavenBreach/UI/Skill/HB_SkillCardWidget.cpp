@@ -64,6 +64,16 @@ void UHB_SkillCardWidget::InitCard(const FSkillCardData& SkillData)
     {
         CooldownText->SetVisibility(CostVisibility);
     }
+
+    // 값과 같이 있는 고정 글자("마나 소모", "쿨타임")도 같이 숨긴다.
+    if (ManaCostRow)
+    {
+        ManaCostRow->SetVisibility(CostVisibility);
+    }
+    if (CooldownRow)
+    {
+        CooldownRow->SetVisibility(CostVisibility);
+    }
 }
 
 void UHB_SkillCardWidget::SetHeaderText(const FText& InHeaderText)

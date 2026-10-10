@@ -14,6 +14,7 @@
 class UButton;
 class UImage;
 class UTexture2D;
+class UHB_SkillIconWidget;
 
 
 UENUM(BlueprintType)
@@ -73,8 +74,21 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UButton> SlotButton;
 
-	UPROPERTY(meta = (BindWidget))
+	/**
+	 * 아이콘을 그리는 이미지. 아래 SkillIconWidget 을 쓰면 없어도 된다.
+	 * 둘 다 있으면 SkillIconWidget 이 이긴다.
+	 */
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> SkillIconImage;
+
+	/**
+	 * 아이콘 표시를 표시 전용 위젯(WBP_SkillIcon_Active / WBP_SkillIcon_Passive)에 맡길 때 쓴다.
+	 * 이 칸에 그 WBP 를 넣으면 스탯창과 같은 디자인(배경, 테두리)을 그대로 쓰고,
+	 * 이 슬롯은 그 위에 얹은 SlotButton 으로 클릭만 받는다.
+	 * 안에 든 이미지는 이름으로 접근할 수 없어서, 슬롯이 직접 그리지 않고 이 위젯에 아이콘을 넘긴다.
+	 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UHB_SkillIconWidget> SkillIconWidget;
 
 private:
 	// 버튼이 클릭되었을 때 실행될 내부 함수

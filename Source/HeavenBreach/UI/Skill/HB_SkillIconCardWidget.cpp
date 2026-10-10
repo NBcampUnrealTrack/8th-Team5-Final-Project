@@ -54,6 +54,19 @@ void UHB_SkillIconCardWidget::InitIconCard(const FSkillCardData& SkillData)
 	}
 }
 
+void UHB_SkillIconCardWidget::SetDetailTooltip(UWidget* InTooltip)
+{
+	// 아이콘만 있는 카드의 임시 이름 툴팁(InitIconCard)을 걷어 낸다. 그대로 두면 가장 안쪽인 버튼의
+	// 툴팁이 이겨서 상세 툴팁이 뜨지 않는다.
+	if (CardButton)
+	{
+		CardButton->SetToolTip(nullptr);
+		CardButton->SetToolTipText(FText::GetEmpty());
+	}
+
+	SetToolTip(InTooltip);
+}
+
 void UHB_SkillIconCardWidget::SetPreviewSelected(bool bSelected)
 {
 	if (SelectedBorder)

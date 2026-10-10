@@ -10,6 +10,7 @@
 class UButton;
 class UTextBlock;
 class URichTextBlock;
+class UWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSkillCardClicked, FName, ClickedSkillId);
 
@@ -68,6 +69,19 @@ protected:
 
     UPROPERTY(meta = (BindWidget))
     TObjectPtr<UTextBlock> CooldownText;
+
+    /**
+     * "마나 소모" 글자와 값(ManaCostText)을 함께 묶은 줄. 패시브에서는 이 줄을 통째로 숨긴다.
+     *
+     * 왜 필요한가: 값 칸만 숨기면 "마나 소모" 같은 고정 글자가 값 없이 덩그러니 남는다.
+     * 없어도 동작한다 (그때는 값 칸만 숨는다).
+     */
+    UPROPERTY(meta = (BindWidgetOptional))
+    TObjectPtr<UWidget> ManaCostRow;
+
+    /** "쿨타임" 글자와 값(CooldownText)을 묶은 줄. 패시브에서 통째로 숨긴다. */
+    UPROPERTY(meta = (BindWidgetOptional))
+    TObjectPtr<UWidget> CooldownRow;
 
 private:
     // InitCard 에서 분리했다. 여기서 return 하면 뒤의 마나, 쿨, 아이콘 설정이

@@ -29,8 +29,17 @@ class HEAVENBREACH_API UHB_SkillIconCardWidget : public UUserWidget
 public:
 	void InitIconCard(const FSkillCardData& SkillData);
 
-	/** 지금 오른쪽 상세정보 패널에 미리보기로 떠 있는 카드인지 표시한다. */
+	/** 장착 중인 스킬인지 표시한다 (SelectedBorder 를 켜고 끈다). */
 	void SetPreviewSelected(bool bSelected);
+
+	/**
+	 * 마우스를 올렸을 때 뜰 상세 툴팁(이름, 설명, 마나, 쿨타임)을 단다.
+	 *
+	 * 왜 따로 함수인가: InitIconCard 가 버튼에 이름만 있는 글자 툴팁을 달아 두는데, 슬레이트는
+	 * 마우스 아래의 가장 안쪽 위젯의 툴팁을 쓴다. 이 카드 자체에 상세 툴팁을 달아도 버튼의
+	 * 글자 툴팁이 이겨서 가려진다. 그래서 상세 툴팁을 달면서 버튼의 글자 툴팁을 걷어 낸다.
+	 */
+	void SetDetailTooltip(UWidget* InTooltip);
 
 	FName GetSkillId() const { return CurrentSkillId; }
 
