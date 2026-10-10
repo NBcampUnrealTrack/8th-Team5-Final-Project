@@ -57,25 +57,23 @@ void UHBOnlineSessionSubsystem::NotifyInviteHubEntered(UWorld* HubWorld)
 	// Never reset Joining/Leaving here: OpenLevel creates this GameMode again.
 }
 
-bool UHBOnlineSessionSubsystem::BeginHubInvite(const FOnlineSessionSearchResult& Result, const FString& Password)
+bool UHBOnlineSessionSubsystem::BeginHubSessionSwitch(const FOnlineSessionSearchResult& Result)
 {
 	if (!bAutomaticInviteHubEnabled || OwnHubMap.IsEmpty() || IsLobbyOperationInProgress() ||
-		bMatchAdmissionClosed || bReturnAfterLeave || QueuedHubInvite.IsValid() ||
+		bMatchAdmissionClosed || bReturnAfterLeave || QueuedHubSession.IsValid() ||
 		(InviteHubState != EHBInviteHubState::Hosting && InviteHubState != EHBInviteHubState::Guest &&
 		 InviteHubState != EHBInviteHubState::WaitingForSteam && InviteHubState != EHBInviteHubState::Suspended))
 	{
-		AuxiliaryError = TEXT("Cannot accept an invitation while starting, playing, or changing sessions.");
+		AuxiliaryError = TEXT("Cannot switch hub sessions while starting, playing, or changing sessions.");
 		return false;
 	}
-	if (!ValidateHubInvite(Result)) return false; // Do not tear down a healthy hub for a bad invitation.
+	if (!ValidateHubSession(Result)) return false; // Validate either join source before tearing down a healthy hub.
 	const EHBInviteHubState Previous = InviteHubState;
-	QueuedHubInvite = MakeShared<FOnlineSessionSearchResult>(Result);
-	QueuedHubPassword = Password;
+	QueuedHubSession = MakeShared<FOnlineSessionSearchResult>(Result);
 	SetInviteHubState(EHBInviteHubState::LeavingForInvite);
 	if (!RequestLeaveToMenu())
 	{
-		QueuedHubInvite.Reset();
-		QueuedHubPassword.Reset();
+		QueuedHubSession.Reset();
 		SetInviteHubState(Previous);
 		return false;
 	}
@@ -86,8 +84,7 @@ bool UHBOnlineSessionSubsystem::RequestReturnToOwnHub(const FString& Notice)
 {
 	if (!bAutomaticInviteHubEnabled || OwnHubMap.IsEmpty() || !GetWorld() ||
 		!GetWorld()->IsGameWorld() || IsLobbyOperationInProgress()) return false;
-	QueuedHubInvite.Reset();
-	QueuedHubPassword.Reset();
+	QueuedHubSession.Reset();
 	PendingInvite.Reset();
 	SetInviteHubState(EHBInviteHubState::Returning);
 	return RequestLeaveToMenu(Notice);
@@ -106,8 +103,7 @@ bool UHBOnlineSessionSubsystem::RetryInviteHub()
 void UHBOnlineSessionSubsystem::NotifyInviteHubSessionReady(bool bHost)
 {
 	if (!bAutomaticInviteHubEnabled) return;
-	QueuedHubInvite.Reset();
-	QueuedHubPassword.Reset();
+	QueuedHubSession.Reset();
 	SetInviteHubState(bHost ? EHBInviteHubState::Hosting : EHBInviteHubState::Guest);
 }
 
@@ -141,36 +137,31 @@ bool UHBOnlineSessionSubsystem::TickInviteHub(float DeltaSeconds)
 	{
 		if (LobbyOperationState == EHBLobbyOperationState::Failed)
 		{
-			QueuedHubInvite.Reset();
-			QueuedHubPassword.Reset();
+			QueuedHubSession.Reset();
 			SetInviteHubState(EHBInviteHubState::Failed, GetLastLobbyOperationError());
 			return true;
 		}
 		if (!bOwnHub || bReturnAfterLeave || IsLobbyOperationInProgress() || bHasSession) return true;
-		if (!QueuedHubInvite.IsValid() || !ValidateHubInvite(*QueuedHubInvite))
+		if (!QueuedHubSession.IsValid() || !ValidateHubSession(*QueuedHubSession))
 		{
 			const FString Error = GetLastLobbyOperationError();
-			QueuedHubInvite.Reset();
-			QueuedHubPassword.Reset();
+			QueuedHubSession.Reset();
 			MenuNotice = Error;
 			SetInviteHubState(EHBInviteHubState::WaitingForSteam);
 			return true;
 		}
-		const FOnlineSessionSearchResult Result = *QueuedHubInvite;
-		const FString Password = QueuedHubPassword;
+		const FOnlineSessionSearchResult Result = *QueuedHubSession;
 		SetInviteHubState(EHBInviteHubState::JoiningInvite);
-		if (!JoinLobbyResult(Result, Password) && !IsLobbyOperationInProgress())
+		if (!JoinLobbyResult(Result, FString()) && !IsLobbyOperationInProgress())
 		{
-			QueuedHubInvite.Reset();
-			QueuedHubPassword.Reset();
+			QueuedHubSession.Reset();
 			RequestReturnToOwnHub(GetLastLobbyOperationError());
 		}
 		return true;
 	}
 	if (InviteHubState == EHBInviteHubState::JoiningInvite && LobbyOperationState == EHBLobbyOperationState::Failed)
 	{
-		QueuedHubInvite.Reset();
-		QueuedHubPassword.Reset();
+		QueuedHubSession.Reset();
 		const FString Error = GetLastLobbyOperationError();
 		if (bHasSession) SetInviteHubState(EHBInviteHubState::Failed, Error);
 		else RequestReturnToOwnHub(Error);

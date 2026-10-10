@@ -105,7 +105,7 @@ namespace
                 auto* Session = Online->GetNamedSession(SteamTestSession);
                 if (Sessions->GetInviteHubState() != EHBInviteHubState::Hosting || !Session ||
                     World->GetNetMode() != NM_ListenServer || Sessions->IsLobbyOperationInProgress())
-                    return Wait(TEXT("Personal invite hub did not recover after leaving gameplay/results."));
+                    return Wait(TEXT("Personal Steam hub did not recover after leaving gameplay/results."));
                 if (Fixture->HubStableSince == 0.)
                 {
                     Fixture->HubStableSince = FPlatformTime::Seconds();
@@ -115,12 +115,13 @@ namespace
                 if (FPlatformTime::Seconds() - Fixture->HubStableSince < 3.) return false;
                 Test->TestEqual(TEXT("Automatic hosting does not repeatedly recreate the hub"), Session->GetSessionIdStr(), Fixture->RestoredHubId);
                 Test->TestEqual(TEXT("Recovery returns to the player's original hub map"), World->GetOutermost()->GetName(), Sessions->GetOwnHubMap());
-                Test->TestTrue(TEXT("Recovered hub is privately inviteable for four players"),
-                    Session->SessionSettings.NumPublicConnections == 4 && !Session->SessionSettings.bShouldAdvertise &&
-                    !Session->SessionSettings.bAllowJoinViaPresence && Session->SessionSettings.bAllowInvites);
+                Test->TestTrue(TEXT("Recovered hub allows friends and invitations for exactly four players"),
+                    Session->SessionSettings.NumPublicConnections == 4 && Session->SessionSettings.NumPrivateConnections == 0 &&
+                    Session->SessionSettings.bShouldAdvertise && Session->SessionSettings.bAllowJoinViaPresence &&
+                    Session->SessionSettings.bAllowJoinViaPresenceFriendsOnly && Session->SessionSettings.bAllowInvites);
                 Test->TestTrue(TEXT("Recovered local host is authorized"), Sessions->IsLocalLobbyHost());
                 Test->TestFalse(TEXT("Recovery releases match admission"), Sessions->IsMatchAdmissionClosed());
-                Test->AddInfo(TEXT("Automatic private Steam hub restored and stable for three seconds; remote invitation joining remains unverified."));
+                Test->AddInfo(TEXT("Automatic friends-only Steam hub restored and stable for three seconds; remote friend/invitation joining remains unverified."));
                 return true;
             }
 
@@ -194,12 +195,13 @@ namespace
                 {
                     Test->TestEqual(TEXT("Hub creates itself without a room creation request"), Sessions->GetInviteHubState(), EHBInviteHubState::Hosting);
                     Test->TestEqual(TEXT("Automatic hub includes the host in its four slots"), Session->SessionSettings.NumPublicConnections, 4);
-                    Test->TestTrue(TEXT("Automatic hub is invite-only"), !Session->SessionSettings.bShouldAdvertise &&
-                        !Session->SessionSettings.bAllowJoinViaPresence && Session->SessionSettings.bAllowInvites);
-                    Test->TestEqual(TEXT("Direct endpoint cannot bypass invitation admission"), Sessions->CheckLobbyPassword(TEXT("")), FString(TEXT("HB_INVITE_REQUIRED")));
+                    Test->TestTrue(TEXT("Automatic hub allows friends and invitations"), Session->SessionSettings.bShouldAdvertise &&
+                        Session->SessionSettings.bAllowJoinViaPresence && Session->SessionSettings.bAllowJoinViaPresenceFriendsOnly &&
+                        Session->SessionSettings.bAllowInvites && Session->SessionSettings.NumPrivateConnections == 0);
+                    Test->TestEqual(TEXT("Direct endpoint cannot bypass hub admission"), Sessions->CheckLobbyPassword(TEXT("")), FString(TEXT("HB_INVITE_REQUIRED")));
                     FString Proof;
                     Session->SessionSettings.Get(FName(TEXT("HB_INVITE_PROOF")), Proof);
-                    Test->TestTrue(TEXT("Private lobby supplies valid admission data"), Sessions->CheckLobbyPassword(TEXT("?HBInviteProof=") + Proof).IsEmpty());
+                    Test->TestTrue(TEXT("Friends-only lobby supplies shared admission data"), Sessions->CheckLobbyPassword(TEXT("?HBInviteProof=") + Proof).IsEmpty());
                     const auto* LobbyState = World->GetGameState<AHBLobbyGameState>();
                     Test->TestTrue(TEXT("Solo hub is ready for host start"), LobbyState && LobbyState->CanStartMatch());
                     FOnlineSessionSearchResult OwnInvite;
@@ -251,6 +253,9 @@ namespace
                 Test->TestTrue(TEXT("Match Steam lobby disallows joining and invites"),
                     Sessions->IsMatchAdmissionClosed() && !Session->SessionSettings.bAllowJoinInProgress
                     && !Session->SessionSettings.bAllowJoinViaPresence && !Session->SessionSettings.bAllowInvites);
+                if (Fixture->bAutomaticHub)
+                    Test->TestTrue(TEXT("Match retains the friends-only Steam lobby type"),
+                        Session->SessionSettings.bShouldAdvertise && Session->SessionSettings.bAllowJoinViaPresenceFriendsOnly);
                 if (Fixture->bSessionOnly)
                 {
                     auto* Player = World->GetFirstPlayerController();

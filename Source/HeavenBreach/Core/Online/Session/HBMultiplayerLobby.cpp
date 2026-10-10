@@ -69,7 +69,7 @@ bool UHBOnlineSessionSubsystem::RequestJoinRoom(const FString& SessionId, const 
 
 FString UHBOnlineSessionSubsystem::CheckLobbyPassword(const FString& Options) const
 {
-    if (!HostedInviteProof.IsEmpty() && UGameplayStatics::ParseOption(Options, TEXT("HBInviteProof")) != HostedInviteProof)
+    if (!HostedHubProof.IsEmpty() && UGameplayStatics::ParseOption(Options, TEXT("HBInviteProof")) != HostedHubProof)
         return TEXT("HB_INVITE_REQUIRED");
     if (!HostedPasswordProof.IsEmpty() && UGameplayStatics::ParseOption(Options, TEXT("HBProof")) != HostedPasswordProof)
         return TEXT("HB_PASSWORD_INVALID");
@@ -161,7 +161,7 @@ void UHBOnlineSessionSubsystem::HandleSteamInvite(bool bSuccess, int32 LocalUser
     if (!bSuccess || LocalUser != LocalUserIndex(GetGameInstance()) || !UserId.IsValid() || !Result.IsValid()) return;
     FString Project;
     if (!Result.Session.SessionSettings.Get(FName(TEXT("HB_PROJECT")), Project) || Project != TEXT("HeavenBreach")) return;
-    if (bAutomaticInviteHubEnabled && (bMatchAdmissionClosed || QueuedHubInvite.IsValid()))
+    if (bAutomaticInviteHubEnabled && (bMatchAdmissionClosed || QueuedHubSession.IsValid()))
     {
         AuxiliaryError = TEXT("현재 게임이나 초대 전환이 끝난 뒤 다시 초대해주세요.");
         return;
@@ -191,7 +191,7 @@ bool UHBOnlineSessionSubsystem::AcceptPendingInvite(const FString& Password)
     const auto Result = *PendingInvite;
     if (bAutomaticInviteHubEnabled)
     {
-        if (!BeginHubInvite(Result, Password)) return false;
+        if (!BeginHubSessionSwitch(Result)) return false;
     }
     else if (!JoinLobbyResult(Result, Password)) return false;
     PendingInvite.Reset();
@@ -230,8 +230,8 @@ bool UHBOnlineSessionSubsystem::ReturnToMenu(float)
     HostedRoomName.Reset();
     HostedPasswordProof.Reset();
     HostedPasswordSalt.Reset();
-    HostedInviteProof.Reset();
-    PendingJoinInviteProof.Reset();
+    HostedHubProof.Reset();
+    PendingHubJoinProof.Reset();
     ConnectedLobbyMap.Reset();
     bMatchAdmissionClosed = false;
     PreTravelSettings.Reset();

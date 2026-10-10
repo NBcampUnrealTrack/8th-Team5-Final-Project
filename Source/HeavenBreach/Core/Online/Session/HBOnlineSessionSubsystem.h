@@ -56,7 +56,7 @@ enum class EHBLobbyOperationState : uint8
 	Leaving
 };
 
-/** Map-independent lifecycle of a personal, invite-only listen hub. */
+/** Map-independent lifecycle of a personal Steam friends-only listen hub. */
 UENUM(BlueprintType)
 enum class EHBInviteHubState : uint8
 {
@@ -64,6 +64,7 @@ enum class EHBInviteHubState : uint8
 	WaitingForSteam,
 	PreparingHost,
 	Hosting,
+	// Existing Blueprint names cover both invitations and friend session switches.
 	LeavingForInvite,
 	JoiningInvite,
 	Guest,
@@ -253,22 +254,21 @@ public:
 	bool StartMatchAsLobbyOwner(const FString& ServerAddress);
 
 private:
-	bool RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password, bool bInviteOnly = false);
+	bool RequestHostLobbyInternal(int32 MaxPlayers, TSoftObjectPtr<UWorld> LobbyMap, const FString& Name, const FString& Password, bool bFriendsOnlyHub = false);
 	void SetInviteHubState(EHBInviteHubState State, const FString& Error = FString());
 	bool TickInviteHub(float DeltaSeconds);
-	bool BeginHubInvite(const FOnlineSessionSearchResult& Result, const FString& Password);
-	bool ValidateHubInvite(const FOnlineSessionSearchResult& Result);
+	bool BeginHubSessionSwitch(const FOnlineSessionSearchResult& Result);
+	bool ValidateHubSession(const FOnlineSessionSearchResult& Result);
 	void NotifyInviteHubSessionReady(bool bHost);
 	void NotifyInviteHubSessionLeft();
 	bool bAutomaticInviteHubEnabled = false;
 	FString OwnHubMap;
-	FString HostedInviteProof;
-	FString PendingJoinInviteProof;
+	FString HostedHubProof;
+	FString PendingHubJoinProof;
 	EHBInviteHubState InviteHubState = EHBInviteHubState::Disabled;
 	FString InviteHubError;
 	double SteamReadyDeadline = 0.0;
-	TSharedPtr<FOnlineSessionSearchResult> QueuedHubInvite;
-	FString QueuedHubPassword;
+	TSharedPtr<FOnlineSessionSearchResult> QueuedHubSession;
 	FTSTicker::FDelegateHandle InviteHubTickerHandle;
 	friend class FHBInviteHubGuardsTest;
 	bool JoinLobbyResult(const FOnlineSessionSearchResult& Result, const FString& Password);

@@ -26,11 +26,11 @@ bool FHBInviteHubGuardsTest::RunTest(const FString&)
 	TestFalse(TEXT("Automatic hubs reject room search"), Sessions->FindLobbies());
 	TestEqual(TEXT("Rejected search does not disturb the session operation"), Sessions->GetLobbyOperationState(), EHBLobbyOperationState::Idle);
 
-	Sessions->HostedInviteProof = TEXT("0123456789abcdef0123456789abcdef");
-	TestEqual(TEXT("Endpoint without invite proof is rejected"), Sessions->CheckLobbyPassword(TEXT("")), FString(TEXT("HB_INVITE_REQUIRED")));
-	TestEqual(TEXT("Wrong invite proof is rejected"), Sessions->CheckLobbyPassword(TEXT("?HBInviteProof=wrong")), FString(TEXT("HB_INVITE_REQUIRED")));
-	TestTrue(TEXT("Private lobby admission proof is accepted"), Sessions->CheckLobbyPassword(TEXT("?HBInviteProof=0123456789abcdef0123456789abcdef")).IsEmpty());
-	Sessions->HostedInviteProof.Reset();
+	Sessions->HostedHubProof = TEXT("0123456789abcdef0123456789abcdef");
+	TestEqual(TEXT("Endpoint without hub admission data is rejected"), Sessions->CheckLobbyPassword(TEXT("")), FString(TEXT("HB_INVITE_REQUIRED")));
+	TestEqual(TEXT("Wrong hub admission data is rejected"), Sessions->CheckLobbyPassword(TEXT("?HBInviteProof=wrong")), FString(TEXT("HB_INVITE_REQUIRED")));
+	TestTrue(TEXT("Shared hub admission data is accepted"), Sessions->CheckLobbyPassword(TEXT("?HBInviteProof=0123456789abcdef0123456789abcdef")).IsEmpty());
+	Sessions->HostedHubProof.Reset();
 	TestTrue(TEXT("Legacy room admission remains unchanged"), Sessions->CheckLobbyPassword(TEXT("")).IsEmpty());
 
 	FOnlineSessionSearchResult Invalid;
@@ -38,15 +38,15 @@ bool FHBInviteHubGuardsTest::RunTest(const FString&)
 		EHBInviteHubState::JoiningInvite, EHBInviteHubState::InMatch, EHBInviteHubState::Returning})
 	{
 		Sessions->InviteHubState = State;
-		TestFalse(TEXT("Invite cannot interrupt an active hub transition"), Sessions->BeginHubInvite(Invalid, FString()));
-		TestEqual(TEXT("Rejected invite preserves the active transition"), Sessions->GetInviteHubState(), State);
-		TestFalse(TEXT("Rejected invite cannot queue a second join"), Sessions->QueuedHubInvite.IsValid());
+		TestFalse(TEXT("Session switch cannot interrupt an active hub transition"), Sessions->BeginHubSessionSwitch(Invalid));
+		TestEqual(TEXT("Rejected switch preserves the active transition"), Sessions->GetInviteHubState(), State);
+		TestFalse(TEXT("Rejected switch cannot queue a second join"), Sessions->QueuedHubSession.IsValid());
 	}
 	Sessions->InviteHubState = EHBInviteHubState::Hosting;
 	Sessions->bMatchAdmissionClosed = true;
-	TestFalse(TEXT("Admission closure immediately blocks switching hosts"), Sessions->BeginHubInvite(Invalid, FString()));
+	TestFalse(TEXT("Admission closure immediately blocks switching hosts"), Sessions->BeginHubSessionSwitch(Invalid));
 	Sessions->bMatchAdmissionClosed = false;
-	TestFalse(TEXT("Invalid invitation cannot destroy the current hub"), Sessions->BeginHubInvite(Invalid, FString()));
+	TestFalse(TEXT("Invalid join target cannot destroy the current hub"), Sessions->BeginHubSessionSwitch(Invalid));
 	TestEqual(TEXT("Preflight rejection keeps the host state"), Sessions->GetInviteHubState(), EHBInviteHubState::Hosting);
 
 	for (EHBInviteHubState State : {EHBInviteHubState::Guest, EHBInviteHubState::InMatch, EHBInviteHubState::Suspended})
@@ -56,12 +56,12 @@ bool FHBInviteHubGuardsTest::RunTest(const FString&)
 		TestEqual(TEXT("Guest, match and result states do not create a personal session"), Sessions->GetInviteHubState(), State);
 		TestEqual(TEXT("No unintended session operation is started"), Sessions->GetLobbyOperationState(), EHBLobbyOperationState::Idle);
 	}
-	Sessions->QueuedHubInvite = MakeShared<FOnlineSessionSearchResult>();
+	Sessions->QueuedHubSession = MakeShared<FOnlineSessionSearchResult>();
 	Sessions->InviteHubState = EHBInviteHubState::LeavingForInvite;
 	Sessions->ResetLobbyAfterLeave();
-	TestEqual(TEXT("Leave completion preserves the pending invite transition"), Sessions->GetInviteHubState(), EHBInviteHubState::LeavingForInvite);
-	TestTrue(TEXT("Leave completion retains the target invitation"), Sessions->QueuedHubInvite.IsValid());
-	Sessions->QueuedHubInvite.Reset();
+	TestEqual(TEXT("Leave completion preserves the pending session switch"), Sessions->GetInviteHubState(), EHBInviteHubState::LeavingForInvite);
+	TestTrue(TEXT("Leave completion retains the target session"), Sessions->QueuedHubSession.IsValid());
+	Sessions->QueuedHubSession.Reset();
 	Sessions->InviteHubState = EHBInviteHubState::InMatch;
 	Sessions->ResetLobbyAfterLeave();
 	TestEqual(TEXT("Result departure suspends hosting until hub return"), Sessions->GetInviteHubState(), EHBInviteHubState::Suspended);
@@ -69,10 +69,10 @@ bool FHBInviteHubGuardsTest::RunTest(const FString&)
 	TestFalse(TEXT("Retry requires a real standalone hub world"), Sessions->RetryInviteHub());
 	TestEqual(TEXT("Failure does not retry in a loop"), Sessions->GetInviteHubState(), EHBInviteHubState::Failed);
 	Sessions->InviteHubState = EHBInviteHubState::JoiningInvite;
-	Sessions->QueuedHubInvite = MakeShared<FOnlineSessionSearchResult>();
+	Sessions->QueuedHubSession = MakeShared<FOnlineSessionSearchResult>();
 	Sessions->LobbyOperationState = EHBLobbyOperationState::Failed;
 	Sessions->TickInviteHub(0.f);
-	TestFalse(TEXT("Failed join drops the queued target before recovery"), Sessions->QueuedHubInvite.IsValid());
+	TestFalse(TEXT("Failed join drops the queued target before recovery"), Sessions->QueuedHubSession.IsValid());
 	Sessions->bHostRequestActive = true;
 	Sessions->HostFailureReason = TEXT("simulated host failure");
 	Sessions->LobbyOperationState = EHBLobbyOperationState::CleaningUpHost;
