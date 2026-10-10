@@ -46,6 +46,7 @@ namespace
         FHBStartingLoadout LobbyLoadout;
         FString SessionId;
         bool bAutomaticHub = false;
+        bool bFriendsReadRequested = false;
         // Isolate session/results lifecycle when dungeon authoring is unavailable.
         // The normal mode still verifies PCG, enemies and chests without this flag.
         bool bSessionOnly = false;
@@ -186,6 +187,26 @@ namespace
                 const ULocalPlayer* LocalPlayer = Instance->GetFirstGamePlayer();
                 const auto LocalId = Identity.IsValid() && LocalPlayer
                     ? Identity->GetUniquePlayerId(LocalPlayer->GetControllerId()) : nullptr;
+                if (Fixture->bAutomaticHub)
+                {
+                    if (!Fixture->bFriendsReadRequested)
+                    {
+                        Fixture->bFriendsReadRequested = true;
+                        if (!Sessions->RefreshSteamFriends())
+                        { Test->AddError(TEXT("Real Steam friend list read could not start.")); return true; }
+                        return false;
+                    }
+                    if (Sessions->IsReadingFriends()) return Wait(TEXT("Real Steam friend list read did not finish."));
+                    Test->TestTrue(TEXT("Real Steam friend list read completed without error"), Sessions->GetLastLobbyOperationError().IsEmpty());
+                    const auto Friends = Sessions->GetSteamFriends();
+                    for (const auto& Friend : Friends)
+                    {
+                        Test->TestTrue(TEXT("Live friend list includes only lobby and match states"), Friend.State == TEXT("Lobby") || Friend.State == TEXT("Match"));
+                        if (Friend.State == TEXT("Match"))
+                            Test->TestFalse(TEXT("Live playing friend cannot be invited or joined"), Friend.bCanInvite || Friend.bCanJoin);
+                    }
+                    Test->AddInfo(FString::Printf(TEXT("Real Steam friend list verified; visible friends=%d; remote joining remains unverified."), Friends.Num()));
+                }
                 Test->TestTrue(TEXT("Steam session belongs to the logged-in host"),
                     LocalId.IsValid() && Session->OwningUserId.IsValid() && *LocalId == *Session->OwningUserId);
                 Test->TestTrue(TEXT("Host uses a non-LAN, non-dedicated presence lobby"),
@@ -204,6 +225,10 @@ namespace
                     Test->TestTrue(TEXT("Friends-only lobby supplies shared admission data"), Sessions->CheckLobbyPassword(TEXT("?HBInviteProof=") + Proof).IsEmpty());
                     const auto* LobbyState = World->GetGameState<AHBLobbyGameState>();
                     Test->TestTrue(TEXT("Solo hub is ready for host start"), LobbyState && LobbyState->CanStartMatch());
+                    const FString OwnLobbyId = Session->GetSessionIdStr();
+                    Test->TestFalse(TEXT("Friend join API rejects the local host"), Sessions->RequestJoinSteamFriend(LocalId->ToString()));
+                    Test->TestEqual(TEXT("Rejected self join keeps the original Steam lobby"), Session->GetSessionIdStr(), OwnLobbyId);
+                    Test->TestFalse(TEXT("Rejected self join does not leave a lookup in progress"), Sessions->IsLobbyOperationInProgress());
                     FOnlineSessionSearchResult OwnInvite;
                     OwnInvite.Session = *Session;
                     Online->TriggerOnSessionUserInviteAcceptedDelegates(true, LocalPlayer->GetControllerId(), LocalId, OwnInvite);

@@ -3,7 +3,9 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Engine/GameInstance.h"
+#include "Interfaces/OnlinePresenceInterface.h"
 #include "OnlineSessionSettings.h"
+#include "OnlineSubsystemTypes.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBInviteHubGuardsTest, "HeavenBreach.Online.InviteHubGuards",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -80,6 +82,96 @@ bool FHBInviteHubGuardsTest::RunTest(const FString&)
 	Sessions->HandleHostCleanupComplete(FName(TEXT("HBPartyLobbySession")), true);
 	TestEqual(TEXT("Host failure stops rather than automatically creating again"), Sessions->GetInviteHubState(), EHBInviteHubState::Failed);
 	TestFalse(TEXT("Host failure does not schedule a map reload loop"), Sessions->bReturnAfterLeave);
+
+	FOnlineUserPresence LobbyPresence;
+	LobbyPresence.bIsOnline = LobbyPresence.bIsPlayingThisGame = true;
+	LobbyPresence.SessionId = FUniqueNetIdString::Create(TEXT("remote-lobby"), TEXT("test"));
+	LobbyPresence.Status.Properties.Add(TEXT("HB_PROJECT"), FString(TEXT("HeavenBreach")));
+	LobbyPresence.Status.Properties.Add(TEXT("HB_STATE"), FString(TEXT("Lobby")));
+	LobbyPresence.Status.Properties.Add(TEXT("Joinable"), FString(TEXT("true")));
+	FHBSteamFriendEntry Entry;
+	TestTrue(TEXT("Same-project lobby friend is visible"), Sessions->ReadSteamFriendPresence(LobbyPresence, Entry));
+	TestEqual(TEXT("Friend state preserves the existing presence protocol"), Entry.State, FString(TEXT("Lobby")));
+	TestTrue(TEXT("Joinable lobby friend can receive invitations and be a join target"), Entry.bCanInvite && Entry.bCanJoin);
+	auto Presence = LobbyPresence;
+	Presence.Status.Properties.Add(TEXT("HB_STATE"), FString(TEXT("Match")));
+	TestTrue(TEXT("Playing friend remains visible"), Sessions->ReadSteamFriendPresence(Presence, Entry));
+	TestEqual(TEXT("Playing state is available to the later UI bridge"), Entry.State, FString(TEXT("Match")));
+	TestFalse(TEXT("Playing friend cannot be invited or joined"), Entry.bCanInvite || Entry.bCanJoin);
+	auto Hidden = [&](const TCHAR* Reason, const FOnlineUserPresence& Candidate)
+	{
+		TestFalse(Reason, Sessions->ReadSteamFriendPresence(Candidate, Entry));
+		TestTrue(TEXT("Hidden friend has no stale state or permissions"), Entry.State.IsEmpty() && !Entry.bCanInvite && !Entry.bCanJoin);
+	};
+	for (const TCHAR* State : {TEXT("Menu"), TEXT("Busy"), TEXT("Unknown")})
+	{
+		Presence = LobbyPresence; Presence.Status.Properties.Add(TEXT("HB_STATE"), FString(State));
+		Hidden(TEXT("States outside lobby and match are hidden"), Presence);
+	}
+	Presence = LobbyPresence; Presence.bIsOnline = false;
+	Hidden(TEXT("Offline friend is hidden"), Presence);
+	Presence = LobbyPresence; Presence.bIsPlayingThisGame = false;
+	Hidden(TEXT("Friend in another app is hidden"), Presence);
+	Presence = LobbyPresence; Presence.Status.Properties.Remove(TEXT("HB_PROJECT"));
+	Hidden(TEXT("Unidentified project is hidden"), Presence);
+	Presence = LobbyPresence; Presence.Status.Properties.Add(TEXT("HB_PROJECT"), FString(TEXT("OtherGame")));
+	Hidden(TEXT("Another AppID 480 project is hidden"), Presence);
+	Presence = LobbyPresence; Presence.Status.Properties.Remove(TEXT("HB_STATE"));
+	Hidden(TEXT("Missing friend state is hidden"), Presence);
+	Presence = LobbyPresence; Presence.Status.Properties.Add(TEXT("Joinable"), FString(TEXT("false")));
+	TestTrue(TEXT("Lobby remains visible when its admission is unavailable"), Sessions->ReadSteamFriendPresence(Presence, Entry));
+	TestFalse(TEXT("Closed presence cannot enable joining"), Entry.bCanJoin);
+	Presence = LobbyPresence; Presence.SessionId.Reset();
+	TestTrue(TEXT("Lobby state alone can still be displayed"), Sessions->ReadSteamFriendPresence(Presence, Entry));
+	TestFalse(TEXT("Missing lobby ID cannot enable joining"), Entry.bCanJoin);
+
+	auto* FriendSessions = NewObject<UHBOnlineSessionSubsystem>(Instance);
+	FriendSessions->bAutomaticInviteHubEnabled = true;
+	FriendSessions->OwnHubMap = FriendSessions->LobbyReturnMap = TEXT("/Game/Levels/Lobby/L_Lobby");
+	FriendSessions->InviteHubState = EHBInviteHubState::Hosting;
+	FriendSessions->LobbyOperationState = EHBLobbyOperationState::InLobby;
+	FriendSessions->HostedHubProof = TEXT("existing-host-admission");
+	TestFalse(TEXT("Friend join without a live Steam lobby is rejected"), FriendSessions->RequestJoinSteamFriend(TEXT("friend")));
+	TestEqual(TEXT("Failed preflight retains the current lobby"), FriendSessions->GetLobbyOperationState(), EHBLobbyOperationState::InLobby);
+	FriendSessions->ReadSteamFriendPresence(LobbyPresence, Entry);
+	FriendSessions->SteamFriends.Add(Entry);
+	const auto Snapshot = FriendSessions->GetSteamFriends();
+	TestFalse(TEXT("Snapshot cannot grant permissions without a live local session"), Snapshot[0].bCanInvite || Snapshot[0].bCanJoin);
+
+	auto QueueFriendLookup = [&](uint64 RequestId)
+	{
+		FriendSessions->FindFriendSessionCompleteHandle = FDelegateHandle(FDelegateHandle::GenerateNewHandle);
+		FriendSessions->FriendSessionLocalUser = 0;
+		FriendSessions->FriendSessionRequestId = RequestId;
+		FriendSessions->PendingFriendId = FUniqueNetIdString::Create(TEXT("friend"), TEXT("test"));
+		FriendSessions->PendingFriendLobbyId = TEXT("remote-lobby");
+	};
+	QueueFriendLookup(10);
+	TestTrue(TEXT("Friend lookup participates in the existing busy guard"), FriendSessions->IsLobbyOperationInProgress());
+	TestEqual(TEXT("Lookup keeps the live connection's lobby state"), FriendSessions->GetLobbyOperationState(), EHBLobbyOperationState::InLobby);
+	TestFalse(TEXT("Repeated friend request cannot replace the active query"), FriendSessions->RequestJoinSteamFriend(TEXT("other")));
+	TestFalse(TEXT("Match travel cannot race a friend lookup"), FriendSessions->RequestServerMatchTravel(nullptr));
+	TestFalse(TEXT("Invitation switching cannot race a friend lookup"), FriendSessions->BeginHubSessionSwitch(Invalid));
+	FriendSessions->HandleFindFriendSessionComplete(1, false, {}, 10);
+	TestTrue(TEXT("Another local user's completion does not consume the query"), FriendSessions->IsLobbyOperationInProgress());
+	FriendSessions->HandleFindFriendSessionComplete(0, false, {}, 9);
+	TestTrue(TEXT("Older completion does not consume the query"), FriendSessions->IsLobbyOperationInProgress());
+	FriendSessions->HandleFindFriendSessionComplete(0, false, {}, 10);
+	TestFalse(TEXT("Lookup failure releases the busy guard"), FriendSessions->IsLobbyOperationInProgress());
+	TestEqual(TEXT("Lookup failure retains the host lifecycle"), FriendSessions->GetInviteHubState(), EHBInviteHubState::Hosting);
+	TestEqual(TEXT("Lookup failure retains server admission data"), FriendSessions->HostedHubProof, FString(TEXT("existing-host-admission")));
+	TestFalse(TEXT("Lookup failure never queues travel or destroys the lobby"), FriendSessions->bReturnAfterLeave || FriendSessions->QueuedHubSession.IsValid());
+	TestFalse(TEXT("Completed lookup releases its friend target"), FriendSessions->PendingFriendId.IsValid());
+	TestTrue(TEXT("Completed lookup releases its lobby target"), FriendSessions->PendingFriendLobbyId.IsEmpty());
+	QueueFriendLookup(20);
+	FriendSessions->HandleFindFriendSessionComplete(0, true, {}, 10);
+	TestTrue(TEXT("Late Steam delegate copy cannot consume a newer query"), FriendSessions->IsLobbyOperationInProgress());
+	FriendSessions->ResetFriendSessionSearch(true);
+	const FString Notice = FriendSessions->GetLastLobbyOperationError();
+	FriendSessions->HandleFindFriendSessionComplete(0, true, {}, 20);
+	TestFalse(TEXT("Cancelled query cannot become busy again"), FriendSessions->IsLobbyOperationInProgress());
+	TestEqual(TEXT("Cancelled completion does not overwrite the existing notice"), FriendSessions->GetLastLobbyOperationError(), Notice);
+	TestEqual(TEXT("Cancellation leaves the connection policy intact"), FriendSessions->GetLobbyOperationState(), EHBLobbyOperationState::InLobby);
 	return true;
 }
 #endif

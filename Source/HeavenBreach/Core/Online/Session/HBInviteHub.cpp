@@ -57,12 +57,17 @@ void UHBOnlineSessionSubsystem::NotifyInviteHubEntered(UWorld* HubWorld)
 	// Never reset Joining/Leaving here: OpenLevel creates this GameMode again.
 }
 
+bool UHBOnlineSessionSubsystem::CanSwitchHubSession() const
+{
+	return bAutomaticInviteHubEnabled && !OwnHubMap.IsEmpty() && !IsLobbyOperationInProgress() &&
+		!bMatchAdmissionClosed && !bReturnAfterLeave && !QueuedHubSession.IsValid() &&
+		(InviteHubState == EHBInviteHubState::Hosting || InviteHubState == EHBInviteHubState::Guest ||
+		 InviteHubState == EHBInviteHubState::WaitingForSteam || InviteHubState == EHBInviteHubState::Suspended);
+}
+
 bool UHBOnlineSessionSubsystem::BeginHubSessionSwitch(const FOnlineSessionSearchResult& Result)
 {
-	if (!bAutomaticInviteHubEnabled || OwnHubMap.IsEmpty() || IsLobbyOperationInProgress() ||
-		bMatchAdmissionClosed || bReturnAfterLeave || QueuedHubSession.IsValid() ||
-		(InviteHubState != EHBInviteHubState::Hosting && InviteHubState != EHBInviteHubState::Guest &&
-		 InviteHubState != EHBInviteHubState::WaitingForSteam && InviteHubState != EHBInviteHubState::Suspended))
+	if (!CanSwitchHubSession())
 	{
 		AuxiliaryError = TEXT("Cannot switch hub sessions while starting, playing, or changing sessions.");
 		return false;

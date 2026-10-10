@@ -731,6 +731,7 @@ void UHBOnlineSessionSubsystem::HandleLobbyMapLoaded(UWorld* LoadedWorld)
 
 void UHBOnlineSessionSubsystem::HandleLobbyTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error)
 {
+	if (World && World->GetGameInstance() == GetGameInstance()) ResetFriendSessionSearch(true);
 	if (bAutomaticInviteHubEnabled && World && World->GetGameInstance() == GetGameInstance() &&
 		(InviteHubState == EHBInviteHubState::Returning || InviteHubState == EHBInviteHubState::LeavingForInvite))
 	{
@@ -1276,6 +1277,7 @@ void UHBOnlineSessionSubsystem::HandleJoinCleanupComplete(FName SessionName, boo
 
 void UHBOnlineSessionSubsystem::HandleLocalMapDeparture(const FWorldContext& WorldContext, const FString& MapName)
 {
+	if (WorldContext.OwningGameInstance == GetGameInstance() && !WorldContext.PendingNetGame) ResetFriendSessionSearch(true);
 	// A local LoadMap leaves the connection; seamless/network travel retains it.
 	// Observe the departure without changing its destination or result UI reason.
 	UWorld* SourceWorld = WorldContext.World();
@@ -1300,6 +1302,7 @@ void UHBOnlineSessionSubsystem::HandleLocalMapDeparture(const FWorldContext& Wor
 
 void UHBOnlineSessionSubsystem::ResetLobbyAfterLeave()
 {
+	ResetFriendSessionSearch(true);
 	NotifyInviteHubSessionLeft();
 	HostedHubProof.Reset();
 	PendingHubJoinProof.Reset();
@@ -1373,6 +1376,7 @@ void UHBOnlineSessionSubsystem::HandleNetworkFailure(
 	{
 		return;
 	}
+	ResetFriendSessionSearch(true);
 	if (InWorld && ServerTravelState == EHBServerTravelState::Traveling)
 	{
 		FailServerTravel(FString::Printf(TEXT("Server travel network failure: %s"), *InErrorString));
