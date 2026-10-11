@@ -1,4 +1,4 @@
-﻿#include "Player/HBPlayerController.h"
+#include "Player/HBPlayerController.h"
 
 #include "Inventory/InventoryUIComponent.h"
 #include "EnhancedInputComponent.h"
@@ -11,6 +11,8 @@
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Inventory/QuickSlotComponent.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
+#include "Components/Button.h"
+#include "Components/Widget.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "PCGModule/HBDungeonRuntime.h"
 #include "EngineUtils.h"
@@ -22,6 +24,7 @@
 #include "UI/HB_ContainerScreen.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "UI/Skill/HB_SkillAugment.h"
+#include "UI/Common/HB_ConfirmPopup.h"
 #include "Core/GameFlow/HBMatchResultSubsystem.h"
 #include "Blueprint/UserWidget.h"
 #include "UI/Settings/HBSettingsSubsystem.h"
@@ -117,6 +120,12 @@ bool AHBPlayerController::TryShowPostMatchResultWidget()
 	if (UUserWidget* ResultWidget = CreateWidget<UUserWidget>(this, WidgetClassToShow))
 	{
 		ResultWidget->AddToViewport();
+
+		// 이 맵은 매치와 연결이 끊긴 상태라 팀원을 관전할 수 없다. 관전 버튼은 숨긴다.
+		if (UWidget* SpectateButton = ResultWidget->GetWidgetFromName(TEXT("Button_Spectate")))
+		{
+			SpectateButton->SetVisibility(ESlateVisibility::Collapsed);
+		}
 
 		// 결과 화면은 버튼 클릭 등 UI 조작이 필요하므로 마우스 커서와 UI 입력모드를 켠다.
 		FInputModeUIOnly InputMode;
@@ -225,6 +234,12 @@ void AHBPlayerController::CloseContainer()
 void AHBPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
+
+	// ESC: 열려 있는 메뉴가 없는 게임 입력 상태에서만 여기로 온다. 메뉴가 열려 있으면 그 메뉴가 먼저 받는다.
+	if (InputComponent)
+	{
+		InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AHBPlayerController::HandleEscapePressed);
+	}
 
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent))	
 	{
@@ -819,11 +834,180 @@ void AHBPlayerController::StartSpectatingTeammates()
 	if (Corpse && DeathViewDuration > 0.f)
 	{
 		SetSpectateTarget(Corpse);
-		GetWorldTimerManager().SetTimer(DeathViewTimer, this, &AHBPlayerController::BeginTeammateSpectate, DeathViewDuration, false);
+		GetWorldTimerManager().SetTimer(DeathViewTimer, this, &AHBPlayerController::OfferSpectate, DeathViewDuration, false);
 		return;
 	}
 
-	BeginTeammateSpectate();
+	OfferSpectate();
+}
+
+void AHBPlayerController::OfferSpectate()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// 사망 결과 화면을 이 플레이어에게 보여 주기로 했다고 게임모드에 알린다.
+	// 매치가 끝날 때 이미 결과를 본 사람은 결과 맵을 건너뛰고 바로 허브로 보낸다.
+	if (AHeavenBreachGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>() : nullptr)
+	{
+		GameMode->MarkDeathResultShown(PlayerState);
+	}
+
+	ClientShowDeathResult();
+}
+
+void AHBPlayerController::ClientShowDeathResult_Implementation()
+{
+	if (!IsLocalController() || DeathResultWidget)
+	{
+		return;
+	}
+
+	CloseContainer();
+
+	// 결과 위젯이 지정돼 있지 않으면 예전처럼 바로 관전으로 넘어간다.
+	if (!DeathResultWidgetClass)
+	{
+		ServerBeginSpectate();
+		return;
+	}
+
+	DeathResultWidget = CreateWidget<UUserWidget>(this, DeathResultWidgetClass);
+	if (!DeathResultWidget)
+	{
+		ServerBeginSpectate();
+		return;
+	}
+
+	// 사망 결과 화면 뒤에 평소 HUD 가 비치지 않게 한다.
+	if (HUDLayer)
+	{
+		HUDLayer->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	DeathResultWidget->AddToViewport();
+
+	// WBP 에 만들어 둔 "관전" 버튼을 이름으로 찾아 연결한다. (WBP 가 C++ 부모 클래스를 쓰지 않아서 이름으로 찾는다)
+	if (UButton* SpectateButton = Cast<UButton>(DeathResultWidget->GetWidgetFromName(TEXT("Button_Spectate"))))
+	{
+		SpectateButton->OnClicked.AddUniqueDynamic(this, &AHBPlayerController::HandleDeathSpectateClicked);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HBPlayerController | DeathResult 위젯에 Button_Spectate 가 없다. 관전으로 넘어갈 수 없다."));
+	}
+
+	// 버튼을 누를 수 있게 커서를 켠다.
+	ApplySpectateInputMode();
+}
+
+void AHBPlayerController::HandleDeathSpectateClicked()
+{
+	ServerBeginSpectate();
+}
+
+void AHBPlayerController::ServerBeginSpectate_Implementation()
+{
+	// 사망 결과를 본 사람만 관전으로 넘어갈 수 있다. 이미 관전 중이면 무시한다.
+	if (!bSpectatingTeammates)
+	{
+		BeginTeammateSpectate();
+	}
+}
+
+void AHBPlayerController::ClientReturnToHub_Implementation()
+{
+	ReturnToHub();
+}
+
+void AHBPlayerController::ApplySpectateInputMode()
+{
+	// 사망 결과 화면과 관전 UI 의 버튼을 누를 수 있는 상태: 커서를 켜고 게임 입력도 받는다.
+	FInputModeGameAndUI InputMode;
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	InputMode.SetHideCursorDuringCapture(false);
+	SetInputMode(InputMode);
+	SetShowMouseCursor(true);
+}
+
+void AHBPlayerController::HandleEscapePressed()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	// 결과 맵은 매치와 연결이 끊긴 화면이라 나가기 팝업이 필요 없다. 인게임 UI 가 없는 맵도 마찬가지다.
+	const UWorld* World = GetWorld();
+	if (!World || World->GetMapName().Contains(TEXT("ExtractionResult")) || UILayout == nullptr)
+	{
+		return;
+	}
+
+	// 이미 떠 있으면 다시 열지 않는다. 닫기는 팝업이 ESC 를 직접 받아서 처리한다.
+	if (LeaveMatchPopup != nullptr)
+	{
+		return;
+	}
+
+	OpenLeaveMatchPopup();
+}
+
+void AHBPlayerController::OpenLeaveMatchPopup()
+{
+	if (!LeaveMatchPopupClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HBPlayerController | LeaveMatchPopupClass 가 지정되지 않아 나가기 팝업을 열 수 없다."));
+		return;
+	}
+
+	// 살아서 플레이 중인지. 죽었거나 관전 중이면 이미 아이템 처리가 끝난 상태다.
+	const AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn());
+	const bool bAlive = PlayerCharacter && !PlayerCharacter->IsCorpse() && !bSpectatingTeammates && !DeathResultWidget;
+
+	const FText Title = NSLOCTEXT("LeaveMatch", "Title", "매치 나가기");
+	// 질문은 항상 같고, 아이템을 잃는다는 경고는 살아 있을 때만 별도 칸(Text_Warning)에 띄운다.
+	const FText Message = NSLOCTEXT("LeaveMatch", "Message", "로비로 나가시겠습니까?");
+	const FText Warning = bAlive
+		? NSLOCTEXT("LeaveMatch", "WarningAlive", "지금 나가면 사망 처리되어 가져온 아이템을 모두 잃습니다.")
+		: FText::GetEmpty();
+
+	LeaveMatchPopup = UHB_ConfirmPopup::OpenOn(
+		this,
+		LeaveMatchPopupClass,
+		Title,
+		Message,
+		Warning,
+		NSLOCTEXT("LeaveMatch", "Confirm", "나가기"),
+		NSLOCTEXT("LeaveMatch", "Cancel", "취소"));
+
+	if (LeaveMatchPopup == nullptr)
+	{
+		return;
+	}
+
+	LeaveMatchPopup->OnConfirmed.AddUniqueDynamic(this, &AHBPlayerController::HandleLeaveMatchConfirmed);
+
+	// 닫히면 포인터를 비우고, 관전/사망 결과 화면 중이었다면 버튼을 누를 수 있는 입력 상태로 되돌린다.
+	// 스택은 팝업이 닫힐 때 평소 HUD 설정(커서 숨김)으로 되돌리기 때문이다.
+	LeaveMatchPopup->OnDeactivated().RemoveAll(this);
+	LeaveMatchPopup->OnDeactivated().AddWeakLambda(this, [this]()
+		{
+			LeaveMatchPopup = nullptr;
+
+			if (bSpectatingTeammates || DeathResultWidget)
+			{
+				ApplySpectateInputMode();
+			}
+		});
+}
+
+void AHBPlayerController::HandleLeaveMatchConfirmed()
+{
+	// 살아 있는 채로 나가면 연결이 끊기면서 서버가 사망 처리한다. 이미 죽은 사람은 그대로 나간다.
+	ReturnToHub();
 }
 
 void AHBPlayerController::BeginTeammateSpectate()
@@ -875,24 +1059,57 @@ void AHBPlayerController::ServerSpectateNext_Implementation()
 	SetSpectateTarget(Target);
 }
 
-APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current) const
+void AHBPlayerController::ServerSpectatePrevious_Implementation()
 {
+	if (!bSpectatingTeammates)
+	{
+		return;
+	}
+
+	SetSpectateTarget(FindNextSpectateTarget(SpectateTarget, -1));
+}
+
+void AHBPlayerController::RequestSpectateNext()
+{
+	if (bSpectatingTeammates)
+	{
+		ServerSpectateNext();
+	}
+}
+
+void AHBPlayerController::RequestSpectatePrevious()
+{
+	if (bSpectatingTeammates)
+	{
+		ServerSpectatePrevious();
+	}
+}
+
+void AHBPlayerController::GetSpectateCandidates(TArray<APawn*>& OutCandidates) const
+{
+	OutCandidates.Reset();
+
 	const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr;
 	if (!GameState)
 	{
-		return nullptr;
+		return;
 	}
 
-	TArray<APawn*> Alive;
 	for (const APlayerState* PS : GameState->PlayerArray)
 	{
 		AHBPlayerCharacter* Teammate = PS ? Cast<AHBPlayerCharacter>(PS->GetPawn()) : nullptr;
 		// 탈출한 폰은 숨겨진 채 남아 있어 건너뛴다.
 		if (Teammate && !Teammate->IsCorpse() && !Teammate->IsHidden() && PS != PlayerState)
 		{
-			Alive.Add(Teammate);
+			OutCandidates.Add(Teammate);
 		}
 	}
+}
+
+APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current, int32 Step) const
+{
+	TArray<APawn*> Alive;
+	GetSpectateCandidates(Alive);
 
 	if (Alive.IsEmpty())
 	{
@@ -900,7 +1117,14 @@ APawn* AHBPlayerController::FindNextSpectateTarget(const AActor* Current) const
 	}
 
 	const int32 CurrentIndex = Alive.IndexOfByKey(Current);
-	return Alive[(CurrentIndex + 1) % Alive.Num()];
+	if (CurrentIndex == INDEX_NONE)
+	{
+		// 보던 대상이 이미 목록에 없다(죽음 등). 다음이면 처음 사람, 이전이면 마지막 사람.
+		return Step >= 0 ? Alive[0] : Alive.Last();
+	}
+
+	const int32 Count = Alive.Num();
+	return Alive[((CurrentIndex + Step) % Count + Count) % Count];
 }
 
 void AHBPlayerController::CheckSpectateTarget()
@@ -955,10 +1179,30 @@ void AHBPlayerController::OnRep_SpectatingTeammates()
 
 	CloseContainer();
 
-	SpectateWidget = CreateWidget<UHB_SpectateWidget>(this, UHB_SpectateWidget::StaticClass());
+	// 사망 결과 화면은 관전으로 넘어가는 순간 닫는다.
+	if (DeathResultWidget)
+	{
+		DeathResultWidget->RemoveFromParent();
+		DeathResultWidget = nullptr;
+	}
+
+	// 관전 중에는 내 체력/스킬 같은 평소 HUD 를 숨긴다. 관전 UI 만 보이게 한다.
+	// 숨기기만 하고 스택에서 빼지 않는다. 입력 모드는 이 레이어의 설정을 따르기 때문이다.
+	if (HUDLayer)
+	{
+		HUDLayer->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	// 디자인 WBP 가 지정돼 있으면 그것을, 없으면 C++ 로 만든 기본 UI 를 쓴다.
+	const TSubclassOf<UHB_SpectateWidget> WidgetClass = SpectateWidgetClass ? SpectateWidgetClass : TSubclassOf<UHB_SpectateWidget>(UHB_SpectateWidget::StaticClass());
+	SpectateWidget = CreateWidget<UHB_SpectateWidget>(this, WidgetClass);
 	if (SpectateWidget)
 	{
 		SpectateWidget->AddToViewport();
+
+		// 관전 UI 의 이전/다음 버튼을 누를 수 있게 커서를 켠다. 관전 중에는 팀원의 카메라로 보기 때문에
+		// 마우스로 시점을 돌릴 일이 없다. 빈 화면 좌클릭은 그대로 게임으로 가서 "다음 팀원"이 된다.
+		ApplySpectateInputMode();
 	}
 }
 

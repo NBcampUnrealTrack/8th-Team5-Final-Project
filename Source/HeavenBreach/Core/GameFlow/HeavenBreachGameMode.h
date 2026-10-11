@@ -48,6 +48,9 @@ public:
 	// 전투 시스템에서 사망 시 호출
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
 	void NotifyPlayerDied(APlayerState* PlayerState);
+
+	// 서버. 이 플레이어에게 매치 안에서 사망 결과 화면을 보여 줬다고 기록한다.
+	void MarkDeathResultShown(APlayerState* PlayerState);
 	
 	// 탈출시 호출
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match")
@@ -109,6 +112,11 @@ protected:
 	// 아이템을 잃은 사람(사망·시간 종료). 매치가 끝날 때 Died 사유로 보낸다.
 	UPROPERTY(Transient)
 	TSet<TObjectPtr<APlayerState>> FailedPlayers;
+
+	// 사망 결과 화면을 매치 안에서 이미 본 사람. 매치가 끝날 때 결과 맵을 건너뛰고 허브로 바로 보낸다.
+	// 사망 직후 결과 화면이 뜨기 전에 매치가 끝난 사람은 여기에 없어서 기존대로 결과 맵을 본다.
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<APlayerState>> DeathResultShownPlayers;
 
 	// 서버. 시체를 남기고 빙의를 푼다. bSpectate 면 관전으로 넘긴다.
 	void LeaveCorpse(AController* Controller, APlayerState* PlayerState, bool bSpectate);

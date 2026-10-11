@@ -50,7 +50,7 @@ protected:
 	float ExtractionDuration = 5.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extraction")
-	FText InteractPrompt = FText::FromString(TEXT("탈출 [F]"));
+	FText InteractPrompt = FText::FromString(TEXT("탈출"));
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extraction|Random")
 	bool bExtractionCandidate = false;
