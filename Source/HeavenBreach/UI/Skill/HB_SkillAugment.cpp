@@ -95,13 +95,13 @@ void UHB_SkillAugment::HandleUpgradeCandidatesChanged()
 			bSelectionSubmitted = false;
 			RebuildCards();
 
-			// 뽑을 후보가 없어 서버가 남은 선택권을 비웠으면 선택 UI를 닫는다.
+			// 뽑을 후보가 없어 서버가 남은 선택권을 비웠으면 더 고를 게 없다. 스탯창으로 넘어간다.
 			const AHB_PlayerState* HBPS = GetHBPlayerState();
 			if (HBPS && HBPS->GetPendingUpgradeChoices() <= 0)
 			{
 				if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
 				{
-					DeactivateWidget();
+					PC->FinishAugmentSelection();
 				}
 			}
 		}
@@ -191,7 +191,7 @@ void UHB_SkillAugment::OnAugmentCardClicked(FName ClickedCandidateId)
 
 	if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
 	{
-		DeactivateWidget(); // 컨트롤러의 기존 OnDeactivated 콜백이 위젯 참조를 정리한다.
+		PC->FinishAugmentSelection(); // 다 골랐다 -> 증강 화면을 닫고 스탯창을 연다
 	}
 }
 

@@ -208,8 +208,10 @@ protected:
 	FVector HomeLocation = FVector::ZeroVector;
 
 	/** 머리 위 상태 표시. 패키징 빌드에서는 컴파일 자체가 제거됩니다. */
+	// 기본은 꺼 둔다. 플레이 중 화면을 가린다는 팀 요청.
+	// 경계 상태 전이를 확인할 때만 BP 의 Class Defaults 에서 켠다.
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Debug")
-	bool bDrawAlertStateDebug = true;
+	bool bDrawAlertStateDebug = false;
 
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Sleep")
 	bool bAllowSleep = true;
