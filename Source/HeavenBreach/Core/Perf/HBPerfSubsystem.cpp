@@ -49,6 +49,16 @@ static TAutoConsoleVariable<int32> CVarHBShadowMaxCount(
 	8,
 	TEXT("Maximum number of local lights casting shadows at the same time"));
 
+static TAutoConsoleVariable<int32> CVarHBLightCull(
+	TEXT("hb.Perf.LightCull"),
+	1,
+	TEXT("1: local lights fade out beyond hb.Perf.LightDistance, 0: original draw distances"));
+
+static TAutoConsoleVariable<float> CVarHBLightDistance(
+	TEXT("hb.Perf.LightDistance"),
+	3000.f,
+	TEXT("Max draw distance applied to local lights"));
+
 namespace HBPerf
 {
 	static constexpr float ShadowHysteresis = 300.f;
@@ -70,6 +80,7 @@ void UHBPerfSubsystem::Deinitialize()
 	FWorldDelegates::LevelAddedToWorld.Remove(LevelAddedHandle);
 	TorchTimelines.Reset();
 	ShadowLights.Reset();
+	CullLights.Reset();
 	PendingLevels.Reset();
 	Super::Deinitialize();
 }
@@ -119,7 +130,25 @@ void UHBPerfSubsystem::ScanLevel(const ULevel* Level)
 		TInlineComponentArray<ULocalLightComponent*> Lights(Actor);
 		for (ULocalLightComponent* Light : Lights)
 		{
-			if (!Light || !Light->CastShadows || Light->Mobility == EComponentMobility::Static)
+			if (!Light || Light->Mobility == EComponentMobility::Static)
+			{
+				continue;
+			}
+
+			const bool bKnownCull = CullLights.ContainsByPredicate([Light](const FCullLight& Entry)
+			{
+				return Entry.Light.Get() == Light;
+			});
+			if (!bKnownCull)
+			{
+				FCullLight& Entry = CullLights.AddDefaulted_GetRef();
+				Entry.Light = Light;
+				Entry.OriginalMaxDrawDistance = Light->MaxDrawDistance;
+				Entry.OriginalFadeRange = Light->MaxDistanceFadeRange;
+				LightCullTimer = 1.f;
+			}
+
+			if (!Light->CastShadows)
 			{
 				continue;
 			}
@@ -205,6 +234,15 @@ void UHBPerfSubsystem::Tick(float DeltaTime)
 		ShadowTimer = 0.f;
 		UpdateShadows(bShadowEnabled);
 	}
+
+	const bool bLightCullEnabled = bEnabled && CVarHBLightCull.GetValueOnGameThread() != 0;
+	LightCullTimer += DeltaTime;
+	if (LightCullTimer >= 1.f || bLightCullEnabled != bWasLightCullEnabled)
+	{
+		LightCullTimer = 0.f;
+		UpdateLightCull(bLightCullEnabled);
+	}
+	bWasLightCullEnabled = bLightCullEnabled;
 
 	UpdateMinimap(DeltaTime, bEnabled);
 	bWasEnabled = bEnabled;
@@ -312,6 +350,38 @@ void UHBPerfSubsystem::UpdateShadows(bool bEnabled)
 		{
 			Entry.bShadowOn = bOn;
 			Entry.Light->SetCastShadows(bOn);
+		}
+	}
+}
+
+void UHBPerfSubsystem::UpdateLightCull(bool bEnabled)
+{
+	const float Distance = FMath::Max(100.f, CVarHBLightDistance.GetValueOnGameThread());
+	const float Fade = FMath::Min(500.f, Distance * 0.2f);
+
+	for (int32 Index = CullLights.Num() - 1; Index >= 0; --Index)
+	{
+		const FCullLight& Entry = CullLights[Index];
+		ULocalLightComponent* Light = Entry.Light.Get();
+		if (!Light)
+		{
+			CullLights.RemoveAtSwap(Index);
+			continue;
+		}
+
+		float TargetDistance = Entry.OriginalMaxDrawDistance;
+		float TargetFade = Entry.OriginalFadeRange;
+		if (bEnabled)
+		{
+			TargetDistance = Entry.OriginalMaxDrawDistance > 0.f ? FMath::Min(Entry.OriginalMaxDrawDistance, Distance) : Distance;
+			TargetFade = Fade;
+		}
+
+		if (!FMath::IsNearlyEqual(Light->MaxDrawDistance, TargetDistance) || !FMath::IsNearlyEqual(Light->MaxDistanceFadeRange, TargetFade))
+		{
+			Light->MaxDrawDistance = TargetDistance;
+			Light->MaxDistanceFadeRange = TargetFade;
+			Light->MarkRenderStateDirty();
 		}
 	}
 }

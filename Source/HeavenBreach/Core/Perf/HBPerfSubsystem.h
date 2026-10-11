@@ -30,6 +30,7 @@ private:
 	void UpdateTorches(bool bEnabled);
 	void UpdateMinimap(float DeltaTime, bool bEnabled);
 	void UpdateShadows(bool bEnabled);
+	void UpdateLightCull(bool bEnabled);
 	bool GetLocalView(FVector& OutLocation, APawn*& OutPawn) const;
 
 	struct FShadowLight
@@ -38,8 +39,18 @@ private:
 		bool bShadowOn = true;
 	};
 
+	struct FCullLight
+	{
+		TWeakObjectPtr<ULocalLightComponent> Light;
+		float OriginalMaxDrawDistance = 0.f;
+		float OriginalFadeRange = 0.f;
+	};
+
 	TArray<TWeakObjectPtr<UTimelineComponent>> TorchTimelines;
 	TArray<FShadowLight> ShadowLights;
+	TArray<FCullLight> CullLights;
+	float LightCullTimer = 0.f;
+	bool bWasLightCullEnabled = true;
 	float ShadowTimer = 0.f;
 	bool bWasShadowEnabled = true;
 	TArray<TWeakObjectPtr<ULevel>> PendingLevels;
