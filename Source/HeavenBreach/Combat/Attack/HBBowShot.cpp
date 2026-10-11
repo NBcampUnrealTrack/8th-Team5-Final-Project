@@ -9,6 +9,7 @@
 #include "Inventory/InventoryComponent.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/HBPlayerController.h"
+#include "Player/HBWeaponPresentation.h"
 
 namespace HBBowShot
 {
@@ -139,5 +140,11 @@ namespace HBBowShot
 				UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 화살 행이 스킬에도 활 평타 GA 에도 없음 — 화살을 쓰지 않음(무한). BP 에서 ArrowItemRow 지정 필요"));
 			}
 		}
+	}
+
+	FName GetBowVariant(const AHBPlayerCharacter* Player)
+	{
+		const FHBWeaponPresentation* Presentation = Player ? Player->GetWeaponPresentation() : nullptr;
+		return Presentation ? Presentation->BowVariant : NAME_None;
 	}
 }

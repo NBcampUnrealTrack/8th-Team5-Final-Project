@@ -36,4 +36,8 @@ namespace ArcherTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Tracked_Deep1);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Tracked_Deep2);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Tracked_Deep3);
+
+	// 사냥꾼의 표식 연출. 대상 머리 위 표식(표식 GE 동안 유지) / 적용 순간 손 입자·범위 펄스(1회)
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Bow_HunterMark);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Bow_HunterMarkCast);
 }

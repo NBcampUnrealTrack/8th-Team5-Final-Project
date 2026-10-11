@@ -86,6 +86,7 @@ void AHBPlayerArrow::Launch(AHBPlayerCharacter* InShooter, const float InSpeed, 
 	AmmoItemRow = InAmmoRow;
 	PierceRemaining = FMath::Max(Options.MaxPierceCount, 0);
 	bSkillArrow = Options.bSkillArrow;
+	SkillCastId = Options.SkillCastId;
 	SetLifeSpan(ArrowLifeSpan);
 
 	if (InShooter)
@@ -211,7 +212,14 @@ void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 	{
 		FinalDamage *= Shooter->GetSkillDamageMultiplier();
 	}
-	FinalDamage = Shooter->ModifyOutgoingDamage(Target, FinalDamage);
+	// 화살은 지금 시전이 아니라 자기 SkillCastId 로만 잔류 마력을 알린다(아래).
+	FinalDamage = Shooter->ModifyOutgoingDamage(Target, FinalDamage, false);
+
+	// 잔류 마력: 스킬 화살은 자기 시전 ID 로 알린다. 화살이 날아가는 사이 스킬이 끝나도(State.UsingSkill 없음) 적용된다.
+	if (SkillCastId > 0)
+	{
+		Shooter->NotifySkillHit(SkillCastId);
+	}
 
 	IDamageableInterface::Execute_ApplyMeleeHit(Target, Shooter, FinalDamage, Hit, EHBDamageSource::Ranged);
 	UE_LOG(LogTemp, Warning, TEXT("[Bow] 피해 %.1f → %s"), FinalDamage, *GetNameSafe(Target));

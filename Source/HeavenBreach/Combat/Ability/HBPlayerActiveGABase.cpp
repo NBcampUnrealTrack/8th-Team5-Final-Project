@@ -16,6 +16,8 @@
 #include "Core/Tag/Cue/HB_CueTag.h"
 #include "AbilitySystemGlobals.h"
 #include "HBPlayerPassiveGABase.h"
+#include "Combat/Ability/Magic/HBMagic.h"
+#include "Core/Tag/Magic/HB_MagicTag.h"
 
 UHBPlayerActiveGABase::UHBPlayerActiveGABase()
 {
@@ -64,9 +66,18 @@ float UHBPlayerActiveGABase::GetFinalManaCostFrom(const FGameplayAbilityActorInf
 {
 	// 이 스킬에만 걸리는 증강이 먼저다. 전역 보정을 먼저 태우면
 	// 하한선(0)에 걸린 뒤라 스킬 증강이 씹힌다.
-	const float SkillCost = ManaCost * GetAugmentParamFrom(ActorInfo, SkillParamTag::TAG_SkillParam_ManaCost, 1.f);
+	const float AugmentedCost = ManaCost * GetAugmentParamFrom(ActorInfo, SkillParamTag::TAG_SkillParam_ManaCost, 1.f);
 
 	const AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
+
+	// 마력 순환 패시브(설계 2.1 "모든 액티브 스태미나 −20%"). 액티브 비용에만 곱한다.
+	// 전역 Player_ManaCostMultiplier 로 하면 달리기·방어(ModifyManaCost 를 같이 쓰는 곳)까지 줄어서 여기서 따로 곱한다.
+	// 패시브가 없으면 배율 1.0 이라 기존 스킬 비용은 그대로다.
+	const UAbilitySystemComponent* ASC = GetASC(ActorInfo);
+	const bool bHasManaCycle = ASC && ASC->HasMatchingGameplayTag(MagicTag::TAG_State_ManaCycle);
+	const int32 ManaCycleTier = (bHasManaCycle && Player) ? Player->GetAugmentTier(MagicTag::TAG_Augment_Passive_ManaCycle_Boost) : 0;
+	const float SkillCost = AugmentedCost * HBMagic::ManaCycleMultiplier(bHasManaCycle, ManaCycleTier);
+
 	if (!Player)
 	{
 		return SkillCost;
@@ -268,13 +279,37 @@ void UHBPlayerActiveGABase::ApplyCooldown(const FGameplayAbilitySpecHandle Handl
 
 // ---------------- 발동 ----------------
 
+void UHBPlayerActiveGABase::BeginCastId(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	// 잔류 마력(마법스킬 설계 2.2-7)이 "시전 1번에 1회" 를 이 ID 로 가른다. 판정은 서버만 하므로 서버만 받는다.
+	CastId = 0;
+	if (ActorInfo && ActorInfo->IsNetAuthority())
+	{
+		if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
+		{
+			CastId = Player->BeginSkillCast();
+		}
+	}
+}
+
 void UHBPlayerActiveGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
+	BeginCastId(ActorInfo);
+
 	// 여기서 ApplyCost 와 ApplyCooldown 이 예측 키로 붙는다.
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
+	}
+
+	// 잔류 마력: 커밋된 시전만 즉발 피해 크레딧을 받는다(서버만).
+	if (ActorInfo->IsNetAuthority())
+	{
+		if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
+		{
+			Player->MarkSkillCastReleased(CastId);
+		}
 	}
 
 	ApplySelfBuff(ActorInfo);

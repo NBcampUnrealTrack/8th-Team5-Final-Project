@@ -22,4 +22,6 @@ namespace StateTag
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Attacking_Stagger, "State.Attacking.Stagger", "공격 중 - 그냥 맞으면 경직 (막거나 패링하면 없음)");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Attacking_Unblockable, "State.Attacking.Unblockable", "공격 중 - 막기 · 패링 불가");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Casting, "State.Casting", "시전 중");
 }

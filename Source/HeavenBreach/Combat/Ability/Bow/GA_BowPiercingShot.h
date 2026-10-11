@@ -11,6 +11,25 @@ class AHBPlayerArrow;
 class UAnimMontage;
 class UAbilityTask_PlayMontageAndWait;
 
+/** 관통 사격 한 벌의 몽타주. 활 종류(AA/AC/AN)마다 한 벌씩 */
+USTRUCT(BlueprintType)
+struct FHBBowPiercingMontages
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TObjectPtr<UAnimMontage> Prepare;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TObjectPtr<UAnimMontage> Draw;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TObjectPtr<UAnimMontage> Release;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TObjectPtr<UAnimMontage> Cancel;
+};
+
 /**
  * 관통 사격 (활 액티브, 설계 1장).
  * Q/E → 준비 → 좌클릭을 누르고 있으면 당김 → DrawTime 이상 당긴 뒤 놓으면 관통 화살 발사.
@@ -68,6 +87,13 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "PiercingShot|Montage")
 	TObjectPtr<UAnimMontage> CancelMontage;
+
+	/**
+	 * 활 종류별 몽타주. 키는 장착한 활 외형 행의 BowVariant(AA/AC/AN).
+	 * 키가 있으면 그 벌을 통째로 쓰고(빈 칸은 빈 채로), 없으면 위 기본 몽타주 4개를 쓴다.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "PiercingShot|Montage")
+	TMap<FName, FHBBowPiercingMontages> VariantMontages;
 
 	/** 이만큼 당긴 뒤 놓아야 발사. 그 전에 놓으면 취소 */
 	UPROPERTY(EditDefaultsOnly, Category = "PiercingShot", meta = (ClampMin = "0.0", Units = "s"))
@@ -149,6 +175,12 @@ private:
 	void FinishSelf(bool bCancelled);
 
 	void SetDrawingPose(bool bDrawing) const;
+
+	/** 발동 시점의 활로 이번 발동의 몽타주를 고른다 */
+	FHBBowPiercingMontages ResolveMontages(const AHBPlayerCharacter* Player) const;
+
+	/** 이번 발동에 쓰는 몽타주. 도중에 활을 바꿔도 시작한 벌로 끝낸다 */
+	FHBBowPiercingMontages ActiveMontages;
 
 	/** 다음 단계 몽타주가 이전 것을 끊을 때 OnInterrupted 가 취소로 오인되지 않게 먼저 끝낸다 */
 	TWeakObjectPtr<UAbilityTask_PlayMontageAndWait> PrepareTask;
