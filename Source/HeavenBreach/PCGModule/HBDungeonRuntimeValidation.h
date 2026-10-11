@@ -6,8 +6,17 @@ class AHBDungeonPortal;
 class APlayerStart;
 class ULevel;
 class ACharacter;
+struct FHBDungeonSnapshot;
+struct FHBDungeonPortalPairSnapshot;
 namespace HBDungeonRuntimeValidation
 {
+    bool ValidatePortalSnapshot(const FHBDungeonSnapshot& Snapshot, FString& Error);
+    bool CapturePortalPairs(const TArray<HBPortalPlacement::FSpawnedPair>& Pairs,
+        TArray<FHBDungeonPortalPairSnapshot>& OutPairs, FString& Error);
+    /** Client-only materialization of final server data, without physics or navigation queries. */
+    bool RestorePortalPairs(UWorld& World, AActor* Owner, TSubclassOf<AHBDungeonPortal> PortalClass,
+        const FHBDungeonSnapshot& Snapshot, const TArray<ULevel*>& Levels,
+        TArray<HBPortalPlacement::FSpawnedPair>& OutPairs, FString& Error);
 	/** Compare loaded point actors with the catalog plan before any random portal is created. */
 	bool ValidatePortalCandidates(const TArray<FHBPrototypeRoom>& Rooms, const TArray<ULevel*>& Levels,
 		const TArray<HBPortalPlacement::FCandidate>& Candidates, FString& Error);

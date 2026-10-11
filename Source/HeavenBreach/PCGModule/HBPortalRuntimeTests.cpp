@@ -4,6 +4,12 @@
 #include "PCGModule/HBPortalSpawnPoint.h"
 #include "PCGModule/HBRoomSpawnEntry.h"
 #include "PCGModule/HBSpawnNavigationTargets.h"
+#include "PCGModule/HBDungeonSnapshot.h"
+#include "PCGModule/HBDungeonRuntime.h"
+#include "PCGModule/HBDungeonDoorSeal.h"
+#include "Core/GameFlow/HeavenBreachGameState.h"
+#include "IpNetDriver.h"
+#include "Engine/ChildConnection.h"
 #include "Components/ArrowComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -481,6 +487,102 @@ bool FHBPortalRuntimeReservationsTest::RunTest(const FString&)
         Chests->ClearGeneration(903);
         ChestPoint->Destroy(); ChestSetup->Destroy(); Portal->Destroy();
     });
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBPortalRuntimeSnapshotTest, "HeavenBreach.PCGModule.PortalRuntime.Snapshot",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBPortalRuntimeSnapshotTest::RunTest(const FString&)
+{
+    FPortalWorld Server;
+    for (int32 Index = 0; Index < Server.Rooms.Num(); ++Index)
+    {
+        auto& Room = Server.Rooms[Index];
+        Room.ModuleId = FName(*FString::Printf(TEXT("Snapshot%d"), Index));
+        Room.ModuleMap = TSoftObjectPtr<UWorld>(FSoftObjectPath(TEXT("/Engine/Maps/Entry.Entry")));
+        Room.bIsStartRoom = Index == 0; Room.bFloorExit = Index == 0;
+        Room.ParentId = Index == 0 ? INDEX_NONE : 0;
+        Room.Connection = Index == 0 ? EHBDungeonConnection::Door : EHBDungeonConnection::FloorTransition;
+    }
+    const auto Candidates = Server.Candidates(2);
+    TArray<FSpawnedPair> Pairs;
+    FString Error;
+    if (!TestTrue(TEXT("Snapshot source contains actual grounded, connected actors"), SpawnPairs(*Server.World, nullptr, 7283, 2,
+        AHBDungeonPortal::StaticClass(), Candidates, [&](int32 RoomId) { return Server.Levels[RoomId]; },
+        [&](const FCandidate& Candidate, AHBDungeonPortal& Portal, FPlacement& Space, FString& Reason)
+            { return Server.Space(Candidate, Portal, Space, Reason); }, Pairs, Error))) return false;
+    FHBDungeonSnapshot Final;
+    Final.GenerationId = 1; Final.State = EHBDungeonSnapshotState::Active; Final.Seed = 7283;
+    Final.Rooms = Server.Rooms; Final.DoorSealClass = AHBDungeonDoorSeal::StaticClass(); Final.DoorSealExtent = FVector(30, 160, 220);
+    Final.PortalPlacementMode = EHBDungeonPortalPlacementMode::RandomPoints;
+    Final.PortalClass = AHBDungeonPortal::StaticClass(); Final.PortalPairCount = 2; Final.bPortalPairsReady = true;
+    TestTrue(TEXT("Capture owns the actual final geometry and reservations"), HBDungeonRuntimeValidation::CapturePortalPairs(Pairs, Final.PortalPairs, Error));
+    TestTrue(TEXT("Final pair data validates before publication"), HBDungeonRuntimeValidation::ValidatePortalSnapshot(Final, Error));
+    auto Invalid = Final; Invalid.bPortalPairsReady = false;
+    TestFalse(TEXT("Partial portal data cannot be published as pending"), HBDungeonRuntimeValidation::ValidatePortalSnapshot(Invalid, Error));
+    Invalid = Final; Invalid.PortalPairs.SetNum(1);
+    TestFalse(TEXT("Final data must include every pair"), HBDungeonRuntimeValidation::ValidatePortalSnapshot(Invalid, Error));
+    Invalid = Final; Invalid.PortalPairs[1].Floor2 = Invalid.PortalPairs[0].Floor2;
+    TestFalse(TEXT("Final data cannot reuse a selected endpoint"), HBDungeonRuntimeValidation::ValidatePortalSnapshot(Invalid, Error));
+    Invalid = Final; Invalid.PortalPairs[0].Floor2.RoomId = 0;
+    TestFalse(TEXT("Final endpoints must be on opposite logical floors"), HBDungeonRuntimeValidation::ValidatePortalSnapshot(Invalid, Error));
+    auto* State = Server.World->SpawnActor<AHeavenBreachGameState>();
+    TestTrue(TEXT("Server publishes layout while portal preparation is pending"), State->PublishDungeonLayout(1, 7283, Final.Rooms,
+        AHBDungeonDoorSeal::StaticClass(), Final.DoorSealExtent, Final.PortalPlacementMode, AHBDungeonPortal::StaticClass(), 2));
+    const auto Pending = State->GetDungeonSnapshot();
+    TestFalse(TEXT("Pending snapshot cannot report portal readiness"), Pending.bPortalPairsReady);
+    TestFalse(TEXT("A different generation cannot complete these pairs"), State->PublishDungeonPortals(2, Final.PortalPairs));
+    TestTrue(TEXT("Server publishes final pairs for the same generation"), State->PublishDungeonPortals(1, Final.PortalPairs));
+    TestFalse(TEXT("Final pairs cannot be replaced within one generation"), State->PublishDungeonPortals(1, Final.PortalPairs));
+
+    FPortalWorld Client;
+    Client.Rooms = Final.Rooms;
+    auto* Driver = NewObject<UIpNetDriver>(Client.World); Driver->SetWorld(Client.World);
+    Driver->ServerConnection = NewObject<UChildConnection>(Driver); Client.World->SetNetDriver(Driver);
+    TArray<AHBPortalSpawnPoint*> Markers;
+    for (const auto& Candidate : Candidates)
+    {
+        FActorSpawnParameters Params; Params.OverrideLevel = Client.Levels[Candidate.Key.RoomId];
+        auto* Marker = Client.World->SpawnActor<AHBPortalSpawnPoint>(AHBPortalSpawnPoint::StaticClass(), Candidate.SpawnTransform, Params);
+        Marker->PointId = Candidate.Key.PointId; Markers.Add(Marker);
+    }
+    TArray<FSpawnedPair> Restored;
+    TestTrue(TEXT("Client restores final server data without NavMesh or a new draw"),
+        HBDungeonRuntimeValidation::RestorePortalPairs(*Client.World, nullptr, AHBDungeonPortal::StaticClass(), Final, Client.Levels, Restored, Error));
+    TestEqual(TEXT("Exactly 2N local client actors"), Client.ActivePortals(), 4);
+    if (Restored.Num() == 2)
+    {
+        TestTrue(TEXT("Client actor and arrival transforms match authoritative values"),
+            Restored[0].Floor1->GetActorTransform().Equals(Final.PortalPairs[0].Floor1.ActorTransform, 0.01)
+            && Restored[0].Floor2->Arrival->GetComponentTransform().Equals(Final.PortalPairs[0].Floor2.ArrivalTransform, 0.01));
+        auto* Pawn = Client.World->SpawnActor<ACharacter>();
+        Restored[0].Floor1->SetTravelEnabled(true);
+        TestFalse(TEXT("Local client portal authority cannot perform teleportation"), Restored[0].Floor1->TryTeleport(Pawn));
+        Pawn->Destroy();
+    }
+    DestroyPairs(Restored);
+    auto* Missing = Markers.FindByPredicate([&](const auto* Point) { return Point->GetLevel() == Client.Levels[Final.PortalPairs[1].Floor2.RoomId]
+        && Point->PointId == Final.PortalPairs[1].Floor2.PointId; });
+    if (Missing) (*Missing)->Destroy();
+    TestFalse(TEXT("A missing client point in a later pair rejects the whole restoration"),
+        HBDungeonRuntimeValidation::RestorePortalPairs(*Client.World, nullptr, AHBDungeonPortal::StaticClass(), Final, Client.Levels, Restored, Error));
+    TestEqual(TEXT("Failed restoration leaves no earlier or half pair"), Client.ActivePortals(), 0);
+    auto* Dungeon = Client.World->SpawnActor<AHBDungeonRuntime>();
+    TestTrue(TEXT("Client starts loading from an initial pending layout"), Dungeon->ApplyServerLayout(Pending));
+    TestTrue(TEXT("Final data for the same generation is accepted without restarting streams"), Dungeon->ApplyServerLayout(Final));
+    TestEqual(TEXT("Portal update preserves generation identity"), Dungeon->GetGenerationId(), 1);
+    TestTrue(TEXT("Repeated final update is idempotent"), Dungeon->ApplyServerLayout(Final));
+    Dungeon->ShutdownGeneration();
+    FPortalWorld LateClient;
+    auto* LateDriver = NewObject<UIpNetDriver>(LateClient.World); LateDriver->SetWorld(LateClient.World);
+    LateDriver->ServerConnection = NewObject<UChildConnection>(LateDriver); LateClient.World->SetNetDriver(LateDriver);
+    auto* LateSubscriber = LateClient.World->SpawnActor<AHBDungeonRuntime>();
+    TestTrue(TEXT("A late subscriber starts directly from retained final pairs"), LateSubscriber->ApplyServerLayout(State->GetDungeonSnapshot()));
+    LateSubscriber->ShutdownGeneration();
+    LateClient.World->SetNetDriver(nullptr); LateDriver->ServerConnection = nullptr; LateDriver->SetWorld(nullptr);
+    TestTrue(TEXT("Clearing removes retained pairs"), State->InvalidateDungeonLayout(1) && State->GetDungeonSnapshot().PortalPairs.IsEmpty());
+    Client.World->SetNetDriver(nullptr); Driver->ServerConnection = nullptr; Driver->SetWorld(nullptr);
+    DestroyPairs(Pairs);
     return true;
 }
 #endif

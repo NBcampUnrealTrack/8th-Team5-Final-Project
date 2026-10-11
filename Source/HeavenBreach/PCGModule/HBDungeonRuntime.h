@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "PCGModule/HBDungeonRuleLayout.h"
+#include "PCGModule/HBDungeonSnapshot.h"
 #include "HBDungeonRuntime.generated.h"
 class UPCGComponent;
 class UPCGGraphInterface;
@@ -135,6 +136,7 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonPortal>> LinkedPortals;
     UPROPERTY(Transient) TSubclassOf<AHBDungeonPortal> ActivePortalClass;
     TArray<HBPortalPlacement::FSpawnedPair> RandomPortalPairs;
+    UPROPERTY(Transient) FHBDungeonSnapshot ClientSnapshot;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonDoorSeal>> Seals;
     UPROPERTY(Transient) TObjectPtr<APlayerStart> StartPoint;
     UPROPERTY(Transient) TObjectPtr<ANavMeshBoundsVolume> DungeonNavigationBounds;

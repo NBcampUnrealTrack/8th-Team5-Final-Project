@@ -1,5 +1,6 @@
 #include "PCGModule/HBDungeonRuntimeValidation.h"
 #include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBDungeonSnapshot.h"
 #include "PCGModule/HBPortalSpawnPoint.h"
 #include "Components/BoxComponent.h"
 #include "Components/ArrowComponent.h"
@@ -12,6 +13,172 @@
 #include "Components/CapsuleComponent.h"
 #include "CollisionQueryParams.h"
 #include "Misc/PackageName.h"
+
+bool HBDungeonRuntimeValidation::ValidatePortalSnapshot(const FHBDungeonSnapshot& Snapshot, FString& Error)
+{
+    Error.Reset();
+    const bool bLogicalTransition = Snapshot.Rooms.ContainsByPredicate([](const auto& R)
+        { return R.Connection == EHBDungeonConnection::FloorTransition; });
+    if (Snapshot.PortalPlacementMode == EHBDungeonPortalPlacementMode::FixedRoomPortals)
+    {
+        if (bLogicalTransition || Snapshot.PortalPairCount != 0 || !Snapshot.PortalClass.IsNull()
+            || Snapshot.bPortalPairsReady || !Snapshot.PortalPairs.IsEmpty())
+        { Error = TEXT("Fixed portal snapshots cannot contain random placement data."); return false; }
+        return true;
+    }
+    if (Snapshot.PortalPlacementMode != EHBDungeonPortalPlacementMode::RandomPoints || !bLogicalTransition
+        || Snapshot.PortalPairCount < 1 || Snapshot.PortalClass.IsNull())
+    { Error = TEXT("Random portal snapshots require a logical floor transition, class and positive pair count."); return false; }
+    const UClass* Class = Snapshot.PortalClass.LoadSynchronous();
+    if (!Class || Class->HasAnyClassFlags(CLASS_Abstract) || Class->GetDefaultObject<AHBDungeonPortal>()->GetIsReplicated())
+    { Error = TEXT("Portal snapshot class must be concrete and non-replicated."); return false; }
+    if (!Snapshot.bPortalPairsReady)
+    {
+        if (!Snapshot.PortalPairs.IsEmpty()) { Error = TEXT("Pending portal snapshots cannot contain partial pairs."); return false; }
+        return true;
+    }
+    if (Snapshot.PortalPairs.Num() != Snapshot.PortalPairCount)
+    { Error = TEXT("Final portal snapshot does not contain exactly the requested pairs."); return false; }
+    TSet<HBPortalPlacement::FPointKey> Seen;
+    TArray<HBPortalPlacement::FPlacement> Reserved;
+    for (int32 Index = 0; Index < Snapshot.PortalPairs.Num(); ++Index)
+    {
+        const auto& Pair = Snapshot.PortalPairs[Index];
+        if (Pair.PairId != Index) { Error = TEXT("Invalid portal snapshot pair ID."); return false; }
+        const FHBDungeonPortalEndpointSnapshot* Ends[] = {&Pair.Floor1, &Pair.Floor2};
+        for (int32 FloorIndex = 0; FloorIndex < 2; ++FloorIndex)
+        {
+            const auto& End = *Ends[FloorIndex];
+            const HBPortalPlacement::FPointKey Key{End.RoomId, End.PointId};
+            const HBPortalPlacement::FPlacement Space{End.ActivationLocation, End.ActivationBounds, End.ArrivalBounds};
+            auto Unit = [](const FTransform& T) { return T.IsValid() && T.GetScale3D().Equals(FVector::OneVector, 0.0001); };
+            if (!Snapshot.Rooms.IsValidIndex(End.RoomId) || Snapshot.Rooms[End.RoomId].Floor != FloorIndex + 1
+                || End.PointId.IsNone() || Seen.Contains(Key) || !Unit(End.ActorTransform) || !Unit(End.ArrivalTransform)
+                || !End.TriggerTransform.IsValid() || End.TriggerTransform.GetScale3D().GetMin() <= 0
+                || End.TriggerExtent.ContainsNaN() || End.TriggerExtent.GetMin() <= 0 || !Space.IsValid())
+            { Error = TEXT("Portal snapshot endpoint is reused, wrong-floor or has invalid transforms/bounds."); return false; }
+            const FVector Activation = End.TriggerTransform.InverseTransformPosition(End.ActivationLocation).GetAbs();
+            const FVector Arrival = End.TriggerTransform.InverseTransformPosition(End.ArrivalTransform.GetLocation()).GetAbs();
+            const FBox TriggerBounds = FBox(-End.TriggerExtent, End.TriggerExtent).TransformBy(End.TriggerTransform);
+            if (Activation.X > End.TriggerExtent.X || Activation.Y > End.TriggerExtent.Y || Activation.Z > End.TriggerExtent.Z
+                || (Arrival.X <= End.TriggerExtent.X && Arrival.Y <= End.TriggerExtent.Y && Arrival.Z <= End.TriggerExtent.Z)
+                || !End.ActivationBounds.IsInsideOrOn(TriggerBounds.Min) || !End.ActivationBounds.IsInsideOrOn(TriggerBounds.Max)
+                || !End.ArrivalBounds.IsInsideOrOn(End.ArrivalTransform.GetLocation()))
+            { Error = TEXT("Portal snapshot activation, arrival and reservations do not match its trigger."); return false; }
+            for (const auto& Other : Reserved)
+                if (Space.Intersects(Other)) { Error = TEXT("Portal snapshot reservations overlap."); return false; }
+            Seen.Add(Key); Reserved.Add(Space);
+        }
+    }
+    return true;
+}
+
+bool HBDungeonRuntimeValidation::CapturePortalPairs(const TArray<HBPortalPlacement::FSpawnedPair>& Pairs,
+    TArray<FHBDungeonPortalPairSnapshot>& OutPairs, FString& Error)
+{
+    OutPairs.Reset(); Error.Reset();
+    TArray<FHBDungeonPortalPairSnapshot> Captured;
+    for (const auto& Pair : Pairs)
+    {
+        FHBDungeonPortalPairSnapshot Record;
+        Record.PairId = Pair.Selection.PairId;
+        auto Capture = [&](AHBDungeonPortal* Portal, const HBPortalPlacement::FPointKey& Key,
+            const HBPortalPlacement::FPlacement& Space, FHBDungeonPortalEndpointSnapshot& End)
+        {
+            if (!IsValid(Portal) || Portal->IsActorBeingDestroyed() || !Portal->ValidateDefinition(Error) || !Space.IsValid()) return false;
+            End.RoomId = Key.RoomId; End.PointId = Key.PointId;
+            End.ActorTransform = Portal->GetActorTransform();
+            End.TriggerTransform = Portal->Trigger->GetComponentTransform();
+            End.TriggerExtent = Portal->Trigger->GetUnscaledBoxExtent();
+            End.ArrivalTransform = Portal->Arrival->GetComponentTransform();
+            End.ActivationLocation = Space.ActivationLocation;
+            End.ActivationBounds = Space.ActivationBounds; End.ArrivalBounds = Space.ArrivalBounds;
+            return true;
+        };
+        if (!Capture(Pair.Floor1.Get(), Pair.Selection.Floor1, Pair.Placement1, Record.Floor1)
+            || !Capture(Pair.Floor2.Get(), Pair.Selection.Floor2, Pair.Placement2, Record.Floor2)) return false;
+        Captured.Add(Record);
+    }
+    OutPairs = MoveTemp(Captured);
+    return true;
+}
+
+bool HBDungeonRuntimeValidation::RestorePortalPairs(UWorld& World, AActor* Owner, TSubclassOf<AHBDungeonPortal> PortalClass,
+    const FHBDungeonSnapshot& Snapshot, const TArray<ULevel*>& Levels,
+    TArray<HBPortalPlacement::FSpawnedPair>& OutPairs, FString& Error)
+{
+    Error.Reset();
+    if (World.GetNetMode() != NM_Client || !OutPairs.IsEmpty() || !Snapshot.bPortalPairsReady
+        || !PortalClass || PortalClass->HasAnyClassFlags(CLASS_Abstract) || PortalClass.GetDefaultObject()->GetIsReplicated()
+        || FSoftObjectPath(PortalClass.Get()) != Snapshot.PortalClass.ToSoftObjectPath()
+        || Levels.Num() != Snapshot.Rooms.Num())
+    { Error = TEXT("Client portal restoration requires a final snapshot, matching non-replicated class and empty output."); return false; }
+    if (!ValidatePortalSnapshot(Snapshot, Error)) return false;
+    for (ULevel* Level : Levels)
+        if (!IsValid(Level) || Level->GetWorld() != &World) { Error = TEXT("Missing client room for portal restoration."); return false; }
+    TArray<HBPortalPlacement::FSpawnedPair> Prepared;
+    TArray<AHBDungeonPortal*> Created;
+    auto Abort = [&]()
+    {
+        for (AHBDungeonPortal* Portal : Created) if (IsValid(Portal)) { Portal->Disconnect(); Portal->Destroy(); }
+        return false;
+    };
+    auto Restore = [&](const FHBDungeonPortalEndpointSnapshot& End) -> AHBDungeonPortal*
+    {
+        ULevel* Level = Levels[End.RoomId];
+        AHBPortalSpawnPoint* Marker = nullptr;
+        for (AActor* Actor : Level->Actors)
+            if (auto* Point = Cast<AHBPortalSpawnPoint>(Actor); IsValid(Point) && !Point->IsActorBeingDestroyed() && Point->PointId == End.PointId)
+            {
+                if (Marker) { Error = TEXT("Duplicate selected portal point in a client room."); return nullptr; }
+                Marker = Point;
+            }
+        if (!Marker || !Marker->ValidateDefinition(Error)
+            || FVector::Dist2D(Marker->Direction->GetComponentLocation(), End.ActorTransform.GetLocation()) > 0.1
+            || !Marker->Direction->GetComponentQuat().Equals(End.ActorTransform.GetRotation(), 0.0001))
+        { Error = FString::Printf(TEXT("Client portal snapshot does not match Room=%d Point=%s."), End.RoomId, *End.PointId.ToString()); return nullptr; }
+        FActorSpawnParameters Params;
+        Params.Owner = Owner; Params.OverrideLevel = Level; Params.bDeferConstruction = true;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        auto* Portal = World.SpawnActor<AHBDungeonPortal>(PortalClass, End.ActorTransform, Params);
+        if (!IsValid(Portal)) { Error = TEXT("Could not spawn a client portal."); return nullptr; }
+        Created.Add(Portal);
+        Portal->SetTravelEnabled(false); Portal->SetActorEnableCollision(false);
+        Portal->FinishSpawning(End.ActorTransform);
+        if (!IsValid(Portal) || Portal->IsActorBeingDestroyed() || Portal->GetIsReplicated()
+            || !IsValid(Portal->Trigger) || !IsValid(Portal->Arrival))
+        { Error = TEXT("Client portal construction produced an invalid actor."); return nullptr; }
+        Portal->SetTravelEnabled(false); Portal->SetActorEnableCollision(false);
+        Portal->PortalId = FName(*FString::Printf(TEXT("PCG_R%d_%s"), End.RoomId, *End.PointId.ToString()));
+        Portal->SetActorTransform(End.ActorTransform, false, nullptr, ETeleportType::TeleportPhysics);
+        Portal->Trigger->SetBoxExtent(End.TriggerExtent);
+        Portal->Trigger->SetWorldTransform(End.TriggerTransform);
+        Portal->Arrival->SetWorldTransform(End.ArrivalTransform);
+        TInlineComponentArray<UPrimitiveComponent*> Components(Portal);
+        for (UPrimitiveComponent* Component : Components)
+        { Component->SetCollisionEnabled(ECollisionEnabled::NoCollision); Component->SetCanEverAffectNavigation(false); }
+        if (!Portal->ValidateDefinition(Error) || Portal->GetLevel() != Level
+            || !Portal->GetActorTransform().Equals(End.ActorTransform, 0.1)
+            || !Portal->Trigger->GetComponentTransform().Equals(End.TriggerTransform, 0.1)
+            || !Portal->Arrival->GetComponentTransform().Equals(End.ArrivalTransform, 0.1)) return nullptr;
+        return Portal;
+    };
+    for (const auto& Pair : Snapshot.PortalPairs)
+    {
+        AHBDungeonPortal* A = Restore(Pair.Floor1);
+        if (!A) return Abort();
+        AHBDungeonPortal* B = Restore(Pair.Floor2);
+        if (!B) return Abort();
+        // These local visual links reflect authority data. Client actors never execute teleportation.
+        A->TargetPortal = B; B->TargetPortal = A;
+        Prepared.Add({{Pair.PairId, {Pair.Floor1.RoomId, Pair.Floor1.PointId}, {Pair.Floor2.RoomId, Pair.Floor2.PointId}}, A, B,
+            {Pair.Floor1.ActivationLocation, Pair.Floor1.ActivationBounds, Pair.Floor1.ArrivalBounds},
+            {Pair.Floor2.ActivationLocation, Pair.Floor2.ActivationBounds, Pair.Floor2.ArrivalBounds}});
+    }
+    if (!ValidateRandomPortalLinks(Snapshot.Rooms, Levels, Snapshot.PortalPairCount, Prepared, Error)) return Abort();
+    OutPairs = MoveTemp(Prepared);
+    return true;
+}
 
 bool HBDungeonRuntimeValidation::ValidatePortalCandidates(const TArray<FHBPrototypeRoom>& Rooms,
     const TArray<ULevel*>& Levels, const TArray<HBPortalPlacement::FCandidate>& Candidates, FString& Error)

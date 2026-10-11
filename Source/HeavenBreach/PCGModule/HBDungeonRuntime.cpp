@@ -125,7 +125,10 @@ bool AHBDungeonRuntime::PlanLayout()
         || !HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error))
     { Fail(Error); return false; }
     auto* GameState = GetWorld()->GetGameState<AHeavenBreachGameState>();
-    if (!GameState || !GameState->PublishDungeonLayout(GenerationId, ActiveSeed, Rooms, ActiveDoorSealClass, ActiveDoorSealExtent))
+    if (!GameState || !GameState->PublishDungeonLayout(GenerationId, ActiveSeed, Rooms, ActiveDoorSealClass, ActiveDoorSealExtent,
+        ActiveRules.PortalPlacementMode,
+        ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints ? ActivePortalClass : nullptr,
+        ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints ? ActiveRules.PortalPairCount : 0))
     { Fail(TEXT("Could not publish dungeon layout to HeavenBreachGameState.")); return false; }
     OnLayoutPlanned.Broadcast();
     return true;
@@ -164,9 +167,6 @@ bool AHBDungeonRuntime::ValidateLocalSettings(FString& Error) const
         if (!PortalClass || PortalClass->HasAnyClassFlags(CLASS_Abstract)
             || PortalClass->GetDefaultObject<AHBDungeonPortal>()->GetIsReplicated() || PortalPairCount < 1)
         { Error = TEXT("Random points require a concrete non-replicated Portal Class and Portal Pair Count >= 1."); return false; }
-        // Local portal actors need the final server-selected pair snapshot before multiplayer can load them.
-        if (GetNetMode() != NM_Standalone)
-        { Error = TEXT("Random portals currently require standalone validation; authoritative client pair snapshots are not implemented yet."); return false; }
     }
     if (!FMath::IsFinite(LoadTimeoutSeconds) || LoadTimeoutSeconds <= 0)
     { Error = TEXT("Load timeout must be positive and finite."); return false; }
@@ -177,8 +177,23 @@ bool AHBDungeonRuntime::ApplyServerLayout(const FHBDungeonSnapshot& Snapshot)
     if (bEndingPlay || !GetWorld() || !GetWorld()->IsGameWorld() || GetNetMode() != NM_Client
         || Snapshot.State != EHBDungeonSnapshotState::Active || Snapshot.GenerationId <= 0) return false;
     if (Snapshot.GenerationId < GenerationId) return false;
-    if (Snapshot.GenerationId == GenerationId) return State == EHBDungeonRuntimeState::Loading || IsReady();
     FString Error;
+    if (!HBDungeonRuntimeValidation::ValidatePortalSnapshot(Snapshot, Error)
+        || !HBDungeonRuntimeValidation::ValidateLayoutForLoading(Snapshot.Rooms, Error)) return false;
+    if (Snapshot.GenerationId == GenerationId)
+    {
+        if (State != EHBDungeonRuntimeState::Loading && !IsReady()) return false;
+        if (Snapshot.Seed != ActiveSeed || Snapshot.Rooms.Num() != Rooms.Num()
+            || Snapshot.PortalPlacementMode != ClientSnapshot.PortalPlacementMode
+            || Snapshot.PortalPairCount != ClientSnapshot.PortalPairCount
+            || Snapshot.PortalClass != ClientSnapshot.PortalClass) return false;
+        for (int32 Index = 0; Index < Rooms.Num(); ++Index)
+            if (!FHBPrototypeRoom::StaticStruct()->CompareScriptStruct(&Rooms[Index], &Snapshot.Rooms[Index], 0)) return false;
+        // Final pairs are immutable for this generation; repeated notifications never respawn or relink actors.
+        if (Snapshot.bPortalPairsReady && !ClientSnapshot.bPortalPairsReady)
+        { ClientSnapshot.PortalPairs = Snapshot.PortalPairs; ClientSnapshot.bPortalPairsReady = true; }
+        return true;
+    }
     const TSubclassOf<AHBDungeonDoorSeal> SealClass = Snapshot.DoorSealClass.LoadSynchronous();
     if (!ValidateLocalSettings(Error) || !AHBDungeonDoorSeal::ValidateSettings(SealClass, Snapshot.DoorSealExtent, Error)
         || !HBDungeonRuntimeValidation::ValidateLayoutForLoading(Snapshot.Rooms, Error))
@@ -192,6 +207,10 @@ bool AHBDungeonRuntime::ApplyServerLayout(const FHBDungeonSnapshot& Snapshot)
     Rooms = Snapshot.Rooms;
     ActiveDoorSealClass = SealClass;
     ActiveDoorSealExtent = Snapshot.DoorSealExtent;
+    ClientSnapshot = Snapshot;
+    ActiveRules.PortalPlacementMode = Snapshot.PortalPlacementMode;
+    ActiveRules.PortalPairCount = Snapshot.PortalPairCount;
+    ActivePortalClass = Snapshot.PortalClass.IsNull() ? nullptr : Snapshot.PortalClass.LoadSynchronous();
     ModuleCatalog.Reset();
     GenerationStartTime = FPlatformTime::Seconds();
     LoadLocalRooms();
@@ -243,7 +262,8 @@ bool AHBDungeonRuntime::SpawnDoorSeals(const FHBPrototypeRoom& Room,
 }
 bool AHBDungeonRuntime::PrepareClientGameplay(FString& Error)
 {
-    if (!HBDungeonRuntimeValidation::ValidateLocalPortalInstances(Rooms, Streams, Error)) return false;
+    if (ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::FixedRoomPortals
+        && !HBDungeonRuntimeValidation::ValidateLocalPortalInstances(Rooms, Streams, Error)) return false;
     for (const auto& Room : Rooms)
     {
         AHBDungeonModuleDefinition* Definition = nullptr;
@@ -260,6 +280,21 @@ bool AHBDungeonRuntime::PrepareClientGameplay(FString& Error)
             || !Definition->ReadModuleGeometry(Room.Transform, Connectors, Occupancy, Issues))
         { Error = TEXT("Loaded client room does not match the authoritative module."); return false; }
         if (!SpawnDoorSeals(Room, Connectors, Error)) return false;
+    }
+    if (ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints)
+    {
+        TArray<ULevel*> Levels;
+        TArray<AHBDungeonPortal*> Authored;
+        for (const auto& Room : Rooms)
+        {
+            ULevel* Level = GetLoadedRoomLevel(Room.Id); Levels.Add(Level);
+            for (AActor* Actor : Level->Actors)
+                if (auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal)) Authored.Add(Portal);
+        }
+        for (auto* Portal : Authored) { Portal->Disconnect(); Portal->Destroy(); }
+        if (!HBDungeonRuntimeValidation::RestorePortalPairs(*GetWorld(), this, ActivePortalClass, ClientSnapshot,
+            Levels, RandomPortalPairs, Error)) return false;
+        for (const auto& Pair : RandomPortalPairs) { LinkedPortals.Add(Pair.Floor1.Get()); LinkedPortals.Add(Pair.Floor2.Get()); }
     }
     TArray<APlayerStart*> Starts;
     return PrepareRoomPlayerStarts(Starts, Error);
@@ -367,7 +402,7 @@ void AHBDungeonRuntime::ConsumeServerSnapshot()
         return;
     }
     if (Snapshot.State != EHBDungeonSnapshotState::Active) return;
-    if (Snapshot.GenerationId <= GenerationId) return;
+    if (Snapshot.GenerationId == GenerationId && State != EHBDungeonRuntimeState::Loading && !IsReady()) return;
     if (!ApplyServerLayout(Snapshot))
         Fail(TEXT("Could not apply replicated dungeon layout."));
 }
@@ -730,14 +765,22 @@ void AHBDungeonRuntime::SelectExtractionPoints()
 }
 void AHBDungeonRuntime::MarkReady()
 {
-    if (CanPlanGeneration() && ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints)
+    if (ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints)
     {
         TArray<ULevel*> Levels;
         for (const auto& Room : Rooms) Levels.Add(GetLoadedRoomLevel(Room.Id));
         FString Error;
         if (!HBDungeonRuntimeValidation::ValidateRandomPortalLinks(Rooms, Levels, ActiveRules.PortalPairCount, RandomPortalPairs, Error))
         { Fail(Error); return; }
-        for (const auto& Portal : LinkedPortals) Portal->SetTravelEnabled(true);
+        if (CanPlanGeneration())
+        {
+            TArray<FHBDungeonPortalPairSnapshot> Captured;
+            auto* Source = GetWorld()->GetGameState<AHeavenBreachGameState>();
+            if (!HBDungeonRuntimeValidation::CapturePortalPairs(RandomPortalPairs, Captured, Error)
+                || !Source || !Source->PublishDungeonPortals(GenerationId, Captured))
+            { Fail(Error.IsEmpty() ? TEXT("Could not publish final portal pairs.") : Error); return; }
+            for (const auto& Portal : LinkedPortals) Portal->SetTravelEnabled(true);
+        }
     }
     State = EHBDungeonRuntimeState::Ready;
     Status = GetNetMode() == NM_Client ? TEXT("READY - local dungeon rooms prepared.")
@@ -771,6 +814,8 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
     FString Error;
     if (GetNetMode() == NM_Client)
     {
+        if (ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints && !ClientSnapshot.bPortalPairsReady)
+        { Status = TEXT("Waiting for authoritative portal pairs..."); return; }
         if (!PrepareClientGameplay(Error)) { Fail(Error); return; }
         SelectExtractionPoints();
         MarkReady();
@@ -814,6 +859,7 @@ void AHBDungeonRuntime::ClearGenerated()
     ActiveSeed = 0;
     ActiveDoorSealClass = nullptr;
     ActivePortalClass = nullptr;
+    ClientSnapshot = FHBDungeonSnapshot();
     ActiveDoorSealExtent = FVector::ZeroVector;
     GenerationStartTime = 0;
     EncounterStartTime = 0;
