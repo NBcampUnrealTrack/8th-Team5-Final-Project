@@ -113,8 +113,9 @@ protected:
 	// ----- 디버깅 -----
 
 	// 켜면 노란 트레이스 선이 그려진다. VFX 빔과 겹치는지 이걸로 확인한다.
+	// 기본은 꺼 둔다. 플레이 중 화면을 가린다는 팀 요청. 확인할 때만 BP 에서 켠다.
 	UPROPERTY(EditDefaultsOnly, Category = "Beam|Debug")
-	bool bDrawDebug = true;
+	bool bDrawDebug = false;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Beam|Debug")
 	float DebugDrawTime = 1.f;

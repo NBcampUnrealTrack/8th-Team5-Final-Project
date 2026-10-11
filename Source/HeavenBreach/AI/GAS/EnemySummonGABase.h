@@ -102,8 +102,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Summon")
 	FGameplayTag SpawnCueTag;
 
+	// 켜면 소환 위치에 보라색 구가 그려진다.
+	// 기본은 꺼 둔다. 플레이 중 화면을 가린다는 팀 요청. 소환 위치를 확인할 때만 BP 에서 켠다.
 	UPROPERTY(EditDefaultsOnly, Category = "Debug")
-	bool bDrawDebug = true;
+	bool bDrawDebug = false;
 
 private:
 	USummonComponent* GetSummonComp() const;

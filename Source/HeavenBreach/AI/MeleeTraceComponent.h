@@ -70,8 +70,11 @@ protected:
 
 
 	// ----- 디버깅 -----
+	// 기본은 꺼 둔다. 플레이 중 화면을 가린다는 팀 요청.
+	// 적과 플레이어가 같이 쓰는 컴포넌트라 여기서 끄면 양쪽 다 꺼진다.
+	// 판정 범위를 확인할 때만 BP 의 컴포넌트 디테일에서 켠다.
 	UPROPERTY(EditAnywhere, Category = "Debug")
-	bool bDrawDebug = true;
+	bool bDrawDebug = false;
 
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	float DebugDrawTime = 0.5f;
