@@ -88,6 +88,7 @@ void AHBDungeonRuntime::StartGeneration()
     { Fail(FString::Join(CatalogErrors, TEXT("\n"))); return; }
     ActiveSeed = bRandomSeedOnStart ? static_cast<int32>(FGuid::NewGuid().A & 0x7fffffff) : Seed;
     ActiveRules = GetGenerationRules();
+    ActivePortalClass = PortalClass;
     ActiveDoorSealClass = DoorSealClass;
     ActiveDoorSealExtent = DoorSealExtent;
     ActiveSettings.Seed = ActiveSeed;
@@ -158,6 +159,15 @@ bool AHBDungeonRuntime::ResetGeneration()
 bool AHBDungeonRuntime::ValidateLocalSettings(FString& Error) const
 {
     if (GetNetMode() != NM_Client && !AHBDungeonDoorSeal::ValidateSettings(DoorSealClass, DoorSealExtent, Error)) return false;
+    if (GetNetMode() != NM_Client && PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints)
+    {
+        if (!PortalClass || PortalClass->HasAnyClassFlags(CLASS_Abstract)
+            || PortalClass->GetDefaultObject<AHBDungeonPortal>()->GetIsReplicated() || PortalPairCount < 1)
+        { Error = TEXT("Random points require a concrete non-replicated Portal Class and Portal Pair Count >= 1."); return false; }
+        // Local portal actors need the final server-selected pair snapshot before multiplayer can load them.
+        if (GetNetMode() != NM_Standalone)
+        { Error = TEXT("Random portals currently require standalone validation; authoritative client pair snapshots are not implemented yet."); return false; }
+    }
     if (!FMath::IsFinite(LoadTimeoutSeconds) || LoadTimeoutSeconds <= 0)
     { Error = TEXT("Load timeout must be positive and finite."); return false; }
     return true;
@@ -289,7 +299,16 @@ bool AHBDungeonRuntime::PrepareServerGameplay(FString& Error)
             { Error = TEXT("Loaded occupancy geometry differs from the plan."); return false; }
         if (!SpawnDoorSeals(Room, Connectors, Error)) return false;
     }
-    if (!HBDungeonRuntimeValidation::LinkPortals(Rooms, ModuleCatalog, Streams, LinkedPortals, Error)) return false;
+    if (ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints)
+    {
+        // Source maps can serve both modes. Remove old fixed portals only from the generated instances.
+        TArray<AHBDungeonPortal*> AuthoredPortals;
+        for (const auto& Stream : Streams)
+            for (AActor* Actor : Stream->GetLoadedLevel()->Actors)
+                if (auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal)) AuthoredPortals.Add(Portal);
+        for (AHBDungeonPortal* Portal : AuthoredPortals) { Portal->Disconnect(); Portal->Destroy(); }
+    }
+    else if (!HBDungeonRuntimeValidation::LinkPortals(Rooms, ModuleCatalog, Streams, LinkedPortals, Error)) return false;
     TArray<APlayerStart*> Starts;
     if (!PrepareRoomPlayerStarts(Starts, Error)) return false;
     const auto* Mode = GetWorld()->GetAuthGameMode();
@@ -358,8 +377,15 @@ bool AHBDungeonRuntime::CreateDungeonNavigationBounds(FString& Error)
     if (IsValid(DungeonNavigationBounds)) return true;
     UWorld* World = GetWorld();
     UNavigationSystemV1* Nav = World ? UNavigationSystemV1::GetCurrent(World) : nullptr;
-    if (!World || !Nav || Rooms.IsEmpty())
+    if (!World || Rooms.IsEmpty())
     { Error = TEXT("Dungeon navigation system or planned rooms are unavailable."); return false; }
+    // Portal-only generation uses physical floors and capsules, not navigation.
+    if (!Nav)
+    {
+        if (!HasRoomSpawns()) return true;
+        Error = TEXT("Room spawns require a dungeon navigation system.");
+        return false;
+    }
 
     FBox DungeonBounds(ForceInit);
     for (const FHBPrototypeRoom& Room : Rooms)
@@ -409,8 +435,17 @@ bool AHBDungeonRuntime::CreateDungeonNavigationBounds(FString& Error)
     Nav->OnNavigationBoundsUpdated(Volume);
     return true;
 }
+bool AHBDungeonRuntime::HasRoomSpawns() const
+{
+    for (const auto& Stream : Streams)
+        if (const ULevel* Level = IsValid(Stream) ? Stream->GetLoadedLevel() : nullptr)
+            if (UHBEncounterSubsystem::HasEncounter(Level) || UHBChestSpawnSubsystem::HasPlacement(Level))
+                return true;
+    return false;
+}
 bool AHBDungeonRuntime::IsEncounterNavigationReady() const
 {
+    if (!HasRoomSpawns()) return true;
     UWorld* World = GetWorld();
     UNavigationSystemV1* Nav = World ? UNavigationSystemV1::GetCurrent(World) : nullptr;
     if (!Nav || !IsValid(DungeonNavigationBounds)
@@ -468,8 +503,23 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
         TArray<FHBRoomSpawnEntry> Entries;
         for (AActor* Actor : Level->Actors)
         {
-            if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal) && IsValid(Portal->TargetPortal))
-                Entries.Emplace(Portal->Arrival->GetComponentLocation());
+            if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal) && !Portal->IsActorBeingDestroyed() && IsValid(Portal->TargetPortal))
+            {
+                if (ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints)
+                {
+                    FHBRoomSpawnEntry& Entry = Entries.Emplace_GetRef(Portal->Trigger->GetComponentLocation(), Portal->Arrival->GetComponentLocation());
+                    for (const auto& Pair : RandomPortalPairs)
+                    {
+                        const auto* Placement = Pair.Floor1.Get() == Portal ? &Pair.Placement1
+                            : Pair.Floor2.Get() == Portal ? &Pair.Placement2 : nullptr;
+                        if (Placement) { Entry.ReservedBounds = {Placement->ActivationBounds, Placement->ArrivalBounds}; break; }
+                    }
+                    if (Entry.ReservedBounds.IsEmpty()) { Error = TEXT("Random portal has no registered spawn reservation."); return false; }
+                }
+                else Entries.Emplace(Portal->Arrival->GetComponentLocation());
+                // Keep entry spacing and portal reservations, without adding a portal path target.
+                Entries.Last().bUseForNavigation = false;
+            }
             if (const auto* Start = Cast<APlayerStart>(Actor); Room.bIsStartRoom && IsValid(Start) && !Start->IsActorBeingDestroyed())
                 Entries.Emplace(Start->GetActorLocation());
         }
@@ -497,6 +547,35 @@ bool AHBDungeonRuntime::PrepareEncounters(FString& Error)
             Error = FString::Printf(TEXT("Room %d chest placement: %s"), Room.Id, *Error);
             return false;
         }
+    }
+    return true;
+}
+bool AHBDungeonRuntime::PrepareRandomPortals(FString& Error)
+{
+    if (ActiveRules.PortalPlacementMode != EHBDungeonPortalPlacementMode::RandomPoints) return true;
+    if (!CanPlanGeneration()) { Error = TEXT("Only the server selects and spawns random portal pairs."); return false; }
+    TArray<ULevel*> Levels;
+    for (const auto& Room : Rooms) Levels.Add(GetLoadedRoomLevel(Room.Id));
+    TArray<HBPortalPlacement::FCandidate> Candidates;
+    if (!HBDungeonRuleLayout::CollectPortalCandidates(ModuleCatalog, Rooms, Candidates, Error)
+        || !HBDungeonRuntimeValidation::ValidatePortalCandidates(Rooms, Levels, Candidates, Error)) return false;
+    const auto* Mode = GetWorld()->GetAuthGameMode();
+    const ACharacter* PlayerDefaults = Mode && Mode->DefaultPawnClass ? Cast<ACharacter>(Mode->DefaultPawnClass->GetDefaultObject()) : nullptr;
+    if (!PlayerDefaults) { Error = TEXT("Random portals require a Character default pawn."); return false; }
+    if (!HBPortalPlacement::SpawnPairs(*GetWorld(), this, ActiveSeed, ActiveRules.PortalPairCount, ActivePortalClass, Candidates,
+        [&](int32 RoomId) { return GetLoadedRoomLevel(RoomId); },
+        [&](const HBPortalPlacement::FCandidate& Candidate, AHBDungeonPortal& Portal, HBPortalPlacement::FPlacement& Placement, FString& Reason)
+        {
+            return HBDungeonRuntimeValidation::PreparePortalSpace(*GetWorld(), Portal, Candidate.SpawnTransform.GetLocation(),
+                *PlayerDefaults, Rooms[Candidate.Key.RoomId].Bounds, Placement, Reason);
+        }, RandomPortalPairs, Error)
+        || !HBDungeonRuntimeValidation::ValidateRandomPortalLinks(Rooms, Levels, ActiveRules.PortalPairCount, RandomPortalPairs, Error)) return false;
+    for (const auto& Pair : RandomPortalPairs)
+    {
+        LinkedPortals.Add(Pair.Floor1.Get()); LinkedPortals.Add(Pair.Floor2.Get());
+        UE_LOG(LogHBDungeonRuntime, Display, TEXT("RandomPortal GenerationId=%d Seed=%d Pair=%d Floor1=R%d/%s Floor2=R%d/%s"),
+            GenerationId, ActiveSeed, Pair.Selection.PairId, Pair.Selection.Floor1.RoomId, *Pair.Selection.Floor1.PointId.ToString(),
+            Pair.Selection.Floor2.RoomId, *Pair.Selection.Floor2.PointId.ToString());
     }
     return true;
 }
@@ -651,6 +730,15 @@ void AHBDungeonRuntime::SelectExtractionPoints()
 }
 void AHBDungeonRuntime::MarkReady()
 {
+    if (CanPlanGeneration() && ActiveRules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints)
+    {
+        TArray<ULevel*> Levels;
+        for (const auto& Room : Rooms) Levels.Add(GetLoadedRoomLevel(Room.Id));
+        FString Error;
+        if (!HBDungeonRuntimeValidation::ValidateRandomPortalLinks(Rooms, Levels, ActiveRules.PortalPairCount, RandomPortalPairs, Error))
+        { Fail(Error); return; }
+        for (const auto& Portal : LinkedPortals) Portal->SetTravelEnabled(true);
+    }
     State = EHBDungeonRuntimeState::Ready;
     Status = GetNetMode() == NM_Client ? TEXT("READY - local dungeon rooms prepared.")
         : TEXT("READY - server dungeon and room spawns prepared.");
@@ -673,7 +761,7 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
         { Fail(TEXT("Room spawn/navigation preparation timed out. Check NavMesh and streamed rooms.")); return; }
         if (!IsEncounterNavigationReady()) return;
         FString Error;
-        if (!PrepareEncounters(Error)) { Fail(Error); return; }
+        if (!PrepareRandomPortals(Error) || !PrepareEncounters(Error)) { Fail(Error); return; }
         MarkReady();
         return;
     }
@@ -691,15 +779,11 @@ void AHBDungeonRuntime::Tick(float DeltaSeconds)
     if (!PrepareServerGameplay(Error)) { Fail(Error); return; }
     SelectExtractionPoints();
     if (!CreateDungeonNavigationBounds(Error)) { Fail(Error); return; }
-    bool bHasRoomSpawns = false;
-    for (const auto& Stream : Streams)
-        if (const ULevel* Level = IsValid(Stream) ? Stream->GetLoadedLevel() : nullptr)
-            if (UHBEncounterSubsystem::HasEncounter(Level) || UHBChestSpawnSubsystem::HasPlacement(Level))
-                bHasRoomSpawns = true;
-    if (!bHasRoomSpawns) { MarkReady(); return; }
+    const bool bHasRoomSpawns = HasRoomSpawns();
+    if (!bHasRoomSpawns && ActiveRules.PortalPlacementMode != EHBDungeonPortalPlacementMode::RandomPoints) { MarkReady(); return; }
     State = EHBDungeonRuntimeState::PreparingEncounters;
     EncounterStartTime = FPlatformTime::Seconds();
-    Status = TEXT("Waiting for navigation and room spawns...");
+    Status = bHasRoomSpawns ? TEXT("Waiting for navigation and preparing room gameplay...") : TEXT("Preparing portals...");
 }
 void AHBDungeonRuntime::ClearGenerated()
 {
@@ -717,6 +801,7 @@ void AHBDungeonRuntime::ClearGenerated()
 			ChestSubsystem->ClearGeneration(GenerationId);
 	}
     for (const auto& Portal : LinkedPortals) if (IsValid(Portal)) Portal->Disconnect();
+    HBPortalPlacement::DestroyPairs(RandomPortalPairs);
     LinkedPortals.Reset(); StartPoint = nullptr;
     for (const auto& Seal : Seals) if (IsValid(Seal)) Seal->Destroy();
     Seals.Reset();
@@ -728,6 +813,7 @@ void AHBDungeonRuntime::ClearGenerated()
     Rooms.Reset();
     ActiveSeed = 0;
     ActiveDoorSealClass = nullptr;
+    ActivePortalClass = nullptr;
     ActiveDoorSealExtent = FVector::ZeroVector;
     GenerationStartTime = 0;
     EncounterStartTime = 0;

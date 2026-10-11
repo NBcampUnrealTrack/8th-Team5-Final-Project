@@ -76,8 +76,10 @@ namespace
 			}
 			for (const auto& P : M.Portals)
 			{
-				if (P.PortalId.IsNone() || PortalIds.Contains(P.PortalId) || !Unit(P.TriggerTransform)
-					|| !Unit(P.ArrivalTransform) || !Positive(P.TriggerExtent)) return Fail(TEXT("Invalid portal metadata."));
+				if (P.PortalId.IsNone() || PortalIds.Contains(P.PortalId) || !P.TriggerTransform.IsValid()
+					|| !Positive(P.TriggerTransform.GetScale3D()) || !Unit(P.ArrivalTransform)
+					|| !Positive(P.TriggerExtent) || !Positive(P.TriggerExtent * P.TriggerTransform.GetScale3D()))
+					return Fail(TEXT("Invalid portal metadata."));
 				PortalIds.Add(P.PortalId);
 			}
 			for (const auto& C : M.Connectors)

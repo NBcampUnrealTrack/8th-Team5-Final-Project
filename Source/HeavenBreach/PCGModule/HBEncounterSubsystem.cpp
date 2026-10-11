@@ -508,6 +508,13 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 				return false;
 			}
 			for (const FHBRoomSpawnEntry& Entry : Entries)
+				if (Entry.IntersectsReservation(FBox(SpawnLocation - FVector(Radius, Radius, HalfHeight), SpawnLocation + FVector(Radius, Radius, HalfHeight))))
+				{
+					Reason = TEXT("Enemy capsule overlaps reserved portal activation or arrival space.");
+					Evidence.Cause = EHBSpawnFailureReason::ExcludedArea;
+					return false;
+				}
+			for (const FHBRoomSpawnEntry& Entry : Entries)
 				if (FVector::Dist2D(Ground, Entry.ConnectionLocation) < Config.MinEntryDistance + Radius)
 				{
 					Reason = TEXT("Spawn blocks a room entry or player start.");

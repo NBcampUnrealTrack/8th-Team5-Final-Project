@@ -1,12 +1,192 @@
 #include "PCGModule/HBDungeonRuntimeValidation.h"
 #include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBPortalSpawnPoint.h"
 #include "Components/BoxComponent.h"
 #include "Components/ArrowComponent.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/OverlapResult.h"
 #include "GameFramework/PlayerStart.h"
+#include "GameFramework/Character.h"
+#include "Components/CapsuleComponent.h"
+#include "CollisionQueryParams.h"
 #include "Misc/PackageName.h"
+
+bool HBDungeonRuntimeValidation::ValidatePortalCandidates(const TArray<FHBPrototypeRoom>& Rooms,
+    const TArray<ULevel*>& Levels, const TArray<HBPortalPlacement::FCandidate>& Candidates, FString& Error)
+{
+    Error.Reset();
+    if (Levels.Num() != Rooms.Num()) { Error = TEXT("Missing room levels for portal point validation."); return false; }
+    TMap<HBPortalPlacement::FPointKey, const HBPortalPlacement::FCandidate*> Expected;
+    for (const auto& Candidate : Candidates)
+    {
+        if (!Rooms.IsValidIndex(Candidate.Key.RoomId) || Expected.Contains(Candidate.Key)
+            || Candidate.Floor != Rooms[Candidate.Key.RoomId].Floor)
+        { Error = TEXT("Invalid or duplicate planned portal point."); return false; }
+        Expected.Add(Candidate.Key, &Candidate);
+    }
+    TSet<HBPortalPlacement::FPointKey> Seen;
+    for (int32 RoomId = 0; RoomId < Rooms.Num(); ++RoomId)
+    {
+        ULevel* Level = Levels[RoomId];
+        if (!IsValid(Level)) { Error = TEXT("Missing loaded portal point room."); return false; }
+        for (AActor* Actor : Level->Actors)
+            if (const auto* Point = Cast<AHBPortalSpawnPoint>(Actor); IsValid(Point) && !Point->IsActorBeingDestroyed() && Point->GetLevel() == Level)
+            {
+                const HBPortalPlacement::FPointKey Key{RoomId, Point->PointId};
+                const auto* Planned = Expected.Find(Key);
+                if (!Point->ValidateDefinition(Error) || Seen.Contains(Key) || !Planned
+                    || !Point->Direction->GetComponentTransform().Equals((*Planned)->SpawnTransform, 0.1))
+                {
+                    Error = FString::Printf(TEXT("Room=%d Point=%s does not match the catalog portal point: %s"),
+                        RoomId, *Point->PointId.ToString(), *Error);
+                    return false;
+                }
+                Seen.Add(Key);
+            }
+    }
+    if (Seen.Num() != Expected.Num()) { Error = TEXT("A planned portal point is missing from its loaded room instance."); return false; }
+    return true;
+}
+
+bool HBDungeonRuntimeValidation::PreparePortalSpace(UWorld& World, AHBDungeonPortal& Portal,
+    const FVector& GroundPoint, const ACharacter& PlayerDefaults, const FBox& RoomBounds,
+    HBPortalPlacement::FPlacement& OutPlacement, FString& Error)
+{
+    OutPlacement = {};
+    Error.Reset();
+    if (!Portal.ValidateDefinition(Error)) return false;
+    const UCapsuleComponent* Capsule = PlayerDefaults.GetCapsuleComponent();
+    const float Radius = Capsule ? Capsule->GetScaledCapsuleRadius() : 0.f;
+    const float HalfHeight = Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 0.f;
+    if (GroundPoint.ContainsNaN() || !RoomBounds.IsValid || !RoomBounds.IsInsideOrOn(GroundPoint)
+        || !FMath::IsFinite(Radius) || !FMath::IsFinite(HalfHeight) || Radius <= 0 || HalfHeight < Radius)
+    { Error = TEXT("Portal grounding requires a floor marker inside the room and a valid player capsule."); return false; }
+
+    constexpr double Clearance = 2.;
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(HBPortalGrounding), false);
+    Query.AddIgnoredActor(&Portal);
+    FHitResult TriggerFloor;
+    // Stay close to the authored floor; never snap to another storey or search sideways.
+    if (!World.LineTraceSingleByChannel(TriggerFloor, GroundPoint + FVector(0, 0, 20),
+        GroundPoint - FVector(0, 0, 100), ECC_WorldStatic, Query) || TriggerFloor.ImpactNormal.Z < 0.7f)
+    { Error = TEXT("Portal floor marker has no nearby walkable physical floor."); return false; }
+
+    const FVector OriginalArrival = Portal.Arrival->GetComponentLocation();
+    const FVector ArrivalGround(OriginalArrival.X, OriginalArrival.Y, TriggerFloor.ImpactPoint.Z);
+    FHitResult ArrivalFloor;
+    if (!World.LineTraceSingleByChannel(ArrivalFloor, ArrivalGround + FVector(0, 0, 100),
+        ArrivalGround - FVector(0, 0, 100), ECC_WorldStatic, Query) || ArrivalFloor.ImpactNormal.Z < 0.7f)
+    { Error = TEXT("Portal arrival has no nearby walkable physical floor at its Blueprint XY offset."); return false; }
+
+    // Use the constructed BP's actual trigger bounds, including component offsets, rotation and positive scale.
+    const double RaiseBy = TriggerFloor.ImpactPoint.Z + Clearance - Portal.Trigger->Bounds.GetBox().Min.Z;
+    if (!FMath::IsFinite(RaiseBy)
+        || !Portal.SetActorLocation(Portal.GetActorLocation() + FVector(0, 0, RaiseBy), false, nullptr, ETeleportType::TeleportPhysics))
+    { Error = TEXT("Could not align the portal trigger above its floor marker."); return false; }
+    Portal.Arrival->SetWorldLocation(FVector(OriginalArrival.X, OriginalArrival.Y,
+        ArrivalFloor.ImpactPoint.Z + HalfHeight + Clearance), false, nullptr, ETeleportType::TeleportPhysics);
+    return ValidatePortalSpace(World, Portal, PlayerDefaults, RoomBounds, OutPlacement, Error);
+}
+
+bool HBDungeonRuntimeValidation::ValidatePortalSpace(UWorld& World, const AHBDungeonPortal& Portal,
+    const ACharacter& PlayerDefaults, const FBox& RoomBounds, HBPortalPlacement::FPlacement& OutPlacement, FString& Error)
+{
+    OutPlacement = {};
+    Error.Reset();
+    if (!Portal.ValidateDefinition(Error)) return false;
+    const UCapsuleComponent* Capsule = PlayerDefaults.GetCapsuleComponent();
+    const float Radius = Capsule ? Capsule->GetScaledCapsuleRadius() : 0.f;
+    const float HalfHeight = Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 0.f;
+    if (!RoomBounds.IsValid || !FMath::IsFinite(Radius) || !FMath::IsFinite(HalfHeight) || Radius <= 0 || HalfHeight < Radius)
+    { Error = TEXT("Portal safety requires finite room bounds and a valid player capsule."); return false; }
+    const FVector Extent(Radius, Radius, HalfHeight);
+    FCollisionQueryParams FloorQuery(SCENE_QUERY_STAT(HBPortalFloor), false);
+    FloorQuery.AddIgnoredActor(&Portal);
+    const FVector TriggerCenter = Portal.Trigger->GetComponentLocation();
+    const FVector TriggerFoot(TriggerCenter.X, TriggerCenter.Y, Portal.Trigger->Bounds.GetBox().Min.Z);
+    FHitResult ActivationFloor;
+    // Probe at the grounded bottom, so an obstruction higher inside the trigger cannot masquerade as its floor.
+    if (!World.LineTraceSingleByChannel(ActivationFloor, TriggerFoot + FVector(0, 0, 20),
+        TriggerFoot - FVector(0, 0, 100), ECC_WorldStatic, FloorQuery) || ActivationFloor.ImpactNormal.Z < 0.7f)
+    { Error = TEXT("Portal trigger has no walkable physical floor at its authored position."); return false; }
+    const FVector Activation = ActivationFloor.ImpactPoint + FVector(0, 0, HalfHeight + 2.f);
+    if (!Portal.Contains(Activation))
+    { Error = TEXT("A standing player's origin does not fit in the portal trigger."); return false; }
+    const FVector Arrival = Portal.Arrival->GetComponentLocation();
+    FHitResult ArrivalFloor;
+    const FVector Feet = Arrival - FVector(0, 0, HalfHeight);
+    FCollisionQueryParams CapsuleQuery(SCENE_QUERY_STAT(HBPortalCapsule), false);
+    const FCollisionShape Shape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+    for (const FVector& Location : {Activation, Arrival})
+    {
+        if (!RoomBounds.IsInsideOrOn(Location - Extent) || !RoomBounds.IsInsideOrOn(Location + Extent))
+        { Error = TEXT("Portal trigger or Arrival player capsule extends outside its room bounds."); return false; }
+        if (World.OverlapBlockingTestByProfile(Location, FQuat::Identity, Capsule->GetCollisionProfileName(), Shape, CapsuleQuery))
+        {
+            TArray<FOverlapResult> Overlaps;
+            World.OverlapMultiByProfile(Overlaps, Location, FQuat::Identity, Capsule->GetCollisionProfileName(), Shape, CapsuleQuery);
+            TArray<FString> Blockers;
+            for (const FOverlapResult& Overlap : Overlaps)
+                if (Overlap.bBlockingHit && Blockers.Num() < 4)
+                    Blockers.Add(FString::Printf(TEXT("%s/%s"), *GetNameSafe(Overlap.GetActor()), *GetNameSafe(Overlap.GetComponent())));
+            Error = FString::Printf(TEXT("Portal %s player capsule overlaps blocking geometry. Location=%s Radius=%.1f HalfHeight=%.1f Blockers=[%s]"),
+                Location.Equals(Activation) ? TEXT("trigger") : TEXT("authored Arrival"), *Location.ToString(), Radius, HalfHeight,
+                *FString::Join(Blockers, TEXT(", ")));
+            return false;
+        }
+    }
+    if (!World.LineTraceSingleByChannel(ArrivalFloor, Feet + FVector(0, 0, 20), Feet - FVector(0, 0, 100),
+        ECC_WorldStatic, FloorQuery) || ArrivalFloor.ImpactNormal.Z < 0.7f
+        || Feet.Z < ArrivalFloor.ImpactPoint.Z - 0.5f || Feet.Z - ArrivalFloor.ImpactPoint.Z > 100.f)
+    { Error = TEXT("Authored portal Arrival has no nearby supporting walkable floor for the player capsule."); return false; }
+    OutPlacement.ActivationLocation = Activation;
+    OutPlacement.ActivationBounds = Portal.Trigger->Bounds.GetBox().ExpandBy(Extent + FVector(2));
+    OutPlacement.ArrivalBounds = FBox(Arrival - Extent - FVector(2), Arrival + Extent + FVector(2));
+    return true;
+}
+
+bool HBDungeonRuntimeValidation::ValidateRandomPortalLinks(const TArray<FHBPrototypeRoom>& Rooms,
+    const TArray<ULevel*>& Levels, int32 PairCount, const TArray<HBPortalPlacement::FSpawnedPair>& Pairs, FString& Error)
+{
+    Error.Reset();
+    if (PairCount < 1 || Pairs.Num() != PairCount || Levels.Num() != Rooms.Num())
+    { Error = TEXT("Random portal generation must contain exactly the requested number of complete pairs."); return false; }
+    TSet<HBPortalPlacement::FPointKey> UsedPoints;
+    TSet<const AHBDungeonPortal*> UsedActors;
+    TArray<HBPortalPlacement::FPlacement> Reservations;
+    for (int32 Index = 0; Index < Pairs.Num(); ++Index)
+    {
+        const auto& Pair = Pairs[Index];
+        AHBDungeonPortal* Portals[2] = {Pair.Floor1.Get(), Pair.Floor2.Get()};
+        const HBPortalPlacement::FPointKey Keys[2] = {Pair.Selection.Floor1, Pair.Selection.Floor2};
+        const HBPortalPlacement::FPlacement Placements[2] = {Pair.Placement1, Pair.Placement2};
+        if (Pair.Selection.PairId != Index) { Error = TEXT("Invalid generation-local portal pair ID."); return false; }
+        for (int32 FloorIndex = 0; FloorIndex < 2; ++FloorIndex)
+        {
+            const auto& Key = Keys[FloorIndex];
+            const AHBDungeonPortal* Portal = Portals[FloorIndex];
+            if (!Rooms.IsValidIndex(Key.RoomId) || Rooms[Key.RoomId].Floor != FloorIndex + 1
+                || Key.PointId.IsNone() || UsedPoints.Contains(Key) || !IsValid(Portal) || Portal->IsActorBeingDestroyed()
+                || UsedActors.Contains(Portal) || !IsValid(Levels[Key.RoomId]) || Portal->GetLevel() != Levels[Key.RoomId]
+                || Portal->GetIsReplicated() || Portal->TargetPortal != Portals[1 - FloorIndex]
+                || !IsValid(Portals[1 - FloorIndex]) || !Portal->ValidateDefinition(Error) || !Placements[FloorIndex].IsValid())
+            { Error = TEXT("Random portal pair has a missing, reused, wrong-floor or incorrectly linked endpoint."); return false; }
+            for (const auto& Reserved : Reservations)
+                if (Reserved.Intersects(Placements[FloorIndex]))
+                { Error = TEXT("Random portal pairs overlap reserved activation or arrival space."); return false; }
+            Reservations.Add(Placements[FloorIndex]);
+            UsedPoints.Add(Key); UsedActors.Add(Portal);
+        }
+    }
+    for (ULevel* Level : Levels)
+        for (AActor* Actor : Level->Actors)
+            if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal) && !Portal->IsActorBeingDestroyed()
+                && (!UsedActors.Contains(Portal) || Portal->GetLevel() != Level))
+            { Error = TEXT("Random mode contains a portal outside its selected pairs."); return false; }
+    return true;
+}
 
 bool HBDungeonRuntimeValidation::ValidateLayoutForLoading(const TArray<FHBPrototypeRoom>& Rooms, FString& Error)
 {

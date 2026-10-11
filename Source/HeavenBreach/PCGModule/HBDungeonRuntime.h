@@ -63,7 +63,7 @@ public:
     /** Fixed mode uses authored room portal IDs. Random mode selects and pairs points across logical floors 1 and 2. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Portals")
     EHBDungeonPortalPlacementMode PortalPlacementMode = EHBDungeonPortalPlacementMode::FixedRoomPortals;
-    /** Portal actor Blueprint spawned at selected points; its Arrival component defines the destination offset and facing. */
+    /** Portal BP grounded above selected floor points. Arrival defines destination XY/facing; height follows its local floor and player capsule. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Portals", meta=(EditCondition="PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints", EditConditionHides))
     TSubclassOf<AHBDungeonPortal> PortalClass;
     /** Total cross-floor pairs, not additional pairs. N pairs spawn 2N portals and require N valid points on each floor. */
@@ -117,7 +117,9 @@ private:
     bool PrepareRoomPlayerStarts(TArray<APlayerStart*>& OutStarts, FString& Error);
     bool SpawnDoorSeals(const FHBPrototypeRoom& Room, const TArray<FHBDungeonConnectorDefinition>& Connectors, FString& Error);
     bool PrepareEncounters(FString& Error);
+    bool PrepareRandomPortals(FString& Error);
     bool CreateDungeonNavigationBounds(FString& Error);
+    bool HasRoomSpawns() const;
     bool IsEncounterNavigationReady() const;
     void SelectExtractionPoints();
     void MarkReady();
@@ -131,6 +133,8 @@ private:
     FVector ActiveDoorSealExtent = FVector::ZeroVector;
     UPROPERTY(Transient) TArray<TObjectPtr<ULevelStreamingDynamic>> Streams;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonPortal>> LinkedPortals;
+    UPROPERTY(Transient) TSubclassOf<AHBDungeonPortal> ActivePortalClass;
+    TArray<HBPortalPlacement::FSpawnedPair> RandomPortalPairs;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonDoorSeal>> Seals;
     UPROPERTY(Transient) TObjectPtr<APlayerStart> StartPoint;
     UPROPERTY(Transient) TObjectPtr<ANavMeshBoundsVolume> DungeonNavigationBounds;

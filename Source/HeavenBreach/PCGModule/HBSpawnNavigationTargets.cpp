@@ -48,6 +48,7 @@ bool HBSpawnNavigationTargets::Resolve(FName AnchorId, const TMap<FName, FVector
 	}
 	for (int32 Index = 0; Index < Entries.Num(); ++Index)
 	{
+		if (!Entries[Index].bUseForNavigation) continue;
 		FHBSpawnNavigationTarget& Target = OutTargets.AddDefaulted_GetRef();
 		Target.Location = Entries[Index].NavigationLocation;
 		Target.EntryIndex = Index;
