@@ -17,8 +17,8 @@
 
 namespace
 {
-	// 액티브 스킬 증강 1개를 검사한다. 이후 마법 스킬 테스트가 같이 쓴다(활 테스트 파일의 같은 이름 헬퍼를 복사했다).
-	[[maybe_unused]] void CheckActiveAugment(FAutomationTestBase& Test, const FHBSkillAugment& Augment, const FGameplayTag Tag, const FGameplayTag Param, const float ParamValue, const TArray<float>& Tiers)
+	// 액티브 스킬 증강 1개를 검사한다. 이후 마법 스킬 테스트가 같이 쓴다(활 테스트 헬퍼와 같은 내용이지만, 유니티 빌드에서 이름이 충돌하지 않게 이름을 바꿨다).
+	[[maybe_unused]] void CheckMagicActiveAugment(FAutomationTestBase& Test, const FHBSkillAugment& Augment, const FGameplayTag Tag, const FGameplayTag Param, const float ParamValue, const TArray<float>& Tiers)
 	{
 		Test.TestEqual(TEXT("증강 태그"), Augment.AugmentTag, Tag);
 		Test.TestFalse(TEXT("이름 있음"), Augment.DisplayName.IsEmpty());
@@ -110,8 +110,8 @@ bool FHBMagicElementalOrbDefaultsTest::RunTest(const FString&)
 	{
 		return true;
 	}
-	CheckActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_ElementalOrb_Power, SkillParamTag::TAG_SkillParam_Damage, 1.15f, { 1.15f, 1.30f, 1.50f });
-	CheckActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_ElementalOrb_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
+	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_ElementalOrb_Power, SkillParamTag::TAG_SkillParam_Damage, 1.15f, { 1.15f, 1.30f, 1.50f });
+	CheckMagicActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_ElementalOrb_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
 	return true;
 }
 
@@ -145,8 +145,8 @@ bool FHBMagicTeleportDefaultsTest::RunTest(const FString&)
 	{
 		return true;
 	}
-	CheckActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_Teleport_Far, SkillParamTag::TAG_SkillParam_Distance, 500.f, { 500.f, 600.f, 700.f });
-	CheckActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_Teleport_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
+	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_Teleport_Far, SkillParamTag::TAG_SkillParam_Distance, 500.f, { 500.f, 600.f, 700.f });
+	CheckMagicActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_Teleport_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
 	return true;
 }
 
@@ -196,8 +196,8 @@ bool FHBMagicFrostFieldDefaultsTest::RunTest(const FString&)
 	{
 		return true;
 	}
-	CheckActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_FrostField_Bitter, SkillParamTag::TAG_SkillParam_Slow, 0.50f, { 0.50f, 0.55f, 0.60f });
-	CheckActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_FrostField_Wide, SkillParamTag::TAG_SkillParam_Radius, 350.f, { 350.f, 400.f, 450.f });
+	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_FrostField_Bitter, SkillParamTag::TAG_SkillParam_Slow, 0.50f, { 0.50f, 0.55f, 0.60f });
+	CheckMagicActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_FrostField_Wide, SkillParamTag::TAG_SkillParam_Radius, 350.f, { 350.f, 400.f, 450.f });
 	return true;
 }
 
@@ -225,8 +225,8 @@ bool FHBMagicManaExplosionDefaultsTest::RunTest(const FString&)
 	{
 		return true;
 	}
-	CheckActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_ManaExplosion_Power, SkillParamTag::TAG_SkillParam_Damage, 1.15f, { 1.15f, 1.30f, 1.50f });
-	CheckActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_ManaExplosion_Wide, SkillParamTag::TAG_SkillParam_Radius, 350.f, { 350.f, 400.f, 450.f });
+	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_ManaExplosion_Power, SkillParamTag::TAG_SkillParam_Damage, 1.15f, { 1.15f, 1.30f, 1.50f });
+	CheckMagicActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_ManaExplosion_Wide, SkillParamTag::TAG_SkillParam_Radius, 350.f, { 350.f, 400.f, 450.f });
 	return true;
 }
 

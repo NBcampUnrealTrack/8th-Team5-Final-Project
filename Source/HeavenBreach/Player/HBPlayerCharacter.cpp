@@ -65,6 +65,9 @@
 #include "Combat/Ability/Magic/HBMagic.h"
 #include "Combat/Ability/Magic/HBPlayerCastGABase.h"
 #include "Core/Tag/Magic/HB_MagicTag.h"
+#include "Core/Tag/Melee/HB_MeleeTag.h"
+#include "Combat/Ability/Melee/HBMelee.h"
+#include "AI/EnemyCharacterBase.h"
 
 
 AHBPlayerCharacter::AHBPlayerCharacter()
@@ -488,6 +491,40 @@ void AHBPlayerCharacter::TryParry()
 	if (!HasShieldEquipped())
 	{
 		return;
+	}
+
+	// 받아치기: 평타 중에도 패링으로 끊고 들어간다. 패링은 State.Attacking 에 막히므로 먼저 평타를 취소한다.
+	// 평타 GA 는 LocalPredicted 라 클라에서 CancelAbilityHandle 하면 EndAbility 가 ActivationOwnedTags 를
+	// 즉시 제거하고 서버로 취소가 복제된다. 그래서 바로 아래 발동 시점에는 태그가 이미 없다.
+	// 패링이 State.Attacking 말고는 막히지 않을 때만 취소한다. 후딜·경직·방어 중 등 어차피 패링이 안 되는 상황에서
+	// 평타만 끊으면 공짜 애니메이션 취소가 된다. 아래 목록은 GA_PlayerParry 의 ActivationBlockedTags(Attacking 제외)와 같게 유지할 것.
+	bool bParryBlockedOtherThanAttack = false;
+	for (const FGameplayTag& BlockTag : { AbilityTag::TAG_State_Dead.GetTag(), StateTag::TAG_State_Staggered.GetTag(),
+		StateTag::TAG_State_BoxInteracting.GetTag(), StateTag::TAG_State_InventoryBusy.GetTag(),
+		StateTag::TAG_State_ParryRecovery.GetTag(), StateTag::TAG_State_Blocking.GetTag() })
+	{
+		if (ASC->HasMatchingGameplayTag(BlockTag))
+		{
+			bParryBlockedOtherThanAttack = true;
+			break;
+		}
+	}
+	// 파손된 방패로는 패링이 발동 직후 끝난다(GA_PlayerParry::ActivateAbility 와 같은 검사).
+	if (!bParryBlockedOtherThanAttack)
+	{
+		if (const UEquipmentComponent* EquipComp = GetEquipment())
+		{
+			bParryBlockedOtherThanAttack = EquipComp->IsEquippedItemBroken(EEquipSlotType::SecondaryEquip);
+		}
+	}
+
+	if (!bParryBlockedOtherThanAttack && ASC->HasMatchingGameplayTag(MeleeTag::TAG_State_Counter))
+	{
+		if (UGA_PlayerAttackRE* CurrentAttack = UGA_PlayerAttackRE::FindActive(ASC))
+		{
+			ASC->CancelAbilityHandle(CurrentAttack->GetCurrentAbilitySpecHandle());
+			UE_LOG(LogTemp, Log, TEXT("[MeleeSkill] 받아치기: 평타 취소 후 패링"));
+		}
 	}
 
 	StopSprint();
@@ -1340,6 +1377,19 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 	if (!bTargetKilled)
 	{
 		return;
+	}
+
+	// 피의 갈증: 적 처치 시 최대 체력 비율 회복. 서버에서만 호출되는 경로다.
+	if (Cast<AEnemyCharacterBase>(Target))
+	{
+		const float BloodRatio = HBMelee::BloodthirstHealRatio(
+			ASC->HasMatchingGameplayTag(MeleeTag::TAG_State_Bloodthirst),
+			GetAugmentTier(MeleeTag::TAG_Augment_Passive_Bloodthirst_Boost));
+		if (BloodRatio > 0.f)
+		{
+			ReceiveHeal(Attributes->GetPlayer_MaxHP() * BloodRatio);
+			UE_LOG(LogTemp, Log, TEXT("[MeleeSkill] 피의 갈증: 처치 회복 %.0f%%"), BloodRatio * 100.f);
+		}
 	}
 
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_CombatRecovery))
@@ -2316,8 +2366,14 @@ void AHBPlayerCharacter::UpdateManaResource()
 
 	// 실제로 깎이는 게 있을 때만 "마나를 쓰는 중" 이다.
 	// 전투 호흡으로 달리기가 공짜면, 달리는 동안에도 회복되고 마나 0 에서 멈추지도 않는다.
+	// 견고한 자세: 홀드 방어 초당 소모에 배수를 곱한다.
+	const float BlockCostScale = bBlocking
+		? HBMelee::SteadyStanceMultiplier(
+			ASC->HasMatchingGameplayTag(MeleeTag::TAG_State_SteadyStance),
+			GetAugmentTier(MeleeTag::TAG_Augment_Passive_SteadyStance_Boost))
+		: 1.f;
 	const float CostPerSecond = (bIsSprinting ? GetSprintManaCostPerSecond() : 0.f)
-								+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond) : 0.f);
+								+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond * BlockCostScale) : 0.f);
 
 	if (CostPerSecond > 0.f)
 	{

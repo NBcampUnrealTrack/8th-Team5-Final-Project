@@ -360,3 +360,39 @@ class HEAVENBREACH_API UGE_GlassCannonAugment : public UGameplayEffect
 public:
 	UGE_GlassCannonAugment();
 };
+
+/** 패시브 "받아치기". State.Melee.Counter 태그만 부여한다(평타 중 패링은 캐릭터 TryParry 가 읽는다) */
+UCLASS()
+class HEAVENBREACH_API UGE_CounterPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_CounterPassive();
+};
+
+/** 패시브 "피의 갈증". State.Melee.Bloodthirst 태그만 부여한다(처치 회복 비율은 코드가 읽는다) */
+UCLASS()
+class HEAVENBREACH_API UGE_BloodthirstPassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_BloodthirstPassive();
+};
+
+/** 패시브 "견고한 자세". State.Melee.SteadyStance 태그만 부여한다(홀드 방어 스태미나 배율은 코드가 읽는다) */
+UCLASS()
+class HEAVENBREACH_API UGE_SteadyStancePassive : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_SteadyStancePassive();
+};
+
+/** 근접 "회전 베기" 쿨다운. 시간은 SetByCaller.Cooldown */
+UCLASS()
+class HEAVENBREACH_API UGE_MeleeWhirlwindCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_MeleeWhirlwindCooldown();
+};

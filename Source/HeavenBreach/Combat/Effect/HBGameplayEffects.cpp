@@ -7,6 +7,7 @@
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Archer/HB_ArcherTag.h"
 #include "Core/Tag/Magic/HB_MagicTag.h"
+#include "Core/Tag/Melee/HB_MeleeTag.h"
 #include "AI/GAS/EnemyAttributeSetBase.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
 
@@ -354,4 +355,35 @@ UGE_GlassCannonAugment::UGE_GlassCannonAugment()
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
 	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SkillDamageMultiplierAttribute(),
 		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+}
+
+UGE_CounterPassive::UGE_CounterPassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MeleeTag::TAG_State_Counter);
+}
+
+UGE_BloodthirstPassive::UGE_BloodthirstPassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MeleeTag::TAG_State_Bloodthirst);
+}
+
+UGE_SteadyStancePassive::UGE_SteadyStancePassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MeleeTag::TAG_State_SteadyStance);
+}
+
+UGE_MeleeWhirlwindCooldown::UGE_MeleeWhirlwindCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, MeleeTag::TAG_Cooldown_Whirlwind);
 }
