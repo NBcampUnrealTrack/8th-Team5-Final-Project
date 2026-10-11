@@ -39,9 +39,9 @@ bool FHBRoomProtocolTest::RunTest(const FString&)
 }
 
 #if WITH_EDITOR
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBGuestReadyTest, "HeavenBreach.Multiplayer.GuestReadyPolicy",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBHostStartPolicyTest, "HeavenBreach.Multiplayer.HostStartPolicy",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FHBGuestReadyTest::RunTest(const FString&)
+bool FHBHostStartPolicyTest::RunTest(const FString&)
 {
     const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(false).CreateNavigation(false).CreateAISystem(false);
     UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, NAME_None, nullptr, true, ERHIFeatureLevel::Num, &Init);
@@ -50,26 +50,27 @@ bool FHBGuestReadyTest::RunTest(const FString&)
     auto* Guest = World->SpawnActor<AHBLobbyPlayerState>();
     State->HostPlayerState = Host;
     State->PlayerArray = {Host};
-    TestTrue(TEXT("A lone host can start without guests or host Ready"), State->AreGuestsReady(2));
-    TestTrue(TEXT("Solo start works with an existing higher minimum override"), State->AreGuestsReady(4));
+    TestTrue(TEXT("A lone host can start without Ready"), State->HasValidStartRoster());
     State->PlayerArray.Add(Guest);
-    TestFalse(TEXT("Unready guest blocks start"), State->AreGuestsReady(2));
+    TestTrue(TEXT("An unready guest never blocks host start"), State->HasValidStartRoster());
     Guest->SetReady(true);
     TestFalse(TEXT("Host never needs to toggle Ready"), Host->IsReady());
-    TestTrue(TEXT("Only guest readiness is required"), State->AreGuestsReady(2));
-    TestFalse(TEXT("A multiplayer roster still respects a higher minimum"), State->AreGuestsReady(4));
+    TestTrue(TEXT("Legacy guest Ready does not change start eligibility"), State->HasValidStartRoster());
     Guest->SetReady(false);
-    TestFalse(TEXT("Ready cancellation blocks start"), State->AreGuestsReady(2));
-    Guest->SetReady(true);
-    for (int32 Index = 0; Index < 3; ++Index)
+    TestTrue(TEXT("Legacy Ready cancellation never blocks host start"), State->HasValidStartRoster());
+    for (int32 Index = 0; Index < 2; ++Index)
     {
-        auto* Extra = World->SpawnActor<AHBLobbyPlayerState>(); Extra->SetReady(true); State->PlayerArray.Add(Extra);
+        State->PlayerArray.Add(World->SpawnActor<AHBLobbyPlayerState>());
     }
-    TestFalse(TEXT("More than four players cannot start"), State->AreGuestsReady(2));
+    TestTrue(TEXT("A full four-player roster can start without anyone Ready"), State->HasValidStartRoster());
+    State->PlayerArray.Add(World->SpawnActor<AHBLobbyPlayerState>());
+    TestFalse(TEXT("More than four players cannot start"), State->HasValidStartRoster());
     State->PlayerArray = {Host};
-    TestTrue(TEXT("Host can start alone after guests leave"), State->AreGuestsReady(2));
+    TestTrue(TEXT("Host can start alone after guests leave"), State->HasValidStartRoster());
     State->PlayerArray = {Guest};
-    TestFalse(TEXT("Host must remain in the roster"), State->AreGuestsReady(1));
+    TestFalse(TEXT("Host must remain in the roster"), State->HasValidStartRoster());
+    State->HostPlayerState = nullptr;
+    TestFalse(TEXT("An absent host cannot start"), State->HasValidStartRoster());
     World->DestroyWorld(false);
     return true;
 }

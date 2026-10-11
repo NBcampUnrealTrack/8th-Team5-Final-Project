@@ -23,8 +23,14 @@
 #include "Algo/Reverse.h"
 #if WITH_EDITOR
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/Button.h"
+#include "Blueprint/WidgetTree.h"
+#include "Core/GameFlow/Lobby/HBLobbyPlayerController.h"
+#include "UI/Lobby/HBLobbyWidget.h"
 #include "Engine/GameInstance.h"
 #include "EngineUtils.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Settings/LevelEditorPlaySettings.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "UObject/UnrealType.h"
@@ -217,6 +223,7 @@ namespace
 	class FHBLobbySeatReplication : public IAutomationLatentCommand
 	{
 		FAutomationTestBase* Test;
+		int32 PlayerCount;
 		double Started = FPlatformTime::Seconds();
 		bool bGuestLeft = false;
 		TWeakObjectPtr<UGameInstance> Server;
@@ -253,22 +260,22 @@ namespace
 		}
 
 	public:
-		explicit FHBLobbySeatReplication(FAutomationTestBase* InTest) : Test(InTest) {}
+		FHBLobbySeatReplication(FAutomationTestBase* InTest, int32 InPlayerCount) : Test(InTest), PlayerCount(InPlayerCount) {}
 		virtual bool Update() override
 		{
 			if (FPlatformTime::Seconds() - Started > 60.)
 			{
 				Test->AddError(bGuestLeft ? TEXT("Lobby seats did not compact and replicate after guest logout.")
-					: TEXT("Four-player lobby pawns, meshes, ownership, camera or seats did not replicate."));
+					: TEXT("Lobby pawns, meshes, ownership, camera or seats did not replicate."));
 				return true;
 			}
 			if (bGuestLeft)
 			{
-				if (!Server.IsValid() || !SeatsArrived(Server->GetWorld(), 3)) return false;
+				if (!Server.IsValid() || !SeatsArrived(Server->GetWorld(), PlayerCount - 1)) return false;
 				for (const auto& Client : RemainingClients)
-					if (!Client.IsValid() || !SeatsArrived(Client->GetWorld(), 3)) return false;
+					if (!Client.IsValid() || !SeatsArrived(Client->GetWorld(), PlayerCount - 1)) return false;
 				Test->TestFalse(TEXT("Actual Logout destroys the leaving guest's display pawn"), LeavingPawn.IsValid());
-				Test->AddInfo(TEXT("Listen host and three local IP clients displayed identical job meshes and seats; actual Logout compacted and replicated seats to both remaining clients."));
+				Test->AddInfo(FString::Printf(TEXT("%d-player local IP listen lobby replicated pawns, ownership, camera and seats; guest Logout left %d players with matching seats."), PlayerCount, PlayerCount - 1));
 				return true;
 			}
 			TArray<UWorld*> Worlds;
@@ -279,16 +286,39 @@ namespace
 					Worlds.Add(Context.World());
 					if (Context.World()->GetNetMode() == NM_ListenServer) HostWorld = Context.World();
 				}
-			if (Worlds.Num() != 4 || !HostWorld) return false;
-			for (UWorld* World : Worlds) if (!SeatsArrived(World, 4)) return false;
+			if (Worlds.Num() != PlayerCount || !HostWorld) return false;
+			for (UWorld* World : Worlds) if (!SeatsArrived(World, PlayerCount)) return false;
+			if (PlayerCount == 2)
+			{
+				auto* Controller = Cast<AHBLobbyPlayerController>(HostWorld->GetFirstPlayerController());
+				auto* ContentProperty = Controller ? FindFProperty<FObjectPropertyBase>(Controller->GetClass(), TEXT("LobbyContent")) : nullptr;
+				auto* Lobby = ContentProperty ? Cast<UHBLobbyWidget>(ContentProperty->GetObjectPropertyValue_InContainer(Controller)) : nullptr;
+				if (!Lobby || !Lobby->WidgetTree) return false;
+				auto* StartModule = Cast<UUserWidget>(Lobby->WidgetTree->FindWidget(TEXT("StartMatchButtonModule")));
+				auto* Start = StartModule && StartModule->WidgetTree ? Cast<UButton>(StartModule->WidgetTree->FindWidget(TEXT("Button_Action"))) : nullptr;
+				if (!Start) return false;
+				auto* State = HostWorld->GetGameState<AHBLobbyGameState>();
+				Lobby->RefreshLobbyActions();
+				Test->TestTrue(TEXT("Two-player roster is valid without guest Ready"), State->HasValidStartRoster());
+				for (APlayerState* Player : State->PlayerArray)
+					Test->TestFalse(TEXT("Neither player needs to set Ready"), CastChecked<AHBLobbyPlayerState>(Player)->IsReady());
+				Test->TestTrue(TEXT("Production start action is bound"), Lobby->OnStartRequested.IsBound());
+				Test->TestFalse(TEXT("Local IP PIE has no Steam lobby host"), Lobby->IsLocalLobbyHost());
+				Test->TestFalse(TEXT("Start stays disabled without a hosted Steam session"), Start->GetIsEnabled());
+				Test->TestFalse(TEXT("Controller start request is rejected without a hosted Steam session"), Controller->RequestStartDedicatedMatch());
+				if (auto* Ready = Lobby->WidgetTree->FindWidget(TEXT("ReadyButtonModule")))
+					Test->TestEqual(TEXT("Ready module is hidden"), Ready->GetVisibility(), ESlateVisibility::Collapsed);
+				Test->AddInfo(TEXT("Reproduced disabled Start in two-player single-process listen PIE: roster is valid and both players are unready, but no Steam hosted session exists."));
+			}
+			const int32 LeavingSeat = FMath::Min(2, PlayerCount - 1);
 			APlayerController* Leaving = nullptr;
 			for (FConstPlayerControllerIterator It = HostWorld->GetPlayerControllerIterator(); It; ++It)
-				if (auto* Player = It->Get()->GetPlayerState<AHBLobbyPlayerState>(); Player && Player->GetLobbySeatIndex() == 2)
+				if (auto* Player = It->Get()->GetPlayerState<AHBLobbyPlayerState>(); Player && Player->GetLobbySeatIndex() == LeavingSeat)
 					Leaving = It->Get();
 			if (!Leaving) return false;
 			Server = HostWorld->GetGameInstance();
 			for (UWorld* World : Worlds)
-				if (World != HostWorld && World->GetFirstPlayerController()->GetPlayerState<AHBLobbyPlayerState>()->GetLobbySeatIndex() != 2)
+				if (World != HostWorld && World->GetFirstPlayerController()->GetPlayerState<AHBLobbyPlayerState>()->GetLobbySeatIndex() != LeavingSeat)
 					RemainingClients.Add(World->GetGameInstance());
 			LeavingPawn = Cast<AHBPlayerCharacter>(Leaving->GetPawn());
 			// A normal local map departure closes the connection and invokes the server's actual Logout.
@@ -306,6 +336,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBLobbySeatReplicationTest, "HeavenBreach.Mult
 bool FHBLobbySeatReplicationTest::RunTest(const FString&)
 {
 	// This fixture uses local IP only. Production continues to use SteamSockets unchanged.
+	int32 PlayerCount = 4;
+	FParse::Value(FCommandLine::Get(), TEXT("HBLobbyTestPlayers="), PlayerCount);
+	PlayerCount = FMath::Clamp(PlayerCount, 2, 4);
 	EPlayNetMode PreviousMode;
 	int32 PreviousClients;
 	bool PreviousSingleProcess;
@@ -316,7 +349,7 @@ bool FHBLobbySeatReplicationTest::RunTest(const FString&)
 	Settings->GetRunUnderOneProcess(PreviousSingleProcess);
 	Settings->GetServerPort(PreviousPort);
 	Settings->SetPlayNetMode(EPlayNetMode::PIE_ListenServer);
-	Settings->SetPlayNumberOfClients(4);
+	Settings->SetPlayNumberOfClients(PlayerCount);
 	Settings->SetRunUnderOneProcess(true);
 	Settings->SetServerPort(19877);
 	const auto PreviousDrivers = GEngine->NetDriverDefinitions;
@@ -331,7 +364,7 @@ bool FHBLobbySeatReplicationTest::RunTest(const FString&)
 	});
 	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(TEXT("/Game/Levels/Lobby/L_Lobby")));
 	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
-	FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBLobbySeatReplication>(this));
+	FAutomationTestFramework::Get().EnqueueLatentCommand(MakeShared<FHBLobbySeatReplication>(this, PlayerCount));
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([PreviousMode, PreviousClients, PreviousSingleProcess, PreviousPort, PreviousDrivers, Initialization]()
 	{

@@ -25,7 +25,7 @@ public:
 	TObjectPtr<AHBLobbyPlayerState> HostPlayerState;
 	UPROPERTY(Replicated, BlueprintReadOnly, Category="Lobby")
 	FString RoomName;
-	bool AreGuestsReady(int32 MinimumPlayers) const;
+	bool HasValidStartRoster() const;
 	bool CanStartMatch() const {return bCanStartMatch;}
 	
 	void SetCanStartMatch(bool bNewCanStartMatch);

@@ -61,9 +61,6 @@ protected:
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Lobby")
-	int32 RequiredReadyPlayerCount = 2;
-	
 	/** Match destination configured in the lobby GameMode Blueprint. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|Travel")
 	TSoftObjectPtr<UWorld> GameplayMap;
@@ -98,6 +95,6 @@ private:
 	void InitializeLobbyLoadout(APlayerController* NewPlayer);
 
 	void ResetStartConfirmations();
-	bool AreAllPlayersReadyAndConfirmed() const;
+	bool IsHostStartConfirmed() const;
 
 };

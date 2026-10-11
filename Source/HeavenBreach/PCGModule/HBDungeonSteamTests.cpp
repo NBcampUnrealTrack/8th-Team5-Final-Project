@@ -285,7 +285,9 @@ namespace
 					FriendsPanel = LobbyUI ? LobbyUI->GetFriendsPanel() : nullptr;
 					if (!LobbyUI || !StartButton || !FriendsPanel)
 					{ Test->AddError(TEXT("Production lobby HUD is missing its lobby, start button or friends panel.")); return true; }
-					Test->TestTrue(TEXT("Production lobby actions are connected"), LobbyUI->OnStartRequested.IsBound() && LobbyUI->OnReadyRequested.IsBound());
+					Test->TestTrue(TEXT("Production lobby host start is connected"), LobbyUI->OnStartRequested.IsBound());
+					if (UWidget* ReadyModule = LobbyUI->GetWidgetFromName(TEXT("ReadyButtonModule")))
+						Test->TestEqual(TEXT("Production Ready button is retired"), ReadyModule->GetVisibility(), ESlateVisibility::Collapsed);
 					Test->TestTrue(TEXT("Production friend actions are connected"), FriendsPanel->OnRefreshRequested.IsBound() && FriendsPanel->OnInviteRequested.IsBound() && FriendsPanel->OnJoinRequested.IsBound());
 				}
                 if (Fixture->bAutomaticHub)
