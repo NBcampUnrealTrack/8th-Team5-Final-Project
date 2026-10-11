@@ -12,6 +12,7 @@ class UWidget;
 class UWidgetSwitcher;
 class UHBSettingsWidget;
 class UHBConfirmDialogWidget;
+class AHB_PlayerState;
 
 UENUM(BlueprintType)
 enum class EHBLobbyHUDMenu : uint8
@@ -138,14 +139,23 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Lobby HUD")
 	void OnLobbyMenuSelected(EHBLobbyHUDMenu NewMenu);
 
+	/** 기존 개인 메뉴를 소유 PlayerState가 준비된 뒤 초기화한다. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Lobby HUD")
+	void InitializePlayerMenus();
+
 public:
 	UWidget* GetContentWidget(EHBLobbyHUDMenu Menu) const;
+
+	/** 기존 컨트롤러 갱신 루프에서 호출하며 같은 PlayerState에는 한 번만 연결한다. */
+	bool RefreshPlayerMenus();
 
 	/** Lets a nested content widget (e.g. the character selection screen) switch the HUD back to a given menu without Blueprint wiring. */
 	UFUNCTION(BlueprintCallable, Category = "Lobby HUD")
 	void SwitchToMenu(EHBLobbyHUDMenu NewMenu) { SelectMenu(NewMenu); }
 
 private:
+	TWeakObjectPtr<AHB_PlayerState> InitializedPlayerState;
+
 	UFUNCTION()
 	void HandleLobbyClicked();
 

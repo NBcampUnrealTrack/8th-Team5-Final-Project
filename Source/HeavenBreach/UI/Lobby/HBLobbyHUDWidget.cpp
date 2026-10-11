@@ -11,6 +11,12 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
+#include "Player/PlayerState/HB_PlayerState.h"
+#include "Inventory/StashComponent.h"
+#include "Inventory/InventoryComponent.h"
+#include "Equipment/EquipmentComponent.h"
+#include "Shop/ShopComponent.h"
+#include "Craft/CraftComponent.h"
 
 namespace
 {
@@ -153,6 +159,23 @@ void UHBLobbyHUDWidget::NativeConstruct()
 		Button_Craft->OnClicked.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleCraftClicked);
 	}
 	SelectMenu(EHBLobbyHUDMenu::Lobby);
+	RefreshPlayerMenus();
+}
+
+bool UHBLobbyHUDWidget::RefreshPlayerMenus()
+{
+	const auto* Player = GetOwningPlayer();
+	auto* State = GetOwningPlayerState<AHB_PlayerState>();
+	if (!Player || !Player->IsLocalController() || !IsValid(State)
+		|| State->GetOwner() != Player || !State->HasActorBegunPlay()) return false;
+	if (InitializedPlayerState == State) return true;
+	if (!IsValid(State->GetInventory()) || !IsValid(State->GetStash())
+		|| !IsValid(State->GetEquipment()) || !IsValid(State->GetShop())
+		|| (Widget_Craft && !IsValid(State->Craft))) return false;
+
+	InitializePlayerMenus();
+	InitializedPlayerState = State;
+	return true;
 }
 
 FReply UHBLobbyHUDWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
@@ -228,6 +251,7 @@ void UHBLobbyHUDWidget::HandleQuitConfirmed()
 
 void UHBLobbyHUDWidget::NativeDestruct()
 {
+	InitializedPlayerState.Reset();
 	if (QuitDialog)
 	{
 		QuitDialog->OnConfirmed.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleQuitConfirmed);

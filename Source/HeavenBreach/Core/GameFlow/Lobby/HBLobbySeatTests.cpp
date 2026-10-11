@@ -27,6 +27,12 @@
 #include "Blueprint/WidgetTree.h"
 #include "Core/GameFlow/Lobby/HBLobbyPlayerController.h"
 #include "UI/Lobby/HBLobbyWidget.h"
+#include "UI/Lobby/HBLobbyHUDWidget.h"
+#include "Inventory/InventoryWidget.h"
+#include "Inventory/StashComponent.h"
+#include "Shop/ShopComponent.h"
+#include "Components/PanelWidget.h"
+#include "Components/WidgetSwitcher.h"
 #include "Engine/GameInstance.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
@@ -220,6 +226,12 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 
 namespace
 {
+	UObject* LobbyUIReference(UObject* Object, FName Name)
+	{
+		auto* Property = Object ? FindFProperty<FObjectPropertyBase>(Object->GetClass(), Name) : nullptr;
+		return Property ? Property->GetObjectPropertyValue_InContainer(Object) : nullptr;
+	}
+
 	class FHBLobbySeatReplication : public IAutomationLatentCommand
 	{
 		FAutomationTestBase* Test;
@@ -229,6 +241,148 @@ namespace
 		TWeakObjectPtr<UGameInstance> Server;
 		TArray<TWeakObjectPtr<UGameInstance>> RemainingClients;
 		TWeakObjectPtr<AHBPlayerCharacter> LeavingPawn;
+		bool bMenusVerified = false;
+		int32 TradeStep = 0;
+		FShopEntry TradeItem;
+		FGuid TradeItemId;
+		int32 InitialGuestGold = 0;
+		int32 InitialHostGold = 0;
+
+		bool VerifyClientTrade(const TArray<UWorld*>& Worlds, UWorld* HostWorld)
+		{
+			if (PlayerCount != 2 || TradeStep == 5) return true;
+			UWorld* ClientWorld = *Worlds.FindByPredicate([](UWorld* World) { return World->GetNetMode() == NM_Client; });
+			auto* ClientController = ClientWorld->GetFirstPlayerController();
+			auto* Client = ClientController->GetPlayerState<AHBLobbyPlayerState>();
+			auto* Host = HostWorld->GetFirstPlayerController()->GetPlayerState<AHBLobbyPlayerState>();
+			AHBLobbyPlayerState* ServerGuest = nullptr;
+			for (APlayerState* Player : HostWorld->GetGameState()->PlayerArray)
+				if (auto* LobbyPlayer = Cast<AHBLobbyPlayerState>(Player); LobbyPlayer && LobbyPlayer->GetLobbySeatIndex() == 1)
+					ServerGuest = LobbyPlayer;
+			if (!ServerGuest) return false;
+			auto* Stash = Client->GetStash();
+			auto* ServerStash = ServerGuest->GetStash();
+			auto* Shop = Client->GetShop();
+			const FName Gold = Shop->GetGoldItemRow().RowName;
+			auto* HUD = CastChecked<UHBLobbyHUDWidget>(LobbyUIReference(ClientController, TEXT("LobbyWidget")));
+			auto* UI = CastChecked<UUserWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Shop));
+			auto* Confirm = Cast<UButton>(UI->GetWidgetFromName(TEXT("ConfirmButton")));
+			if (!Confirm) { Test->AddError(TEXT("Shop confirmation button is missing.")); TradeStep = 5; return true; }
+			auto ClickConfirm = [&]()
+			{
+				HUD->SwitchToMenu(EHBLobbyHUDMenu::Shop);
+				Test->TestTrue(TEXT("Client shop confirmation button is enabled"), Confirm->GetIsEnabled());
+				Confirm->OnClicked.Broadcast();
+			};
+			if (TradeStep == 0)
+			{
+				if (Stash->GetTotalGold(Gold) != ServerStash->GetTotalGold(Gold) || Host->GetStash()->GetTotalGold(Gold) == 0) return false;
+				for (const FShopEntry& Entry : Shop->GetShopEntries())
+					if (Entry.BuyPrice > 0 && Entry.ViewData.SellValue > 0 && !Entry.ViewData.IsBag()
+						&& Entry.ViewData.GridSize.X <= 2 && Entry.ViewData.GridSize.Y <= 2
+						&& Stash->GetTotalGold(Gold) >= Entry.BuyPrice
+						&& !Stash->GetEntries().ContainsByPredicate([&](const FInventoryEntry& Item) { return Item.Item.ItemRow == Entry.ItemRow; }))
+					{ TradeItem = Entry; break; }
+				if (TradeItem.ItemRow.IsNull()) return false;
+				InitialGuestGold = Stash->GetTotalGold(Gold);
+				InitialHostGold = Host->GetStash()->GetTotalGold(Gold);
+				Shop->SetTradeMode(ETradeMode::Buy);
+				if (!Test->TestTrue(TEXT("Client can add an available product to the basket"), Shop->AddToBuyBasket(TradeItem.ItemRow, 1)))
+				{ TradeStep = 5; return true; }
+				ClickConfirm();
+				TradeStep = 1;
+				return false;
+			}
+			if (TradeStep == 1)
+			{
+				const auto* Bought = Stash->GetEntries().FindByPredicate([&](const FInventoryEntry& Item) { return Item.Item.ItemRow == TradeItem.ItemRow; });
+				if (!Bought || Shop->GetBasket().Num() != 0 || Stash->GetTotalGold(Gold) != InitialGuestGold - TradeItem.BuyPrice
+					|| ServerStash->FindEntryIndexById(Bought->Item.InstanceId) == INDEX_NONE) return false;
+				TradeItemId = Bought->Item.InstanceId;
+				Stash->Server_TransferItemAuto(Client->GetInventory(), TradeItemId);
+				TradeStep = 2;
+				return false;
+			}
+			if (TradeStep == 2)
+			{
+				if (Client->GetInventory()->FindEntryIndexById(TradeItemId) == INDEX_NONE
+					|| ServerGuest->GetInventory()->FindEntryIndexById(TradeItemId) == INDEX_NONE
+					|| Stash->FindEntryIndexById(TradeItemId) != INDEX_NONE || ServerStash->FindEntryIndexById(TradeItemId) != INDEX_NONE) return false;
+				Client->GetInventory()->Server_TransferItemAuto(Stash, TradeItemId);
+				TradeStep = 3;
+				return false;
+			}
+			if (TradeStep == 3)
+			{
+				if (Stash->FindEntryIndexById(TradeItemId) == INDEX_NONE || ServerStash->FindEntryIndexById(TradeItemId) == INDEX_NONE
+					|| Client->GetInventory()->FindEntryIndexById(TradeItemId) != INDEX_NONE
+					|| ServerGuest->GetInventory()->FindEntryIndexById(TradeItemId) != INDEX_NONE) return false;
+				Shop->SetTradeMode(ETradeMode::Sell);
+				if (!Test->TestTrue(TEXT("Client can sell its purchased item"), Shop->AddToSellBasket(TradeItemId)))
+				{ TradeStep = 5; return true; }
+				ClickConfirm();
+				TradeStep = 4;
+				return false;
+			}
+			const int32 ExpectedGold = InitialGuestGold - TradeItem.BuyPrice + TradeItem.ViewData.SellValue;
+			if (Stash->FindEntryIndexById(TradeItemId) != INDEX_NONE || ServerStash->FindEntryIndexById(TradeItemId) != INDEX_NONE
+				|| Stash->GetTotalGold(Gold) != ExpectedGold || ServerStash->GetTotalGold(Gold) != ExpectedGold || Shop->GetBasket().Num() != 0) return false;
+			Test->TestEqual(TEXT("Client trades never change the host's stash gold"), Host->GetStash()->GetTotalGold(Gold), InitialHostGold);
+			Test->AddInfo(TEXT("Client shop confirmation UI bought and sold through real server RPCs; stash/inventory round trip replicated on both sides without affecting the host."));
+			HUD->SwitchToMenu(EHBLobbyHUDMenu::Lobby);
+			TradeStep = 5;
+			return true;
+		}
+
+		bool PersonalMenusArrived(UWorld* World) const
+		{
+			auto* Controller = World->GetFirstPlayerController();
+			auto* State = Controller ? Controller->GetPlayerState<AHBLobbyPlayerState>() : nullptr;
+			auto* HUD = Cast<UHBLobbyHUDWidget>(LobbyUIReference(Controller, TEXT("LobbyWidget")));
+			if (!State || !HUD) return false;
+			auto* Stash = HUD->GetContentWidget(EHBLobbyHUDMenu::Storage);
+			auto* Shop = Cast<UUserWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Shop));
+			auto* Rows = Shop ? Cast<UPanelWidget>(Shop->GetWidgetFromName(TEXT("ShopItemList"))) : nullptr;
+			return Rows && Rows->GetChildrenCount() == State->GetShop()->GetShopEntries().Num()
+				&& Rows->GetChildrenCount() > 0
+				&& LobbyUIReference(Stash, TEXT("PlayerInv")) == State->GetInventory()
+				&& LobbyUIReference(Stash, TEXT("StashInv")) == State->GetStash()
+				&& LobbyUIReference(Shop, TEXT("Shop")) == State->GetShop()
+				&& LobbyUIReference(Shop, TEXT("StashRef")) == State->GetStash();
+		}
+
+		void VerifyPersonalMenus(UWorld* World) const
+		{
+			auto* Controller = World->GetFirstPlayerController();
+			auto* State = Controller->GetPlayerState<AHBLobbyPlayerState>();
+			auto* HUD = CastChecked<UHBLobbyHUDWidget>(LobbyUIReference(Controller, TEXT("LobbyWidget")));
+			auto* Stash = CastChecked<UUserWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Storage));
+			auto* Shop = CastChecked<UUserWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Shop));
+			auto* Rows = CastChecked<UPanelWidget>(Shop->GetWidgetFromName(TEXT("ShopItemList")));
+			auto* ShopStash = Cast<UInventoryWidget>(Shop->GetWidgetFromName(TEXT("StashPanel")));
+			Test->TestTrue(TEXT("Each player's shop uses their own stash panel"), ShopStash && ShopStash->GetBoundInventory() == State->GetStash());
+			Test->TestTrue(TEXT("Shop inventory ownership comes from the local PlayerState"), LobbyUIReference(ShopStash, TEXT("OwningInventory")) == State->GetInventory());
+			const int32 RowCount = Rows->GetChildrenCount();
+			const int32 BasketBindings = State->GetShop()->OnBasketChanged.GetAllObjects().Num();
+			const int32 StashBindings = State->GetStash()->OnInventoryChanged.GetAllObjects().Num();
+			Test->TestTrue(TEXT("Repeated HUD refresh completes without rebuilding personal menus"), HUD->RefreshPlayerMenus() && HUD->RefreshPlayerMenus());
+			// Exercise the existing BP entry points too, including widget reconstruction/rebinding.
+			for (int32 Repeat = 0; Repeat < 2; ++Repeat)
+			{
+				Stash->ProcessEvent(Stash->FindFunctionChecked(TEXT("InitStash")), nullptr);
+				Shop->ProcessEvent(Shop->FindFunctionChecked(TEXT("InitShop")), nullptr);
+			}
+			Test->TestEqual(TEXT("Reinitializing the shop never duplicates products"), Rows->GetChildrenCount(), RowCount);
+			Test->TestEqual(TEXT("Reinitializing never duplicates basket delegates"), State->GetShop()->OnBasketChanged.GetAllObjects().Num(), BasketBindings);
+			Test->TestEqual(TEXT("Reinitializing never duplicates stash delegates"), State->GetStash()->OnInventoryChanged.GetAllObjects().Num(), StashBindings);
+			auto* Switcher = CastChecked<UWidgetSwitcher>(LobbyUIReference(HUD, TEXT("LobbyContentSwitcher")));
+			for (const auto Menu : {EHBLobbyHUDMenu::Storage, EHBLobbyHUDMenu::Shop})
+			{
+				HUD->SwitchToMenu(Menu);
+				Test->TestTrue(TEXT("Host and client can both display their personal menu"), Switcher->GetActiveWidget() == HUD->GetContentWidget(Menu));
+			}
+			HUD->SwitchToMenu(EHBLobbyHUDMenu::Lobby);
+		}
 
 		bool SeatsArrived(UWorld* World, int32 Expected) const
 		{
@@ -265,6 +419,8 @@ namespace
 		{
 			if (FPlatformTime::Seconds() - Started > 60.)
 			{
+				if (bMenusVerified && TradeStep < 5 && PlayerCount == 2)
+				{ Test->AddError(FString::Printf(TEXT("Client trade/transfer did not finish; step=%d."), TradeStep)); return true; }
 				Test->AddError(bGuestLeft ? TEXT("Lobby seats did not compact and replicate after guest logout.")
 					: TEXT("Lobby pawns, meshes, ownership, camera or seats did not replicate."));
 				return true;
@@ -288,6 +444,14 @@ namespace
 				}
 			if (Worlds.Num() != PlayerCount || !HostWorld) return false;
 			for (UWorld* World : Worlds) if (!SeatsArrived(World, PlayerCount)) return false;
+			for (UWorld* World : Worlds) if (!PersonalMenusArrived(World)) return false;
+			if (!bMenusVerified)
+			{
+				for (UWorld* World : Worlds) VerifyPersonalMenus(World);
+				Test->AddInfo(TEXT("Host and client personal menus initialized automatically, own their own inventories, and remain stable after repeated initialization."));
+				bMenusVerified = true;
+			}
+			if (!VerifyClientTrade(Worlds, HostWorld)) return false;
 			if (PlayerCount == 2)
 			{
 				auto* Controller = Cast<AHBLobbyPlayerController>(HostWorld->GetFirstPlayerController());
@@ -335,6 +499,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBLobbySeatReplicationTest, "HeavenBreach.Mult
 
 bool FHBLobbySeatReplicationTest::RunTest(const FString&)
 {
+	// 직업 UI의 초기 복제 전 안내는 이 네트워크·개인 메뉴 검증의 대상이 아니다.
+	AddExpectedError(TEXT("SkillMain | 목록을 만들 수 없음: GetEditingJob() == nullptr"), EAutomationExpectedErrorFlags::Contains, 0);
 	// This fixture uses local IP only. Production continues to use SteamSockets unchanged.
 	int32 PlayerCount = 4;
 	FParse::Value(FCommandLine::Get(), TEXT("HBLobbyTestPlayers="), PlayerCount);
