@@ -1,5 +1,6 @@
 #include "PCGModule/HBDungeonRuleLayout.h"
 #include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBDungeonRuntimeValidation.h"
 #include "PCGModule/HBRoomInfoComponent.h"
 #include "PCGModule/HBDungeonMarkerActors.h"
 #include "PCGModule/HBDungeonOccupancyComponent.h"
@@ -193,6 +194,144 @@ bool FHBPortalSelectionTest::RunTest(const FString&)
     C.Rules.Floor1ExitMap.Reset();
     TestFalse(TEXT("Unregistered map rejected"), HBDungeonRuleLayout::ResolvePortalIds(C.Modules, C.Rules, Error));
     return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBPortalCandidateCollectionTest, "HeavenBreach.PCGModule.PortalPlanning.Candidates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBPortalCandidateCollectionTest::RunTest(const FString&)
+{
+	FCatalog C;
+	FHBDungeonPortalPointDefinition Point;
+	Point.PointId = TEXT("P1"); Point.LocalTransform = FTransform(FRotator(0, 90, 0), FVector(20, 30, 40));
+	C.Modules[0].PortalPoints.Add(Point);
+	C.Modules[1].PortalPoints.Add(Point);
+	TArray<FHBPrototypeRoom> Rooms;
+	for (int32 Index = 0; Index < 2; ++Index)
+	{
+		FHBPrototypeRoom Room;
+		Room.Id = Index; Room.ParentId = Index - 1; Room.Floor = Index + 1;
+		Room.ModuleId = C.Modules[0].ModuleId; Room.ModuleMap = C.Modules[0].Map;
+		Room.Transform = FTransform(FRotator(0, Index * 35, 0), FVector(Index * 100000, 500, 700));
+		Rooms.Add(Room);
+	}
+	TArray<HBPortalPlacement::FCandidate> Candidates;
+	FString Error;
+	if (!TestTrue(TEXT("Collect reused source map instances on different logical floors"),
+		HBDungeonRuleLayout::CollectPortalCandidates(C.Modules, Rooms, Candidates, Error)))
+	{ AddError(Error); return false; }
+	if (!TestEqual(TEXT("Only selected instances contribute candidates"), Candidates.Num(), 2)) return false;
+	TestTrue(TEXT("Same point ID in different instances remains distinct"), !(Candidates[0].Key == Candidates[1].Key));
+	TestEqual(TEXT("First logical floor"), Candidates[0].Floor, 1);
+	TestEqual(TEXT("Second logical floor is independent of world height"), Candidates[1].Floor, 2);
+	TestTrue(TEXT("Room translation and rotation applied to the authored point"),
+		Candidates[1].SpawnTransform.Equals(Point.LocalTransform * Rooms[1].Transform));
+	TestTrue(TEXT("Exactly N candidates per floor is sufficient"), HBDungeonRuleLayout::ValidatePortalQuota(C.Modules, Rooms, 1, Error));
+	TestFalse(TEXT("Unselected source point cannot fill a quota"), HBDungeonRuleLayout::ValidatePortalQuota(C.Modules, Rooms, 2, Error));
+	TestTrue(TEXT("Diagnostic reports actual per-floor counts"), Error.Contains(TEXT("Floor1=1, Floor2=1")));
+	TestFalse(TEXT("Zero pair count rejected"), HBDungeonRuleLayout::ValidatePortalQuota(C.Modules, Rooms, 0, Error));
+	Rooms[1].Id = 0;
+	TestFalse(TEXT("Duplicate instance identity rejected"), HBDungeonRuleLayout::CollectPortalCandidates(C.Modules, Rooms, Candidates, Error));
+	TestTrue(TEXT("No partial candidates on error"), Candidates.IsEmpty());
+	Rooms[1].Id = 1; Rooms[1].Floor = 3;
+	TestFalse(TEXT("Invalid logical floor rejected"), HBDungeonRuleLayout::CollectPortalCandidates(C.Modules, Rooms, Candidates, Error));
+	Rooms[1].Floor = 2; Rooms[1].Transform.SetScale3D(FVector(2));
+	TestFalse(TEXT("Scaled instance transform rejected"), HBDungeonRuleLayout::CollectPortalCandidates(C.Modules, Rooms, Candidates, Error));
+	Rooms[1].Transform.SetScale3D(FVector::OneVector);
+	C.Modules[0].PortalPoints.Add(Point);
+	TestFalse(TEXT("Duplicate source points cannot inflate capacity"), HBDungeonRuleLayout::CollectPortalCandidates(C.Modules, Rooms, Candidates, Error));
+	C.Modules[0].PortalPoints.Pop();
+	TestTrue(TEXT("Collection recovers after corrections"), HBDungeonRuleLayout::CollectPortalCandidates(C.Modules, Rooms, Candidates, Error));
+	TestTrue(TEXT("Success clears old diagnostic"), Error.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBPortalLogicalTransitionTest, "HeavenBreach.PCGModule.PortalPlanning.LogicalTransition",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBPortalLogicalTransitionTest::RunTest(const FString&)
+{
+	FCatalog C;
+	C.Rules.PortalPlacementMode = EHBDungeonPortalPlacementMode::RandomPoints; C.Rules.PortalPairCount = 2;
+	C.Rules.Floor1ExitPortalId = TEXT("OldFixedExit"); C.Rules.Floor2EntryPortalId = TEXT("OldFixedEntry");
+	for (auto& Module : C.Modules)
+	{
+		Module.Portals.Reset();
+		if (Module.Map != C.Rules.Floor1ExitMap && Module.Map != C.Rules.Floor2EntryMap)
+		{
+			auto& Point = Module.PortalPoints.AddDefaulted_GetRef();
+			Point.PointId = TEXT("P1"); Point.LocalTransform = FTransform::Identity;
+		}
+	}
+	TArray<FHBPrototypeRoom> Rooms;
+	FString Error;
+	if (!TestTrue(TEXT("Random mode needs no fixed actors in either anchor room"),
+		HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error)))
+	{ AddError(Error); return false; }
+	TestTrue(TEXT("Random layout passes independent validation"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	TestTrue(TEXT("Logical layout can load without fixed endpoint IDs"), HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error));
+	int32 Transitions = 0;
+	for (const auto& Room : Rooms)
+	{
+		TestTrue(TEXT("No forced physical portal edge"), Room.Connection != EHBDungeonConnection::Portal);
+		if (Room.Connection == EHBDungeonConnection::FloorTransition)
+		{
+			++Transitions;
+			TestTrue(TEXT("Logical transition has no portal or connector endpoints"), Room.ParentPortalId.IsNone() && Room.EntryPortalId.IsNone()
+				&& Room.ParentConnectorId.IsNone() && Room.EntryConnectorId.IsNone());
+		}
+	}
+	TestEqual(TEXT("One logical floor transition"), Transitions, 1);
+	TArray<HBPortalPlacement::FCandidate> Candidates;
+	TestTrue(TEXT("Selected-room candidates collected"), HBDungeonRuleLayout::CollectPortalCandidates(C.Modules, Rooms, Candidates, Error));
+	TestTrue(TEXT("Authored boss and corridor points remain eligible"),
+		Candidates.ContainsByPredicate([&](const auto& P) { return Rooms[P.Key.RoomId].Role == EHBPrototypeRoomRole::Boss; })
+		&& Candidates.ContainsByPredicate([&](const auto& P) { return Rooms[P.Key.RoomId].bCorridor; }));
+	TestFalse(TEXT("Logical transition alone cannot report ready portal gameplay"),
+		HBDungeonRuntimeValidation::ValidateLocalPortalInstances(Rooms, {}, Error));
+	TestTrue(TEXT("Unmaterialized pair diagnostic"), Error.Contains(TEXT("must be spawned and validated")));
+	const int32 Transition = Rooms.IndexOfByPredicate([](const auto& R) { return R.Connection == EHBDungeonConnection::FloorTransition; });
+	if (!TestTrue(TEXT("Logical transition exists"), Transition != INDEX_NONE)) return false;
+	Rooms[Transition].EntryPortalId = TEXT("ForcedPair");
+	TestFalse(TEXT("Fixed pair metadata cannot leak into random transition"), HBDungeonRuleLayout::Validate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBPortalPlanningCapacityTest, "HeavenBreach.PCGModule.PortalPlanning.Capacity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBPortalPlanningCapacityTest::RunTest(const FString&)
+{
+	FCatalog C;
+	C.Rules.PortalPlacementMode = EHBDungeonPortalPlacementMode::RandomPoints; C.Rules.PortalPairCount = 2;
+	C.Rules.Floor1MainRooms = 2; C.Rules.Floor2MainRooms = 3;
+	C.Rules.Floor1BranchRooms = 0; C.Rules.Floor2BranchRooms = 1;
+	C.Rules.MaxConsecutiveAdventureRooms = 24; C.Rules.MaxRecoveryRoomsPerFloor = C.Rules.MaxEnhancementRoomsPerFloor = 0;
+	for (auto& Module : C.Modules) Module.Portals.Reset();
+	auto& OrdinaryPoint = C.Modules[0].PortalPoints.AddDefaulted_GetRef();
+	OrdinaryPoint.PointId = TEXT("P1"); OrdinaryPoint.LocalTransform = FTransform::Identity;
+	FHBModuleCatalogEntry Rich = MakeModule(TEXT("PointRichStart"), EHBPrototypeRoomRole::Adventure, EHBAllowedFloor::Floor1);
+	Rich.bIsStartCandidate = true;
+	for (int32 Index = 0; Index < 2; ++Index)
+	{
+		auto& Point = Rich.PortalPoints.AddDefaulted_GetRef();
+		Point.PointId = FName(*FString::Printf(TEXT("P%d"), Index)); Point.LocalTransform = FTransform::Identity;
+	}
+	C.Modules.Add(Rich);
+	TArray<FHBPrototypeRoom> Rooms;
+	FString Error;
+	if (!TestTrue(TEXT("Planner selects a configuration satisfying both floor quotas"),
+		HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error)))
+	{ AddError(Error); return false; }
+	TestEqual(TEXT("Only point-rich start can supply floor-1 capacity"), Rooms[0].ModuleId, Rich.ModuleId);
+	TestTrue(TEXT("Final selected-room quotas verified"), HBDungeonRuleLayout::ValidatePortalQuota(C.Modules, Rooms, 2, Error));
+	C.Modules.Last().bIsStartCandidate = false;
+	TestFalse(TEXT("Registered but unplaceable points cannot satisfy floor-1 quota"),
+		HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	TestTrue(TEXT("No partial layout on quota failure"), Rooms.IsEmpty());
+	TestTrue(TEXT("Early failure reports quota and shortage"), Error.Contains(TEXT("PortalPointQuota"))
+		&& Error.Contains(TEXT("RequestedPairs=2")) && Error.Contains(TEXT("MaximumPossibleFloor1=1")));
+	C.Rules.PortalPairCount = 0;
+	TestFalse(TEXT("Generator cannot bypass positive pair count"), HBDungeonRuleLayout::Generate(C.Modules, C.Settings, C.Rules, Rooms, Error));
+	TestTrue(TEXT("Pair count diagnostic"), Error.Contains(TEXT("PortalPairCount")));
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBRuleGenerationTest, "HeavenBreach.PCGModule.Rules.Generation",

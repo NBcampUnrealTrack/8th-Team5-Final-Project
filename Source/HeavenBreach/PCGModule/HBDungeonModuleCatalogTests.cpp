@@ -3,11 +3,13 @@
 #include "PCGModule/HBRoomInfoComponent.h"
 #include "PCGModule/HBDungeonConnectorComponent.h"
 #include "PCGModule/HBDungeonOccupancyComponent.h"
+#include "PCGModule/HBPortalSpawnPoint.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "Misc/AutomationTest.h"
 #include "GameFramework/PlayerStart.h"
 #include "Engine/Level.h"
+#include "Components/ArrowComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -66,6 +68,46 @@ bool FHBCatalogReadTest::RunTest(const FString&)
     TestFalse(TEXT("Reject empty array slot"), HBDungeonModuleCatalog::Build({TSoftObjectPtr<UWorld>()}, {}, Catalog, Errors));
     UWorld* Unconfigured = Fixture.Add(TEXT("Unconfigured"), EHBPrototypeRoomRole::Unassigned);
     TestFalse(TEXT("Reject missing role instead of guessing"), HBDungeonModuleCatalog::Build({Unconfigured}, {}, Catalog, Errors));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBPortalPointCatalogTest, "HeavenBreach.PCGModule.PortalPlanning.Catalog",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBPortalPointCatalogTest::RunTest(const FString&)
+{
+    FCatalogFixture Fixture;
+    UWorld* Room = Fixture.Add(TEXT("PortalRoom"), EHBPrototypeRoomRole::Adventure);
+    UWorld* Corridor = Fixture.Add(TEXT("PortalCorridor"), EHBPrototypeRoomRole::Unassigned, EHBDungeonModuleKind::Corridor);
+    auto* Second = Room->SpawnActor<AHBPortalSpawnPoint>();
+    auto* First = Room->SpawnActor<AHBPortalSpawnPoint>();
+    auto* CorridorPoint = Corridor->SpawnActor<AHBPortalSpawnPoint>();
+    if (!TestNotNull(TEXT("Second portal point"), Second) || !TestNotNull(TEXT("First portal point"), First)
+        || !TestNotNull(TEXT("Corridor portal point"), CorridorPoint)) return false;
+    Second->PointId = TEXT("P2"); First->PointId = TEXT("P1"); CorridorPoint->PointId = TEXT("P1");
+    First->SetActorLocationAndRotation(FVector(100, 200, 50), FRotator(0, 90, 0));
+    TArray<FHBModuleCatalogEntry> Catalog;
+    TArray<FString> Errors;
+    if (!TestTrue(TEXT("Points need no fixed portal actor or per-room portal setup"),
+        HBDungeonModuleCatalog::Build({Room}, {Corridor}, Catalog, Errors)))
+    { AddError(FString::Join(Errors, TEXT("; "))); return false; }
+    if (!TestEqual(TEXT("Room and corridor extracted"), Catalog.Num(), 2)) return false;
+    if (!TestEqual(TEXT("All room portal candidates extracted"), Catalog[0].PortalPoints.Num(), 2)) return false;
+    TestEqual(TEXT("Stable point ID order"), Catalog[0].PortalPoints[0].PointId, First->PointId);
+    TestTrue(TEXT("Authored position and facing preserved"),
+        Catalog[0].PortalPoints[0].LocalTransform.Equals(First->Direction->GetComponentTransform()));
+    TestEqual(TEXT("Corridor candidates are allowed"), Catalog[1].PortalPoints.Num(), 1);
+    TestTrue(TEXT("Fixed actor list is independent"), Catalog[0].Portals.IsEmpty());
+    Second->PointId = TEXT("p1");
+    TestFalse(TEXT("Duplicate room-local IDs rejected"), HBDungeonModuleCatalog::Build({Room}, {Corridor}, Catalog, Errors));
+    TestTrue(TEXT("Duplicate diagnostic includes portal point ID"), FString::Join(Errors, TEXT("; ")).Contains(TEXT("PortalPointId")));
+    TestTrue(TEXT("No partial catalog after duplicate error"), Catalog.IsEmpty());
+    Second->PointId = NAME_None;
+    TestFalse(TEXT("Missing ID rejected"), HBDungeonModuleCatalog::Build({Room}, {Corridor}, Catalog, Errors));
+    TestTrue(TEXT("Missing ID diagnostic"), FString::Join(Errors, TEXT("; ")).Contains(TEXT("PortalPointDefinition")));
+    Second->PointId = TEXT("P2"); Second->SetActorScale3D(FVector(2));
+    TestFalse(TEXT("Scaled point rejected"), HBDungeonModuleCatalog::Build({Room}, {Corridor}, Catalog, Errors));
+    Second->SetActorScale3D(FVector::OneVector);
+    TestTrue(TEXT("Corrected source succeeds"), HBDungeonModuleCatalog::Build({Room}, {Corridor}, Catalog, Errors));
     return true;
 }
 

@@ -15,6 +15,10 @@ namespace
 	{
 		return M.AllowedFloor == EHBAllowedFloor::Any || static_cast<int32>(M.AllowedFloor) == Floor;
 	}
+	bool IsFloorTransition(EHBDungeonConnection Connection)
+	{
+		return Connection == EHBDungeonConnection::Portal || Connection == EHBDungeonConnection::FloorTransition;
+	}
 	int32 ConsecutiveLimit(EHBPrototypeRoomRole Role, const FHBDungeonGenerationRules& Rules)
 	{
 		switch (Role)
@@ -74,6 +78,8 @@ namespace
 		UE_LOG(LogHBDungeonLayout, Warning, TEXT("[RoleLimits] ConsecutiveAdventure=%d ConsecutiveRecovery=%d ConsecutiveEnhancement=%d RecoveryPerFloor=%d EnhancementPerFloor=%d"),
 			R.MaxConsecutiveAdventureRooms, R.MaxConsecutiveRecoveryRooms, R.MaxConsecutiveEnhancementRooms,
 			R.MaxRecoveryRoomsPerFloor, R.MaxEnhancementRoomsPerFloor);
+		UE_LOG(LogHBDungeonLayout, Warning, TEXT("[PortalPlacement] Mode=%d PairCount=%d"),
+			static_cast<int32>(R.PortalPlacementMode), R.PortalPairCount);
 		UE_LOG(LogHBDungeonLayout, Warning, TEXT("[Maps] Floor1Exit=%s Portal=%s Floor2Entry=%s Portal=%s BossCorridor=%s"),
 			*R.Floor1ExitMap.ToString(), *R.Floor1ExitPortalId.ToString(), *R.Floor2EntryMap.ToString(),
 			*R.Floor2EntryPortalId.ToString(), *R.BossCorridorMap.ToString());
@@ -82,7 +88,7 @@ namespace
 	{
 		Floor, Reuse, ForcedModule, Kind, BossRole, ReservedTransition, StartCandidate, BeforeCorridor,
 		SpecialQuota, AdjacentToStart, AdventureStreak, RecoveryStreak, EnhancementStreak,
-		NoParents, NoCandidates, NoParentDoors, ConnectorRole, Occupancy, FinalRules, Count
+		NoParents, NoCandidates, NoParentDoors, ConnectorRole, Occupancy, PortalQuota, FinalRules, Count
 	};
 	constexpr int32 FilterReasonCount = static_cast<int32>(ERejection::NoParents);
 	constexpr int32 RejectionCount = static_cast<int32>(ERejection::Count);
@@ -108,6 +114,7 @@ namespace
 		case ERejection::NoParentDoors: return TEXT("NoAvailableParentDoors");
 		case ERejection::ConnectorRole: return TEXT("ConnectorRoleMismatch");
 		case ERejection::Occupancy: return TEXT("OccupancyOverlap");
+		case ERejection::PortalQuota: return TEXT("PortalPointQuota");
 		case ERejection::FinalRules: return TEXT("FinalRuleValidation");
 		default: return TEXT("Unknown");
 		}
@@ -139,6 +146,11 @@ namespace
 		if (R.MaxRecoveryRoomsPerFloor < 0 || R.MaxEnhancementRoomsPerFloor < 0)
 			return Fail(TEXT("MaxRecoveryRoomsPerFloor and MaxEnhancementRoomsPerFloor must each be at least 0."));
 		if (R.Floor2Offset.ContainsNaN()) return Fail(TEXT("Floor2Offset must be finite."));
+		if (R.PortalPlacementMode != EHBDungeonPortalPlacementMode::FixedRoomPortals
+			&& R.PortalPlacementMode != EHBDungeonPortalPlacementMode::RandomPoints)
+			return Fail(TEXT("Unknown portal placement mode."));
+		if (R.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints && R.PortalPairCount < 1)
+			return Fail(TEXT("PortalPairCount must be at least 1 in random point mode."));
 		if (R.Floor1ExitMap.IsNull() || R.Floor2EntryMap.IsNull() || R.BossCorridorMap.IsNull())
 			return Fail(TEXT("Dungeon Rules: select Floor1ExitMap, Floor2EntryMap and BossCorridorMap. No map names are assumed."));
 		const int32 Exit = FindMap(Catalog, R.Floor1ExitMap), Entry = FindMap(Catalog, R.Floor2EntryMap), Corridor = FindMap(Catalog, R.BossCorridorMap);
@@ -178,9 +190,9 @@ namespace
 				}
 			}
 		}
-		if (R.Floor1ExitPortalId.IsNone() || R.Floor2EntryPortalId.IsNone()
+		if (R.PortalPlacementMode == EHBDungeonPortalPlacementMode::FixedRoomPortals && (R.Floor1ExitPortalId.IsNone() || R.Floor2EntryPortalId.IsNone()
 			|| !Catalog[Exit].Portals.ContainsByPredicate([&](const auto& P) { return P.PortalId == R.Floor1ExitPortalId; })
-			|| !Catalog[Entry].Portals.ContainsByPredicate([&](const auto& P) { return P.PortalId == R.Floor2EntryPortalId; }))
+			|| !Catalog[Entry].Portals.ContainsByPredicate([&](const auto& P) { return P.PortalId == R.Floor2EntryPortalId; })))
 			return Fail(TEXT("Both selected transition rooms must contain a manually placed Portal Actor with the selected PortalId."));
 		if (!S.bAllowModuleReuse && Exit == Entry) return Fail(TEXT("The same transition map on both floors requires Allow Module Reuse."));
 		if (!S.bAllowModuleReuse && R.Floor1MainRooms + R.Floor2MainRooms + R.Floor1BranchRooms + R.Floor2BranchRooms
@@ -231,7 +243,7 @@ namespace
 			if (R.bIsStartRoom != (I == 0)) return Fail(TEXT("Exactly the first room instance must be marked as the start room."));
 			if (I == 0 && (R.Floor != 1 || !M->bIsStartCandidate || R.Role == EHBPrototypeRoomRole::Boss || R.bBranch || R.bFloorExit || R.bCorridor))
 				return Fail(TEXT("Start must be a non-boss start candidate on floor 1."));
-			if (R.bBranch && (Children[I] || R.bFloorExit || R.bCorridor || R.Connection == EHBDungeonConnection::Portal))
+			if (R.bBranch && (Children[I] || R.bFloorExit || R.bCorridor || IsFloorTransition(R.Connection)))
 				return Fail(TEXT("Optional rooms must be terminal branches, not transition or corridor rooms."));
 			if (!R.bBranch && MainChildren[I] != (R.Role == EHBPrototypeRoomRole::Boss ? 0 : 1))
 				return Fail(TEXT("Main progression must lead to the sole terminal boss."));
@@ -240,7 +252,7 @@ namespace
 				++Corridors;
 				if (R.ModuleMap != Rules.BossCorridorMap || R.Floor != 2 || R.bBranch || R.bFloorExit || I == 0 || Children[I] != 1
 					|| R.Connection != EHBDungeonConnection::Door || Rooms[R.ParentId].Role != EHBPrototypeRoomRole::Adventure
-					|| Rooms[R.ParentId].Connection == EHBDungeonConnection::Portal || Rooms[R.ParentId].bFloorExit
+					|| IsFloorTransition(Rooms[R.ParentId].Connection) || Rooms[R.ParentId].bFloorExit
 					|| !Rooms.ContainsByPredicate([&](const auto& C) { return C.ParentId == I && C.Role == EHBPrototypeRoomRole::Boss; }))
 					return Fail(TEXT("Required progression: Adventure -> selected boss corridor -> Boss, after the floor-2 entry room."));
 			}
@@ -267,22 +279,29 @@ namespace
 			{
 				const auto& P = Rooms[R.ParentId];
 				if (P.Role == EHBPrototypeRoomRole::Boss) return Fail(TEXT("No rooms may follow the boss."));
-				if (R.Connection == EHBDungeonConnection::Portal)
+				if (IsFloorTransition(R.Connection))
 				{
 					++Portals;
 					if (P.Floor != 1 || R.Floor != 2 || !P.bFloorExit || R.bBranch || R.ModuleMap != Rules.Floor2EntryMap
-						|| R.ParentPortalId != Rules.Floor1ExitPortalId || R.EntryPortalId != Rules.Floor2EntryPortalId
 						|| !R.Transform.Equals(FTransform(Rules.Floor2Offset) * S.Origin, HBConnectorLayout::SnapTolerance))
-						return Fail(TEXT("Invalid configured portal transition."));
+						return Fail(TEXT("Invalid configured floor transition."));
+					if (Rules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints)
+					{
+						if (R.Connection != EHBDungeonConnection::FloorTransition || !R.ParentPortalId.IsNone() || !R.EntryPortalId.IsNone())
+							return Fail(TEXT("Random point mode requires a logical floor transition without a fixed portal pair."));
+					}
+					else if (R.Connection != EHBDungeonConnection::Portal
+						|| R.ParentPortalId != Rules.Floor1ExitPortalId || R.EntryPortalId != Rules.Floor2EntryPortalId)
+						return Fail(TEXT("Invalid configured portal pair."));
 				}
-				else if (P.Floor != R.Floor) return Fail(TEXT("Logical floors may only change through the configured portal pair."));
+				else if (P.Floor != R.Floor) return Fail(TEXT("Logical floors may only change through the configured floor transition."));
 				if ((R.Role == EHBPrototypeRoomRole::Recovery || R.Role == EHBPrototypeRoomRole::Upgrade)
 					&& R.ParentId == 0) return Fail(TEXT("Special room adjacent to start."));
 				if (R.Role == EHBPrototypeRoomRole::Boss && (R.Floor != 2 || R.bBranch || !P.bCorridor || Children[I] != 0))
 					return Fail(TEXT("Exactly one floor-2 boss must directly follow the selected corridor and end the main path."));
 			}
 			if ((R.ModuleMap == Rules.Floor1ExitMap || R.ModuleMap == Rules.Floor2EntryMap)
-				&& !M->bIsStartCandidate && !R.bFloorExit && R.Connection != EHBDungeonConnection::Portal)
+				&& !M->bIsStartCandidate && !R.bFloorExit && !IsFloorTransition(R.Connection))
 				return Fail(TEXT("Transition modules are reserved for the configured endpoints."));
 			const int32 Limit = ConsecutiveLimit(R.Role, Rules);
 			if (Limit > 0 && !R.bCorridor && ConsecutiveRoomCount(Rooms, R.ParentId, R.Floor, R.Role) > Limit)
@@ -297,7 +316,8 @@ namespace
 		if (Main[1] != Rules.Floor1MainRooms || Main[2] != Rules.Floor2MainRooms
 			|| Branch[1] != Rules.Floor1BranchRooms || Branch[2] != Rules.Floor2BranchRooms)
 			return Fail(TEXT("Generated per-floor room counts do not match Dungeon Rules."));
-		return true;
+		return Rules.PortalPlacementMode != EHBDungeonPortalPlacementMode::RandomPoints
+			|| HBDungeonRuleLayout::ValidatePortalQuota(Catalog, Rooms, Rules.PortalPairCount, Error);
 	}
 
 	struct FSlot
@@ -316,6 +336,7 @@ namespace
 		TArray<int32> Chosen;
 		TArray<TArray<bool>> Used;
 		int32 RoleCounts[3][4] = {};
+		int64 PortalCounts[3] = {};
 		int32 Steps = 0, Best = 0;
 		double Start = FPlatformTime::Seconds();
 		bool bLimited = false;
@@ -417,6 +438,41 @@ namespace
 			}
 			return true;
 		}
+		bool CanSatisfyPortalQuota()
+		{
+			if (Rules.PortalPlacementMode != EHBDungeonPortalPlacementMode::RandomPoints) return true;
+			int64 Maximum[3] = {0, PortalCounts[1], PortalCounts[2]};
+			// An upper bound only: future role quotas, geometry and future reuse conflicts may reduce it.
+			// Never reject a feasible layout; merely avoid searching branches that cannot supply enough points.
+			for (int32 Index = Rooms.Num(); Index < Slots.Num(); ++Index)
+			{
+				const auto& Slot = Slots[Index];
+				int32 BestCount = 0;
+				for (int32 Module = 0; Module < Catalog.Num(); ++Module)
+				{
+					const auto& M = Catalog[Module];
+					if (!Allows(M, Slot.Floor) || (Slot.Forced != INDEX_NONE && Module != Slot.Forced)
+						|| (!Settings.bAllowModuleReuse && Chosen.Contains(Module))
+						|| (M.Kind == EHBDungeonModuleKind::Corridor) != Slot.bCorridor) continue;
+					if (!Slot.bCorridor)
+					{
+						if ((M.Role == EHBPrototypeRoomRole::Boss) != Slot.bBoss || (Index == 0 && !M.bIsStartCandidate)
+							|| (Index + 1 < Slots.Num() && Slots[Index + 1].bCorridor && M.Role != EHBPrototypeRoomRole::Adventure)
+							|| (Slot.Forced == INDEX_NONE && !M.bIsStartCandidate
+								&& (M.Map == Rules.Floor1ExitMap || M.Map == Rules.Floor2EntryMap))) continue;
+					}
+					BestCount = FMath::Max(BestCount, M.PortalPoints.Num());
+				}
+				Maximum[Slot.Floor] += BestCount;
+			}
+			if (Maximum[1] >= Rules.PortalPairCount && Maximum[2] >= Rules.PortalPairCount) return true;
+			Record(ERejection::PortalQuota, [&]
+			{
+				return FString::Printf(TEXT("Depth=%d RequestedPairs=%d Floor1=%lld Floor2=%lld MaximumPossibleFloor1=%lld MaximumPossibleFloor2=%lld"),
+					Rooms.Num(), Rules.PortalPairCount, PortalCounts[1], PortalCounts[2], Maximum[1], Maximum[2]);
+			});
+			return false;
+		}
 		bool Place(int32 Module, const FSlot& Slot, int32 Parent, int32 Port, int32 Entry, const FTransform& Transform)
 		{
 			if (!Budget()) return false;
@@ -445,8 +501,12 @@ namespace
 			R.LocalBounds = M.Bounds; R.Bounds = M.Bounds.TransformBy(Transform); R.InspectionEntry = M.InspectionEntry;
 			if (Slot.bPortal)
 			{
-				R.Connection = EHBDungeonConnection::Portal;
-				R.ParentPortalId = Rules.Floor1ExitPortalId; R.EntryPortalId = Rules.Floor2EntryPortalId;
+				R.Connection = Rules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints
+					? EHBDungeonConnection::FloorTransition : EHBDungeonConnection::Portal;
+				if (R.Connection == EHBDungeonConnection::Portal)
+				{
+					R.ParentPortalId = Rules.Floor1ExitPortalId; R.EntryPortalId = Rules.Floor2EntryPortalId;
+				}
 			}
 			else if (Parent != INDEX_NONE)
 			{
@@ -457,6 +517,7 @@ namespace
 			Rooms.Add(R); Chosen.Add(Module); Used.AddDefaulted_GetRef().Init(false, M.Connectors.Num());
 			if (Entry != INDEX_NONE) Used.Last()[Entry] = true;
 			if (!Slot.bCorridor) ++RoleCounts[Slot.Floor][static_cast<int32>(M.Role)];
+			PortalCounts[Slot.Floor] += M.PortalPoints.Num();
 			if (Rooms.Num() > Best)
 			{
 				Best = Rooms.Num();
@@ -465,12 +526,14 @@ namespace
 			}
 			if (Extend()) return true;
 			if (!Slot.bCorridor) --RoleCounts[Slot.Floor][static_cast<int32>(M.Role)];
+			PortalCounts[Slot.Floor] -= M.PortalPoints.Num();
 			Rooms.Pop(); Chosen.Pop(); Used.Pop();
 			if (Port != INDEX_NONE) Used[Parent][Port] = false;
 			return false;
 		}
 		bool Extend()
 		{
+			if (!CanSatisfyPortalQuota()) return false;
 			if (Rooms.Num() == Slots.Num())
 			{
 				FString Error;
@@ -647,6 +710,10 @@ namespace
 bool HBDungeonRuleLayout::ResolvePortalIds(const TArray<FHBModuleCatalogEntry>& Catalog,
     FHBDungeonGenerationRules& Rules, FString& OutError)
 {
+    OutError.Reset();
+    if (Rules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints) return true;
+    if (Rules.PortalPlacementMode != EHBDungeonPortalPlacementMode::FixedRoomPortals)
+    { OutError = TEXT("Unknown portal placement mode."); return false; }
     auto Resolve = [&](const TSoftObjectPtr<UWorld>& Map, FName& Id)
     {
         const auto* Entry = Catalog.FindByPredicate([&](const auto& E) { return E.Map == Map; });
@@ -688,6 +755,8 @@ bool HBDungeonRuleLayout::Generate(const TArray<FHBModuleCatalogEntry>& Catalog,
 		OutError = FString::Printf(TEXT("%s (%s): placed at most %d/%d modules in %d attempts. Deepest placement rejections: %s. See LogHBDungeonLayout for settings, candidate filters, parent doors and representative failures."),
 			Search.bLimited ? TEXT("Search limit reached") : TEXT("No rule-compliant layout"), Search.StopReason(),
 			Search.Best, Search.Slots.Num(), Search.Steps, *Search.CountSummary(Search.DeepestStats, FilterReasonCount, RejectionCount));
+		const auto& Quota = Search.AllStats[static_cast<int32>(ERejection::PortalQuota)];
+		if (Quota.Count > 0) OutError += TEXT(" PortalPointQuota: ") + Quota.Example;
 		Search.LogFailure(OutError);
 		return false;
 	}
@@ -710,4 +779,52 @@ bool HBDungeonRuleLayout::Validate(const TArray<FHBModuleCatalogEntry>& Catalog,
 	if (!ResolvePortalIds(Catalog, Rules, OutError)) return false;
 	return CheckSettings(Catalog, Settings, Rules, OutError)
 		&& HBConnectorLayout::Validate(Catalog, Rooms, OutError) && CheckRules(Catalog, Settings, Rules, Rooms, OutError);
+}
+
+bool HBDungeonRuleLayout::CollectPortalCandidates(const TArray<FHBModuleCatalogEntry>& Catalog,
+	const TArray<FHBPrototypeRoom>& Rooms, TArray<HBPortalPlacement::FCandidate>& OutCandidates, FString& OutError)
+{
+	OutCandidates.Reset(); OutError.Reset();
+	if (!HBConnectorLayout::ValidateCatalog(Catalog, OutError)) return false;
+	if (Rooms.IsEmpty()) { OutError = TEXT("No selected room instances for portal candidate collection."); return false; }
+	TArray<HBPortalPlacement::FCandidate> Pending;
+	for (int32 Index = 0; Index < Rooms.Num(); ++Index)
+	{
+		const auto& Room = Rooms[Index];
+		const auto* Module = Catalog.FindByPredicate([&](const auto& M) { return M.ModuleId == Room.ModuleId; });
+		if (!Module || Module->Map != Room.ModuleMap || Room.Id != Index || Room.Floor < 1 || Room.Floor > 2
+			|| !Allows(*Module, Room.Floor) || !Room.Transform.IsValid()
+			|| !Room.Transform.GetScale3D().Equals(FVector::OneVector, 0.0001))
+		{
+			OutError = FString::Printf(TEXT("Invalid selected room metadata for portal candidates: Room=%d Module=%s Floor=%d."),
+				Room.Id, *Room.ModuleId.ToString(), Room.Floor);
+			return false;
+		}
+		for (const auto& Point : Module->PortalPoints)
+			Pending.Add({{Room.Id, Point.PointId}, Room.Floor, Point.LocalTransform * Room.Transform});
+	}
+	Pending.Sort([](const auto& A, const auto& B)
+	{
+		return A.Key.RoomId != B.Key.RoomId ? A.Key.RoomId < B.Key.RoomId : A.Key.PointId.LexicalLess(B.Key.PointId);
+	});
+	OutCandidates = MoveTemp(Pending);
+	return true;
+}
+
+bool HBDungeonRuleLayout::ValidatePortalQuota(const TArray<FHBModuleCatalogEntry>& Catalog,
+	const TArray<FHBPrototypeRoom>& Rooms, int32 PairCount, FString& OutError)
+{
+	OutError.Reset();
+	if (PairCount < 1) { OutError = TEXT("PortalPairCount must be at least 1."); return false; }
+	TArray<HBPortalPlacement::FCandidate> Candidates;
+	if (!CollectPortalCandidates(Catalog, Rooms, Candidates, OutError)) return false;
+	int32 Counts[3] = {};
+	for (const auto& Candidate : Candidates) ++Counts[Candidate.Floor];
+	if (Counts[1] < PairCount || Counts[2] < PairCount)
+	{
+		OutError = FString::Printf(TEXT("Insufficient portal points in selected room instances: requested %d pairs; Floor1=%d, Floor2=%d (each floor needs at least %d)."),
+			PairCount, Counts[1], Counts[2], PairCount);
+		return false;
+	}
+	return true;
 }

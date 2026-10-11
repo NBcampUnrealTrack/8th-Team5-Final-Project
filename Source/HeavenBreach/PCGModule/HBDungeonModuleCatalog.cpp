@@ -1,6 +1,7 @@
 #include "PCGModule/HBDungeonModuleCatalog.h"
 #include "PCGModule/HBRoomInfoComponent.h"
 #include "PCGModule/HBDungeonPortal.h"
+#include "PCGModule/HBPortalSpawnPoint.h"
 #include "Components/BoxComponent.h"
 #include "Components/ArrowComponent.h"
 #include "Components/SceneComponent.h"
@@ -84,10 +85,19 @@ bool HBDungeonModuleCatalog::Build(const TArray<TSoftObjectPtr<UWorld>>& RoomMap
             }
             Entry.ConnectorCount = Entry.Connectors.Num();
             for (AActor* Actor : Level->Actors)
+            {
                 if (const auto* Portal = Cast<AHBDungeonPortal>(Actor); IsValid(Portal))
                     Entry.Portals.Add({Portal->PortalId, Portal->Trigger->GetComponentTransform(),
                         Portal->Trigger->GetUnscaledBoxExtent(), Portal->Arrival->GetComponentTransform()});
+                if (const auto* Point = Cast<AHBPortalSpawnPoint>(Actor); IsValid(Point))
+                {
+                    auto& DefinitionPoint = Entry.PortalPoints.AddDefaulted_GetRef();
+                    DefinitionPoint.PointId = Point->PointId;
+                    DefinitionPoint.LocalTransform = Point->Direction->GetComponentTransform();
+                }
+            }
             Entry.Portals.Sort([](const auto& A, const auto& B) { return A.PortalId.LexicalLess(B.PortalId); });
+            Entry.PortalPoints.Sort([](const auto& A, const auto& B) { return A.PointId.LexicalLess(B.PointId); });
             for (const auto& Box : Entry.Occupancy)
                 Entry.Bounds += FBox(-Box.Extent, Box.Extent).TransformBy(Box.LocalTransform);
             if (!Entry.Bounds.IsValid || Entry.Bounds.Min.ContainsNaN() || Entry.Bounds.Max.ContainsNaN())

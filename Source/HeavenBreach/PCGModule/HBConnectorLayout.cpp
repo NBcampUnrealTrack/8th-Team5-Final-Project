@@ -67,10 +67,19 @@ namespace
 				return Fail(TEXT("At least one connector and occupancy box are required."));
 			TSet<FName> ConnectorIds;
 			TSet<FName> PortalIds;
+			TSet<FName> PortalPointIds;
+			for (const auto& P : M.PortalPoints)
+			{
+				if (P.PointId.IsNone() || PortalPointIds.Contains(P.PointId) || !Unit(P.LocalTransform))
+					return Fail(TEXT("Portal point IDs must be nonempty and unique, with finite unit-scale transforms."));
+				PortalPointIds.Add(P.PointId);
+			}
 			for (const auto& P : M.Portals)
 			{
-				if (P.PortalId.IsNone() || PortalIds.Contains(P.PortalId) || !Unit(P.TriggerTransform)
-					|| !Unit(P.ArrivalTransform) || !Positive(P.TriggerExtent)) return Fail(TEXT("Invalid portal metadata."));
+				if (P.PortalId.IsNone() || PortalIds.Contains(P.PortalId) || !P.TriggerTransform.IsValid()
+					|| !Positive(P.TriggerTransform.GetScale3D()) || !Unit(P.ArrivalTransform)
+					|| !Positive(P.TriggerExtent) || !Positive(P.TriggerExtent * P.TriggerTransform.GetScale3D()))
+					return Fail(TEXT("Invalid portal metadata."));
 				PortalIds.Add(P.PortalId);
 			}
 			for (const auto& C : M.Connectors)
@@ -317,6 +326,13 @@ bool HBConnectorLayout::Validate(const TArray<FHBModuleCatalogEntry>& Catalog,
 						((Rooms[J].ParentId == R.ParentId && Rooms[J].ParentPortalId == R.ParentPortalId)
 						|| (J == R.ParentId && Rooms[J].EntryPortalId == R.ParentPortalId)))
 						return Fail(TEXT("Portal endpoint reused."));
+			}
+			else if (R.Connection == EHBDungeonConnection::FloorTransition)
+			{
+				if (Rooms[R.ParentId].Floor != 1 || R.Floor != 2 || R.bBranch || R.bCorridor
+					|| !R.ParentConnectorId.IsNone() || !R.EntryConnectorId.IsNone()
+					|| !R.ParentPortalId.IsNone() || !R.EntryPortalId.IsNone())
+					return Fail(TEXT("Logical floor transitions must change floor 1 to 2 without fixed door or portal endpoints."));
 			}
 			else
 			{

@@ -23,10 +23,10 @@ namespace
         if (auto* Preview = Cast<AHBPCGPreviewGenerator>(Actor)) return Preview->ModuleMaps;
         return CastChecked<AHBDungeonRuntime>(Actor)->ModuleMaps;
     }
-    const FHBDungeonGenerationRules& GenerationRules(AActor* Actor)
+    FHBDungeonGenerationRules GenerationRules(AActor* Actor)
     {
         if (auto* Preview = Cast<AHBPCGPreviewGenerator>(Actor)) return Preview->DungeonRules;
-        return CastChecked<AHBDungeonRuntime>(Actor)->DungeonRules;
+        return CastChecked<AHBDungeonRuntime>(Actor)->GetGenerationRules();
     }
     struct FPortalOption { FName Id; FString Label; };
     TArray<FPortalOption> ReadPortals(const TSoftObjectPtr<UWorld>& Map)
@@ -75,6 +75,12 @@ void FHBPCGPreviewDetails::CustomizeDetails(IDetailLayoutBuilder& Builder)
     auto RulesVisible = TAttribute<EVisibility>::CreateLambda([Generator]()
     { const auto* Preview = Cast<AHBPCGPreviewGenerator>(Generator.Get());
       return Generator.IsValid() && (!Preview || Preview->bUseDungeonRules) ? EVisibility::Visible : EVisibility::Collapsed; });
+    auto FixedPortalsVisible = TAttribute<EVisibility>::CreateLambda([Generator, RulesVisible]()
+    {
+        return RulesVisible.Get() == EVisibility::Visible && Generator.IsValid()
+            && GenerationRules(Generator.Get()).PortalPlacementMode == EHBDungeonPortalPlacementMode::FixedRoomPortals
+            ? EVisibility::Visible : EVisibility::Collapsed;
+    });
     auto& Transitions = Builder.EditCategory(Categories[2]);
     auto AddMap = [&](FName Name, const FString& Label, bool bCorridor, FName PortalName)
     {
@@ -121,7 +127,7 @@ void FHBPCGPreviewDetails::CustomizeDetails(IDetailLayoutBuilder& Builder)
         // Labels are cached; opening the menu refreshes actors without loading maps every frame.
         auto Options = MakeShared<TArray<FPortalOption>>(ReadPortals(ReadMap(MapHandle)));
         MapHandle->SetOnPropertyValueChanged(FSimpleDelegate::CreateLambda([Options, MapHandle]() { *Options = ReadPortals(ReadMap(MapHandle)); }));
-        Transitions.AddCustomRow(FText::FromString(Label + TEXT(" Portal"))).Visibility(RulesVisible)
+        Transitions.AddCustomRow(FText::FromString(Label + TEXT(" Portal"))).Visibility(FixedPortalsVisible)
         .NameContent()[SNew(STextBlock).Text(FText::FromString(Label + TEXT(" Portal")))]
         .ValueContent().MinDesiredWidth(280)[SNew(SComboButton)
             .OnGetMenuContent_Lambda([Options, MapHandle, PortalHandle]() -> TSharedRef<SWidget>
