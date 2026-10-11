@@ -1,0 +1,31 @@
+#pragma once
+#include "NativeGameplayTags.h"
+
+// 마법 스킬 태그. 쿨다운·증강·상태·연출 큐.
+namespace MagicTag
+{
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_ElementalOrb);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_Teleport);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_FrostField);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_ManaExplosion);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_ElementalOrb_Power);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_ElementalOrb_Rapid);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_Teleport_Far);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_Teleport_Rapid);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_FrostField_Bitter);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_FrostField_Wide);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_ManaExplosion_Power);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_ManaExplosion_Wide);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_Focus_Boost);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_ManaCycle_Boost);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_ResidualMana_Boost);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_GlassCannon_Boost);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Focus);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_ResidualMana);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Frosted);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_ManaCycle);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Magic_CastHand);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Magic_OrbImpact);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Magic_Teleport);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Magic_ManaExplosion);
+}

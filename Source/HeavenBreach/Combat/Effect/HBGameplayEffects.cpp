@@ -6,6 +6,9 @@
 #include "Item/ItemStatBinding.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Archer/HB_ArcherTag.h"
+#include "Core/Tag/Magic/HB_MagicTag.h"
+#include "Core/Tag/Melee/HB_MeleeTag.h"
+#include "AI/GAS/EnemyAttributeSetBase.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
 
 namespace
@@ -231,6 +234,9 @@ UGE_HunterMark::UGE_HunterMark()
 	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
 	GEComponents.Add(TagComponent);
 	ApplyGrantedTag(*TagComponent, ArcherTag::TAG_State_Tracked);
+
+	// 대상 머리 위 표식. GE 가 붙어 있는 동안 모든 화면에 보이고, 끝나면 사라진다(AHBGCN_HunterMarkGlyph).
+	GameplayCues.Add(FGameplayEffectCue(ArcherTag::TAG_GameplayCue_Bow_HunterMark, 0.f, 1.f));
 }
 
 UGE_SwiftStepPassive::UGE_SwiftStepPassive()
@@ -275,4 +281,124 @@ UGE_HunterBreathAugment::UGE_HunterBreathAugment()
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
 	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute(),
 		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+}
+
+UGE_MagicOrbCooldown::UGE_MagicOrbCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, MagicTag::TAG_Cooldown_ElementalOrb);
+}
+
+UGE_MagicTeleportCooldown::UGE_MagicTeleportCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, MagicTag::TAG_Cooldown_Teleport);
+}
+
+UGE_MagicFrostCooldown::UGE_MagicFrostCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, MagicTag::TAG_Cooldown_FrostField);
+}
+
+UGE_MagicExplosionCooldown::UGE_MagicExplosionCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, MagicTag::TAG_Cooldown_ManaExplosion);
+}
+
+UGE_CastingSlow::UGE_CastingSlow()
+{
+	// 시전이 끝나는 시점을 GE 가 모르므로 무한이고, GA 가 직접 뗀다.
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_MoveSpeedMultiplierAttribute(),
+		EGameplayModOp::Additive, -0.5f);
+}
+
+UGE_FrostSlow::UGE_FrostSlow()
+{
+	// 적용하는 쪽(서리 지대)이 영역을 벗어나면 뗀다. 감속량은 음수로 넘긴다.
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddSetByCallerModifier(*this, UEnemyAttributeSetBase::GetMoveSpeedRateAttribute(),
+		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MagicTag::TAG_State_Frosted);
+}
+
+UGE_FocusPassive::UGE_FocusPassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MagicTag::TAG_State_Focus);
+}
+
+UGE_ManaCyclePassive::UGE_ManaCyclePassive()
+{
+	// 전역 Player_ManaCostMultiplier 를 쓰지 않는다. 그건 달리기·방어 비용에도 곱해진다.
+	// 태그만 주고, 액티브 비용 계산(UHBPlayerActiveGABase::GetFinalManaCostFrom)이 HBMagic::ManaCycleMultiplier 로 곱한다.
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MagicTag::TAG_State_ManaCycle);
+}
+
+UGE_ResidualManaPassive::UGE_ResidualManaPassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MagicTag::TAG_State_ResidualMana);
+}
+
+UGE_GlassCannonPassive::UGE_GlassCannonPassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SkillDamageMultiplierAttribute(),
+		EGameplayModOp::Additive, 0.25f);
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_DamageTakenMultiplierAttribute(),
+		EGameplayModOp::Additive, 0.15f);
+}
+
+UGE_GlassCannonAugment::UGE_GlassCannonAugment()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SkillDamageMultiplierAttribute(),
+		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+}
+
+UGE_CounterPassive::UGE_CounterPassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MeleeTag::TAG_State_Counter);
+}
+
+UGE_BloodthirstPassive::UGE_BloodthirstPassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MeleeTag::TAG_State_Bloodthirst);
+}
+
+UGE_SteadyStancePassive::UGE_SteadyStancePassive()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	ApplyGrantedTag(*TagComponent, MeleeTag::TAG_State_SteadyStance);
+}
+
+UGE_MeleeWhirlwindCooldown::UGE_MeleeWhirlwindCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, MeleeTag::TAG_Cooldown_Whirlwind);
 }

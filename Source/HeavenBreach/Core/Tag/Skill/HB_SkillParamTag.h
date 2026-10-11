@@ -50,4 +50,8 @@ namespace SkillParamTag
 	// 패링 - 성공 시 대상이 받는 피해 증가율과 그 지속시간.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_MitigateBreak);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_MitigateTime);
+
+	// 마법 스킬 - 거리(cm 최종값), 감속(최종값 0~1).
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_Distance);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_SkillParam_Slow);
 }

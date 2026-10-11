@@ -214,6 +214,13 @@ public:
 	// 활 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
 	void SetBowDrawing(bool bDrawing);
 
+	// 활 스킬(관통·표식·회피) 동작 중인가. 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다(기문 님 테스트의 bBowSkillActive).
+	UFUNCTION(BlueprintPure, Category = "Player|Bow")
+	bool IsInBowSkillPose() const { return bInBowSkillPose; }
+
+	// 활 스킬 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
+	void SetInBowSkillPose(bool bInPose);
+
 	// 장전 중 손에 보이는 화살 메시. 외형 행에 없으면 nullptr.
 	UFUNCTION(BlueprintPure, Category = "Player|Bow")
 	UStaticMesh* GetHeldArrowMesh() const;
@@ -381,7 +388,24 @@ public:
 	bool HasShieldEquipped() const;
 
 	// 데미지 처리. 패시브나 액티브등 데미지보너스 포함
-	float ModifyOutgoingDamage(AActor* Target, float Damage);
+	// bCreditCurrentSkillCast: 즉발 스킬 피해면 지금 시전에 잔류 마력을 알린다. 투사체는 자기 시전 ID 로
+	// 따로 알리므로 false 로 부른다(화살이 날아가는 사이 시작한 다른 시전이 공짜로 트리거되지 않게).
+	float ModifyOutgoingDamage(AActor* Target, float Damage, bool bCreditCurrentSkillCast = true);
+
+	// ---- 시전 ID (잔류 마력, 마법스킬 설계 2.2-7) ----
+	// 서버 전용. 액티브 발동마다 새 ID 를 준다. 0 은 "스킬 아님(평타)" 이라 1부터.
+	int32 BeginSkillCast() { return ++SkillCastCounter; }
+
+	// 가장 최근에 시작한 시전의 ID. 즉발 피해(State.UsingSkill 중 ModifyOutgoingDamage)가 쓴다.
+	int32 GetCurrentSkillCastId() const { return SkillCastCounter; }
+
+	// 서버 전용. 이 시전이 커밋(비용·쿨다운)됐다. 즉발 피해 크레딧은 발동한 시전에만 준다
+	// — 캐스팅 중(발동 전) 다른 피해가 들어가도 지금 시전이 트리거되지 않게.
+	void MarkSkillCastReleased(int32 CastId) { LastReleasedSkillCastId = CastId; }
+
+	// 서버 전용. 액티브 스킬 피해가 적에게 들어갔다. 잔류 마력이 있으면 시전 1번에 1회
+	// 장착 액티브 스킬의 쿨다운 GE 를 줄인다. 투사체는 들고 다니던 ID 로 부른다.
+	void NotifySkillHit(int32 CastId);
 	// 
 	void NotifyDamageDealt(AActor* Target, float Damage, bool bTargetKilled);
 	// 마나 비용의 유일한 통로. 패시브,증강의 소비 감소를 여기 한 곳에서만 처리한다.
@@ -560,6 +584,18 @@ private:
 	// UHBPlayerActiveGABase::WantsAimInput() 이 true 인 활성 스펙. 없으면 nullptr.
 	struct FGameplayAbilitySpec* FindActiveAimingSkillSpec() const;
 
+	// 캐스팅 중(State.Casting)인 활성 UHBPlayerCastGABase 스펙. 우클릭 취소용. 없으면 nullptr.
+	struct FGameplayAbilitySpec* FindActiveCastingSkillSpec() const;
+
+	// 서버 전용 시전 ID 카운터. BeginSkillCast 가 올린다.
+	int32 SkillCastCounter = 0;
+
+	// 서버 전용. 마지막으로 커밋된 시전 ID. MarkSkillCastReleased 가 정한다.
+	int32 LastReleasedSkillCastId = 0;
+
+	// 잔류 마력이 이미 쿨다운을 줄인 최근 시전 ID 들(HBMagic::MaxResidualConsumed 개). 같은 시전의 두 번째 적중은 무시한다.
+	TArray<int32> ResidualConsumedCastIds;
+
 	// 타격 연출을 쏜다. 막힘·패링이면 그에 맞는 큐로, 아니면 무기 성질 판정에 맡긴다.
 	//
 	// 왜 맞는 쪽이 쏘나: 막았는지는 여기서만 안다. 때리는 쪽은 무기 성질밖에 모른다.
@@ -594,6 +630,15 @@ private:
 	// 같은 이름의 BP 변수가 있어 충돌하면 그쪽 변수가 bBowDrawing_0 으로 바뀌어 테스트가 깨진다.
 	UPROPERTY(Replicated)
 	bool bDrawingBow = false;
+
+	// 활 스킬 동작 중. bDrawingBow 와 같은 방식(COND_SkipOwner).
+	// 이름을 bBowSkillActive 로 하지 않는다: BP_Test_BowCharacter(이 클래스의 자식)에 같은 이름의 BP 변수가 있다.
+	UPROPERTY(Replicated)
+	bool bInBowSkillPose = false;
+
+	// 정적 무기 표시의 처음 상대 위치. 외형 행이 위치를 바꾼 무기에서 다른 무기로 바꿀 때 되돌린다.
+	FTransform DefaultWeaponMeshRelative;
+	bool bHasDefaultWeaponMeshRelative = false;
 
 	// 무기에 따른 교체 전의 AnimBP(BP 기본값 또는 직업 데이터). 무기를 내려놓으면 이걸로 돌아간다.
 	UPROPERTY()
@@ -1055,6 +1100,12 @@ public:
 	// 직업 데이터의 PassiveSkills 에 있는 ID 만 통한다. 이미 가진 것은 무시된다.
 	UFUNCTION(Exec, Category = "Debug")
 	void TestGrantPassive(FName PassiveSkillId);
+
+	// 테스트용: 로비 없이 Q/E 스킬을 바꾼다. 패시브는 지금 것을 유지한다.
+	//   예) TestSetSkills Bow.PiercingShot Bow.HunterMark
+	// 직업 데이터의 ActiveSkills 에 있는 ID 만 통한다(RequestApplyLoadout 이 검사).
+	UFUNCTION(Exec, Category = "Debug")
+	void TestSetSkills(FName SkillQId, FName SkillEId);
 
 protected:
 	UFUNCTION(Server, Reliable)

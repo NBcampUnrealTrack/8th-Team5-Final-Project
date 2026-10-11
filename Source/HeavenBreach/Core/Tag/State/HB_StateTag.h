@@ -36,4 +36,7 @@ namespace StateTag
 
 	// 막기 · 패링이 통하지 않는다. 방어태세여도 그냥 맞은 것으로 친다.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Attacking_Unblockable)
+
+	// 시전 중(마법 스킬 시전 시간 동안). 시전 중 이동 제한·중단 판정에 쓴다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Casting)
 }

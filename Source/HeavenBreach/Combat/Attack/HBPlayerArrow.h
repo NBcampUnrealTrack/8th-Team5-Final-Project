@@ -28,6 +28,10 @@ struct FHBArrowLaunchOptions
 	/** 스킬 화살: 피해에 GetSkillDamageMultiplier 를 곱한다 */
 	UPROPERTY()
 	bool bSkillArrow = false;
+
+	/** 쏜 스킬의 시전 ID(잔류 마력). 0 = 평타. 적중하면 쏜 사람에게 NotifySkillHit 로 알린다 */
+	UPROPERTY()
+	int32 SkillCastId = 0;
 };
 
 /**
@@ -164,6 +168,9 @@ private:
 
 	/** 스킬 화살이면 피해에 스킬 피해 배율을 곱한다 */
 	bool bSkillArrow = false;
+
+	/** Launch 의 Options.SkillCastId. 0 이면 평타 화살 */
+	int32 SkillCastId = 0;
 
 	/** 이미 피해를 준 대상. 캡슐·메시에 두 번 막혀도 한 번만 맞는다 */
 	TSet<TWeakObjectPtr<AActor>> HitActors;

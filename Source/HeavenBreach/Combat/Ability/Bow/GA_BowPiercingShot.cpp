@@ -68,9 +68,14 @@ void UGA_BowPiercingShot::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	bArrowSpawned = false;
 	bFinishCancelled = false;
 	bCancelling = false;
+
+	// 부모를 안 부르므로 시전 ID(잔류 마력)를 직접 받는다. 서버만.
+	BeginCastId(ActorInfo);
+
 	PrepareTask.Reset();
 	DrawTask.Reset();
 	DrawStartTime = 0.f;
+	ActiveMontages = FHBBowPiercingMontages();
 
 	AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
 	if (!Player)
@@ -78,6 +83,7 @@ void UGA_BowPiercingShot::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
+	ActiveMontages = ResolveMontages(Player);
 
 	const bool bAuthority = ActorInfo->IsNetAuthority();
 
@@ -115,17 +121,23 @@ void UGA_BowPiercingShot::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	PressTask->ReadyForActivation();
 
 	float PrepareTime = 0.f;
-	if (PrepareMontage)
+	if (ActiveMontages.Prepare)
 	{
-		if (UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Prepare"), PrepareMontage))
+		if (UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Prepare"), ActiveMontages.Prepare))
 		{
 			// 경직 몽타주 등이 끊으면 취소. 당김 몽타주로 넘어갈 때는 이 태스크를 먼저 끝내서 오인하지 않는다.
 			Task->OnInterrupted.AddDynamic(this, &UGA_BowPiercingShot::OnPhaseMontageInterrupted);
 			Task->OnCancelled.AddDynamic(this, &UGA_BowPiercingShot::OnPhaseMontageInterrupted);
 			PrepareTask = Task;
 			Task->ReadyForActivation();
-			PrepareTime = PrepareMontage->GetPlayLength();
+			PrepareTime = ActiveMontages.Prepare->GetPlayLength();
 		}
+	}
+
+	// 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다. 서버·소유 클라에서 세팅, 다른 클라는 복제.
+	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
+	{
+		PosePlayer->SetInBowSkillPose(true);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 관통 사격: 준비  Auth=%d  Local=%d  PrepareTime=%.2f"),
@@ -217,9 +229,9 @@ void UGA_BowPiercingShot::BeginDraw()
 	// 당김 몽타주가 준비 몽타주를 끊는 것은 정상 전환이다. 끊김 콜백이 오기 전에 준비 태스크를 끝낸다.
 	EndPhaseMontageTask(PrepareTask);
 
-	if (DrawMontage)
+	if (ActiveMontages.Draw)
 	{
-		if (UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Draw"), DrawMontage))
+		if (UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Draw"), ActiveMontages.Draw))
 		{
 			// 끝 콜백은 받지 않는다. 떼기가 끝을 정한다. 경직 등으로 끊기면 취소.
 			Task->OnInterrupted.AddDynamic(this, &UGA_BowPiercingShot::OnPhaseMontageInterrupted);
@@ -270,18 +282,18 @@ void UGA_BowPiercingShot::OnInputReleased(float /*TimeHeld*/)
 	if (!bFullyDrawn)
 	{
 		// 다 당기기 전에 놓음 = 취소. 아무것도 내지 않는다.
-		PlayFinishAndEnd(CancelMontage, true);
+		PlayFinishAndEnd(ActiveMontages.Cancel, true);
 		return;
 	}
 
 	if (bAuthority && !TryCommitFire())
 	{
-		PlayFinishAndEnd(CancelMontage, true);
+		PlayFinishAndEnd(ActiveMontages.Cancel, true);
 		return;
 	}
 
 	// 클라는 몽타주만. 서버가 취소로 판정하면 서버의 EndAbility 복제가 정리한다.
-	PlayFinishAndEnd(ReleaseMontage, false);
+	PlayFinishAndEnd(ActiveMontages.Release, false);
 }
 
 // ---------------- 발사 (서버) ----------------
@@ -352,6 +364,7 @@ void UGA_BowPiercingShot::SpawnPiercingArrow()
 	FHBArrowLaunchOptions Options;
 	Options.MaxPierceCount = MaxPierceCount;
 	Options.bSkillArrow = true;
+	Options.SkillCastId = CastId;
 
 	AHBPlayerCharacter* Player = GetPlayer();
 	TSubclassOf<AHBPlayerArrow> UseArrowClass;
@@ -371,6 +384,22 @@ void UGA_BowPiercingShot::ResolveArrow(const AHBPlayerCharacter* Player, TSubcla
 	OutClass = ArrowClass;
 	OutRow = ArrowItemRow;
 	HBBowShot::ResolveArrowDefaults(Player, OutClass, OutRow);
+}
+
+FHBBowPiercingMontages UGA_BowPiercingShot::ResolveMontages(const AHBPlayerCharacter* Player) const
+{
+	const FName Variant = HBBowShot::GetBowVariant(Player);
+	if (const FHBBowPiercingMontages* Found = Variant.IsNone() ? nullptr : VariantMontages.Find(Variant))
+	{
+		return *Found;
+	}
+
+	FHBBowPiercingMontages Defaults;
+	Defaults.Prepare = PrepareMontage;
+	Defaults.Draw = DrawMontage;
+	Defaults.Release = ReleaseMontage;
+	Defaults.Cancel = CancelMontage;
+	return Defaults;
 }
 
 // ---------------- 마무리 ----------------
@@ -523,16 +552,17 @@ void UGA_BowPiercingShot::EndAbility(const FGameplayAbilitySpecHandle Handle, co
 	if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
 	{
 		Player->SetBowDrawing(false);
+		Player->SetInBowSkillPose(false);
 	}
 	if (UAnimInstance* Anim = ActorInfo ? ActorInfo->GetAnimInstance() : nullptr)
 	{
-		if (PrepareMontage)
+		if (ActiveMontages.Prepare)
 		{
-			Anim->Montage_Stop(0.2f, PrepareMontage);
+			Anim->Montage_Stop(0.2f, ActiveMontages.Prepare);
 		}
-		if (DrawMontage)
+		if (ActiveMontages.Draw)
 		{
-			Anim->Montage_Stop(0.2f, DrawMontage);
+			Anim->Montage_Stop(0.2f, ActiveMontages.Draw);
 		}
 	}
 

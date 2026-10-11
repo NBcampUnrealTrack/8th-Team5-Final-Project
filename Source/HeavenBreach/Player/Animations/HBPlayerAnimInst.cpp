@@ -54,6 +54,7 @@ void UHBPlayerAnimInst::NativeUpdateAnimation(float DeltaSeconds)
 		}
 
 		bBowDrawing = OwnerInst->IsBowDrawing();
+		bBowSkillPose = OwnerInst->IsInBowSkillPose();
 		WeaponSkeletalMesh = OwnerInst->GetWeaponSkeletalMesh();
 		const FHBWeaponPresentation* Presentation = OwnerInst->GetWeaponPresentation();
 		StringIKOffset = Presentation ? Presentation->StringIKOffset : 0.f;

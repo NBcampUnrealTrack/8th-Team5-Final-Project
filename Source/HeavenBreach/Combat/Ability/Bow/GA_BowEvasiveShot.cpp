@@ -68,6 +68,17 @@ bool UGA_BowEvasiveShot::CanActivateAbility(const FGameplayAbilitySpecHandle Han
 
 // ---------------- 발동 ----------------
 
+UAnimMontage* UGA_BowEvasiveShot::GetMontageToPlay() const
+{
+	// 부모 ActivateAbility 안과 발동 직후에 불리므로 CurrentActorInfo 가 유효하다.
+	const FName Variant = HBBowShot::GetBowVariant(GetPlayerFrom(GetCurrentActorInfo()));
+	if (const TObjectPtr<UAnimMontage>* Found = Variant.IsNone() ? nullptr : VariantMontages.Find(Variant))
+	{
+		return *Found;
+	}
+	return Super::GetMontageToPlay();
+}
+
 void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	bArrowFired = false;
@@ -111,6 +122,8 @@ void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	{
 		// 몽타주가 없으면 부모가 바로 끝내서 후퇴·발사를 못 한다. 직접 커밋하고 FireDelay+0.1 뒤 끝낸다.
 		// 이 경로는 부모의 발동 큐·자버프·발동 중 GE 를 거치지 않는다. 회피는 셋 다 쓰지 않는다.
+		// 부모를 안 거치므로 시전 ID(잔류 마력)도 직접 받는다. 서버만.
+		BeginCastId(ActorInfo);
 		if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
 		{
 			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
@@ -120,6 +133,12 @@ void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		{
 			World->GetTimerManager().SetTimer(FinishTimerHandle, FTimerDelegate::CreateUObject(this, &UGA_BowEvasiveShot::FinishWithoutMontage), FireDelay + 0.1f, false);
 		}
+	}
+
+	// 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다. 서버·소유 클라에서 세팅, 다른 클라는 복제.
+	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
+	{
+		PosePlayer->SetInBowSkillPose(true);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 회피 공격: 발동  Auth=%d  Local=%d  Montage=%d  RootMotionByMontage=%d"),
@@ -248,6 +267,7 @@ void UGA_BowEvasiveShot::FireArrow()
 	FHBArrowLaunchOptions Options;
 	Options.MaxPierceCount = 0;
 	Options.bSkillArrow = true;
+	Options.SkillCastId = CastId;
 
 	const float FinalCoef = DamageCoef * GetAugmentParam(SkillParamTag::TAG_SkillParam_Damage, 1.f);
 	const AHBPlayerArrow* Arrow = HBBowShot::SpawnArrow(Player, UseArrowClass, ArrowSpeed, FinalCoef, UseArrowRow,AimTraceDistance, SpawnForwardOffset, Options);
@@ -301,6 +321,11 @@ void UGA_BowEvasiveShot::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 		FTimerManager& Timers = World->GetTimerManager();
 		Timers.ClearTimer(FireTimerHandle);
 		Timers.ClearTimer(FinishTimerHandle);
+	}
+
+	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
+	{
+		PosePlayer->SetInBowSkillPose(false);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 회피 공격: 종료  Auth=%d  Cancelled=%d  발사=%d"),

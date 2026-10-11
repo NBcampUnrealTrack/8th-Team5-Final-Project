@@ -35,6 +35,16 @@ struct HEAVENBREACH_API FHBWeaponPresentation : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mesh")
 	FName AttachSocket = TEXT("BowSocket");
 
+	/**
+	 * 정적 무기(SkeletalMesh 가 빈 행)의 위치를 무기 소켓(PrimaryWeaponSocket) 기준으로 바꿀지.
+	 * 스태프처럼 중앙을 쥐어야 하는 무기용. 끄면 캐릭터 BP 의 원래 상대 위치를 쓴다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mesh")
+	bool bOverrideStaticMeshTransform = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (EditCondition = "bOverrideStaticMeshTransform"))
+	FTransform StaticMeshRelativeTransform;
+
 	/** 이 무기를 들었을 때 캐릭터 AnimBP. 비어 있으면 기본 AnimBP */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	TSubclassOf<UAnimInstance> CharacterAnimClass;
@@ -56,6 +66,13 @@ struct HEAVENBREACH_API FHBWeaponPresentation : public FTableRowBase
 	/** 활마다 다른 시위 IK 보정값. AnimBP 가 메시 에셋을 비교하던 자리 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow")
 	float StringIKOffset = 0.f;
+
+	/**
+	 * 활 스킬 몽타주를 고르는 키(AA / AC / AN). 스킬 GA 의 활별 몽타주 표에서 이 키를 찾는다.
+	 * 비어 있거나 표에 없으면 GA 의 기본 몽타주를 쓴다. 스킬 몽타주 자체는 이 행에 넣지 않는다(기문 님 인계 5장).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow")
+	FName BowVariant;
 };
 
 namespace HBWeaponPresentation

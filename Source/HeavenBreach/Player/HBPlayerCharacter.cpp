@@ -62,6 +62,12 @@
 #include "Combat/Ability/HBPlayerPassiveGABase.h"
 #include "Combat/Ability/HBPlayerSkillGABase.h"
 #include "Combat/Ability/HBCommonAugmentSet.h"
+#include "Combat/Ability/Magic/HBMagic.h"
+#include "Combat/Ability/Magic/HBPlayerCastGABase.h"
+#include "Core/Tag/Magic/HB_MagicTag.h"
+#include "Core/Tag/Melee/HB_MeleeTag.h"
+#include "Combat/Ability/Melee/HBMelee.h"
+#include "AI/EnemyCharacterBase.h"
 
 
 AHBPlayerCharacter::AHBPlayerCharacter()
@@ -280,6 +286,7 @@ void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	
 	DOREPLIFETIME(ThisClass,bIsSprinting);
 	DOREPLIFETIME_CONDITION(ThisClass, bDrawingBow, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(ThisClass, bInBowSkillPose, COND_SkipOwner);
 	DOREPLIFETIME(ThisClass,MovementSpeedMultiplier);
 	DOREPLIFETIME(ThisClass,SelectedSkillQId);
 	DOREPLIFETIME(ThisClass,SelectedSkillEId);
@@ -475,6 +482,13 @@ void AHBPlayerCharacter::TryParry()
 		return;
 	}
 
+	// 마법 캐스팅 중 우클릭은 캐스팅 취소(마법스킬 설계 2.2-1). 발동 전이라 비용·쿨다운이 나가지 않는다.
+	if (const FGameplayAbilitySpec* CastSpec = FindActiveCastingSkillSpec())
+	{
+		ASC->CancelAbilityHandle(CastSpec->Handle);
+		return;
+	}
+
 	// 방패가 없으면 아무 일도 일어나지 않는다. 별도 실패 피드백을 두지 않는다 —
 	// 방패 슬롯이 비어 있다는 것은 HUD 에서 이미 보인다.
 	//
@@ -483,6 +497,40 @@ void AHBPlayerCharacter::TryParry()
 	if (!HasShieldEquipped())
 	{
 		return;
+	}
+
+	// 받아치기: 평타 중에도 패링으로 끊고 들어간다. 패링은 State.Attacking 에 막히므로 먼저 평타를 취소한다.
+	// 평타 GA 는 LocalPredicted 라 클라에서 CancelAbilityHandle 하면 EndAbility 가 ActivationOwnedTags 를
+	// 즉시 제거하고 서버로 취소가 복제된다. 그래서 바로 아래 발동 시점에는 태그가 이미 없다.
+	// 패링이 State.Attacking 말고는 막히지 않을 때만 취소한다. 후딜·경직·방어 중 등 어차피 패링이 안 되는 상황에서
+	// 평타만 끊으면 공짜 애니메이션 취소가 된다. 아래 목록은 GA_PlayerParry 의 ActivationBlockedTags(Attacking 제외)와 같게 유지할 것.
+	bool bParryBlockedOtherThanAttack = false;
+	for (const FGameplayTag& BlockTag : { AbilityTag::TAG_State_Dead.GetTag(), StateTag::TAG_State_Staggered.GetTag(),
+		StateTag::TAG_State_BoxInteracting.GetTag(), StateTag::TAG_State_InventoryBusy.GetTag(),
+		StateTag::TAG_State_ParryRecovery.GetTag(), StateTag::TAG_State_Blocking.GetTag() })
+	{
+		if (ASC->HasMatchingGameplayTag(BlockTag))
+		{
+			bParryBlockedOtherThanAttack = true;
+			break;
+		}
+	}
+	// 파손된 방패로는 패링이 발동 직후 끝난다(GA_PlayerParry::ActivateAbility 와 같은 검사).
+	if (!bParryBlockedOtherThanAttack)
+	{
+		if (const UEquipmentComponent* EquipComp = GetEquipment())
+		{
+			bParryBlockedOtherThanAttack = EquipComp->IsEquippedItemBroken(EEquipSlotType::SecondaryEquip);
+		}
+	}
+
+	if (!bParryBlockedOtherThanAttack && ASC->HasMatchingGameplayTag(MeleeTag::TAG_State_Counter))
+	{
+		if (UGA_PlayerAttackRE* CurrentAttack = UGA_PlayerAttackRE::FindActive(ASC))
+		{
+			ASC->CancelAbilityHandle(CurrentAttack->GetCurrentAbilitySpecHandle());
+			UE_LOG(LogTemp, Log, TEXT("[MeleeSkill] 받아치기: 평타 취소 후 패링"));
+		}
 	}
 
 	StopSprint();
@@ -506,6 +554,25 @@ FGameplayAbilitySpec* AHBPlayerCharacter::FindActiveAimingSkillSpec() const
 		}
 		const UHBPlayerActiveGABase* Skill = Cast<UHBPlayerActiveGABase>(Spec.GetPrimaryInstance());
 		if (Skill && Skill->WantsAimInput())
+		{
+			return &Spec;
+		}
+	}
+	return nullptr;
+}
+
+FGameplayAbilitySpec* AHBPlayerCharacter::FindActiveCastingSkillSpec() const
+{
+	// State.Casting 은 캐스팅 스킬(bIsCasting)이 발동 전까지만 붙인다. 순간 이동·서리 지대는 붙이지 않아 우클릭으로 안 끊긴다.
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || !ASC->HasMatchingGameplayTag(StateTag::TAG_State_Casting))
+	{
+		return nullptr;
+	}
+
+	for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (Spec.IsActive() && Cast<UHBPlayerCastGABase>(Spec.GetPrimaryInstance()))
 		{
 			return &Spec;
 		}
@@ -1130,7 +1197,7 @@ void AHBPlayerCharacter::ServerTryActivateJobSkill_Implementation(const FName Sk
 	TryActivateJobSkill(SkillId);
 }
 
-float AHBPlayerCharacter::ModifyOutgoingDamage(AActor* Target, float Damage)
+float AHBPlayerCharacter::ModifyOutgoingDamage(AActor* Target, float Damage, const bool bCreditCurrentSkillCast)
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
 	if (!ASC || !Target)
@@ -1207,7 +1274,66 @@ float AHBPlayerCharacter::ModifyOutgoingDamage(AActor* Target, float Damage)
 	if (ASC->HasMatchingGameplayTag(MageTag::TAG_Passive_GlassCannon))
 		Damage *= 1.3f;
 
+	// 잔류 마력: 즉발 스킬 피해(근접 스킬·마력 폭발 등)는 지금 시전의 ID 로 알린다.
+	// 투사체는 bCreditCurrentSkillCast=false 로 불러 여기를 건너뛰고 자기 ID 로 따로 알린다.
+	// 지금 시전이 아직 발동(커밋) 전이면 알리지 않는다 — 캐스팅 중 들어간 다른 피해가 공짜로 트리거하지 않게.
+	const int32 CurrentCastId = GetCurrentSkillCastId();
+	if (bCreditCurrentSkillCast && HasAuthority() && CurrentCastId > 0 && CurrentCastId == LastReleasedSkillCastId
+		&& ASC->HasMatchingGameplayTag(StateTag::TAG_State_UsingSkill))
+	{
+		NotifySkillHit(CurrentCastId);
+	}
+
 	return Damage;
+}
+
+void AHBPlayerCharacter::NotifySkillHit(const int32 CastId)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC || !ASC->HasMatchingGameplayTag(MagicTag::TAG_State_ResidualMana))
+	{
+		return;
+	}
+
+	// 시전 1번에 1회(설계 2.1). 관통 화살이 여러 명을 맞혀도 한 번만 줄인다.
+	if (!HBMagic::ConsumeResidualTrigger(CastId, ResidualConsumedCastIds))
+	{
+		return;
+	}
+
+	const float Reduction = HBMagic::ResidualReduction(GetAugmentTier(MagicTag::TAG_Augment_Passive_ResidualMana_Boost));
+
+	// 줄일 대상은 장착 액티브 스킬의 쿨다운뿐이다(설계 2.2-7). 방어(Cooldown.Block)·평타 쿨다운은 빠진다.
+	// 부여된 액티브 GA 의 쿨다운 GE 가 주는 태그를 모아, 그 태그를 주는 활성 GE 만 고른다.
+	FGameplayTagContainer ActiveCooldownTags;
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		const UHBPlayerActiveGABase* Active = Cast<UHBPlayerActiveGABase>(Spec.Ability);
+		if (const FGameplayTagContainer* CooldownTags = Active ? Active->GetCooldownTags() : nullptr)
+		{
+			ActiveCooldownTags.AppendTags(*CooldownTags);
+		}
+	}
+	if (ActiveCooldownTags.IsEmpty())
+	{
+		return;
+	}
+
+	// 시작 시각을 당기면 남은 시간이 줄고, 엔진이 클라에 복제한다.
+	const FGameplayEffectQuery Query = FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(ActiveCooldownTags);
+	int32 Reduced = 0;
+	for (const FActiveGameplayEffectHandle& Handle : ASC->GetActiveEffects(Query))
+	{
+		ASC->ModifyActiveEffectStartTime(Handle, -Reduction);
+		++Reduced;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[MagicSkill] 잔류 마력: 시전 %d 적중 — 쿨다운 %d개 −%.1f초"), CastId, Reduced, Reduction);
 }
 
 void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bTargetKilled)
@@ -1257,6 +1383,19 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 	if (!bTargetKilled)
 	{
 		return;
+	}
+
+	// 피의 갈증: 적 처치 시 최대 체력 비율 회복. 서버에서만 호출되는 경로다.
+	if (Cast<AEnemyCharacterBase>(Target))
+	{
+		const float BloodRatio = HBMelee::BloodthirstHealRatio(
+			ASC->HasMatchingGameplayTag(MeleeTag::TAG_State_Bloodthirst),
+			GetAugmentTier(MeleeTag::TAG_Augment_Passive_Bloodthirst_Boost));
+		if (BloodRatio > 0.f)
+		{
+			ReceiveHeal(Attributes->GetPlayer_MaxHP() * BloodRatio);
+			UE_LOG(LogTemp, Log, TEXT("[MeleeSkill] 피의 갈증: 처치 회복 %.0f%%"), BloodRatio * 100.f);
+		}
 	}
 
 	if (ASC->HasMatchingGameplayTag(WarriorTag::TAG_Passive_CombatRecovery))
@@ -1782,6 +1921,12 @@ void AHBPlayerCharacter::ServerTestAddExp_Implementation(int32 Amount)
 	TestAddExp(Amount);
 }
 
+void AHBPlayerCharacter::TestSetSkills(const FName SkillQId, const FName SkillEId)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[TestSetSkills] Q=%s E=%s"), *SkillQId.ToString(), *SkillEId.ToString());
+	RequestApplyLoadout(SkillQId, SkillEId, SelectedPassiveSkillIds);
+}
+
 void AHBPlayerCharacter::TestGrantPassive(const FName PassiveSkillId)
 {
 	// 부여는 서버 권한에서만 유효하다. 내구도 테스트와 같은 구조다.
@@ -2227,8 +2372,14 @@ void AHBPlayerCharacter::UpdateManaResource()
 
 	// 실제로 깎이는 게 있을 때만 "마나를 쓰는 중" 이다.
 	// 전투 호흡으로 달리기가 공짜면, 달리는 동안에도 회복되고 마나 0 에서 멈추지도 않는다.
+	// 견고한 자세: 홀드 방어 초당 소모에 배수를 곱한다.
+	const float BlockCostScale = bBlocking
+		? HBMelee::SteadyStanceMultiplier(
+			ASC->HasMatchingGameplayTag(MeleeTag::TAG_State_SteadyStance),
+			GetAugmentTier(MeleeTag::TAG_Augment_Passive_SteadyStance_Boost))
+		: 1.f;
 	const float CostPerSecond = (bIsSprinting ? GetSprintManaCostPerSecond() : 0.f)
-								+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond) : 0.f);
+								+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond * BlockCostScale) : 0.f);
 
 	if (CostPerSecond > 0.f)
 	{
@@ -2665,6 +2816,15 @@ void AHBPlayerCharacter::RefreshWeaponVisual()
 
 		UStaticMesh* WeaponMesh = WeaponData ? LoadObject<UStaticMesh>(nullptr, *WeaponData->EquipMeshPath) : nullptr;
 		WeaponMeshComp->SetStaticMesh(WeaponMesh);
+
+		// 외형 행이 위치를 정하면(스태프 중앙 그립) 그것을, 아니면 처음 위치로 되돌린다.
+		if (!bHasDefaultWeaponMeshRelative)
+		{
+			DefaultWeaponMeshRelative = WeaponMeshComp->GetRelativeTransform();
+			bHasDefaultWeaponMeshRelative = true;
+		}
+		const bool bOverride = CachedWeaponPresentation && CachedWeaponPresentation->bOverrideStaticMeshTransform;
+		WeaponMeshComp->SetRelativeTransform(bOverride ? CachedWeaponPresentation->StaticMeshRelativeTransform : DefaultWeaponMeshRelative);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[WeaponVisual] %s Role=%d  Item=%s Type=%s  Table=%s Presentation=%d  Skeletal=%s(Visible=%d Socket=%s)  Static=%s"),
@@ -2709,6 +2869,11 @@ void AHBPlayerCharacter::RefreshCharacterAnimClass()
 void AHBPlayerCharacter::SetBowDrawing(const bool bDrawing)
 {
 	bDrawingBow = bDrawing;
+}
+
+void AHBPlayerCharacter::SetInBowSkillPose(const bool bInPose)
+{
+	bInBowSkillPose = bInPose;
 }
 
 UStaticMesh* AHBPlayerCharacter::GetHeldArrowMesh() const

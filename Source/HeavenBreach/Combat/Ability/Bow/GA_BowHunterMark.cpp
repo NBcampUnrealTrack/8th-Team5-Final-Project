@@ -5,6 +5,7 @@
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayTag.h"
 #include "AI/EnemyCharacterBase.h"
+#include "Camera/CameraComponent.h"
 #include "Combat/Attack/HBHunterMark.h"
 #include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
@@ -77,6 +78,12 @@ void UGA_BowHunterMark::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		return;	// 커밋 실패 등으로 이미 끝났다
 	}
 
+	// 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다. 서버·소유 클라에서 세팅, 다른 클라는 복제.
+	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
+	{
+		PosePlayer->SetInBowSkillPose(true);
+	}
+
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 사냥꾼의 표식: 발동  Auth=%d  Local=%d  ApplyDelay=%.2f"),
 		bAuthority ? 1 : 0, ActorInfo->IsLocallyControlled() ? 1 : 0, ApplyDelay);
 
@@ -139,14 +146,33 @@ void UGA_BowHunterMark::ApplyMarks()
 		return;
 	}
 
-	const FVector Center = Player->ComputeAimPoint(AimTraceDistance);
+	FVector Center = Player->ComputeAimPoint(AimTraceDistance);
+
+	// ComputeAimPoint 는 Visibility 채널이다. 적 충돌 프로필("Enemy")은 Visibility 를 무시해서
+	// 적을 조준해도 조준선이 적을 지나 뒤 벽·바닥이 중심이 된다. 그 사이에 적이 있으면 적에 맞은 점을 중심으로 쓴다.
+	if (const UCameraComponent* Camera = Player->GetFirstPersonCamera())
+	{
+		FCollisionQueryParams AimParams(SCENE_QUERY_STAT(BowHunterMarkAim), false, Player);
+		TArray<FHitResult> AimHits;
+		World->LineTraceMultiByObjectType(AimHits, Camera->GetComponentLocation(), Center, FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllDynamicObjects), AimParams);
+		for (const FHitResult& AimHit : AimHits)
+		{
+			if (Cast<AEnemyCharacterBase>(AimHit.GetActor()))
+			{
+				Center = AimHit.ImpactPoint;
+				break;
+			}
+		}
+	}
 	const float FinalRadius = GetAugmentParam(SkillParamTag::TAG_SkillParam_Radius, Radius);
 	const float Bonus = GetAugmentParam(SkillParamTag::TAG_SkillParam_MarkBonus, 0.2f);
 	const FGameplayTag DeepTag = HBHunterMark::TagForBonus(Bonus);
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(BowHunterMark), false, Player);
 	TArray<FOverlapResult> Overlaps;
-	World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(FinalRadius), QueryParams);
+	// 적 BP 캡슐은 대개 "Enemy" 오브젝트 채널(ECC_GameTraceChannel2)이라 Pawn 만 찾으면 0명이 나온다.
+	// 움직이는 오브젝트 채널 전부를 보고 아래에서 AEnemyCharacterBase 로 거른다.
+	World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllDynamicObjects), FCollisionShape::MakeSphere(FinalRadius), QueryParams);
 
 	// 한 적의 여러 컴포넌트가 걸릴 수 있다. 액터당 한 번만 붙인다.
 	TSet<const AActor*> Seen;
@@ -184,6 +210,23 @@ void UGA_BowHunterMark::ApplyMarks()
 		UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 사냥꾼의 표식:   대상 %s  위치=%s"), *GetNameSafe(Enemy), *Enemy->GetActorLocation().ToCompactString());
 	}
 
+	// 적용 순간 연출(손 입자·바닥 펄스). 대상이 없어도 범위는 보여 준다. 큐는 모든 화면에 복제된다.
+	// 펄스는 바닥에 깔리게 조준점에서 아래로 내린 지점에 둔다(테스트와 같다).
+	{
+		FVector PulseLocation = Center;
+		FHitResult GroundHit;
+		if (World->LineTraceSingleByChannel(GroundHit, Center + FVector(0.f, 0.f, 50.f), Center - FVector(0.f, 0.f, 1000.f), ECC_Visibility, QueryParams))
+		{
+			PulseLocation = GroundHit.ImpactPoint + FVector(0.f, 0.f, 2.f);
+		}
+		FGameplayCueParameters CueParams;
+		CueParams.Location = PulseLocation;
+		CueParams.RawMagnitude = FinalRadius;
+		CueParams.Instigator = Player;
+		CueParams.EffectCauser = Player;
+		SourceASC->ExecuteGameplayCue(ArcherTag::TAG_GameplayCue_Bow_HunterMarkCast, CueParams);
+	}
+
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 사냥꾼의 표식: 적용  대상=%d  중심=%s  반경=%.0f  보너스=%.2f  단계태그=%s  지속=%.1f"),
 		MarkedCount, *Center.ToCompactString(), FinalRadius, Bonus, *DeepTag.ToString(), MarkDuration);
 }
@@ -212,6 +255,11 @@ void UGA_BowHunterMark::EndAbility(const FGameplayAbilitySpecHandle Handle, cons
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(ApplyTimerHandle);
+	}
+
+	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
+	{
+		PosePlayer->SetInBowSkillPose(false);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 사냥꾼의 표식: 종료  Auth=%d  Cancelled=%d  표식적용=%d"),
