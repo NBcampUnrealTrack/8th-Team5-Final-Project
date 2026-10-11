@@ -8,7 +8,6 @@
 
 class UButton;
 class UHB_FriendsPanel;
-class AHBLobbyPlayerState;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBLobbyActionRequested);
 /**
  * 
@@ -23,9 +22,6 @@ public:
 	/** The owning lobby controller handles these requests. */
 	UPROPERTY(BlueprintAssignable, Category = "Lobby|Actions")
 	FHBLobbyActionRequested OnStartRequested;
-
-	UPROPERTY(BlueprintAssignable, Category = "Lobby|Actions")
-	FHBLobbyActionRequested OnReadyRequested;
 
 	UFUNCTION(BlueprintPure, Category = "Lobby|Actions")
 	bool IsLocalLobbyHost() const;
@@ -70,12 +66,6 @@ protected:
 #pragma endregion
 	
 private:
-	UPROPERTY(Transient)
-	TObjectPtr<AHBLobbyPlayerState> AudioPlayerState;
-
-	UFUNCTION()
-	void HandleReadyAudio(bool bReady);
-
 	// FriendsButtonModule 안의 버튼. 모듈 내부 구조에 의존하지 않으려고 이름이 아니라 타입으로 찾는다.
 	UPROPERTY(Transient)
 	TObjectPtr<UButton> FriendsButton;
@@ -83,9 +73,6 @@ private:
 	UFUNCTION()
 	void HandleFriendsClicked();
 
-	UFUNCTION()
-	void HandleReadyClicked();
-	
 	UFUNCTION()
 	void HandleStartClicked();
 };

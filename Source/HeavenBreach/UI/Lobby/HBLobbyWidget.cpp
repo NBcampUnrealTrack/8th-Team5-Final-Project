@@ -1,5 +1,4 @@
 #include "UI/Lobby/HBLobbyWidget.h"
-#include "UI/Audio/HBUIAudioLibrary.h"
 #include "Core/GameFlow/Lobby/PlayerState/HBLobbyPlayerState.h"
 #include "Core/GameFlow/Lobby/HBLobbyGameState.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
@@ -39,10 +38,6 @@ void UHBLobbyWidget::NativeConstruct()
 	Super::NativeConstruct();
 
 	// Keep the existing widget names so the assembled Blueprint retains its layout.
-	if (ReadyButtonModule)
-	{
-		ReadyButton = Cast<UButton>(ReadyButtonModule->GetWidgetFromName(TEXT("Button_Action")));
-	}
 	if (StartMatchButtonModule)
 	{
 		StartMatchButton = Cast<UButton>(StartMatchButtonModule->GetWidgetFromName(TEXT("Button_Action")));
@@ -70,14 +65,6 @@ void UHBLobbyWidget::NativeConstruct()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("LobbyWidget | FriendsButtonModule 안에서 Button 을 찾지 못했다. 친구 목록이 열리지 않는다."));
 	}
-	if (ReadyButton)
-	{
-		ReadyButton->OnClicked.AddUniqueDynamic(this, &ThisClass::HandleReadyClicked);
-		// The replicated ready state supplies the confirmation/cancel sound.
-		FButtonStyle Style = ReadyButton->GetStyle();
-		Style.PressedSlateSound.SetResourceObject(nullptr);
-		ReadyButton->SetStyle(Style);
-	}
 	if (StartMatchButton)
 	{
 		StartMatchButton->OnClicked.AddUniqueDynamic(this, &ThisClass::HandleStartClicked);
@@ -87,15 +74,9 @@ void UHBLobbyWidget::NativeConstruct()
 
 void UHBLobbyWidget::NativeDestruct()
 {
-	if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.RemoveDynamic(this, &ThisClass::HandleReadyAudio);
-	AudioPlayerState = nullptr;
 	if (FriendsButton)
 	{
 		FriendsButton->OnClicked.RemoveDynamic(this, &UHBLobbyWidget::HandleFriendsClicked);
-	}
-	if (ReadyButton)
-	{
-		ReadyButton->OnClicked.RemoveDynamic(this, &ThisClass::HandleReadyClicked);
 	}
 	if (StartMatchButton)
 	{
@@ -119,14 +100,7 @@ bool UHBLobbyWidget::IsLocalLobbyHost() const
 
 void UHBLobbyWidget::RefreshLobbyActions()
 {
-	auto* PlayerState = GetOwningPlayerState<AHBLobbyPlayerState>();
-	// A remote PlayerState can arrive after NativeConstruct.
-	if (!IsDesignTime() && AudioPlayerState != PlayerState)
-	{
-		if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.RemoveDynamic(this, &ThisClass::HandleReadyAudio);
-		AudioPlayerState = PlayerState;
-		if (AudioPlayerState) AudioPlayerState->OnReadyStateChanged.AddUniqueDynamic(this, &ThisClass::HandleReadyAudio);
-	}
+	const auto* PlayerState = GetOwningPlayerState<AHBLobbyPlayerState>();
 	const auto* Player = GetOwningPlayer();
 	const auto* State = GetWorld() ? GetWorld()->GetGameState<AHBLobbyGameState>() : nullptr;
 	const auto* Instance = GetGameInstance();
@@ -138,22 +112,12 @@ void UHBLobbyWidget::RefreshLobbyActions()
 		&& !Sessions->IsLobbyOperationInProgress() && !Sessions->IsMatchAdmissionClosed();
 	const bool bCanStart = IsDesignTime() ? bHost
 		: bInLobby && bHost && State->HostPlayerState == PlayerState && State->CanStartMatch();
-	const bool bCanReady = IsDesignTime() ? !bHost
-		: bInLobby && !bHost && Player->GetNetMode() == NM_Client && State->HostPlayerState != PlayerState
-			&& (PlayerState->IsReady() || PlayerState->HasSelectedJob());
 	SetActionLabel(StartMatchButtonModule, NSLOCTEXT("LobbyActions", "Start", "시작"));
-	SetActionLabel(ReadyButtonModule, PlayerState && PlayerState->IsReady()
-		? NSLOCTEXT("LobbyActions", "CancelReady", "준비 취소") : NSLOCTEXT("LobbyActions", "Ready", "준비"));
 	if (StartMatchButtonModule) StartMatchButtonModule->SetIsEnabled(bCanStart);
 	if (StartMatchButton) StartMatchButton->SetIsEnabled(bCanStart);
-	if (ReadyButtonModule) ReadyButtonModule->SetIsEnabled(bCanReady);
-	if (ReadyButton) ReadyButton->SetIsEnabled(bCanReady);
-}
-
-void UHBLobbyWidget::HandleReadyAudio(bool bReady)
-{
-	RefreshLobbyActions();
-	UHBUIAudioLibrary::PlayForOwner(this, bReady ? EHBUIAudioEvent::LobbyReady : EHBUIAudioEvent::Cancel);
+	// Keep the designer's widgets, but retire their runtime Ready action.
+	if (ReadyButtonModule) ReadyButtonModule->SetVisibility(ESlateVisibility::Collapsed);
+	if (ReadyButton) ReadyButton->SetVisibility(ESlateVisibility::Collapsed);
 }
 
 void UHBLobbyWidget::HandleFriendsClicked()
@@ -162,13 +126,6 @@ void UHBLobbyWidget::HandleFriendsClicked()
 	{
 		FriendsPanel->Toggle();
 	}
-}
-
-void UHBLobbyWidget::HandleReadyClicked()
-{
-	RefreshLobbyActions();
-	if (ReadyButton && ReadyButton->GetIsEnabled() && !IsLocalLobbyHost())
-		OnReadyRequested.Broadcast();
 }
 
 void UHBLobbyWidget::HandleStartClicked()

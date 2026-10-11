@@ -30,7 +30,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Lobby")
 	void RequestStartGame();
 
-	/** Compatibility entry point used by existing UI; the listen host validates the caller and guest readiness. */
+	/** Compatibility entry point used by existing UI; only the listen host may start. */
 	UFUNCTION(BlueprintCallable, Category = "Lobby|Match")
 	bool RequestStartDedicatedMatch();
 
@@ -81,8 +81,6 @@ protected:
 private:
 	void RefreshLobbyUI();
 	void UpdateFriendsPanel(bool bForce = false);
-	UFUNCTION()
-	void HandleReadyRequested();
 	UFUNCTION()
 	void HandleStartRequested();
 	UFUNCTION()

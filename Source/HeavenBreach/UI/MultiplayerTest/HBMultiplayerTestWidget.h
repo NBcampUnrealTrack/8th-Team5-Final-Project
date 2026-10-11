@@ -51,7 +51,6 @@ private:
     UPROPERTY() TObjectPtr<UBorder> Modal;
     UPROPERTY() TObjectPtr<UHBMultiplayerTestButton> ModalJoin;
     UPROPERTY() TObjectPtr<UHBMultiplayerTestButton> Create;
-    UPROPERTY() TObjectPtr<UHBMultiplayerTestButton> Ready;
     UPROPERTY() TObjectPtr<UHBMultiplayerTestButton> Start;
     UHBOnlineSessionSubsystem* Sessions() const;
     void ShowPanel(EPanel InPanel);

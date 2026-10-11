@@ -78,7 +78,7 @@ bool AHBLobbyPlayerController::RequestStartDedicatedMatch()
 		UE_LOG(
 			LogTemp,
 			Warning,
-			TEXT("Lobby | Match start rejected: Ready conditions are not satisfied")
+			TEXT("Lobby | Match start rejected: Lobby is not available for starting")
 			);
 
 		return false;
@@ -142,7 +142,6 @@ void AHBLobbyPlayerController::BeginPlay()
 	if (LobbyContent)
 	{
 		LobbyContent->OnStartRequested.AddUniqueDynamic(this, &ThisClass::HandleStartRequested);
-		LobbyContent->OnReadyRequested.AddUniqueDynamic(this, &ThisClass::HandleReadyRequested);
 		if (auto* Panel = LobbyContent->GetFriendsPanel())
 		{
 			Panel->OnRefreshRequested.AddUniqueDynamic(this, &ThisClass::HandleFriendsRefresh);
@@ -168,7 +167,6 @@ void AHBLobbyPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (LobbyContent)
 	{
 		LobbyContent->OnStartRequested.RemoveDynamic(this, &ThisClass::HandleStartRequested);
-		LobbyContent->OnReadyRequested.RemoveDynamic(this, &ThisClass::HandleReadyRequested);
 		if (auto* Panel = LobbyContent->GetFriendsPanel())
 		{
 			Panel->OnRefreshRequested.RemoveDynamic(this, &ThisClass::HandleFriendsRefresh);
@@ -202,13 +200,6 @@ void AHBLobbyPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	LobbyDebugPlayers.Empty();
 	Super::EndPlay(EndPlayReason);
-}
-
-void AHBLobbyPlayerController::HandleReadyRequested()
-{
-	if (auto* State = GetPlayerState<AHBLobbyPlayerState>(); State && LobbyContent && !LobbyContent->IsLocalLobbyHost())
-		SetReady(!State->IsReady());
-	RefreshLobbyUI();
 }
 
 void AHBLobbyPlayerController::HandleStartRequested()

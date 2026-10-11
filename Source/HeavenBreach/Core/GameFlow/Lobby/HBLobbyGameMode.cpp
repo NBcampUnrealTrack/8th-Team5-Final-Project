@@ -49,11 +49,11 @@ void AHBLobbyGameMode::EvaluateCanStartMatch()
     auto* State = GetGameState<AHBLobbyGameState>();
     if (!State || !HasAuthority()) return;
     auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
-    const bool bReady = GetNetMode() == NM_ListenServer && State->AreGuestsReady(RequiredReadyPlayerCount)
+    const bool bCanStart = GetNetMode() == NM_ListenServer && State->HasValidStartRoster()
         && Sessions && Sessions->IsLocalLobbyHost()
         && Sessions->GetLobbyOperationState() == EHBLobbyOperationState::InLobby
         && !Sessions->IsLobbyOperationInProgress() && !Sessions->IsMatchAdmissionClosed();
-    State->SetCanStartMatch(bReady);
+    State->SetCanStartMatch(bCanStart);
 }
 
 void AHBLobbyGameMode::HandleReadyStateChanged()
@@ -63,8 +63,7 @@ void AHBLobbyGameMode::HandleReadyStateChanged()
 		return;
 	}
 
-	// A confirmation applies to one exact ready roster.  If anyone toggles
-	// ready, every player must approve the new roster again.
+	// Legacy Ready requests never start a match; only a fresh host click may do so.
 	ResetStartConfirmations();
 	EvaluateCanStartMatch();
 }
@@ -93,7 +92,7 @@ void AHBLobbyGameMode::TryStartGame()
 
 	if (!IsValid(LobbyGameState) ||
 		!LobbyGameState->CanStartMatch() ||
-		!AreAllPlayersReadyAndConfirmed())
+		!IsHostStartConfirmed())
 	{
 		return;
 	}
@@ -353,7 +352,7 @@ void AHBLobbyGameMode::ResetStartConfirmations()
 	}
 }
 
-bool AHBLobbyGameMode::AreAllPlayersReadyAndConfirmed() const
+bool AHBLobbyGameMode::IsHostStartConfirmed() const
 {
     const auto* State = GetGameState<AHBLobbyGameState>();
     return State && State->CanStartMatch() && IsValid(State->HostPlayerState)

@@ -126,7 +126,7 @@ void UHBMultiplayerTestWidget::ShowPanel(EPanel InPanel)
 {
     Panel = InPanel;
     Body->ClearChildren();
-    Create = Ready = Start = nullptr;
+    Create = Start = nullptr;
     Rows = nullptr; LobbyPlayers = nullptr;
     LastList.Reset();
     auto* Service = Sessions();
@@ -162,12 +162,6 @@ void UHBMultiplayerTestWidget::ShowPanel(EPanel InPanel)
     else if (Panel == EPanel::Lobby)
     {
         LobbyPlayers = AddText(Body, FString(), TEXT("PlayerSlotsText"));
-        Ready = AddButton(Body, TEXT("Ready / Ready 취소"), TEXT("ReadyButton"), [this]
-        {
-            auto* PC = Cast<AHBLobbyPlayerController>(GetOwningPlayer());
-            const auto* State = PC ? PC->GetPlayerState<AHBLobbyPlayerState>() : nullptr;
-            if (State) PC->SetReady(!State->IsReady());
-        });
         Start = AddButton(Body, TEXT("게임 시작"), TEXT("StartMatchButton"), [this]
         { if (auto* PC = Cast<AHBLobbyPlayerController>(GetOwningPlayer())) PC->RequestStartGame(); });
         AddButton(Body, TEXT("친구 초대"), TEXT("OpenFriendsButton"), [this] { ShowPanel(EPanel::Friends); Sessions()->RefreshSteamFriends(); });
@@ -221,7 +215,7 @@ void UHBMultiplayerTestWidget::Refresh()
     if (!Service || !Body) return;
     const bool bBusy = Service->IsLobbyOperationInProgress();
     Body->SetIsEnabled(!bBusy && !bModal);
-    Status->SetText(FText::FromString(bBusy ? TEXT("처리 중입니다...") : Service->IsReadingFriends() ? TEXT("친구 목록을 불러오는 중...") : TEXT("최대 4명 / 혼자 시작 가능 / 게스트 전원 Ready 필요")));
+    Status->SetText(FText::FromString(bBusy ? TEXT("처리 중입니다...") : Service->IsReadingFriends() ? TEXT("친구 목록을 불러오는 중...") : TEXT("최대 4명 / 혼자 시작 가능 / 호스트가 게임 시작")));
     FString Error = Service->GetLastLobbyOperationError();
     if (Error != LastError)
     {
@@ -261,10 +255,8 @@ void UHBMultiplayerTestWidget::Refresh()
             if (const auto* Guest = Cast<AHBLobbyPlayerState>(Player); Guest && Guest != State->HostPlayerState) Guests.Add(Guest);
         for (int32 Index = 0; Index < 3; ++Index)
             Text += FString::Printf(TEXT("\nGuest %d: %s"), Index + 1, Guests.IsValidIndex(Index)
-                ? *(Guests[Index]->GetPlayerName() + (Guests[Index]->IsReady() ? TEXT(" / Ready") : TEXT(" / 대기"))) : TEXT("Empty"));
+                ? *Guests[Index]->GetPlayerName() : TEXT("Empty"));
         LobbyPlayers->SetText(FText::FromString(Text));
-        Ready->SetVisibility(bHost ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
-        Ready->SetIsEnabled(Local && State && State->HostPlayerState && !bHost);
         Start->SetVisibility(bHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
         Start->SetIsEnabled(bHost && State->CanStartMatch());
     }
