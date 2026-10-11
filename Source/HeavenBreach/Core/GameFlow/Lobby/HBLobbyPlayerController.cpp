@@ -148,10 +148,10 @@ void AHBLobbyPlayerController::BeginPlay()
 			Panel->OnInviteRequested.AddUniqueDynamic(this, &ThisClass::HandleFriendInvite);
 			Panel->OnJoinRequested.AddUniqueDynamic(this, &ThisClass::HandleFriendJoin);
 		}
-		// Shipping also needs late PlayerState replication and async friend completion updates.
-		GetWorldTimerManager().SetTimer(LobbyUITimer, this, &ThisClass::RefreshLobbyUI, 0.25f, true);
-		RefreshLobbyUI();
 	}
+	// 개인 메뉴도 늦게 도착하는 PlayerState를 기다린다. 기존 갱신 타이머를 공유한다.
+	GetWorldTimerManager().SetTimer(LobbyUITimer, this, &ThisClass::RefreshLobbyUI, 0.25f, true);
+	RefreshLobbyUI();
 	
 	FInputModeUIOnly InputMode;
 	//InputMode.SetWidgetToFocus(LobbyWidget->TakeWidget());
@@ -235,7 +235,9 @@ void AHBLobbyPlayerController::HandleFriendJoin(const FString& UserId)
 
 void AHBLobbyPlayerController::RefreshLobbyUI()
 {
-	if (!IsLocalController() || !LobbyContent) return;
+	if (!IsLocalController()) return;
+	if (LobbyWidget) LobbyWidget->RefreshPlayerMenus();
+	if (!LobbyContent) return;
 	LobbyContent->RefreshLobbyActions();
 	auto* Panel = LobbyContent->GetFriendsPanel();
 	if (!Panel || !Panel->IsOpen()) return;
