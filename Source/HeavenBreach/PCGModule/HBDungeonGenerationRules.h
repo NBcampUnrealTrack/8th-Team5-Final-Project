@@ -3,11 +3,22 @@
 #include "CoreMinimal.h"
 #include "HBDungeonGenerationRules.generated.h"
 
-/** User-selected modules and portal IDs. Counts exclude the mandatory boss corridor. */
+UENUM(BlueprintType)
+enum class EHBDungeonPortalPlacementMode : uint8
+{
+	FixedRoomPortals UMETA(DisplayName="Fixed Room Portals"),
+	RandomPoints UMETA(DisplayName="Random Point Pairs")
+};
+
+/** User-selected layout anchors. Random portal counterparts are independent of these anchors. */
 USTRUCT(BlueprintType)
 struct HEAVENBREACH_API FHBDungeonGenerationRules
 {
 	GENERATED_BODY()
+	/** Effective settings copied from the gameplay generator's directly editable BP properties. */
+	UPROPERTY(BlueprintReadOnly, Category="Portal Placement")
+	EHBDungeonPortalPlacementMode PortalPlacementMode = EHBDungeonPortalPlacementMode::FixedRoomPortals;
+	UPROPERTY(BlueprintReadOnly, Category="Portal Placement") int32 PortalPairCount = 1;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Transition") TSoftObjectPtr<UWorld> Floor1ExitMap;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Transition") FName Floor1ExitPortalId;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Transition") TSoftObjectPtr<UWorld> Floor2EntryMap;

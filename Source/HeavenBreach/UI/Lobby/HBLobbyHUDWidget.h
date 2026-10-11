@@ -11,6 +11,7 @@ class UButton;
 class UWidget;
 class UWidgetSwitcher;
 class UHBSettingsWidget;
+class UHBConfirmDialogWidget;
 
 UENUM(BlueprintType)
 enum class EHBLobbyHUDMenu : uint8
@@ -31,12 +32,57 @@ protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 
+	// 자식이 처리하지 않은 ESC 가 여기까지 올라온다. 열린 팝업이 먼저 ESC 를 가져가므로
+	// 팝업이 없을 때만 게임 종료 안내창이 뜬다.
+	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+
+#pragma region QuitDialog
+	/** ESC 를 눌렀을 때 띄울 확인창. WBP_ConfirmDialog 를 지정한다. 비우면 ESC 가 아무 일도 하지 않는다. */
+	UPROPERTY(EditDefaultsOnly, Category = "Lobby HUD|Quit")
+	TSubclassOf<UHBConfirmDialogWidget> ConfirmDialogClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Lobby HUD|Quit")
+	FText QuitDialogTitle;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Lobby HUD|Quit", meta = (MultiLine = "true"))
+	FText QuitDialogMessage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Lobby HUD|Quit")
+	FText QuitConfirmLabel;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Lobby HUD|Quit")
+	FText QuitCancelLabel;
+
+	/** 확인창이 다른 창(설정창 등)보다 위에 오도록 Z 순서를 높게 둔다. 설정창이 100 이다. */
+	UPROPERTY(EditDefaultsOnly, Category = "Lobby HUD|Quit")
+	int32 ConfirmDialogZOrder = 200;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHBConfirmDialogWidget> QuitDialog;
+
+	void OpenQuitDialog();
+	void CloseQuitDialog();
+
+	UFUNCTION()
+	void HandleQuitConfirmed();
+
+	UFUNCTION()
+	void HandleQuitDialogCancelled();
+#pragma endregion
+
 #pragma region SettingsMenu
 	UPROPERTY(EditDefaultsOnly, Category="Lobby HUD|Settings")
 	TSubclassOf<UHBSettingsWidget> SettingsWidgetClass;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UHBSettingsWidget> SettingsWidget;
+
+	/**
+	 * 설정 아이콘으로 쓸 WBP_MainLobby_IconButton. HUD 에 이 이름으로 배치하면 클릭 시 설정창이 열린다.
+	 * 이전 배치(NaviBar 안의 IconButton_Settings)도 계속 찾는다.
+	 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UUserWidget> SettingsIconButton;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UButton> SettingsButton;

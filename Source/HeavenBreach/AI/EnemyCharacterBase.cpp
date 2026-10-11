@@ -358,6 +358,10 @@ void AEnemyCharacterBase::BeginPlay()
 			AbilitySystemComp->GetGameplayAttributeValueChangeDelegate(UEnemyAttributeSetBase::GetMoveSpeedRateAttribute()).AddUObject(this, &AEnemyCharacterBase::OnMoveSpeedRateChanged);
 		}
 	}
+	else
+	{
+		GetMesh()->bEnableUpdateRateOptimizations = true;
+	}
 
 	UE_LOG(LogEnemyAI, Warning, TEXT("[Net] Mesh=%d Capsule=%d"),
 		GetMesh()->GetIsReplicated() ? 1 : 0,

@@ -37,7 +37,13 @@ public:
 	AEnemyAIControllerBase();
 
 	virtual void OnPossess(APawn* InPawn) override;
+	virtual void OnUnPossess() override;
 	virtual void Tick(float DeltaSeconds) override;
+
+	UFUNCTION(BlueprintPure, Category = "AI|Sleep")
+	bool IsSleeping() const { return bSleeping; }
+
+	void WakeUp();
 
 
 	// getter
@@ -205,6 +211,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Debug")
 	bool bDrawAlertStateDebug = true;
 
+	UPROPERTY(EditDefaultsOnly, Category = "AI|Sleep")
+	bool bAllowSleep = true;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AI|Sleep", meta = (ClampMin = "0"))
+	float WakeDistance = 3500.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AI|Sleep", meta = (ClampMin = "0"))
+	float SleepDistance = 5000.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AI|Sleep", meta = (ClampMin = "0.1"))
+	float SleepCheckInterval = 1.f;
+
 
 
 private:
@@ -219,4 +237,14 @@ private:
 
 	// 켜기 전의 회전 속도. 끌 때 그대로 되돌린다
 	FRotator SavedRotationRate = FRotator(0.f, 360.f, 0.f);
+
+	void EvaluateSleep();
+	void EnterSleep();
+	void RestoreFromSleep(bool bStartLogic);
+	void HandleAlertForSleep();
+	float GetNearestPlayerDistSq() const;
+
+	bool bSleeping = false;
+	FTimerHandle SleepTimerHandle;
+	FDelegateHandle AlertSleepHandle;
 };

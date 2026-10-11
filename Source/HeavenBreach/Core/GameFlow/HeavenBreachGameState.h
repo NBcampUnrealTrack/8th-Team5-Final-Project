@@ -23,7 +23,11 @@ class HEAVENBREACH_API AHeavenBreachGameState : public AGameState
 	
 public:
     bool PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms,
-        TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& SealExtent);
+        TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& SealExtent,
+        EHBDungeonPortalPlacementMode PortalMode = EHBDungeonPortalPlacementMode::FixedRoomPortals,
+        TSubclassOf<AHBDungeonPortal> PortalClass = nullptr, int32 PortalPairCount = 0);
+    /** Complete this generation once; retain final pairs for late subscribers. */
+    bool PublishDungeonPortals(int32 GenerationId, const TArray<FHBDungeonPortalPairSnapshot>& Pairs);
     bool InvalidateDungeonLayout(int32 GenerationId, const FString& FailureReason = FString());
     const FHBDungeonSnapshot& GetDungeonSnapshot() const { return DungeonSnapshot; }
     FSimpleMulticastDelegate OnDungeonSnapshotChanged;

@@ -2,30 +2,125 @@
 
 #include "UI/Lobby/HBLobbyHUDWidget.h"
 
+#include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/Widget.h"
 #include "Components/WidgetSwitcher.h"
 #include "UI/Settings/HBSettingsWidget.h"
+#include "UI/Common/HBConfirmDialogWidget.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "TimerManager.h"
+#include "Engine/World.h"
+
+namespace
+{
+	void ClearTooltips(UUserWidget* Module)
+	{
+		if (!Module)
+		{
+			return;
+		}
+
+		auto Clear = [](UWidget* Widget)
+		{
+			if (Widget)
+			{
+				Widget->SetToolTip(nullptr);
+				Widget->SetToolTipText(FText::GetEmpty());
+			}
+		};
+
+		Clear(Module);
+		if (Module->WidgetTree)
+		{
+			Module->WidgetTree->ForEachWidget(Clear);
+		}
+	}
+}
 
 void UHBLobbyHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	InitializeNavigation();
 
-	if (UUserWidget* NavigationBar = Cast<UUserWidget>(GetWidgetFromName(TEXT("WBP_MainLobby_NaviBar"))))
+	// ESC 를 받으려면 이 위젯 안에 키보드 포커스가 있어야 한다.
+	SetIsFocusable(true);
+	if (UWorld* World = GetWorld())
 	{
-		if (UUserWidget* SettingsIcon = Cast<UUserWidget>(NavigationBar->GetWidgetFromName(TEXT("IconButton_Settings"))))
+		// 뷰포트에 올라간 뒤에 포커스를 줘야 해서 한 틱 미룬다.
+		World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
-			SettingsButton = Cast<UButton>(SettingsIcon->GetWidgetFromName(TEXT("Button_Icon")));
-			if (SettingsButton)
+			if (IsInViewport())
 			{
-				// Opening the settings widget supplies its own sound.
-				FButtonStyle Style = SettingsButton->GetStyle();
-				Style.PressedSlateSound.SetResourceObject(nullptr);
-				SettingsButton->SetStyle(Style);
-				SettingsButton->OnClicked.AddUniqueDynamic(this, &ThisClass::OpenSettings);
+				SetKeyboardFocus();
 			}
+		}));
+	}
+
+	// 확인창 기본 문구. 클래스 디폴트에서 바꿀 수 있다.
+	if (QuitDialogTitle.IsEmpty())
+	{
+		QuitDialogTitle = NSLOCTEXT("LobbyHUD", "QuitTitle", "게임 종료");
+	}
+	if (QuitDialogMessage.IsEmpty())
+	{
+		QuitDialogMessage = NSLOCTEXT("LobbyHUD", "QuitMessage", "게임을 종료하시겠습니까?");
+	}
+	if (QuitConfirmLabel.IsEmpty())
+	{
+		QuitConfirmLabel = NSLOCTEXT("LobbyHUD", "QuitConfirm", "종료");
+	}
+	if (QuitCancelLabel.IsEmpty())
+	{
+		QuitCancelLabel = NSLOCTEXT("LobbyHUD", "QuitCancel", "취소");
+	}
+
+	// 설정 아이콘 버튼은 HUD 에 직접 배치한 SettingsIconButton 을 먼저 쓴다.
+	// 없으면 예전 배치(NaviBar 안의 IconButton_Settings)를 찾는다.
+	UUserWidget* SettingsIcon = SettingsIconButton;
+	if (!SettingsIcon)
+	{
+		if (UUserWidget* NavigationBar = Cast<UUserWidget>(GetWidgetFromName(TEXT("WBP_MainLobby_NaviBar"))))
+		{
+			SettingsIcon = Cast<UUserWidget>(NavigationBar->GetWidgetFromName(TEXT("IconButton_Settings")));
 		}
+	}
+
+	if (SettingsIcon)
+	{
+		// 버튼 이름을 몰라도 되게 먼저 Button_Icon 을 찾고, 없으면 안의 첫 Button 을 쓴다.
+		SettingsButton = Cast<UButton>(SettingsIcon->GetWidgetFromName(TEXT("Button_Icon")));
+		if (!SettingsButton && SettingsIcon->WidgetTree)
+		{
+			SettingsIcon->WidgetTree->ForEachWidget([this](UWidget* Widget)
+			{
+				if (!SettingsButton)
+				{
+					SettingsButton = Cast<UButton>(Widget);
+				}
+			});
+		}
+
+		// 설정 아이콘에는 툴팁이 필요 없다. 아이콘 위젯이 PreConstruct 에서 넣어 둔 툴팁을
+		// 모듈 자신과 그 안의 모든 위젯에서 걷어낸다.
+		ClearTooltips(SettingsIcon);
+
+		if (SettingsButton)
+		{
+			// Opening the settings widget supplies its own sound.
+			FButtonStyle Style = SettingsButton->GetStyle();
+			Style.PressedSlateSound.SetResourceObject(nullptr);
+			SettingsButton->SetStyle(Style);
+			SettingsButton->OnClicked.AddUniqueDynamic(this, &ThisClass::OpenSettings);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("LobbyHUD | 설정 아이콘 안에서 Button 을 찾지 못했다. 설정창이 열리지 않는다."));
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LobbyHUD | 설정 아이콘 버튼을 찾지 못했다. WBP_LobbyHUD 에서 설정용 WBP_MainLobby_IconButton 의 이름을 SettingsIconButton 으로 지정할 것."));
 	}
 
 	if (Button_Lobby)
@@ -60,8 +155,87 @@ void UHBLobbyHUDWidget::NativeConstruct()
 	SelectMenu(EHBLobbyHUDMenu::Lobby);
 }
 
+FReply UHBLobbyHUDWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (InKeyEvent.GetKey() == EKeys::Escape)
+	{
+		// 설정창이 열려 있으면 ESC 는 설정창을 닫는 데 쓴다. 그 위에 종료 안내를 겹쳐 띄우지 않는다.
+		if (SettingsWidget && SettingsWidget->IsInViewport())
+		{
+			SettingsWidget->CloseSettings();
+			return FReply::Handled();
+		}
+
+		if (QuitDialog && QuitDialog->IsInViewport())
+		{
+			CloseQuitDialog();
+			return FReply::Handled();
+		}
+
+		OpenQuitDialog();
+		return FReply::Handled();
+	}
+
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
+void UHBLobbyHUDWidget::OpenQuitDialog()
+{
+	if (!ConfirmDialogClass || !GetOwningPlayer())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LobbyHUD | ConfirmDialogClass 가 지정되지 않아 종료 안내창을 열 수 없다."));
+		return;
+	}
+
+	if (!QuitDialog)
+	{
+		QuitDialog = CreateWidget<UHBConfirmDialogWidget>(GetOwningPlayer(), ConfirmDialogClass);
+		if (QuitDialog)
+		{
+			QuitDialog->OnConfirmed.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleQuitConfirmed);
+			QuitDialog->OnCancelled.AddUniqueDynamic(this, &UHBLobbyHUDWidget::HandleQuitDialogCancelled);
+		}
+	}
+
+	if (QuitDialog && !QuitDialog->IsInViewport())
+	{
+		QuitDialog->Setup(QuitDialogTitle, QuitDialogMessage, QuitConfirmLabel, QuitCancelLabel);
+		QuitDialog->AddToViewport(ConfirmDialogZOrder);
+		QuitDialog->SetKeyboardFocus();
+	}
+}
+
+void UHBLobbyHUDWidget::CloseQuitDialog()
+{
+	if (QuitDialog && QuitDialog->IsInViewport())
+	{
+		QuitDialog->Close();
+	}
+
+	// 닫힌 뒤에도 ESC 를 계속 받도록 포커스를 HUD 로 되돌린다.
+	HandleQuitDialogCancelled();
+}
+
+void UHBLobbyHUDWidget::HandleQuitDialogCancelled()
+{
+	SetKeyboardFocus();
+}
+
+void UHBLobbyHUDWidget::HandleQuitConfirmed()
+{
+	UKismetSystemLibrary::QuitGame(this, GetOwningPlayer(), EQuitPreference::Quit, false);
+}
+
 void UHBLobbyHUDWidget::NativeDestruct()
 {
+	if (QuitDialog)
+	{
+		QuitDialog->OnConfirmed.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleQuitConfirmed);
+		QuitDialog->OnCancelled.RemoveDynamic(this, &UHBLobbyHUDWidget::HandleQuitDialogCancelled);
+		QuitDialog->Close();
+		QuitDialog = nullptr;
+	}
+
 	if (SettingsButton)
 	{
 		SettingsButton->OnClicked.RemoveDynamic(this, &ThisClass::OpenSettings);

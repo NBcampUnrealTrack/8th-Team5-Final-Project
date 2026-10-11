@@ -4,6 +4,7 @@
 #include "UI/Skill/HB_SkillSlotWidget.h"
 #include "Components/Button.h"
 #include "Components/Image.h"
+#include "UI/Skill/HB_SkillIconWidget.h"
 #include "Engine/Texture2D.h"
 
 
@@ -42,6 +43,13 @@ void UHB_SkillSlotWidget::SetSlotSelected(bool bSelected)
 
 void UHB_SkillSlotWidget::SetSkillIcon(UTexture2D* NewIcon)
 {
+    // 표시 전용 위젯이 있으면 그쪽이 그린다. 빈 슬롯 처리(기본 이미지 복원)도 그 위젯이 맡는다.
+    if (SkillIconWidget)
+    {
+        SkillIconWidget->SetSkillIcon(NewIcon);
+        return;
+    }
+
     if (!SkillIconImage)
     {
         return;

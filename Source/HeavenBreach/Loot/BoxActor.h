@@ -89,7 +89,7 @@ protected:
 	bool bLootGenerated = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box")
-	FText InteractPrompt = FText::FromString(TEXT("상자 열기 [F]"));
+	FText InteractPrompt = FText::FromString(TEXT("상자 열기"));
 
 	/** 미탐색 상자를 열기 위해 상호작용 키를 눌러야 하는 시간(초). 이미 탐색한 상자는 이 값과 무관하게 즉시 열린다. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Box", meta = (ClampMin = 0, Units = "s"))

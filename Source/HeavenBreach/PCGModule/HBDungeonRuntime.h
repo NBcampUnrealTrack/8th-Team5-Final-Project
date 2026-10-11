@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "PCGModule/HBDungeonRuleLayout.h"
+#include "PCGModule/HBDungeonSnapshot.h"
 #include "HBDungeonRuntime.generated.h"
 class UPCGComponent;
 class UPCGGraphInterface;
@@ -16,12 +17,6 @@ class AExtractionZone;
 struct FHBDungeonSnapshot;
 UENUM(BlueprintType)
 enum class EHBDungeonRuntimeState : uint8 { Idle, Generating, Loading, PreparingEncounters, Ready, Failed };
-UENUM(BlueprintType)
-enum class EHBDungeonPortalPlacementMode : uint8
-{
-    FixedRoomPortals UMETA(DisplayName="Fixed Room Portals"),
-    RandomPoints UMETA(DisplayName="Random Point Pairs")
-};
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FHBDungeonReady);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FHBDungeonFailed, const FString&, Reason);
 
@@ -69,7 +64,7 @@ public:
     /** Fixed mode uses authored room portal IDs. Random mode selects and pairs points across logical floors 1 and 2. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Portals")
     EHBDungeonPortalPlacementMode PortalPlacementMode = EHBDungeonPortalPlacementMode::FixedRoomPortals;
-    /** Portal actor Blueprint spawned at selected points; its Arrival component defines the destination offset and facing. */
+    /** Portal BP grounded above selected floor points. Arrival defines destination XY/facing; height follows its local floor and player capsule. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon Gameplay|Portals", meta=(EditCondition="PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints", EditConditionHides))
     TSubclassOf<AHBDungeonPortal> PortalClass;
     /** Total cross-floor pairs, not additional pairs. N pairs spawn 2N portals and require N valid points on each floor. */
@@ -123,7 +118,9 @@ private:
     bool PrepareRoomPlayerStarts(TArray<APlayerStart*>& OutStarts, FString& Error);
     bool SpawnDoorSeals(const FHBPrototypeRoom& Room, const TArray<FHBDungeonConnectorDefinition>& Connectors, FString& Error);
     bool PrepareEncounters(FString& Error);
+    bool PrepareRandomPortals(FString& Error);
     bool CreateDungeonNavigationBounds(FString& Error);
+    bool HasRoomSpawns() const;
     bool IsEncounterNavigationReady() const;
     void SelectExtractionPoints();
     void MarkReady();
@@ -137,6 +134,9 @@ private:
     FVector ActiveDoorSealExtent = FVector::ZeroVector;
     UPROPERTY(Transient) TArray<TObjectPtr<ULevelStreamingDynamic>> Streams;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonPortal>> LinkedPortals;
+    UPROPERTY(Transient) TSubclassOf<AHBDungeonPortal> ActivePortalClass;
+    TArray<HBPortalPlacement::FSpawnedPair> RandomPortalPairs;
+    UPROPERTY(Transient) FHBDungeonSnapshot ClientSnapshot;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBDungeonDoorSeal>> Seals;
     UPROPERTY(Transient) TObjectPtr<APlayerStart> StartPoint;
     UPROPERTY(Transient) TObjectPtr<ANavMeshBoundsVolume> DungeonNavigationBounds;

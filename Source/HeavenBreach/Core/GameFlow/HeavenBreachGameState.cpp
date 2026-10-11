@@ -6,14 +6,23 @@
 #include "Net/UnrealNetwork.h"
 #include "PCGModule/HBDungeonRuntimeValidation.h"
 #include "PCGModule/HBDungeonDoorSeal.h"
+#include "PCGModule/HBDungeonPortal.h"
 
 bool AHeavenBreachGameState::PublishDungeonLayout(int32 GenerationId, int32 Seed, const TArray<FHBPrototypeRoom>& Rooms,
-        TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& SealExtent)
+        TSubclassOf<AHBDungeonDoorSeal> SealClass, const FVector& SealExtent,
+        EHBDungeonPortalPlacementMode PortalMode, TSubclassOf<AHBDungeonPortal> PortalClass, int32 PortalPairCount)
 {
     if (!HasAuthority() || GetNetMode() == NM_Client || GenerationId <= DungeonSnapshot.GenerationId) return false;
     FString Error;
     if (!HBDungeonRuntimeValidation::ValidateLayoutForLoading(Rooms, Error)
         || !AHBDungeonDoorSeal::ValidateSettings(SealClass, SealExtent, Error)) return false;
+    FHBDungeonSnapshot Proposed;
+    Proposed.Rooms = Rooms;
+    Proposed.PortalPlacementMode = PortalMode;
+    Proposed.PortalClass = PortalClass.Get();
+    Proposed.PortalPairCount = PortalPairCount;
+    if (!HBDungeonRuntimeValidation::ValidatePortalSnapshot(Proposed, Error)) return false;
+    DungeonSnapshot = MoveTemp(Proposed);
     DungeonSnapshot.State = EHBDungeonSnapshotState::Active;
     DungeonSnapshot.FailureReason.Reset();
     DungeonSnapshot.GenerationId = GenerationId;
@@ -21,6 +30,22 @@ bool AHeavenBreachGameState::PublishDungeonLayout(int32 GenerationId, int32 Seed
     DungeonSnapshot.Rooms = Rooms;
     DungeonSnapshot.DoorSealClass = SealClass.Get();
     DungeonSnapshot.DoorSealExtent = SealExtent;
+    ForceNetUpdate();
+    OnDungeonSnapshotChanged.Broadcast();
+    return true;
+}
+
+bool AHeavenBreachGameState::PublishDungeonPortals(int32 GenerationId, const TArray<FHBDungeonPortalPairSnapshot>& Pairs)
+{
+    if (!HasAuthority() || GetNetMode() == NM_Client || GenerationId != DungeonSnapshot.GenerationId
+        || DungeonSnapshot.State != EHBDungeonSnapshotState::Active || DungeonSnapshot.bPortalPairsReady
+        || DungeonSnapshot.PortalPlacementMode != EHBDungeonPortalPlacementMode::RandomPoints) return false;
+    FHBDungeonSnapshot Proposed = DungeonSnapshot;
+    Proposed.bPortalPairsReady = true;
+    Proposed.PortalPairs = Pairs;
+    FString Error;
+    if (!HBDungeonRuntimeValidation::ValidatePortalSnapshot(Proposed, Error)) return false;
+    DungeonSnapshot = MoveTemp(Proposed);
     ForceNetUpdate();
     OnDungeonSnapshotChanged.Broadcast();
     return true;

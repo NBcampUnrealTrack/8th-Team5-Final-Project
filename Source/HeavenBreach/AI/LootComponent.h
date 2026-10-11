@@ -36,7 +36,7 @@ public:
 protected:
 	// 상호작용시 띄울 문구
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loot")
-	FText InteractPrompt = FText::FromString(TEXT("루팅 [F]"));
+	FText InteractPrompt = FText::FromString(TEXT("루팅"));
 
 	// 볼 FEnemyLootTableRow. 스탯 DT 의 LootRow 가 주입한다.
 	//

@@ -612,6 +612,16 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 				Evidence.Cause = EHBSpawnFailureReason::InvalidConfiguration;
 				return false;
 			}
+			const auto* Defaults = Choice.ChestClass->GetDefaultObject<ABoxActor>();
+			const auto* Mesh = Cast<UStaticMeshComponent>(Defaults->GetRootComponent());
+			const FBox SpawnBounds = Mesh->CalcBounds(Mesh->GetRelativeTransform() * SpawnTransform).GetBox();
+			for (const FHBRoomSpawnEntry& Entry : Entries)
+				if (Entry.IntersectsReservation(SpawnBounds))
+				{
+					Reason = TEXT("Chest mesh overlaps reserved portal activation or arrival space.");
+					Evidence.Cause = EHBSpawnFailureReason::ExcludedArea;
+					return false;
+				}
 			OutChest = World->SpawnActor<ABoxActor>(Choice.ChestClass, SpawnTransform, Params);
 			if (!IsValid(OutChest))
 			{
@@ -620,6 +630,19 @@ bool UHBChestSpawnSubsystem::TrySpawn(const FHBChestSpawnChoice& Choice, const U
 				Evidence.Cause = EHBSpawnFailureReason::SpawnCollision;
 				return false;
 			}
+			// Construction scripts may replace or resize the CDO mesh; verify the actual spawned body too.
+			for (const FHBRoomSpawnEntry& Entry : Entries)
+				if (!Entry.ReservedBounds.IsEmpty())
+				{
+					const auto* ActualMesh = Cast<UStaticMeshComponent>(OutChest->GetRootComponent());
+					if (!ActualMesh || Entry.IntersectsReservation(ActualMesh->Bounds.GetBox()))
+					{
+						OutChest->Destroy(); OutChest = nullptr;
+						Reason = TEXT("Constructed chest mesh overlaps or cannot validate reserved portal space.");
+						Evidence.Cause = EHBSpawnFailureReason::ExcludedArea;
+						return false;
+					}
+				}
 			return true;
 		}, Floor, OutReason, PlacementReport, SearchSettings)) return false;
 	if (FVector::Dist2D(Marker, Floor.ImpactPoint) > KINDA_SMALL_NUMBER)

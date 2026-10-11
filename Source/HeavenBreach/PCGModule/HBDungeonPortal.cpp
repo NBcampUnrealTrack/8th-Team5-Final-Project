@@ -26,6 +26,7 @@ AHBDungeonPortal::AHBDungeonPortal()
 
 bool AHBDungeonPortal::Contains(const FVector& Point) const
 {
+	if (!IsValid(Trigger) || Point.ContainsNaN()) return false;
 	const FVector Local = Trigger->GetComponentTransform().InverseTransformPosition(Point).GetAbs();
 	const FVector Extent = Trigger->GetUnscaledBoxExtent();
 	return Local.X <= Extent.X && Local.Y <= Extent.Y && Local.Z <= Extent.Z;
@@ -36,11 +37,17 @@ bool AHBDungeonPortal::ValidateDefinition(FString& Error) const
 	Error.Reset();
 	auto Fail = [&](const TCHAR* Message) { Error = Message; return false; };
 	if (PortalId.IsNone()) return Fail(TEXT("Assign a nonempty PortalId unique within this room map."));
-	for (const FTransform& T : {GetActorTransform(), Trigger->GetComponentTransform(), Arrival->GetComponentTransform()})
+	if (!IsValid(Trigger) || !IsValid(Arrival)) return Fail(TEXT("Portal requires its Trigger and Arrival components."));
+	for (const FTransform& T : {GetActorTransform(), Arrival->GetComponentTransform()})
 		if (!T.IsValid() || !T.GetScale3D().Equals(FVector::OneVector, 0.0001))
-			return Fail(TEXT("Portal, trigger and arrival transforms must be finite with unit scale. Resize Trigger using Box Extent."));
+			return Fail(TEXT("Portal and arrival transforms must be finite with unit scale."));
+	const FTransform TriggerTransform = Trigger->GetComponentTransform();
+	if (!TriggerTransform.IsValid() || TriggerTransform.GetScale3D().GetMin() <= 0)
+		return Fail(TEXT("Portal trigger transform must be finite with positive scale."));
 	const FVector E = Trigger->GetUnscaledBoxExtent();
-	if (E.ContainsNaN() || E.X <= 0 || E.Y <= 0 || E.Z <= 0) return Fail(TEXT("Portal trigger must have positive extents."));
+	const FVector Scaled = Trigger->GetScaledBoxExtent();
+	if (E.ContainsNaN() || E.GetMin() <= 0 || Scaled.ContainsNaN() || Scaled.GetMin() <= 0)
+		return Fail(TEXT("Portal trigger must have positive finite physical extents."));
 	if (Contains(Arrival->GetComponentLocation())) return Fail(TEXT("Move Arrival outside this portal's trigger box."));
 	if (!FMath::IsFinite(ReentryDelay) || ReentryDelay < 0.1f) return Fail(TEXT("Portal ReentryDelay must be at least 0.1 seconds."));
 	return true;
@@ -87,10 +94,10 @@ void AHBDungeonPortal::Disconnect()
 
 bool AHBDungeonPortal::TryTeleport(APawn* Pawn)
 {
-	if (!GetWorld() || GetNetMode() == NM_Client || !HasAuthority() || !IsValid(Pawn) || !Pawn->HasAuthority()
+	if (!bTravelEnabled || !GetWorld() || GetNetMode() == NM_Client || !HasAuthority() || !IsValid(Pawn) || !Pawn->HasAuthority()
 		|| !Pawn->GetController() || !Pawn->GetController()->IsPlayerController() || Pawn->GetWorld() != GetWorld()
 		|| !IsValid(TargetPortal) || !TargetPortal->HasAuthority() || TargetPortal->GetWorld() != GetWorld()
-		|| TargetPortal->TargetPortal != this || !Contains(Pawn->GetActorLocation())) return false;
+		|| !TargetPortal->bTravelEnabled || TargetPortal->TargetPortal != this || !Contains(Pawn->GetActorLocation())) return false;
 	const TWeakObjectPtr<APawn> Key(Pawn);
 	if (BlockedPawns.Contains(Key)) return false;
 	const double Until = GetWorld()->GetTimeSeconds() + FMath::Max(0.1f, ReentryDelay);

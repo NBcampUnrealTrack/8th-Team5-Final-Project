@@ -291,6 +291,14 @@ void AHeavenBreachGameMode::NotifyPlayerDied(APlayerState* PlayerState)
 	EvaluateMatchEnd();
 }
 
+void AHeavenBreachGameMode::MarkDeathResultShown(APlayerState* PlayerState)
+{
+	if (HasAuthority() && IsValid(PlayerState))
+	{
+		DeathResultShownPlayers.Add(PlayerState);
+	}
+}
+
 void AHeavenBreachGameMode::NotifyPlayerExtracted(APlayerState* PlayerState)
 {
 	if (!HasAuthority() || !IsMatchInProgress() || !IsValid(PlayerState))
@@ -374,6 +382,16 @@ void AHeavenBreachGameMode::TravelPlayerToPostMatchMap(APlayerState* PlayerState
 			HBMatchFlow::PostMatchMap,
 			static_cast<int32>(Reason)
 			);
+
+		// 매치 안에서 사망 결과 화면을 이미 본 사람은 같은 결과를 또 보여 주지 않고 바로 허브로 보낸다.
+		if (AHBPlayerController* HBPlayerController = Cast<AHBPlayerController>(PlayerController))
+		{
+			if (DeathResultShownPlayers.Contains(PlayerState))
+			{
+				HBPlayerController->ClientReturnToHub();
+				return;
+			}
+		}
 
 		// PlayerState/GameState don't survive this travel, so hand the reason to the
 		// client's GameInstance subsystem before it disconnects into the results map.
@@ -548,6 +566,7 @@ void AHeavenBreachGameMode::InitializeActivePlayers()
 	ActivePlayers.Reset();
 	PostMatchTravelRequestedPlayers.Reset();
 	FailedPlayers.Reset();
+	DeathResultShownPlayers.Reset();
 	
 	AHeavenBreachGameState* HBGameState = GetGameState<AHeavenBreachGameState>();
 	if (!HBGameState)

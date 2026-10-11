@@ -16,6 +16,7 @@ class UInputAction;
 class UInputMappingContext;
 class UInventoryUIComponent;
 class UHB_SkillAugment;
+class UHB_ConfirmPopup;
 class UHB_SpectateWidget;
 class UUserWidget;
 struct FInputActionValue;
@@ -80,6 +81,18 @@ public:
 	// 서버 전용. 빙의를 푼 뒤 부른다. 시체를 DeathViewDuration 동안 보여 준 뒤 살아 있는 팀원 시점으로 넘어간다.
 	void StartSpectatingTeammates();
 
+	// 지금 관전할 수 있는 살아 있는 팀원 폰들. 다음 대상 순환과 관전 UI 의 "2 / 3" 표시가 같은 목록을 쓴다.
+	// 서버와 클라이언트 모두에서 부를 수 있다 (GameState 의 PlayerArray 를 읽는다).
+	void GetSpectateCandidates(TArray<APawn*>& OutCandidates) const;
+
+	// 서버가 부른다. 이미 사망 결과를 본 사람을 결과 맵 없이 바로 허브로 보낸다.
+	UFUNCTION(Client, Reliable)
+	void ClientReturnToHub();
+
+	// 관전 UI 의 버튼이 부른다. 관전 중이 아니면 아무 일도 하지 않는다.
+	void RequestSpectateNext();
+	void RequestSpectatePrevious();
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
@@ -98,8 +111,43 @@ protected:
 
 	FTimerHandle DeathViewTimer;
 
-	// 서버. 사망 시점이 끝나면 실제 팀원 관전을 시작한다.
+	// 서버. 사망 시점(시체 시점)이 끝나면 사망 결과 화면을 띄우게 한다. 관전은 그 화면의 관전 버튼으로 시작한다.
+	void OfferSpectate();
+
+	// 서버. 실제 팀원 관전을 시작한다.
 	void BeginTeammateSpectate();
+
+	// 클라이언트. 매치 안에서 사망 결과 위젯(DeathResultWidgetClass)을 띄운다.
+	UFUNCTION(Client, Reliable)
+	void ClientShowDeathResult();
+
+	// 사망 결과 위젯의 Button_Spectate 가 부른다.
+	UFUNCTION()
+	void HandleDeathSpectateClicked();
+
+	UFUNCTION(Server, Reliable)
+	void ServerBeginSpectate();
+
+	// 지금 띄워 둔 사망 결과 위젯. 관전으로 넘어가면 닫는다.
+	UPROPERTY(Transient)
+	TObjectPtr<UUserWidget> DeathResultWidget;
+
+	// 사망 결과 화면과 관전 UI 의 버튼을 누를 수 있는 입력 상태(커서 켜짐 + 게임 입력).
+	void ApplySpectateInputMode();
+
+	// ESC. 인게임(관전 중 포함)에서 로비로 나가는 팝업을 연다.
+	void HandleEscapePressed();
+	void OpenLeaveMatchPopup();
+
+	UFUNCTION()
+	void HandleLeaveMatchConfirmed();
+
+	// 나가기 확인 팝업. WBP_LeaveMatchPopup (부모: HB Confirm Popup) 을 지정한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
+	TSubclassOf<UHB_ConfirmPopup> LeaveMatchPopupClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHB_ConfirmPopup> LeaveMatchPopup;
 
 	UPROPERTY(ReplicatedUsing = OnRep_SpectatingTeammates)
 	bool bSpectatingTeammates = false;
@@ -122,8 +170,11 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerSpectateNext();
 
-	// 서버. Current 다음 생존 팀원 폰. 없으면 nullptr.
-	APawn* FindNextSpectateTarget(const AActor* Current) const;
+	UFUNCTION(Server, Reliable)
+	void ServerSpectatePrevious();
+
+	// 서버. Current 에서 Step 만큼 떨어진 생존 팀원 폰 (1 = 다음, -1 = 이전). 없으면 nullptr.
+	APawn* FindNextSpectateTarget(const AActor* Current, int32 Step = 1) const;
 
 	// 서버. 보던 대상이 죽거나 사라지면 다음 사람으로.
 	void CheckSpectateTarget();
@@ -132,6 +183,10 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UHB_SpectateWidget> SpectateWidget;
+
+	// 관전 UI 의 디자인 WBP. 비워 두면 예전처럼 C++ 로 만든 글자 한 줄 UI 가 뜬다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Spectate")
+	TSubclassOf<UHB_SpectateWidget> SpectateWidgetClass;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|Input")
 	TObjectPtr<UInputMappingContext> PlayerMappingContext;

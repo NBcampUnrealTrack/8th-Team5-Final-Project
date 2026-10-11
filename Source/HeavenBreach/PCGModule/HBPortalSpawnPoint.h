@@ -6,7 +6,7 @@
 
 class UArrowComponent;
 
-/** LD-authored portal candidate. Its floor and counterpart are resolved by the dungeon generator. */
+/** LD-authored floor marker. The generator grounds the portal above it and resolves its floor and counterpart. */
 UCLASS(Blueprintable, meta=(DisplayName="HB Portal Spawn Point"), HideCategories=(Replication, Networking, Input, Physics, Collision))
 class HEAVENBREACH_API AHBPortalSpawnPoint : public AActor
 {
@@ -18,7 +18,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Portal Placement|Point")
 	FName PointId;
 
-	/** Portal actor origin and orientation. Arrival remains relative to the selected portal class. */
+	/** Place on the floor with unit scale. Sets portal XY and facing; trigger and arrival heights are grounded at runtime. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Portal Placement|Point")
 	TObjectPtr<UArrowComponent> Direction;
 

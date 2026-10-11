@@ -10,7 +10,8 @@ UENUM(BlueprintType)
 enum class EHBAllowedFloor : uint8 { Any, Floor1, Floor2 };
 
 UENUM(BlueprintType)
-enum class EHBDungeonConnection : uint8 { Door, Portal };
+// Append new values: Door/Portal values are serialized in existing maps and snapshots.
+enum class EHBDungeonConnection : uint8 { Door, Portal, FloorTransition };
 
 USTRUCT(BlueprintType)
 struct FHBPrototypeRoom

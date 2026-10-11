@@ -69,6 +69,14 @@ bool FHBPortalPlacementAuthoringTest::RunTest(const FString&)
 		GEngine->DestroyWorldContext(World);
 		World->DestroyWorld(false);
 	};
+	auto* Generator = World->SpawnActor<AHBDungeonRuntime>(GeneratorClass);
+	if (!TestNotNull(TEXT("Generator BP instance for effective portal rules"), Generator)) return false;
+	Generator->PortalPlacementMode = EHBDungeonPortalPlacementMode::RandomPoints;
+	Generator->PortalPairCount = 3;
+	const auto Rules = Generator->GetGenerationRules();
+	TestTrue(TEXT("Generation uses the directly edited BP portal mode"), Rules.PortalPlacementMode == EHBDungeonPortalPlacementMode::RandomPoints);
+	TestEqual(TEXT("Generation uses the directly edited BP pair count"), Rules.PortalPairCount, 3);
+	TestEqual(TEXT("Portal settings retain authored floor counts"), Rules.Floor1MainRooms, Generator->DungeonRules.Floor1MainRooms);
 	auto* Point = World->SpawnActor<AHBPortalSpawnPoint>();
 	if (!TestNotNull(TEXT("Placeable portal marker"), Point)) return false;
 	if (!TestNotNull(TEXT("Marker owns its direction arrow"), Point->Direction.Get())) return false;
