@@ -568,7 +568,8 @@ bool UHBEncounterSubsystem::TrySpawn(const FHBEncounterSpawnChoice& Choice, cons
 			FNavAgentProperties EffectiveAgent;
 			const FNavAgentProperties* Agent = HBSpawnNavigationAgents::GetCharacterAgent(Defaults, EffectiveAgent, Choice.SpawnScale)
 				? &EffectiveAgent : nullptr;
-			const ANavigationData* NavData = Nav && Agent ? Nav->GetNavDataForProps(*Agent, SpawnLocation) : nullptr;
+			const ANavigationData* NavData = Agent
+				? HBSpawnNavigationAgents::FindCompatibleNavData(Nav, *Agent, SpawnLocation) : nullptr;
 			FNavLocation OnNav;
 			FHBSpawnNavCheck& GroundCheck = Evidence.NavigationChecks.AddDefaulted_GetRef();
 			if (!HBSpawnDiagnostics::ProjectNavigation(*World, Nav, Agent, NavData, Ground,
