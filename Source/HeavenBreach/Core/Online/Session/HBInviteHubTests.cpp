@@ -7,6 +7,25 @@
 #include "OnlineSessionSettings.h"
 #include "OnlineSubsystemTypes.h"
 
+namespace
+{
+	// 실제 Steam 계정 없이 비동기 친구 조회의 완료 순서와 복구를 검증한다.
+	class FHBTestSteamFriend final : public FOnlineFriend
+	{
+		FUniqueNetIdRef Id;
+		FOnlineUserPresence Presence;
+	public:
+		FHBTestSteamFriend(const FString& UserId, const FOnlineUserPresence& InPresence)
+			: Id(FUniqueNetIdString::Create(UserId, TEXT("test"))), Presence(InPresence) {}
+		virtual FUniqueNetIdRef GetUserId() const override { return Id; }
+		virtual FString GetRealName() const override { return TEXT("Steam friend"); }
+		virtual FString GetDisplayName(const FString& = TEXT("")) const override { return TEXT("Steam friend"); }
+		virtual bool GetUserAttribute(const FString&, FString&) const override { return false; }
+		virtual EInviteStatus::Type GetInviteStatus() const override { return EInviteStatus::Accepted; }
+		virtual const FOnlineUserPresence& GetPresence() const override { return Presence; }
+	};
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBInviteHubGuardsTest, "HeavenBreach.Online.InviteHubGuards",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -118,12 +137,106 @@ bool FHBInviteHubGuardsTest::RunTest(const FString&)
 	Hidden(TEXT("Another AppID 480 project is hidden"), Presence);
 	Presence = LobbyPresence; Presence.Status.Properties.Remove(TEXT("HB_STATE"));
 	Hidden(TEXT("Missing friend state is hidden"), Presence);
+	FString ExcludedReason;
+	Sessions->ReadSteamFriendPresence(Presence, Entry, &ExcludedReason);
+	TestEqual(TEXT("Missing state has a diagnostic reason"), ExcludedReason, FString(TEXT("MissingState")));
 	Presence = LobbyPresence; Presence.Status.Properties.Add(TEXT("Joinable"), FString(TEXT("false")));
 	TestTrue(TEXT("Lobby remains visible when its admission is unavailable"), Sessions->ReadSteamFriendPresence(Presence, Entry));
 	TestFalse(TEXT("Closed presence cannot enable joining"), Entry.bCanJoin);
 	Presence = LobbyPresence; Presence.SessionId.Reset();
 	TestTrue(TEXT("Lobby state alone can still be displayed"), Sessions->ReadSteamFriendPresence(Presence, Entry));
 	TestFalse(TEXT("Missing lobby ID cannot enable joining"), Entry.bCanJoin);
+
+	auto* RefreshSessions = NewObject<UHBOnlineSessionSubsystem>(Instance);
+	Sessions->ReadSteamFriendPresence(LobbyPresence, Entry);
+	Entry.UserId = TEXT("old-friend");
+	RefreshSessions->SteamFriends.Add(Entry);
+	const auto VisibleFriend = MakeShared<FHBTestSteamFriend>(TEXT("fresh-friend"), LobbyPresence);
+	auto OtherPresence = LobbyPresence;
+	OtherPresence.Status.Properties.Add(TEXT("HB_PROJECT"), FString(TEXT("OtherGame")));
+	const auto OtherFriend = MakeShared<FHBTestSteamFriend>(TEXT("other-project"), OtherPresence);
+	auto QueueRefresh = [&](uint64 RequestId)
+	{
+		RefreshSessions->bReadingFriends = true;
+		RefreshSessions->FriendsReadRequestId = RequestId;
+		RefreshSessions->bFriendPresenceQueryFailed = false;
+		RefreshSessions->PendingSteamFriends = {VisibleFriend, OtherFriend};
+		RefreshSessions->PendingFriendPresenceQueries = 2;
+	};
+	QueueRefresh(40);
+	RefreshSessions->HandleSteamFriendPresenceQueried(40, true);
+	TestTrue(TEXT("List remains loading until all friend presence queries complete"), RefreshSessions->IsReadingFriends());
+	TestEqual(TEXT("Partial completion retains the displayed list"), RefreshSessions->SteamFriends[0].UserId, FString(TEXT("old-friend")));
+	AddExpectedError(TEXT("Online | Friends | Refresh failed; keeping"), EAutomationExpectedErrorFlags::Contains, 2);
+	RefreshSessions->HandleSteamFriendPresenceQueried(40, false);
+	TestFalse(TEXT("Presence failure releases the loading state"), RefreshSessions->IsReadingFriends());
+	TestTrue(TEXT("Failed read marks cached actions unavailable"), RefreshSessions->bSteamFriendsStale);
+	TestEqual(TEXT("Presence failure preserves existing friends"), RefreshSessions->SteamFriends[0].UserId, FString(TEXT("old-friend")));
+	QueueRefresh(50);
+	RefreshSessions->HandleSteamFriendPresenceQueried(40, true);
+	TestEqual(TEXT("Older query completion cannot consume a newer request"), RefreshSessions->PendingFriendPresenceQueries, 2);
+	RefreshSessions->HandleSteamFriendPresenceQueried(50, true);
+	RefreshSessions->HandleSteamFriendPresenceQueried(50, true);
+	TestFalse(TEXT("Successful retry clears the stale state"), RefreshSessions->bSteamFriendsStale);
+	TestEqual(TEXT("Successful retry retains project filtering"), RefreshSessions->SteamFriends.Num(), 1);
+	if (RefreshSessions->SteamFriends.Num() == 1)
+	{
+		TestEqual(TEXT("Successful retry publishes newly available friend data"), RefreshSessions->SteamFriends[0].UserId, FString(TEXT("fresh-friend")));
+		TestEqual(TEXT("Successful retry preserves the Steam display name"), RefreshSessions->SteamFriends[0].DisplayName, FString(TEXT("Steam friend")));
+	}
+	Presence = LobbyPresence;
+	Presence.Status.Properties.Add(TEXT("HB_STATE"), FString(TEXT("Match")));
+	RefreshSessions->UpdateSteamFriend(*VisibleFriend, Presence);
+	RefreshSessions->UpdateSteamFriend(*VisibleFriend, Presence);
+	TestEqual(TEXT("Repeated presence events never duplicate friend rows"), RefreshSessions->SteamFriends.Num(), 1);
+	if (RefreshSessions->SteamFriends.Num() == 1)
+	{
+		TestEqual(TEXT("Presence event immediately updates the displayed state"), RefreshSessions->SteamFriends[0].State, FString(TEXT("Match")));
+		TestFalse(TEXT("Playing friend cannot acquire actions from its previous lobby state"), RefreshSessions->SteamFriends[0].bCanInvite || RefreshSessions->SteamFriends[0].bCanJoin);
+	}
+	Presence.bIsOnline = false;
+	RefreshSessions->UpdateSteamFriend(*VisibleFriend, Presence);
+	TestTrue(TEXT("Offline presence removes the former visible row"), RefreshSessions->SteamFriends.IsEmpty());
+	RefreshSessions->UpdateSteamFriend(*VisibleFriend, LobbyPresence);
+	TestEqual(TEXT("Fresh lobby presence restores a previously hidden friend"), RefreshSessions->SteamFriends.Num(), 1);
+	QueueRefresh(60);
+	RefreshSessions->FriendsReadDeadline = 0.;
+	RefreshSessions->TickSteamPresence(0.f);
+	TestFalse(TEXT("Missing callback times out instead of leaving loading locked"), RefreshSessions->IsReadingFriends());
+	RefreshSessions->HandleSteamFriendPresenceQueried(60, true);
+	TestEqual(TEXT("Timed-out callback cannot replace the retained list"), RefreshSessions->SteamFriends.Num(), 1);
+	QueueRefresh(70);
+	RefreshSessions->PendingSteamFriends.Reset();
+	RefreshSessions->PendingFriendPresenceQueries = 0;
+	RefreshSessions->CompleteSteamFriendsRefresh(70, true);
+	TestTrue(TEXT("Successful empty read legitimately clears old friends"), RefreshSessions->SteamFriends.IsEmpty());
+	TestFalse(TEXT("Successful empty read clears loading"), RefreshSessions->IsReadingFriends());
+
+	RefreshSessions->DesiredGamePresence = TEXT("Lobby");
+	RefreshSessions->GamePresenceRequestId = 80;
+	RefreshSessions->bGamePresencePending = true;
+	RefreshSessions->HandleGamePresencePublished(80, TEXT("Lobby"), false, &LobbyPresence);
+	TestTrue(TEXT("Failed presence publication remains pending for retry"), RefreshSessions->bGamePresencePending);
+	Presence = LobbyPresence; Presence.Status.Properties.Remove(TEXT("HB_PROJECT"));
+	RefreshSessions->HandleGamePresencePublished(80, TEXT("Lobby"), true, &Presence);
+	TestTrue(TEXT("Steam completion success alone cannot acknowledge missing project keys"), RefreshSessions->bGamePresencePending);
+	RefreshSessions->HandleGamePresencePublished(80, TEXT("Lobby"), true, &LobbyPresence);
+	TestFalse(TEXT("Verified local keys finish publication"), RefreshSessions->bGamePresencePending);
+	RefreshSessions->DesiredGamePresence = TEXT("Match");
+	RefreshSessions->GamePresenceRequestId = 81;
+	RefreshSessions->bGamePresencePending = true;
+	RefreshSessions->HandleGamePresencePublished(80, TEXT("Lobby"), true, &LobbyPresence);
+	TestTrue(TEXT("Old lobby publication cannot finish a newer match request"), RefreshSessions->bGamePresencePending);
+	Presence = LobbyPresence;
+	Presence.Status.Properties.Add(TEXT("HB_STATE"), FString(TEXT("Match")));
+	Presence.Status.Properties.Add(TEXT("Joinable"), FString(TEXT("false")));
+	RefreshSessions->HandleGamePresencePublished(81, TEXT("Match"), true, &Presence);
+	TestFalse(TEXT("Current match publication verifies its closed admission"), RefreshSessions->bGamePresencePending);
+	QueueRefresh(90);
+	RefreshSessions->DeinitializeMultiplayerLobby();
+	RefreshSessions->HandleSteamFriendPresenceQueried(90, true);
+	RefreshSessions->HandleGamePresencePublished(81, TEXT("Match"), false, nullptr);
+	TestFalse(TEXT("Shutdown rejects late friend and publication callbacks"), RefreshSessions->IsReadingFriends() || RefreshSessions->bGamePresencePending);
 
 	auto* FriendSessions = NewObject<UHBOnlineSessionSubsystem>(Instance);
 	FriendSessions->bAutomaticInviteHubEnabled = true;

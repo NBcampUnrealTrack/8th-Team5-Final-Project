@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Containers/Ticker.h"
+#include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Engine/EngineBaseTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "HBLobbyLoadingSubsystem.generated.h"
@@ -9,10 +10,11 @@
 class UGameViewportClient;
 class UNetDriver;
 class UUserWidget;
+class APlayerController;
 class SWidget;
 struct FWorldContext;
 
-/** Local presentation for lobby departure; the existing server remains responsible for match readiness. */
+/** Local travel presentation; existing game/session code owns travel and authoritative readiness. */
 UCLASS()
 class HEAVENBREACH_API UHBLobbyLoadingSubsystem : public UGameInstanceSubsystem
 {
@@ -38,7 +40,16 @@ public:
 	UFUNCTION(BlueprintPure, Category="Loading")
 	float GetLoadingProgress() const { return LoadingProgress; }
 
+	/** Used only by the startup presentation; normal/session travel is observed, not initiated here. */
+	UFUNCTION(BlueprintCallable, Category="Loading")
+	bool TravelFromStartup(TSoftObjectPtr<UWorld> Destination);
+
+	UFUNCTION(BlueprintPure, Category="Loading")
+	FString GetLoadingDestination() const { return DestinationPackage; }
+
 private:
+	UFUNCTION()
+	void HandleLobbyOperation(EHBLobbyOperationState State, const FString& Error);
 	void HandleSeamlessTravelStart(UWorld* World, const FString& Destination);
 	void HandlePreClientTravel(const FString& Destination, ETravelType TravelType, bool bSeamless);
 	void HandlePreLoadMap(const FWorldContext& Context, const FString& Destination);
@@ -51,6 +62,12 @@ private:
 	bool IsDestinationReady(UWorld* World) const;
 	float CalculateLoadingProgress(UWorld* World) const;
 	void UpdateLoadingProgress(float Progress);
+	void AttachLoadingScreen();
+	void CancelReadyFade();
+	bool HasArrived(UWorld* World) const;
+	bool IsSessionTransitionPending() const;
+	bool IsMenuReady(const APlayerController* Player, UWorld* World) const;
+	static UUserWidget* ReadWidgetProperty(const UObject* Object, FName Name);
 	bool OwnsWorld(const UWorld* World) const;
 	static bool IsLobbyWorld(const UWorld* World);
 	static FString NormalizeMap(const FString& URL);
@@ -64,12 +81,22 @@ private:
 	TSharedPtr<SWidget> ViewportContent;
 	TWeakObjectPtr<UGameViewportClient> AttachedViewport;
 	FString DestinationPackage;
+	FString PendingStartupPackage;
+	TWeakObjectPtr<UWorld> OutgoingWorld;
+	TWeakObjectPtr<UWorld> ArrivedWorld;
+	TWeakObjectPtr<UHBOnlineSessionSubsystem> Sessions;
+	TWeakPtr<SWidget> PreviousFocus;
 	double LoadingStartedAt = 0.0;
 	double FadeCompleteAt = 0.0;
+	double DestinationReadySince = 0.0;
 	float LoadingProgress = 0.0f;
 	bool bLoading = false;
 	bool bGameplayReady = false;
 	bool bPreviousIgnoreInput = false;
+	bool bJoiningSession = false;
+	bool bAwaitingNetworkWorld = false;
+	bool bDestinationIgnoreInput = false;
+	bool bPreviousWorldRenderingDisabled = false;
 	FTSTicker::FDelegateHandle TickHandle;
 	FDelegateHandle SeamlessStartHandle;
 	FDelegateHandle PreClientTravelHandle;
