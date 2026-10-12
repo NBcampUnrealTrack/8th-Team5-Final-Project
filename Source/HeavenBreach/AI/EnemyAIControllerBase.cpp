@@ -19,6 +19,7 @@
 #include "Components/StateTreeAIComponent.h"
 #include "AI/GAS/EnemyAbilitySystemComponent.h"
 #include "core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/State/HB_StateTag.h"
 #include "AI/Enum/EAlertState.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/GameStateBase.h"
@@ -135,11 +136,15 @@ void AEnemyAIControllerBase::OnPossess(APawn* InPawn)
 		GetWorldTimerManager().SetTimer(SleepTimerHandle, this, &AEnemyAIControllerBase::EvaluateSleep, SleepCheckInterval, true, FirstDelay);
 	}
 
+	// 추격 시간 교체. 스탯에서 끈 적(최대 0)은 타이머를 안 건다.
+	StartChaseTimer();
+
 	UE_LOG(LogEnemyAI, Log, TEXT("[AI] %s 준비 완료"), *GetNameSafe(InPawn));
 }
 
 void AEnemyAIControllerBase::OnUnPossess()
 {
+	GetWorldTimerManager().ClearTimer(ChaseTimerHandle);
 	GetWorldTimerManager().ClearTimer(SleepTimerHandle);
 	if (AlertComponent)
 	{
@@ -468,6 +473,150 @@ void AEnemyAIControllerBase::TryRetarget()
 	}
 
 	AlertComponent->RequestRetarget();
+}
+
+void AEnemyAIControllerBase::StartChaseTimer()
+{
+	GetWorldTimerManager().ClearTimer(ChaseTimerHandle);
+	ResetChase(nullptr);
+
+	// 판단은 서버만 한다
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (!CachedArchetype)
+	{
+		return;
+	}
+
+	// 최대가 0 이면 이 적은 기능을 안 쓴다. 기본값은 켜짐(3~5초)이라 끈 줄만 여기서 빠진다.
+	if (CachedArchetype->GetStats().ChaseRetargetTimeMax <= 0.f)
+	{
+		return;
+	}
+
+	GetWorldTimerManager().SetTimer(ChaseTimerHandle, this, &AEnemyAIControllerBase::UpdateChaseRetarget, ChaseCheckInterval, true);
+}
+
+void AEnemyAIControllerBase::ResetChase(AActor* NewChaseTarget)
+{
+	ChaseTime = 0.f;
+	ChaseLimit = 0.f;
+	ChaseTarget = NewChaseTarget;
+
+	if (!CachedArchetype)
+	{
+		return;
+	}
+
+	// 한도는 잴 때마다 새로 뽑는다. 고정이면 같은 종류 여러 마리가 같은 순간에 일제히 바꾼다.
+	const FEnemyStatRow& S = CachedArchetype->GetStats();
+	const float MaxTime = FMath::Max(0.f, S.ChaseRetargetTimeMax);
+	const float MinTime = FMath::Clamp(S.ChaseRetargetTimeMin, 0.f, MaxTime);
+	ChaseLimit = FMath::FRandRange(MinTime, MaxTime);
+}
+
+void AEnemyAIControllerBase::UpdateChaseRetarget()
+{
+	// 언제 쌓이나: 교전 중 + 타겟이 사거리 밖 + 공격 중 아님 + 후딜 · 쿨타임 아님.
+	//   StateTree 가 TargetMove(추격)로 가는 조건과 같게 맞췄다.
+	// 언제 비우나: 사거리 안에 들어옴 / 공격 시작 / 타겟이 바뀜 / 교전이 끝남.
+	// 언제 멈추나: 후딜(State.AfterDelay) · 쿨타임(CoolTime.Attack 아래 전부).
+	//   트리는 이때 Recover 로 가서 일부러 떨어져 있다. 쫓는 시간이 아니다.
+	//
+	// 왜 StateTree 가 아니라 여기서 재나: 추격 상태는 매 틱 다시 선택되는 구조라
+	// 상태 안에 둔 시간이 계속 초기화될 수 있다. "사거리 안이면 비운다" 같은 조건도 코드가 정확하다.
+	//
+	// 쳐낼 조건: 어그로 수치 시스템이 생기면 "못 따라잡음" 을 어그로 감소로 바꿔 그쪽에 흡수한다.
+	AEnemyCharacterBase* Enemy = Cast<AEnemyCharacterBase>(GetPawn());
+	if (!Enemy)
+	{
+		return;
+	}
+
+	if (Enemy->IsDead())
+	{
+		GetWorldTimerManager().ClearTimer(ChaseTimerHandle);
+		return;
+	}
+
+	if (!AlertComponent)
+	{
+		return;
+	}
+
+	// 잠든 적과 교전이 아닌 적은 쫓는 중이 아니다
+	if (bSleeping)
+	{
+		ResetChase(nullptr);
+		return;
+	}
+
+	if (AlertComponent->GetState() != EAlertState::Engaged)
+	{
+		ResetChase(nullptr);
+		return;
+	}
+
+	AActor* Target = AlertComponent->GetCurrentTarget();
+	if (!Target)
+	{
+		ResetChase(nullptr);
+		return;
+	}
+
+	// 공격 후 교체 · 시야 교체로 타겟이 바뀌었으면 새 타겟 기준으로 다시 잰다
+	if (ChaseTarget.Get() != Target)
+	{
+		ResetChase(Target);
+		return;
+	}
+
+	if (UEnemyAbilitySystemComponent* ASC = Enemy->GetEnemyASC())
+	{
+		// 공격을 시작했다 = 따라잡았다. State.Attacking.Stagger 같은 자식 태그도 여기 잡힌다
+		if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Attacking))
+		{
+			ResetChase(Target);
+			return;
+		}
+
+		// 후딜 · 쿨타임 중에는 쌓지도 비우지도 않는다
+		if (ASC->HasMatchingGameplayTag(StateTag::TAG_State_AfterDelay))
+		{
+			return;
+		}
+
+		if (ASC->HasMatchingGameplayTag(StateTag::TAG_CoolTime_Attack))
+		{
+			return;
+		}
+	}
+
+	// 사거리 안이면 따라잡은 것이다
+	if (GetDistanceToTarget() <= GetAttackRange())
+	{
+		ResetChase(Target);
+		return;
+	}
+
+	ChaseTime += ChaseCheckInterval;
+	if (ChaseTime < ChaseLimit)
+	{
+		return;
+	}
+
+	UE_LOG(LogEnemyAI, Log, TEXT("[Chase] %s %.1f초 동안 %s 를 못 따라잡음 → 타겟 교체 시도"),
+		*GetNameSafe(Enemy), ChaseTime, *GetNameSafe(Target));
+
+	// 보이는 플레이어가 하나뿐이면 RequestRetarget 이 아무것도 안 한다. 그대로 계속 쫓는다 (사용자 결정).
+	AlertComponent->RequestRetarget();
+
+	// 성공 여부와 관계없이 다시 잰다. 실패한 교체를 매 주기 반복하지 않으려고.
+	// 교체에 성공했으면 다음 주기에 타겟이 바뀐 것을 보고 새 타겟 기준으로 다시 잰다.
+	ResetChase(Target);
 }
 
 void AEnemyAIControllerBase::PickTacticalMove()

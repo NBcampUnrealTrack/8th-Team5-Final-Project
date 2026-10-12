@@ -126,4 +126,16 @@ public:
 	// 전술을 새로 고를 때 타겟도 바꿀 확률. 0 이면 절대 안 바꾼다
 	UPROPERTY(EditAnywhere, Category = "Tactics", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float RetargetChance = 0.f;
+
+	// 사거리 밖에서 쫓기만 하는 시간이 이 범위(초)에서 뽑은 값을 넘으면 타겟을 다시 고른다.
+	// 기본으로 모든 적에게 켜져 있다 (팀 결정). 특정 적만 끄려면 그 줄의 최대를 0 으로 둔다.
+	//
+	// 왜 필요한가: 닿지 않는 플레이어(높은 곳, 막힌 길)만 계속 쫓으면
+	// 옆에 있는 다른 플레이어를 무시하는 것처럼 보인다.
+	// 바꿀 후보는 지금 보이는 플레이어뿐이다. 한 명만 보이면 그대로 계속 쫓는다.
+	UPROPERTY(EditAnywhere, Category = "Tactics", meta = (ClampMin = "0.0"))
+	float ChaseRetargetTimeMin = 3.f;
+
+	UPROPERTY(EditAnywhere, Category = "Tactics", meta = (ClampMin = "0.0"))
+	float ChaseRetargetTimeMax = 5.f;
 };

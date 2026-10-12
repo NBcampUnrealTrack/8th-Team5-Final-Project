@@ -8,6 +8,7 @@ namespace StateTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_State_BoxInteracting,"State.BoxInteracting")
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Attack_Melee, "CoolTime.Attack.Melee", "근접 공격 후딜");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_CoolTime_Attack, "CoolTime.Attack", "적 공격 쿨타임의 부모. 스킬별 쿨타임이 전부 이 아래");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Staggered, "State.Staggered", "경직 - 행동 중단");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_HitReact, "State.HitReact", "피격 리액션 - 행동 유지");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Aiming, "State.Aiming", "조준 중. 이 구간에만 타겟을 따라 회전한다");

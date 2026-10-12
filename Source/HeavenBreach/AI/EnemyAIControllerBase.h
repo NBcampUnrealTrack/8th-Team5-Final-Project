@@ -225,6 +225,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AI|Sleep", meta = (ClampMin = "0.1"))
 	float SleepCheckInterval = 1.f;
 
+	// 추격 시간을 재는 주기(초). 스탯의 ChaseRetargetTimeMax 가 0 인 적은 타이머 자체를 안 건다.
+	// 짧을수록 정확하지만 적마다 도는 타이머라 너무 줄이지 않는다.
+	UPROPERTY(EditDefaultsOnly, Category = "AI|Tactics", meta = (ClampMin = "0.05"))
+	float ChaseCheckInterval = 0.25f;
 
 
 private:
@@ -249,4 +253,20 @@ private:
 	bool bSleeping = false;
 	FTimerHandle SleepTimerHandle;
 	FDelegateHandle AlertSleepHandle;
+
+	// ----- 추격 시간 교체 -----
+	// 사거리 밖에서 쫓기만 하는 시간이 길어지면 타겟을 다시 고른다.
+	// 시간이 쌓이는 조건과 비우는 조건은 UpdateChaseRetarget 주석에 있다.
+	void StartChaseTimer();
+	void UpdateChaseRetarget();
+
+	// 시간을 0 으로 돌리고 다음 한도를 새로 뽑는다. 재는 기준 타겟도 같이 바꾼다.
+	void ResetChase(AActor* NewChaseTarget);
+
+	FTimerHandle ChaseTimerHandle;
+	float ChaseTime = 0.f;
+	float ChaseLimit = 0.f;
+
+	// 지금 재고 있는 타겟. 바뀌면 처음부터 다시 잰다
+	TWeakObjectPtr<AActor> ChaseTarget;
 };

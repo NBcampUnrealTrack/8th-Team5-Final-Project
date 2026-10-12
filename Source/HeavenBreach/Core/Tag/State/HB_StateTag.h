@@ -11,6 +11,11 @@ namespace StateTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Staggered)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_HitReact)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_CoolTime_Attack_Melee)
+
+	// 적 공격 쿨타임의 부모. CoolTime.Attack.Beam · Leap 같은 스킬별 쿨타임이 전부 이 아래에 있다.
+	// StateTree 의 Recover 조건과 추격 시간 계산이 "어느 공격이든 쿨타임 중인가" 를 이걸로 본다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_CoolTime_Attack)
+
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_Aiming)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_SuperArmor)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_State_AfterDelay)
