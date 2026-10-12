@@ -25,6 +25,23 @@ namespace
 
 void UHBOnlineSessionSubsystem::InitializeMultiplayerLobby()
 {
+    if (auto* OSS = IOnlineSubsystem::Get(); OSS && OSS->GetSubsystemName() == FName(TEXT("STEAM")))
+    {
+        SteamPresenceInterface = OSS->GetPresenceInterface();
+        if (SteamPresenceInterface.IsValid())
+        {
+            SteamPresenceReceivedHandle = SteamPresenceInterface->AddOnPresenceReceivedDelegate_Handle(
+                FOnPresenceReceivedDelegate::CreateWeakLambda(this, [this](const FUniqueNetId& UserId, const TSharedRef<FOnlineUserPresence>& Presence)
+                {
+                    // 진행 중인 전체 조회는 완료 시 최신 캐시를 반영한다.
+                    if (bReadingFriends) return;
+                    if (const auto Friend = FindSteamFriend(UserId.ToString()); Friend.IsValid())
+                        UpdateSteamFriend(*Friend, *Presence);
+                }));
+            SteamPresenceTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+                FTickerDelegate::CreateUObject(this, &ThisClass::TickSteamPresence), 5.f);
+        }
+    }
     InviteAcceptedHandle = SessionInterface->AddOnSessionUserInviteAcceptedDelegate_Handle(
         FOnSessionUserInviteAcceptedDelegate::CreateUObject(this, &ThisClass::HandleSteamInvite));
     LobbySeamlessTravelHandle = FWorldDelegates::OnSeamlessTravelTransition.AddWeakLambda(this, [this](UWorld* World)
@@ -43,6 +60,18 @@ void UHBOnlineSessionSubsystem::InitializeMultiplayerLobby()
 
 void UHBOnlineSessionSubsystem::DeinitializeMultiplayerLobby()
 {
+    FTSTicker::GetCoreTicker().RemoveTicker(SteamPresenceTickerHandle);
+    SteamPresenceTickerHandle.Reset();
+    if (SteamPresenceInterface.IsValid())
+        SteamPresenceInterface->ClearOnPresenceReceivedDelegate_Handle(SteamPresenceReceivedHandle);
+    SteamPresenceReceivedHandle.Reset();
+    SteamPresenceInterface.Reset();
+    DesiredGamePresence.Reset();
+    bGamePresencePending = false;
+    ++GamePresenceRequestId;
+    ++FriendsReadRequestId;
+    PendingSteamFriends.Reset();
+    PendingFriendPresenceQueries = 0;
     ResetFriendSessionSearch(true);
     if (SessionInterface.IsValid()) SessionInterface->ClearOnSessionUserInviteAcceptedDelegate_Handle(InviteAcceptedHandle);
     FWorldDelegates::OnSeamlessTravelTransition.Remove(LobbySeamlessTravelHandle);
@@ -82,6 +111,10 @@ FString UHBOnlineSessionSubsystem::CheckLobbyPassword(const FString& Options) co
 
 void UHBOnlineSessionSubsystem::PublishGamePresence(const FString& State)
 {
+    DesiredGamePresence = State;
+    bGamePresencePending = true;
+    GamePresenceDeadline = FPlatformTime::Seconds() + 5.;
+    const uint64 RequestId = ++GamePresenceRequestId;
     IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
     if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM"))) return;
     const auto Identity = OSS->GetIdentityInterface();
@@ -96,19 +129,87 @@ void UHBOnlineSessionSubsystem::PublishGamePresence(const FString& State)
     Status.Properties.Add(TEXT("HB_PROJECT"), FString(TEXT("HeavenBreach")));
     Status.Properties.Add(TEXT("HB_STATE"), State);
     Status.Properties.Add(TEXT("Joinable"), FString(State == TEXT("Lobby") ? TEXT("true") : TEXT("false")));
-    Presence->SetPresence(*UserId, Status);
+    Presence->SetPresence(*UserId, Status,
+        IOnlinePresence::FOnPresenceTaskCompleteDelegate::CreateWeakLambda(this,
+            [this, RequestId, State, Presence](const FUniqueNetId& User, bool bSuccess)
+            {
+                TSharedPtr<FOnlineUserPresence> Cached;
+                Presence->GetCachedPresence(User, Cached);
+                HandleGamePresencePublished(RequestId, State, bSuccess, Cached.Get());
+            }));
 }
 
-bool UHBOnlineSessionSubsystem::ReadSteamFriendPresence(const FOnlineUserPresence& Presence, FHBSteamFriendEntry& Entry)
+bool UHBOnlineSessionSubsystem::HasGamePresence(const FOnlineUserPresence& Presence, const FString& State)
+{
+    const auto* Project = Presence.Status.Properties.Find(TEXT("HB_PROJECT"));
+    const auto* CurrentState = Presence.Status.Properties.Find(TEXT("HB_STATE"));
+    const auto* Joinable = Presence.Status.Properties.Find(TEXT("Joinable"));
+    return Project && Project->ToString() == TEXT("HeavenBreach") && CurrentState && CurrentState->ToString() == State
+        && Joinable && Joinable->ToString() == (State == TEXT("Lobby") ? TEXT("true") : TEXT("false"));
+}
+
+void UHBOnlineSessionSubsystem::HandleGamePresencePublished(uint64 RequestId, const FString& State,
+    bool bSuccess, const FOnlineUserPresence* Presence)
+{
+    if (RequestId != GamePresenceRequestId || State != DesiredGamePresence) return;
+    // Steam의 완료 콜백이 성공이어도 실제 프로젝트 키가 게시됐는지 확인한다.
+    bGamePresencePending = !bSuccess || !Presence || !HasGamePresence(*Presence, State);
+    UE_LOG(LogTemp, Log, TEXT("Online | Presence | State=%s Verified=%d"), *State, !bGamePresencePending);
+}
+
+bool UHBOnlineSessionSubsystem::TickSteamPresence(float)
+{
+    if (bReadingFriends && FPlatformTime::Seconds() >= FriendsReadDeadline)
+    {
+        CompleteSteamFriendsRefresh(FriendsReadRequestId, false);
+        ++FriendsReadRequestId; // 타임아웃 뒤 도착하는 Steam 콜백을 무시한다.
+    }
+    if (DesiredGamePresence.IsEmpty() || !SteamPresenceInterface.IsValid()) return true;
+    if (bGamePresencePending)
+    {
+        if (FPlatformTime::Seconds() >= GamePresenceDeadline) PublishGamePresence(DesiredGamePresence);
+        return true;
+    }
+    const auto* OSS = IOnlineSubsystem::Get();
+    const auto Identity = OSS && OSS->GetSubsystemName() == FName(TEXT("STEAM")) ? OSS->GetIdentityInterface() : nullptr;
+    const int32 LocalUser = LocalUserIndex(GetGameInstance());
+    if (!Identity.IsValid() || Identity->GetLoginStatus(LocalUser) != ELoginStatus::LoggedIn) return true;
+    const auto UserId = Identity->GetUniquePlayerId(LocalUser);
+    if (!UserId.IsValid()) return true;
+    const uint64 RequestId = GamePresenceRequestId;
+    const FString State = DesiredGamePresence;
+    const auto Presence = SteamPresenceInterface;
+    Presence->QueryPresence(*UserId, IOnlinePresence::FOnPresenceTaskCompleteDelegate::CreateWeakLambda(this,
+        [this, RequestId, State, Presence](const FUniqueNetId& User, bool bSuccess)
+        {
+            if (RequestId != GamePresenceRequestId || State != DesiredGamePresence) return;
+            TSharedPtr<FOnlineUserPresence> Cached;
+            Presence->GetCachedPresence(User, Cached);
+            if (!bSuccess || !Cached.IsValid() || !HasGamePresence(*Cached, State)) PublishGamePresence(State);
+        }));
+    return true;
+}
+
+bool UHBOnlineSessionSubsystem::ReadSteamFriendPresence(const FOnlineUserPresence& Presence, FHBSteamFriendEntry& Entry,
+    FString* ExcludedReason)
 {
     Entry.State.Reset();
     Entry.bCanInvite = Entry.bCanJoin = false;
+    if (ExcludedReason) ExcludedReason->Reset();
+    auto Exclude = [&](const TCHAR* Reason)
+    {
+        if (ExcludedReason) *ExcludedReason = Reason;
+        return false;
+    };
     const auto* Project = Presence.Status.Properties.Find(TEXT("HB_PROJECT"));
     const auto* State = Presence.Status.Properties.Find(TEXT("HB_STATE"));
-    if (!Presence.bIsOnline || !Presence.bIsPlayingThisGame ||
-        !Project || Project->ToString() != TEXT("HeavenBreach") || !State) return false;
+    if (!Presence.bIsOnline) return Exclude(TEXT("Offline"));
+    if (!Presence.bIsPlayingThisGame) return Exclude(TEXT("OtherApp"));
+    if (!Project) return Exclude(TEXT("MissingProject"));
+    if (Project->ToString() != TEXT("HeavenBreach")) return Exclude(TEXT("OtherProject"));
+    if (!State) return Exclude(TEXT("MissingState"));
     const FString Value = State->ToString();
-    if (Value != TEXT("Lobby") && Value != TEXT("Match")) return false;
+    if (Value != TEXT("Lobby") && Value != TEXT("Match")) return Exclude(TEXT("OutsideLobbyOrMatch"));
     Entry.State = Value;
     Entry.bCanInvite = Value == TEXT("Lobby");
     const auto* Joinable = Presence.Status.Properties.Find(TEXT("Joinable"));
@@ -120,9 +221,9 @@ bool UHBOnlineSessionSubsystem::ReadSteamFriendPresence(const FOnlineUserPresenc
 TArray<FHBSteamFriendEntry> UHBOnlineSessionSubsystem::GetSteamFriends() const
 {
     auto Entries = SteamFriends;
-    const bool bCanInvite = CanInviteSteamFriends();
+    const bool bCanInvite = !bSteamFriendsStale && CanInviteSteamFriends();
     const auto* Current = SessionInterface.IsValid() ? SessionInterface->GetNamedSession(LobbySession) : nullptr;
-    const bool bCanJoin = CanSwitchHubSession() && LobbyOperationState == EHBLobbyOperationState::InLobby &&
+    const bool bCanJoin = !bSteamFriendsStale && CanSwitchHubSession() && LobbyOperationState == EHBLobbyOperationState::InLobby &&
         !PendingInvite.IsValid() && Current && Current->SessionInfo.IsValid();
     for (auto& Entry : Entries)
     {
@@ -159,31 +260,83 @@ bool UHBOnlineSessionSubsystem::RefreshSteamFriends()
     IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
     const auto Friends = OSS ? OSS->GetFriendsInterface() : nullptr;
     if (!OSS || OSS->GetSubsystemName() != FName(TEXT("STEAM")) || !Friends.IsValid())
-    { AuxiliaryError = TEXT("Steam 친구 목록을 사용할 수 없습니다."); return false; }
+    { bSteamFriendsStale = true; AuxiliaryError = TEXT("Steam 친구 목록을 사용할 수 없습니다."); return false; }
     bReadingFriends = true;
+    bFriendPresenceQueryFailed = false;
+    PendingSteamFriends.Reset();
+    PendingFriendPresenceQueries = 0;
+    FriendsReadDeadline = FPlatformTime::Seconds() + 15.;
+    const uint64 RequestId = ++FriendsReadRequestId;
     const FString List = EFriendsLists::ToString(EFriendsLists::Default);
     const bool bStarted = Friends->ReadFriendsList(LocalUserIndex(GetGameInstance()), List,
-        FOnReadFriendsListComplete::CreateWeakLambda(this, [this](int32 LocalUser, bool bSuccess, const FString& ListName, const FString&)
+        FOnReadFriendsListComplete::CreateWeakLambda(this, [this, RequestId](int32 LocalUser, bool bSuccess, const FString& ListName, const FString&)
         {
-            if (!bReadingFriends) return;
-            bReadingFriends = false;
-            SteamFriends.Reset();
+            if (!bReadingFriends || RequestId != FriendsReadRequestId) return;
             IOnlineSubsystem* CurrentOSS = IOnlineSubsystem::Get();
             const auto CurrentFriends = CurrentOSS ? CurrentOSS->GetFriendsInterface() : nullptr;
             TArray<TSharedRef<FOnlineFriend>> Users;
-            if (!bSuccess || !CurrentFriends.IsValid() || !CurrentFriends->GetFriendsList(LocalUser, ListName, Users))
-            { AuxiliaryError = TEXT("Steam 친구 목록을 불러오지 못했습니다."); return; }
+            const auto Presence = CurrentOSS ? CurrentOSS->GetPresenceInterface() : nullptr;
+            if (!bSuccess || !CurrentFriends.IsValid() || !Presence.IsValid() || !CurrentFriends->GetFriendsList(LocalUser, ListName, Users))
+            { CompleteSteamFriendsRefresh(RequestId, false); return; }
+            PendingSteamFriends = Users;
+            PendingFriendPresenceQueries = Users.Num();
+            if (Users.IsEmpty()) { CompleteSteamFriendsRefresh(RequestId, true); return; }
+            // ReadFriendsList만 반복하면 이미 만들어진 UE Presence 캐시가 남을 수 있다.
+            // Steam 친구의 QueryPresence는 Steam 클라이언트 데이터로 캐시를 즉시 갱신한다.
             for (const auto& Friend : Users)
             {
-                FHBSteamFriendEntry Entry;
-                if (!ReadSteamFriendPresence(Friend->GetPresence(), Entry)) continue;
-                Entry.UserId = Friend->GetUserId()->ToString();
-                Entry.DisplayName = Friend->GetDisplayName();
-                SteamFriends.Add(MoveTemp(Entry));
+                Presence->QueryPresence(*Friend->GetUserId(), IOnlinePresence::FOnPresenceTaskCompleteDelegate::CreateWeakLambda(this,
+                    [this, RequestId](const FUniqueNetId&, bool bSuccess)
+                    { HandleSteamFriendPresenceQueried(RequestId, bSuccess); }));
             }
         }));
-    if (!bStarted) bReadingFriends = false;
+    if (!bStarted) CompleteSteamFriendsRefresh(RequestId, false);
     return bStarted;
+}
+
+void UHBOnlineSessionSubsystem::HandleSteamFriendPresenceQueried(uint64 RequestId, bool bSuccess)
+{
+    if (!bReadingFriends || RequestId != FriendsReadRequestId || PendingFriendPresenceQueries <= 0) return;
+    bFriendPresenceQueryFailed |= !bSuccess;
+    if (--PendingFriendPresenceQueries == 0) CompleteSteamFriendsRefresh(RequestId, !bFriendPresenceQueryFailed);
+}
+
+void UHBOnlineSessionSubsystem::CompleteSteamFriendsRefresh(uint64 RequestId, bool bSuccess)
+{
+    if (!bReadingFriends || RequestId != FriendsReadRequestId) return;
+    bReadingFriends = false;
+    bSteamFriendsStale = !bSuccess;
+    if (bSuccess)
+    {
+        SteamFriends.Reset();
+        for (const auto& Friend : PendingSteamFriends) UpdateSteamFriend(*Friend, Friend->GetPresence());
+        UE_LOG(LogTemp, Verbose, TEXT("Online | Friends | Read=%d Visible=%d"), PendingSteamFriends.Num(), SteamFriends.Num());
+    }
+    else
+    {
+        AuxiliaryError = TEXT("Steam 친구 상태를 불러오지 못했습니다. 기존 목록을 유지하고 다시 시도합니다.");
+        UE_LOG(LogTemp, Warning, TEXT("Online | Friends | Refresh failed; keeping %d existing entries"), SteamFriends.Num());
+    }
+    PendingSteamFriends.Reset();
+    PendingFriendPresenceQueries = 0;
+}
+
+void UHBOnlineSessionSubsystem::UpdateSteamFriend(const FOnlineFriend& Friend, const FOnlineUserPresence& Presence)
+{
+    const FString UserId = Friend.GetUserId()->ToString();
+    FHBSteamFriendEntry Entry;
+    FString Reason;
+    if (!ReadSteamFriendPresence(Presence, Entry, &Reason))
+    {
+        SteamFriends.RemoveAll([&](const auto& Item) { return Item.UserId == UserId; });
+        UE_LOG(LogTemp, Verbose, TEXT("Online | Friends | Excluded %s: %s"), *Friend.GetDisplayName(), *Reason);
+        return;
+    }
+    Entry.UserId = UserId;
+    Entry.DisplayName = Friend.GetDisplayName();
+    if (auto* Existing = SteamFriends.FindByPredicate([&](const auto& Item) { return Item.UserId == UserId; }))
+        *Existing = MoveTemp(Entry);
+    else SteamFriends.Add(MoveTemp(Entry));
 }
 
 bool UHBOnlineSessionSubsystem::CanInviteSteamFriends() const
