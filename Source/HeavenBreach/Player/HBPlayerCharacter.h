@@ -1017,6 +1017,8 @@ protected:
 	/** 서버 전용. 낙하 높이로 피해를 준다. 피해가 0 이면 아무것도 안 한다 */
 	void ApplyFallDamage(float FallHeight);
 
+	virtual void FellOutOfWorld(const UDamageType& DmgType) override;
+
 	/** 서버 전용. 맞은 본인 화면에 카메라 흔들림·HP 바·피 효과를 보낸다 */
 	void SendHitFeedback(float ShakeScale, bool bSuppressScreenEffect);
 	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;

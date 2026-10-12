@@ -2734,6 +2734,32 @@ void AHBPlayerCharacter::ApplyFallDamage(const float FallHeight)
 	SendHitFeedback(ShakeScale_Hit, false);
 }
 
+void AHBPlayerCharacter::FellOutOfWorld(const UDamageType& DmgType)
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!HasAuthority() || !ASC)
+	{
+		return;
+	}
+
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->DisableMovement();
+
+	if (ASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		return;
+	}
+
+	const float MaxHP = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute());
+	const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(UGE_FallDamage::StaticClass(), 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+	Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Damage, -MaxHP * 10.f);
+	ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+}
+
 void AHBPlayerCharacter::ApplyMovementInertia(UCharacterMovementComponent* Movement) const
 {
 	if (!Movement)
