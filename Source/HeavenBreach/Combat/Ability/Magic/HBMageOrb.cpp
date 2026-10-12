@@ -4,6 +4,7 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "Combat/Ability/Magic/HBMagic.h"
 #include "Combat/Interface/DamageableInterface.h"
 #include "Components/SphereComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
@@ -104,7 +105,7 @@ void AHBMageOrb::ApplyOrbDamage(AActor* Target, const FHitResult& Hit)
 	}
 
 	// 공격력 × 계수 × 스킬 피해 배율 → 패시브 보정. 구체는 지금 시전이 아니라 자기 시전 ID 로만 잔류 마력을 알린다(날아가는 사이 스킬이 끝나도 적용).
-	float FinalDamage = Player->GetAttackPower() * DamageCoef * Player->GetSkillDamageMultiplier();
+	float FinalDamage = Player->GetAttackPower() * DamageCoef * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
 	FinalDamage = Player->ModifyOutgoingDamage(Target, FinalDamage, /*bCreditCurrentSkillCast*/ false);
 	if (CastId > 0)
 	{

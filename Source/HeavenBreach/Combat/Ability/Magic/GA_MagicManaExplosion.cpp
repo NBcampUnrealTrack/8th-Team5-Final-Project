@@ -4,6 +4,7 @@
 
 #include "AbilitySystemComponent.h"
 #include "AI/EnemyCharacterBase.h"
+#include "Combat/Ability/Magic/HBMagic.h"
 #include "Combat/Effect/HBGameplayEffects.h"
 #include "Combat/Interface/DamageableInterface.h"
 #include "Components/CapsuleComponent.h"
@@ -88,7 +89,7 @@ void UGA_MagicManaExplosion::OnCastReleased(const FGameplayAbilityActorInfo* Inf
 		}
 
 		// 공격력 × 계수 × 위력 증강 × 스킬 피해 배율 → 패시브 보정. 즉시 피해라 현재 시전을 인정한다(잔류 마력 1회 처리는 그쪽에서).
-		float FinalDamage = Player->GetAttackPower() * DamageCoef * DamageMul * Player->GetSkillDamageMultiplier();
+		float FinalDamage = Player->GetAttackPower() * DamageCoef * DamageMul * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
 		FinalDamage = Player->ModifyOutgoingDamage(Enemy, FinalDamage);
 
 		// 맞은 점은 대상 위치, 법선은 시전자 쪽.
