@@ -6,6 +6,8 @@
 #include "HB_HUDLayer.generated.h"
 
 class UImage;
+class UWidget;
+class UGameplayAbility;
 class UMaterialInstanceDynamic;
 class UEquipmentComponent;
 class UQuickSlotComponent;
@@ -132,6 +134,19 @@ protected:
 	UFUNCTION()
 	void HandleSkillUpgradesChanged();
 
+	/** PS->OnStartingLoadoutChanged 에 물리는 핸들러. 로비에서 고른 스킬이 복제돼 오면 Q/E 아이콘을 다시 그린다. */
+	UFUNCTION()
+	void HandleStartingLoadoutChanged();
+
+	/** 로비에서 고른 Q/E 스킬의 아이콘을 IMG_Skill_1 / IMG_Skill_2 에 채운다. 비어 있으면 WBP 기본 이미지로 되돌린다. */
+	void RefreshSkillIcons();
+
+	/**
+	 * Q/E 스킬의 남은 쿨타임을 진행바와 글자에 채운다. 매 프레임 불린다.
+	 * 쿨타임은 스킬마다 붙는 쿨타임 GE 의 남은 시간이고, 증강 등이 반영된 실제 지속시간 기준이다.
+	 */
+	void UpdateSkillCooldowns();
+
 	virtual void NativeConstruct() override;
 
 	virtual void NativeDestruct() override;
@@ -157,6 +172,37 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_EquipSubWeapon;
+	/**
+	 * Q 스킬 아이콘 칸. 로비에서 고른 Q 스킬의 아이콘이 들어간다. Image 위젯이어야 한다.
+	 * UWidget 으로 받는 이유: WBP 의 같은 이름 위젯이 Image 가 아니어도 컴파일이 깨지지 않게 하려는 것이다.
+	 * Image 가 아니면 경고 로그만 남기고 건너뛴다.
+	 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> IMG_Skill_1;
+
+	/** E 스킬 아이콘 칸. IMG_Skill_1 참고. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> IMG_Skill_2;
+
+	/**
+	 * Q 스킬 쿨타임 진행바. 아이콘 위에 겹쳐 두면 코드가 남은 비율(1 → 0)만 채운다.
+	 * 쿨타임 중이 아니면 숨겨진다. 모양(어두운 막, 채우는 방향)은 WBP 의 프로그레스 바 Style 이 정한다.
+	 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> ProgressBar_Skill_1_Cooldown;
+
+	/** E 스킬 쿨타임 진행바. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> ProgressBar_Skill_2_Cooldown;
+
+	/** Q 스킬 쿨타임 남은 시간 글자 ("1.5초"). 아이콘 가운데에 둔다. 쿨타임 중이 아니면 숨겨진다. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Skill_1_Cooldown;
+
+	/** E 스킬 쿨타임 남은 시간 글자. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Skill_2_Cooldown;
+
 	/** 퀵슬롯 3번(포션). QuickSlotComponent 슬롯 인덱스 2에 대응 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_Potion_1;
@@ -174,6 +220,12 @@ protected:
 	/** 퀵슬롯 4번(포션) 쿨타임 진행바. ProgressBar_Potion_1_Cooldown 참고. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> ProgressBar_Potion_2_Cooldown;
+	/** 퀵슬롯 3번(포션) 쿨타임 남은 시간 글자 ("1.5초"). 쿨타임 중이 아니면 숨겨진다. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Potion_1_Cooldown;
+	/** 퀵슬롯 4번(포션) 쿨타임 남은 시간 글자. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Potion_2_Cooldown;
 	/** 경험치 바. Percent 스칼라 파라미터를 가진 머티리얼이 지정돼 있어야 채워진다 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> IMG_Experience;
@@ -293,6 +345,17 @@ private:
 	bool bIsQuickSlotBound = false;
 	FSlateBrush DefaultPotion1Brush;
 	FSlateBrush DefaultPotion2Brush;
+
+	/** Q/E 스킬 칸의 기본(빈 슬롯) 브러시. 스킬이 비었을 때 되돌린다. */
+	FSlateBrush DefaultSkill1Brush;
+	FSlateBrush DefaultSkill2Brush;
+
+	/** 로비에서 고른 Q/E 스킬의 어빌리티 클래스. 쿨타임 태그를 여기서 읽는다. RefreshSkillIcons 가 채운다. */
+	UPROPERTY(Transient)
+	TSubclassOf<UGameplayAbility> SkillQAbilityClass;
+
+	UPROPERTY(Transient)
+	TSubclassOf<UGameplayAbility> SkillEAbilityClass;
 	/** InventoryComponent::OnInventoryChanged 바인딩 여부. QuickSlotComponent::OnQuickSlotChanged 는
 	 * 퀵슬롯에 아이템을 등록/해제할 때만 발생하고, 이미 등록된 아이템의 StackCount 만 줄어드는
 	 * 경우(포션 사용 등)엔 발생하지 않는다. 그 갱신을 받으려면 인벤토리 변경 델리게이트를 따로 구독해야 한다. */
