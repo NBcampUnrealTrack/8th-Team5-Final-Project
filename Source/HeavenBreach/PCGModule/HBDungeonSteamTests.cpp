@@ -37,6 +37,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Interfaces/OnlineIdentityInterface.h"
+#include "Interfaces/OnlinePresenceInterface.h"
 #include "OnlineSubsystem.h"
 #include "OnlineSessionSettings.h"
 #include "Online/OnlineSessionNames.h"
@@ -130,6 +131,7 @@ namespace
         // Isolate session/results lifecycle when dungeon authoring is unavailable.
         // The normal mode still verifies PCG, enemies and chests without this flag.
         bool bSessionOnly = false;
+        bool bPresenceRecoveryRequested = false;
         FString RestoredHubId;
         double HubStableSince = 0.;
         EHBPostMatchReason EndReason = EHBPostMatchReason::None;
@@ -301,6 +303,25 @@ namespace
                         return false;
                     }
                     if (Sessions->IsReadingFriends()) return Wait(TEXT("Real Steam friend list read did not finish."));
+                    const auto Presence = OSS->GetPresenceInterface();
+                    if (!Presence.IsValid() || !LocalId.IsValid())
+                    { Test->AddError(TEXT("Real Steam presence is unavailable.")); return true; }
+                    if (!Fixture->bPresenceRecoveryRequested)
+                    {
+                        // 다른 상태 게시로 프로젝트 키가 지워지는 경우를 실제 SDK에서 재현한다.
+                        Fixture->bPresenceRecoveryRequested = true;
+                        Presence->SetPresence(*LocalId, FOnlineUserPresenceStatus());
+                        return false;
+                    }
+                    TSharedPtr<FOnlineUserPresence> LocalPresence;
+                    Presence->GetCachedPresence(*LocalId, LocalPresence);
+                    const auto* Project = LocalPresence.IsValid() ? LocalPresence->Status.Properties.Find(TEXT("HB_PROJECT")) : nullptr;
+                    const auto* StateValue = LocalPresence.IsValid() ? LocalPresence->Status.Properties.Find(TEXT("HB_STATE")) : nullptr;
+                    const auto* Joinable = LocalPresence.IsValid() ? LocalPresence->Status.Properties.Find(TEXT("Joinable")) : nullptr;
+                    if (!Project || Project->ToString() != TEXT("HeavenBreach") || !StateValue || StateValue->ToString() != TEXT("Lobby")
+                        || !Joinable || Joinable->ToString() != TEXT("true"))
+                        return Wait(TEXT("Real Steam lobby presence did not recover after losing its project keys."));
+                    Test->AddInfo(TEXT("Real Steam SDK project/state/joinable keys were removed and automatically republished by the existing Session subsystem."));
 					if (Fixture->bLobbyUI)
 					{
 						auto* Loading = FriendsPanel->GetWidgetFromName(TEXT("LoadingIndicator"));
@@ -382,20 +403,15 @@ namespace
 				{
 					auto* LobbyState = World->GetGameState<AHBLobbyGameState>();
 					auto* HostState = Player->GetPlayerState<AHBLobbyPlayerState>();
-					auto* ReadyModule = Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("ReadyButtonModule")));
-					auto* ReadyButton = ReadyModule ? Cast<UButton>(ReadyModule->GetWidgetFromName(TEXT("Button_Action"))) : nullptr;
-					if (!LobbyState || !HostState || !ReadyButton)
-					{ Test->AddError(TEXT("Production lobby is missing ready state/button.")); return true; }
+					if (!LobbyState || !HostState)
+					{ Test->AddError(TEXT("Production lobby is missing its game/player state.")); return true; }
 					LobbyUI->RefreshLobbyActions();
 					Test->TestTrue(TEXT("Solo Steam host can use the start button"), StartButton->GetIsEnabled());
-					Test->TestFalse(TEXT("Host cannot use the guest ready button"), ReadyButton->GetIsEnabled());
-					const bool bHostReady = HostState->IsReady();
-					ReadyButton->OnClicked.Broadcast();
-					Test->TestEqual(TEXT("Disabled ready click does not change host readiness"), HostState->IsReady(), bHostReady);
+					Test->TestFalse(TEXT("Steam host can start without Ready"), HostState->IsReady());
 					LobbyState->SetCanStartMatch(false);
 					StartButton->OnClicked.Broadcast();
-					Test->TestFalse(TEXT("Unready start click does not close admission"), Sessions->IsMatchAdmissionClosed());
-					Test->TestFalse(TEXT("Start button follows replicated readiness"), StartButton->GetIsEnabled());
+					Test->TestFalse(TEXT("Unavailable start click does not close admission"), Sessions->IsMatchAdmissionClosed());
+					Test->TestFalse(TEXT("Start button follows replicated availability"), StartButton->GetIsEnabled());
 					LobbyState->SetCanStartMatch(true);
 					LobbyUI->RefreshLobbyActions();
 					// Exercise the same property used by the production Blueprint; never save the fixture's map.
