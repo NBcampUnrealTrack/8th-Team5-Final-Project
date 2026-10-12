@@ -1345,18 +1345,6 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 		return;
 	}
 
-	// 주무기 내구도. 적에게 실제로 들어간 피해량(Damage)에 비례해서 닳는다 - 헛스윙이나
-	// 막힌 공격은 여기까지 오지 않으므로(적중해야만 NotifyDamageDealt 호출) 닳지 않는다.
-	if (Damage > 0.f)
-	{
-		if (UEquipmentComponent* Equipment = GetEquipment())
-		{
-			bool bJustBroke = false;
-			const float WeaponDurabilityLoss = FMath::Clamp(Damage * WeaponDurabilityLossRatio, WeaponDurabilityLossMin, WeaponDurabilityLossMax);
-			Equipment->DamageEquippedItemDurability(EEquipSlotType::PrimaryWeapon, WeaponDurabilityLoss, bJustBroke);
-		}
-	}
-
 	// 흡혈. 피의 광란 같은 버프 GE 가 Player_LifeStealRatio 를 올리면 그만큼 체력으로 되돌린다.
 	//
 	// 작동방식: 판정이 캐릭터를 거치므로(MeleeTraceComponent::ApplyDamage 가 부른다) 여기서 처리한다.
