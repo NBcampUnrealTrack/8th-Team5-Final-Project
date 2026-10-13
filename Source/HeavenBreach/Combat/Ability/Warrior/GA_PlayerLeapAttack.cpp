@@ -8,14 +8,40 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
+#include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Skill/HB_SkillParamTag.h"
 #include "Core/Tag/Event/HB_EventTag.h"
+#include "Core/Tag/Warrior/HB_WarriorTag.h"
 
 UGA_PlayerLeapAttack::UGA_PlayerLeapAttack()
 {
 	// 공격속도로 몽타주를 빠르게 하면 체공 시간과 애니가 어긋난다.
 	// 도약은 애니가 아니라 물리가 시간을 정하므로 배속을 걸면 안 된다.
 	bUseAttackSpeed = false;
+
+	// 단계 값은 그 단계의 최종값이다(누적 아님). 설명에 숫자를 적었으므로 수치를 바꾸면 같이 고칠 것.
+	FHBSkillAugment& Efficiency = Augments.AddDefaulted_GetRef();
+	Efficiency.AugmentTag = WarriorTag::TAG_Augment_ChargeAttack_Efficiency;
+	Efficiency.DisplayName = NSLOCTEXT("PlayerLeapAttack", "EfficiencyName", "돌진 강타: 효율");
+	Efficiency.Description = NSLOCTEXT("PlayerLeapAttack", "EfficiencyDesc", "돌진 강타의 재사용 대기시간과 마나 소모가 줄어듭니다. (1단계 15%, 2단계 25%, 3단계 35%)");
+	Efficiency.Params.Add(SkillParamTag::TAG_SkillParam_Cooldown, 0.85f);
+	Efficiency.Params.Add(SkillParamTag::TAG_SkillParam_ManaCost, 0.85f);
+	Efficiency.TierMagnitudes = { 0.85f, 0.75f, 0.65f };
+
+	FHBSkillAugment& Reach = Augments.AddDefaulted_GetRef();
+	Reach.AugmentTag = WarriorTag::TAG_Augment_ChargeAttack_Reach;
+	Reach.DisplayName = NSLOCTEXT("PlayerLeapAttack", "ReachName", "돌진 강타: 거리");
+	Reach.Description = NSLOCTEXT("PlayerLeapAttack", "ReachDesc", "돌진 강타의 도약 거리가 늘어납니다. (1단계 20%, 2단계 40%, 3단계 60%)");
+	Reach.Params.Add(SkillParamTag::TAG_SkillParam_Reach, 1.2f);
+	Reach.TierMagnitudes = { 1.2f, 1.4f, 1.6f };
+
+	// 받는 피해 배율의 하한이 0.5 라(PreAttributeChange) 3단계 0.5 가 최대다.
+	FHBSkillAugment& Guard = Augments.AddDefaulted_GetRef();
+	Guard.AugmentTag = WarriorTag::TAG_Augment_ChargeAttack_Guard;
+	Guard.DisplayName = NSLOCTEXT("PlayerLeapAttack", "GuardName", "돌진 강타: 가드");
+	Guard.Description = NSLOCTEXT("PlayerLeapAttack", "GuardDesc", "돌진 강타를 쓰는 동안 받는 피해가 줄어듭니다. (1단계 20%, 2단계 35%, 3단계 50%)");
+	Guard.TierMagnitudes = { 0.80f, 0.65f, 0.50f };
+	Guard.DuringEffect = UGE_WarriorChargeGuardAugment::StaticClass();
 }
 
 void UGA_PlayerLeapAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)

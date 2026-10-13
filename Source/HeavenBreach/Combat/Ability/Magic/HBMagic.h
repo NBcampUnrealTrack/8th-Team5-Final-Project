@@ -4,6 +4,14 @@
 /** 마법 스킬 순수 계산. 상태를 갖지 않아 테스트하기 쉽다. */
 namespace HBMagic
 {
+	/**
+	 * 마법 스킬 피해 배율. 공격력 × 스킬 계수 다음에 곱한다.
+	 * 왜 공격력이 아니라 여기서 올리나: 기본 공격력은 직업 공통(5)이고 무기로 차이를 낸다.
+	 * 지팡이를 껴도 마법이 약해서, 근접·활은 그대로 두고 마법만 올린다.
+	 * 쳐낼 조건: 마법 피해 옵션(장비·증강)이 생기면 어트리뷰트로 옮긴다.
+	 */
+	constexpr float DamageMultiplier = 2.f;
+
 	/** 시전 시간 배율. 집중 없음 1.0 / 집중 0.75 / 강화 1·2·3단계 0.65·0.55·0.45. */
 	inline float CastTimeMultiplier(bool bHasFocus, int32 FocusBoostTier)
 	{

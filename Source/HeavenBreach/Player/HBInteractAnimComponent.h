@@ -15,6 +15,7 @@ class UAnimSequenceBase;
  * 멀티캐스트가 아니라 복제 변수인 이유: 나중에 시야에 들어온 플레이어도 지금 상태를 받아야 한다.
  *
  * 켜져 있는 동안 State.BoxInteracting 을 붙인다. 평타·스킬·패링이 이미 이 태그로 막히게 되어 있다.
+ * 켜지면 손의 무기를 숨기고, End 동작이 끝나면 다시 보인다. 두 손으로 뒤지는 동작이라 무기가 손을 뚫는다.
  */
 UCLASS(ClassGroup = (Player), meta = (BlueprintSpawnableComponent))
 class HEAVENBREACH_API UHBInteractAnimComponent : public UActorComponent
@@ -61,6 +62,8 @@ private:
 
 	void PlayLoop();
 	void SetBoxInteractingTag(bool bAdd);
+	void SetWeaponHidden(bool bHidden);
+	void ShowWeapon();
 
 	UPROPERTY(ReplicatedUsing = OnRep_Interacting)
 	bool bInteracting = false;
@@ -72,4 +75,7 @@ private:
 	TObjectPtr<UAnimMontage> PlayingMontage;
 
 	FTimerHandle LoopTimerHandle;
+
+	// End 동작이 끝난 뒤 무기를 다시 보이게 한다. 그 사이 다시 켜면 취소한다.
+	FTimerHandle ShowWeaponTimerHandle;
 };

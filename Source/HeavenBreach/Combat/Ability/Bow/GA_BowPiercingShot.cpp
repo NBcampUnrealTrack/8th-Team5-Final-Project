@@ -512,9 +512,11 @@ void UGA_BowPiercingShot::EndPhaseMontageTask(TWeakObjectPtr<UAbilityTask_PlayMo
 void UGA_BowPiercingShot::SetDrawingPose(const bool bDrawing) const
 {
 	// 활 AnimBP 의 팔·시위 IK 와 장전 화살이 이 값을 본다(활 평타와 같다).
+	// 당기는 동안 장전 화살에 관통 기류·입자를 켠다.
 	if (AHBPlayerCharacter* Player = GetPlayer())
 	{
 		Player->SetBowDrawing(bDrawing);
+		Player->SetBowPiercingCharge(bDrawing);
 	}
 }
 
@@ -552,6 +554,7 @@ void UGA_BowPiercingShot::EndAbility(const FGameplayAbilitySpecHandle Handle, co
 	if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
 	{
 		Player->SetBowDrawing(false);
+		Player->SetBowPiercingCharge(false);
 		Player->SetInBowSkillPose(false);
 	}
 	if (UAnimInstance* Anim = ActorInfo ? ActorInfo->GetAnimInstance() : nullptr)

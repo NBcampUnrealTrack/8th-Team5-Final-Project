@@ -33,9 +33,9 @@ UGA_MagicTeleport::UGA_MagicTeleport()
 	FHBSkillAugment& Far = Augments.AddDefaulted_GetRef();
 	Far.AugmentTag = MagicTag::TAG_Augment_Magic_Teleport_Far;
 	Far.DisplayName = NSLOCTEXT("MagicTeleport", "FarName", "순간 이동: 장거리");
-	Far.Description = NSLOCTEXT("MagicTeleport", "FarDesc", "순간 이동 거리가 늘어납니다. (1단계 5m, 2단계 6m, 3단계 7m)");
-	Far.Params.Add(SkillParamTag::TAG_SkillParam_Distance, 500.f);
-	Far.TierMagnitudes = { 500.f, 600.f, 700.f };
+	Far.Description = NSLOCTEXT("MagicTeleport", "FarDesc", "순간 이동 거리가 늘어납니다. (1단계 9m, 2단계 10.5m, 3단계 12m)");
+	Far.Params.Add(SkillParamTag::TAG_SkillParam_Distance, 900.f);
+	Far.TierMagnitudes = { 900.f, 1050.f, 1200.f };
 
 	FHBSkillAugment& Rapid = Augments.AddDefaulted_GetRef();
 	Rapid.AugmentTag = MagicTag::TAG_Augment_Magic_Teleport_Rapid;

@@ -462,14 +462,28 @@ void UHBPlayerActiveGABase::ApplySelfBuff(const FGameplayAbilityActorInfo* Actor
 			BuffHandles.Add(ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
 		}
 	}
+
+	// 증강 자체가 들고 있는 버프 GE. 위 맵과 같은 일인데 수치(단계값)까지 넘긴다.
+	for (const FHBSkillAugment& Augment : Augments)
+	{
+		if (!Augment.BuffEffect || !HasAugmentFrom(ActorInfo, Augment.AugmentTag))
+		{
+			continue;
+		}
+
+		FGameplayEffectSpecHandle Spec =
+			ASC->MakeOutgoingSpec(Augment.BuffEffect, 1.f, ASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Duration, FinalDuration);
+			Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_AugmentMagnitude, GetAugmentMagnitudeFrom(ActorInfo, Augment));
+			BuffHandles.Add(ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
+		}
+	}
 }
 
 void UHBPlayerActiveGABase::ApplyDuringAbilityEffect(const FGameplayAbilityActorInfo* ActorInfo)
 {
-	if (!DuringAbilityEffect)
-	{
-		return;   // 감속이 필요 없는 스킬. 비워두면 여기서 끝난다
-	}
 	if (!ActorInfo)
 	{
 		return;
@@ -489,27 +503,51 @@ void UHBPlayerActiveGABase::ApplyDuringAbilityEffect(const FGameplayAbilityActor
 		return;
 	}
 
-	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(DuringAbilityEffect, 1.f, ASC->MakeEffectContext());
-	if (!Spec.IsValid())
+	// 감속이 필요 없는 스킬은 비워 둔다.
+	if (DuringAbilityEffect)
 	{
-		return;
+		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(DuringAbilityEffect, 1.f, ASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			DuringAbilityHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		}
 	}
-	DuringAbilityHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+
+	// 증강이 정한 발동 중 GE. 돌진 강타의 가드, 강타의 위력처럼 발동 중에만 의미가 있는 것.
+	for (const FHBSkillAugment& Augment : Augments)
+	{
+		if (!Augment.DuringEffect || !HasAugmentFrom(ActorInfo, Augment.AugmentTag))
+		{
+			continue;
+		}
+
+		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(Augment.DuringEffect, 1.f, ASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_AugmentMagnitude, GetAugmentMagnitudeFrom(ActorInfo, Augment));
+			AugmentDuringHandles.Add(ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
+		}
+	}
 }
 
 void UHBPlayerActiveGABase::RemoveDuringAbilityEffect(const FGameplayAbilityActorInfo* ActorInfo)
 {
-	if (!DuringAbilityHandle.IsValid())
-	{
-		return;
-	}
-
-	// 취소나 사망으로 끝나도 여기를 거친다. 안 떼면 캐릭터가 영구히 느려진다.
-	if (UAbilitySystemComponent* ASC = GetASC(ActorInfo))
+	// 취소나 사망으로 끝나도 여기를 거친다. 안 떼면 캐릭터가 영구히 느려지거나 강해진다.
+	UAbilitySystemComponent* ASC = GetASC(ActorInfo);
+	if (ASC && DuringAbilityHandle.IsValid())
 	{
 		ASC->RemoveActiveGameplayEffect(DuringAbilityHandle);
 	}
 	DuringAbilityHandle.Invalidate();
+
+	for (const FActiveGameplayEffectHandle& Handle : AugmentDuringHandles)
+	{
+		if (ASC && Handle.IsValid())
+		{
+			ASC->RemoveActiveGameplayEffect(Handle);
+		}
+	}
+	AugmentDuringHandles.Reset();
 }
 
 void UHBPlayerActiveGABase::RemoveSelfBuff()

@@ -6,6 +6,7 @@
 #include "Animation/AnimMontage.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "GameFramework/Character.h"
+#include "Player/HBPlayerCharacter.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 
@@ -41,7 +42,12 @@ void UHBInteractAnimComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (bAppliedInteracting)
 	{
 		SetBoxInteractingTag(false);
+		SetWeaponHidden(false);
 		bAppliedInteracting = false;
+	}
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ShowWeaponTimerHandle);
 	}
 	Super::EndPlay(EndPlayReason);
 }
@@ -84,10 +90,24 @@ void UHBInteractAnimComponent::ApplyInteracting()
 
 	SetBoxInteractingTag(bInteracting);
 
+	// 무기는 애니메이션과 별개로 숨긴다. 애님 인스턴스가 없어도(데디 서버 등) 상태는 맞춘다.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ShowWeaponTimerHandle);
+	}
+	if (bInteracting)
+	{
+		SetWeaponHidden(true);
+	}
+
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
 	if (!AnimInstance)
 	{
+		if (!bInteracting)
+		{
+			SetWeaponHidden(false);
+		}
 		return;
 	}
 
@@ -117,11 +137,35 @@ void UHBInteractAnimComponent::ApplyInteracting()
 	if (UAnimSequenceBase* End = EndAnim.LoadSynchronous())
 	{
 		PlayingMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(End, SlotName, BlendTime, BlendTime, 1.f, 1);
+
+		// 손이 무기 자세로 돌아오는 End 가 빠지기 시작할 때 보인다. 중간에 나타나면 빈손에서 튀어나온다.
+		const float Delay = FMath::Max(0.01f, End->GetPlayLength() - BlendTime);
+		GetWorld()->GetTimerManager().SetTimer(ShowWeaponTimerHandle, this, &UHBInteractAnimComponent::ShowWeapon, Delay, false);
+		return;
 	}
-	else if (PlayingMontage)
+
+	if (PlayingMontage)
 	{
 		AnimInstance->Montage_Stop(BlendTime, PlayingMontage);
 		PlayingMontage = nullptr;
+	}
+	SetWeaponHidden(false);
+}
+
+void UHBInteractAnimComponent::ShowWeapon()
+{
+	// 타이머 사이 다시 켰으면 ApplyInteracting 이 타이머를 지웠다. 그래도 한 번 더 확인한다.
+	if (!bAppliedInteracting)
+	{
+		SetWeaponHidden(false);
+	}
+}
+
+void UHBInteractAnimComponent::SetWeaponHidden(bool bHidden)
+{
+	if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner()))
+	{
+		Player->SetHandEquipmentHidden(bHidden);
 	}
 }
 
