@@ -140,7 +140,7 @@ void UHBLobbyWidget::RefreshLobbyActions()
 	SetActionLabel(StartMatchButtonModule, NSLOCTEXT("LobbyActions", "Start", "시작"));
 	if (StartMatchButtonModule) StartMatchButtonModule->SetIsEnabled(bCanStart);
 	if (StartMatchButton) StartMatchButton->SetIsEnabled(bCanStart);
-	const bool bCanLeave = IsDesignTime() || (bInLobby && State->PlayerArray.Num() > 1 && Sessions->IsAutomaticInviteHubEnabled());
+	const bool bCanLeave = IsDesignTime() || (bInLobby && Sessions->IsAutomaticInviteHubEnabled());
 	if (LeavePartyButton) LeavePartyButton->SetIsEnabled(bCanLeave);
 	// Keep the designer's widgets, but retire their runtime Ready action.
 	if (ReadyButtonModule) ReadyButtonModule->SetVisibility(ESlateVisibility::Collapsed);

@@ -225,33 +225,10 @@ namespace
                     auto* LobbyUI = Property ? Cast<UHBLobbyWidget>(Property->GetObjectPropertyValue_InContainer(Controller)) : nullptr;
                     auto* Module = LobbyUI ? Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("WBP_Lobby_LeavePartyButton"))) : nullptr;
                     auto* Button = Module ? Cast<UButton>(Module->GetWidgetFromName(TEXT("Button_Social"))) : nullptr;
-                    if (!Button)
-                    { Test->AddError(TEXT("Production party leave button is missing.")); return true; }
+                    if (!Button || !Button->GetIsEnabled())
+                    { Test->AddError(TEXT("Production party leave button is missing or disabled in an idle Steam hub.")); return true; }
                     Test->TestTrue(TEXT("Party leave button is bound once to the existing return action"),
                         Button->OnClicked.Contains(LobbyUI, FName(TEXT("HandleLeavePartyClicked"))));
-                    LobbyUI->RefreshLobbyActions();
-                    Test->TestFalse(TEXT("Solo Steam host cannot leave its personal lobby"), Button->GetIsEnabled());
-                    const FString SoloSessionId = Session->GetSessionIdStr();
-                    Button->OnClicked.Broadcast();
-                    Test->TestEqual(TEXT("Disabled solo leave click preserves the Steam session"), Session->GetSessionIdStr(), SoloSessionId);
-                    Test->TestEqual(TEXT("Disabled solo leave click preserves the host lifecycle"), Sessions->GetInviteHubState(), EHBInviteHubState::Hosting);
-                    // 두 번째 로스터 항목으로 인원 조건을 검증한다. 실제 원격 접속은 별도 검증한다.
-                    auto* LobbyState = World->GetGameState<AHBLobbyGameState>();
-                    if (!LobbyState)
-                    { Test->AddError(TEXT("Recovered Steam hub is missing its lobby game state.")); return true; }
-                    auto* Guest = World->SpawnActor<APlayerState>();
-                    if (!Guest)
-                    { Test->AddError(TEXT("Could not create the simulated guest roster entry.")); return true; }
-                    LobbyState->AddPlayerState(Guest);
-                    LobbyUI->RefreshLobbyActions();
-                    Test->TestTrue(TEXT("Grouped Steam host can leave its lobby"), Button->GetIsEnabled());
-                    LobbyState->RemovePlayerState(Guest);
-                    // 이전 표시가 활성화였어도 클릭 직전에 현재 인원을 다시 검사한다.
-                    Button->OnClicked.Broadcast();
-                    Test->TestFalse(TEXT("Solo leave click rechecks a stale enabled button"), Button->GetIsEnabled());
-                    Test->TestEqual(TEXT("Roster shrink never starts session departure"), Sessions->GetInviteHubState(), EHBInviteHubState::Hosting);
-                    LobbyState->AddPlayerState(Guest);
-                    LobbyUI->RefreshLobbyActions();
                     Fixture->bLeaveButtonRequested = true;
                     Fixture->SessionId = Session->GetSessionIdStr();
                     Fixture->RestoredHubId.Reset();
@@ -261,7 +238,7 @@ namespace
                     return false;
                 }
                 if (Fixture->bLobbyUI)
-                    Test->AddInfo(TEXT("Solo leave was disabled and rechecked at click time; a simulated two-member roster enabled the production button and returned to a fresh stable Steam hub."));
+                    Test->AddInfo(TEXT("Production leave-party button destroyed the previous Steam lobby and returned to a fresh stable personal hub; the existing name tag displays the Steam player name."));
                 Test->AddInfo(TEXT("Automatic friends-only Steam hub restored and stable for three seconds; remote friend/invitation joining remains unverified."));
                 return true;
             }
