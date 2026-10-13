@@ -121,6 +121,10 @@ void AEnemyProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 
 	if (!bSameTeam && OtherActor && OtherActor->Implements<UDamageableInterface>() && IDamageableInterface::Execute_CanBeDamaged(OtherActor, GetInstigator()))
 	{
+		// 맞는 순간에만 발사자에게 투사체 성질을 붙인다. 맞는 쪽이 이걸 보고 소리를 고른다.
+		// 이게 없으면 발사자 GA 에 성질 태그가 없어 플레이어에게 맞아도 기본음이 났다.
+		HitCuePlay::FScopedImpactTag ImpactScope(GetInstigator(), ImpactTypeTag);
+
 		// 투사체라 원거리다. 패링을 당해도 발사자에게 스태거가 걸리지 않는다.
 		IDamageableInterface::Execute_ApplyMeleeHit(OtherActor, GetInstigator(), Damage, Hit, EHBDamageSource::Ranged);
 
@@ -139,9 +143,8 @@ void AEnemyProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 
 		// 벽처럼 피해를 안 받는 대상만 여기서 쏜다.
 		//
-		// 쳐낼 조건: 투사체의 성질 태그는 발사자 ASC 에 없어서 맞는 쪽이 알 수 없다.
-		// 그래서 화살이 막히면 관통음이 아니라 방어음만 난다. 둘을 겹치려면
-		// ApplyMeleeHit 에 성질 태그를 같이 넘겨야 한다.
+		// 쳐낼 조건: 막기·패링이면 맞는 쪽이 결과음을 우선해서(PlayHitCue) 관통음은 안 난다.
+		// 둘을 겹치려면 맞는 쪽의 큐 선택 순서를 바꿔야 한다.
 		if (!bTargetPlayedCue)
 		{
 			HitCuePlay::PlayImpact(GetInstigator(), OtherActor, Hit, Damage, ImpactTags);

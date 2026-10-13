@@ -159,6 +159,7 @@ protected:
 
 	/** 서버 기준 남은 시간을 MM:SS로 표시한다. */
 	void UpdateRemainingTime();
+	void UpdateRoomName();
 
 protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -244,6 +245,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> Txt_Remaining_Time;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> Txt_Room_Name;
 
 	/**
 	 * 피격 혈흔 오버레이. WBP_MainHUD 캔버스에 풀스크린으로 배치하면 바인딩된다.

@@ -26,4 +26,5 @@ namespace MagicTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Magic_OrbImpact, "GameplayCue.Magic.OrbImpact", "원소 구체 적중 연출");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Magic_Teleport, "GameplayCue.Magic.Teleport", "순간 이동 연출");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Magic_ManaExplosion, "GameplayCue.Magic.ManaExplosion", "마력 폭발 연출");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Magic_FrostField, "GameplayCue.Magic.FrostField", "서리 지대 생성 소리. 지대 이펙트는 AHBFrostField 가 직접 띄운다");
 }

@@ -92,3 +92,45 @@ UPhysicalMaterial* HitCuePlay::ResolvePhysMaterial(const FHitResult& Hit)
 
 	return nullptr;
 }
+
+HitCuePlay::FScopedImpactTag::FScopedImpactTag(AActor* Instigator, FGameplayTag ImpactTag)
+{
+	// 성질을 지정하지 않은 발사체다. 맞는 쪽이 기본 큐로 처리한다.
+	if (!ImpactTag.IsValid())
+	{
+		return;
+	}
+
+	if (!Instigator)
+	{
+		return;
+	}
+
+	// 큐는 서버에서만 쏜다(PlayImpact). 클라에서 붙일 이유가 없다.
+	if (!Instigator->HasAuthority())
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* InstigatorASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Instigator);
+	if (!InstigatorASC)
+	{
+		return;
+	}
+
+	InstigatorASC->AddLooseGameplayTag(ImpactTag);
+	ASC = InstigatorASC;
+	Tag = ImpactTag;
+}
+
+HitCuePlay::FScopedImpactTag::~FScopedImpactTag()
+{
+	// 붙인 적이 없거나 그 사이 발사자가 사라졌다.
+	UAbilitySystemComponent* InstigatorASC = ASC.Get();
+	if (!InstigatorASC)
+	{
+		return;
+	}
+
+	InstigatorASC->RemoveLooseGameplayTag(Tag);
+}

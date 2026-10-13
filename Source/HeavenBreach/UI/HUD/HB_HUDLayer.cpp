@@ -19,6 +19,7 @@
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "UI/HUD/HB_HitEffectWidget.h"
 #include "UI/HUD/HB_NotificationWidget.h"
+#include "UI/HUD/HBRoomNameSubsystem.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/Texture2D.h"
 #include "Player/Job/HBJobData.h"
@@ -214,6 +215,7 @@ void UHB_HUDLayer::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 	UpdateCompass();
 	UpdateRemainingTime();
+	UpdateRoomName();
 	UpdateQuickSlotCooldown();
 	UpdateSkillCooldowns();
 }
@@ -865,5 +867,20 @@ void UHB_HUDLayer::ShowNotification(const FText& Header, const FText& Body)
 	if (WBP_Notification)
 	{
 		WBP_Notification->ShowNotification(Header, Body);
+	}
+}
+
+void UHB_HUDLayer::UpdateRoomName()
+{
+	if (!Txt_Room_Name)
+	{
+		return;
+	}
+	const UWorld* World = GetWorld();
+	const UHBRoomNameSubsystem* RoomNames = World ? World->GetSubsystem<UHBRoomNameSubsystem>() : nullptr;
+	const FText Name = RoomNames ? RoomNames->GetCurrentRoomName() : FText::GetEmpty();
+	if (!Name.EqualTo(Txt_Room_Name->GetText()))
+	{
+		Txt_Room_Name->SetText(Name);
 	}
 }

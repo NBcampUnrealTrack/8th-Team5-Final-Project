@@ -7,6 +7,7 @@
 #include "Engine/DataTable.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/ProjectileMovementComponent.h"
+#include "GameplayTagContainer.h"
 #include "Interaction/InteractableInterface.h"
 #include "HBPlayerArrow.generated.h"
 
@@ -86,8 +87,11 @@ protected:
 	 */
 	bool TryPierce(const FHitResult& Hit);
 
-	/** 대상에 피해를 준다. 벽·바닥이면 아무 일도 없다 */
-	void ApplyArrowDamage(AActor* Target, const FHitResult& Hit);
+	/**
+	 * 대상에 피해를 준다. 벽·바닥이면 아무 일도 없다.
+	 * 피해를 넘겼으면 true — 맞은 쪽이 자기 타격 큐를 쐈다는 뜻이다. false 면 화살이 대신 쏴야 한다.
+	 */
+	bool ApplyArrowDamage(AActor* Target, const FHitResult& Hit);
 
 	/** 서버 전용. 맞은 곳에 박는다. 붙일 곳이 없으면 바로 사라진다 */
 	void StickTo(AActor* HitActor, const FHitResult& Hit);
@@ -125,6 +129,14 @@ protected:
 	/** 아무것도 안 맞고 날아갈 때 사라지기까지 */
 	UPROPERTY(EditDefaultsOnly, Category = "Arrow", meta = (ClampMin = "0.1", Units = "s"))
 	float ArrowLifeSpan = 5.f;
+
+	/**
+	 * 타격 큐 성질. 기본 GameplayCue.Hit.Pierce(적 화살과 같은 소리). 적 발사체의 같은 이름 칸과 같은 규칙이다.
+	 * 맞는 순간에만 쏜 사람에게 붙여 맞는 쪽 큐가 읽게 한다(HitCuePlay::FScopedImpactTag).
+	 * 벽·사물처럼 피해를 안 받는 곳에 박히면 화살이 이 성질로 직접 큐를 쏜다.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Arrow")
+	FGameplayTag ImpactTypeTag;
 
 	/** 벽·사물에 박힌 뒤 사라지기까지. 이 안에 F 로 주울 수 있다 */
 	UPROPERTY(EditDefaultsOnly, Category = "Arrow|Stick", meta = (ClampMin = "0.1", Units = "s"))
