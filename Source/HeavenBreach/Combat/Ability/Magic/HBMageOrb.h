@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "GameplayTagContainer.h"
 #include "HBMageOrb.generated.h"
 
 class AHBPlayerCharacter;
@@ -50,6 +51,14 @@ private:
 	/** 꼬리 이펙트. 에셋은 BP 에서 지정(기본 비어 있음) */
 	UPROPERTY(VisibleAnywhere, Category = "Orb")
 	TObjectPtr<UNiagaraComponent> TrailComp;
+
+	/**
+	 * 맞은 적이 낼 타격 큐 성질. 기본 GameplayCue.Hit.Magic.
+	 * 맞는 순간에만 시전자에게 붙여 맞는 쪽 큐가 읽게 한다(HitCuePlay::FScopedImpactTag).
+	 * 벽에 맞을 때는 이것과 별개로 OrbImpact 큐가 난다.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Orb")
+	FGameplayTag ImpactTypeTag;
 
 	TWeakObjectPtr<AHBPlayerCharacter> Shooter;
 	float DamageCoef = 1.f;
