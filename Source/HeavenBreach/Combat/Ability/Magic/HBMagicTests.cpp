@@ -48,4 +48,11 @@ bool FHBMagicManaCycleTest::RunTest(const FString&)
 	TestEqual(TEXT("음수 단계는 기본"), HBMagic::ManaCycleMultiplier(true, -1), 0.80f);
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBMagicDamageMultiplierTest, "HeavenBreach.Magic.DamageMultiplier", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBMagicDamageMultiplierTest::RunTest(const FString&)
+{
+	// 마법 스킬 피해 배율. 2배가 너무 세서 1.5배로 내렸다(2026-10-13).
+	TestEqual(TEXT("마법 피해 배율 1.5"), HBMagic::DamageMultiplier, 1.5f);
+	return true;
+}
 #endif
