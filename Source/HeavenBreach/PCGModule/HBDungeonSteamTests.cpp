@@ -24,6 +24,7 @@
 #include "Components/Button.h"
 #include "Components/PanelWidget.h"
 #include "Components/TextBlock.h"
+#include "Components/WidgetComponent.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "AI/EnemyCharacterBase.h"
@@ -68,6 +69,17 @@ namespace
 		Test->TestTrue(TEXT("Lobby character keeps the arms-down idle"), Idle && Idle->GetCurrentAsset()
 			&& Idle->GetCurrentAsset()->GetName() == TEXT("AN_PlayerIdle1"));
         Test->TestTrue(TEXT("Possession preserves the authored lobby camera"), Controller->GetViewTarget() && Controller->GetViewTarget() != Pawn);
+        auto* TagProperty = FindFProperty<FObjectPropertyBase>(Pawn->GetClass(), TEXT("NameTagWidget"));
+        auto* TagComponent = TagProperty ? Cast<UWidgetComponent>(TagProperty->GetObjectPropertyValue_InContainer(Pawn)) : nullptr;
+        auto* NameTag = TagComponent ? TagComponent->GetUserWidgetObject() : nullptr;
+        auto* NameText = NameTag ? Cast<UTextBlock>(NameTag->GetWidgetFromName(TEXT("Text_PlayerName"))) : nullptr;
+        Test->TestTrue(TEXT("Existing lobby name tag displays its player's replicated Steam name"),
+            State && NameText && NameText->GetText().ToString() == State->GetPlayerName());
+        const auto* OSS = IOnlineSubsystem::Get();
+        const auto Identity = OSS ? OSS->GetIdentityInterface() : nullptr;
+        if (State && Identity.IsValid() && State->GetUniqueId().IsValid())
+            Test->TestEqual(TEXT("Replicated lobby name comes from Steam nickname"),
+                State->GetPlayerName(), Identity->GetPlayerNickname(*State->GetUniqueId().GetUniqueNetId()).Left(20));
         int32 HostAnchors = 0;
         for (TActorIterator<ATargetPoint> It(World); It; ++It)
             if (It->ActorHasTag(TEXT("LobbyCharacterSlot")) && It->ActorHasTag(TEXT("LobbySlot_0")))
@@ -132,6 +144,7 @@ namespace
         // The normal mode still verifies PCG, enemies and chests without this flag.
         bool bSessionOnly = false;
         bool bPresenceRecoveryRequested = false;
+        bool bLeaveButtonRequested = false;
         FString RestoredHubId;
         double HubStableSince = 0.;
         EHBPostMatchReason EndReason = EHBPostMatchReason::None;
@@ -205,6 +218,27 @@ namespace
                 Test->TestTrue(TEXT("Recovered local host is authorized"), Sessions->IsLocalLobbyHost());
                 Test->TestFalse(TEXT("Recovery releases match admission"), Sessions->IsMatchAdmissionClosed());
                 VerifyHostPawn(Test, World);
+                if (Fixture->bLobbyUI && !Fixture->bLeaveButtonRequested)
+                {
+                    auto* Controller = World->GetFirstPlayerController();
+                    auto* Property = FindFProperty<FObjectPropertyBase>(Controller->GetClass(), TEXT("LobbyContent"));
+                    auto* LobbyUI = Property ? Cast<UHBLobbyWidget>(Property->GetObjectPropertyValue_InContainer(Controller)) : nullptr;
+                    auto* Module = LobbyUI ? Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("WBP_Lobby_LeavePartyButton"))) : nullptr;
+                    auto* Button = Module ? Cast<UButton>(Module->GetWidgetFromName(TEXT("Button_Social"))) : nullptr;
+                    if (!Button || !Button->GetIsEnabled())
+                    { Test->AddError(TEXT("Production party leave button is missing or disabled in an idle Steam hub.")); return true; }
+                    Test->TestTrue(TEXT("Party leave button is bound once to the existing return action"),
+                        Button->OnClicked.Contains(LobbyUI, FName(TEXT("HandleLeavePartyClicked"))));
+                    Fixture->bLeaveButtonRequested = true;
+                    Fixture->SessionId = Session->GetSessionIdStr();
+                    Fixture->RestoredHubId.Reset();
+                    Fixture->HubStableSince = 0.;
+                    Button->OnClicked.Broadcast();
+                    Test->TestFalse(TEXT("Leaving immediately disables repeated party leave clicks"), Button->GetIsEnabled());
+                    return false;
+                }
+                if (Fixture->bLobbyUI)
+                    Test->AddInfo(TEXT("Production leave-party button destroyed the previous Steam lobby and returned to a fresh stable personal hub; the existing name tag displays the Steam player name."));
                 Test->AddInfo(TEXT("Automatic friends-only Steam hub restored and stable for three seconds; remote friend/invitation joining remains unverified."));
                 return true;
             }

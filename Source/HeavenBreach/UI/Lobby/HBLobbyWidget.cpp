@@ -9,11 +9,46 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
+#include "Components/WidgetComponent.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/UnrealType.h"
 
 namespace
 {
+	UButton* FindModuleButton(UUserWidget* Module, FName PreferredName)
+	{
+		if (!Module) return nullptr;
+		auto* Button = Cast<UButton>(Module->GetWidgetFromName(PreferredName));
+		if (!Button && Module->WidgetTree)
+			Module->WidgetTree->ForEachWidget([&](UWidget* Widget)
+			{
+				if (!Button) Button = Cast<UButton>(Widget);
+			});
+		return Button;
+	}
+
+	void RefreshLobbyNameTags(const AHBLobbyGameState* State)
+	{
+		if (!State) return;
+		for (APlayerState* Player : State->PlayerArray)
+		{
+			auto* Pawn = IsValid(Player) ? Player->GetPawn() : nullptr;
+			if (!Pawn) continue;
+			TInlineComponentArray<UWidgetComponent*> Components(Pawn);
+			for (auto* Component : Components)
+			{
+				if (Component->GetFName() != TEXT("NameTagWidget")) continue;
+				Component->InitWidget();
+				auto* NameTag = Component->GetUserWidgetObject();
+				auto* Text = NameTag ? Cast<UTextBlock>(NameTag->GetWidgetFromName(TEXT("Text_PlayerName"))) : nullptr;
+				// 각 로비 폰의 복제된 PlayerState 이름을 기존 이름표에 표시한다.
+				const FText Name = FText::FromString(Player->GetPlayerName());
+				if (Text && !Text->GetText().EqualTo(Name)) Text->SetText(Name);
+			}
+		}
+	}
+
 	void SetActionLabel(UUserWidget* Module, const FText& Label)
 	{
 		if (!Module) return;
@@ -38,25 +73,12 @@ void UHBLobbyWidget::NativeConstruct()
 	Super::NativeConstruct();
 
 	// Keep the existing widget names so the assembled Blueprint retains its layout.
-	if (StartMatchButtonModule)
-	{
-		StartMatchButton = Cast<UButton>(StartMatchButtonModule->GetWidgetFromName(TEXT("Button_Action")));
-	}
-	if (FriendsButtonModule)
-	{
-		// 모듈 안의 버튼 이름을 모르므로 먼저 다른 모듈과 같은 이름을 시도하고, 없으면 첫 버튼을 쓴다.
-		FriendsButton = Cast<UButton>(FriendsButtonModule->GetWidgetFromName(TEXT("Button_Action")));
-		if (!FriendsButton && FriendsButtonModule->WidgetTree)
-		{
-			FriendsButtonModule->WidgetTree->ForEachWidget([this](UWidget* Widget)
-			{
-				if (!FriendsButton)
-				{
-					FriendsButton = Cast<UButton>(Widget);
-				}
-			});
-		}
-	}
+	if (StartMatchButtonModule) StartMatchButton = FindModuleButton(StartMatchButtonModule, TEXT("Button_Action"));
+	FriendsButton = FindModuleButton(FriendsButtonModule, TEXT("Button_Action"));
+	LeavePartyButton = FindModuleButton(
+		Cast<UUserWidget>(GetWidgetFromName(TEXT("WBP_Lobby_LeavePartyButton"))), TEXT("Button_Social"));
+	if (LeavePartyButton)
+		LeavePartyButton->OnClicked.AddUniqueDynamic(this, &ThisClass::HandleLeavePartyClicked);
 	if (FriendsButton)
 	{
 		FriendsButton->OnClicked.AddUniqueDynamic(this, &UHBLobbyWidget::HandleFriendsClicked);
@@ -82,6 +104,8 @@ void UHBLobbyWidget::NativeDestruct()
 	{
 		StartMatchButton->OnClicked.RemoveDynamic(this, &ThisClass::HandleStartClicked);
 	}
+	if (LeavePartyButton)
+		LeavePartyButton->OnClicked.RemoveDynamic(this, &ThisClass::HandleLeavePartyClicked);
 	Super::NativeDestruct();
 }
 
@@ -103,6 +127,7 @@ void UHBLobbyWidget::RefreshLobbyActions()
 	const auto* PlayerState = GetOwningPlayerState<AHBLobbyPlayerState>();
 	const auto* Player = GetOwningPlayer();
 	const auto* State = GetWorld() ? GetWorld()->GetGameState<AHBLobbyGameState>() : nullptr;
+	RefreshLobbyNameTags(State);
 	const auto* Instance = GetGameInstance();
 	const auto* Sessions = Instance ? Instance->GetSubsystem<UHBOnlineSessionSubsystem>() : nullptr;
 	const bool bHost = IsLocalLobbyHost();
@@ -115,6 +140,8 @@ void UHBLobbyWidget::RefreshLobbyActions()
 	SetActionLabel(StartMatchButtonModule, NSLOCTEXT("LobbyActions", "Start", "시작"));
 	if (StartMatchButtonModule) StartMatchButtonModule->SetIsEnabled(bCanStart);
 	if (StartMatchButton) StartMatchButton->SetIsEnabled(bCanStart);
+	const bool bCanLeave = IsDesignTime() || (bInLobby && Sessions->IsAutomaticInviteHubEnabled());
+	if (LeavePartyButton) LeavePartyButton->SetIsEnabled(bCanLeave);
 	// Keep the designer's widgets, but retire their runtime Ready action.
 	if (ReadyButtonModule) ReadyButtonModule->SetVisibility(ESlateVisibility::Collapsed);
 	if (ReadyButton) ReadyButton->SetVisibility(ESlateVisibility::Collapsed);
@@ -135,5 +162,15 @@ void UHBLobbyWidget::HandleStartClicked()
 	{
 		OnStartRequested.Broadcast();
 	}
+}
+
+void UHBLobbyWidget::HandleLeavePartyClicked()
+{
+	RefreshLobbyActions();
+	if (!LeavePartyButton || !LeavePartyButton->GetIsEnabled()) return;
+	auto* Sessions = GetGameInstance()->GetSubsystem<UHBOnlineSessionSubsystem>();
+	if (Sessions && !Sessions->RequestReturnToOwnHub())
+		UE_LOG(LogTemp, Warning, TEXT("LobbyWidget | 파티 나가기 요청을 처리하지 못했습니다."));
+	RefreshLobbyActions();
 }
 #pragma endregion
