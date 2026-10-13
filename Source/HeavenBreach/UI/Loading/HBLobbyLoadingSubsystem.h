@@ -10,6 +10,8 @@
 class UGameViewportClient;
 class UNetDriver;
 class UUserWidget;
+class UAudioComponent;
+class USoundBase;
 class APlayerController;
 class SWidget;
 struct FWorldContext;
@@ -58,6 +60,11 @@ private:
 	void HandleNetworkFailure(UWorld* World, UNetDriver* Driver, ENetworkFailure::Type Type, const FString& Error);
 	void BeginLoading(UWorld* SourceWorld, const FString& Destination);
 	void FinishLoading(bool bSucceeded);
+	void StartLoadingAudio(UWorld* SourceWorld);
+	void StopLoadingAudio(bool bFadeOut);
+	void MuteLobbyAudio(UWorld* World);
+	bool TickGameplayMusic(float DeltaSeconds);
+	void StopGameplayMusic();
 	bool TickLoading(float DeltaSeconds);
 	bool IsDestinationReady(UWorld* World) const;
 	float CalculateLoadingProgress(UWorld* World) const;
@@ -77,6 +84,18 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> LoadingWidget;
+
+	UPROPERTY()
+	TObjectPtr<USoundBase> LoadingMusic;
+	UPROPERTY()
+	TObjectPtr<USoundBase> LoadingAmbience;
+	UPROPERTY()
+	TObjectPtr<USoundBase> GameplayMusic;
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> GameplayMusicAudio;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UAudioComponent>> LoadingAudio;
+	TMap<TWeakObjectPtr<UAudioComponent>, float> MutedLobbyAudio;
 
 	TSharedPtr<SWidget> ViewportContent;
 	TWeakObjectPtr<UGameViewportClient> AttachedViewport;
@@ -98,6 +117,7 @@ private:
 	bool bDestinationIgnoreInput = false;
 	bool bPreviousWorldRenderingDisabled = false;
 	FTSTicker::FDelegateHandle TickHandle;
+	FTSTicker::FDelegateHandle GameplayMusicTickHandle;
 	FDelegateHandle SeamlessStartHandle;
 	FDelegateHandle PreClientTravelHandle;
 	FDelegateHandle PreLoadMapHandle;

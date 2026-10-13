@@ -6,6 +6,7 @@
 
 class UBoxComponent;
 class UArrowComponent;
+class UAudioComponent;
 class APawn;
 class ULevel;
 
@@ -21,6 +22,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Dungeon|Portal") TObjectPtr<UBoxComponent> Trigger;
 	/** Destination pawn origin and facing; place outside the trigger and clear of blocking geometry. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Dungeon|Portal") TObjectPtr<UArrowComponent> Arrival;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Dungeon|Portal|Audio") TObjectPtr<UAudioComponent> PortalAmbience;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon|Portal", meta=(ClampMin="0.1")) float ReentryDelay = 0.5f;
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="Dungeon|Portal") TObjectPtr<AHBDungeonPortal> TargetPortal;
 	UFUNCTION(BlueprintCallable, Category="Dungeon|Portal") bool ConnectTo(AHBDungeonPortal* Other);
