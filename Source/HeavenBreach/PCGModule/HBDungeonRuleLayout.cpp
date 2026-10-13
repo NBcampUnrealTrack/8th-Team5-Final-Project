@@ -567,9 +567,12 @@ namespace
 				// Upgrade is preferred on optional branches; retain random order within each priority.
 				Candidates.StableSort([&](int32 A, int32 B)
 				{
-					if (Parent == INDEX_NONE) return false; // Start roles have no priority over one another.
-					const bool UA = Catalog[A].Role == EHBPrototypeRoomRole::Upgrade, UB = Catalog[B].Role == EHBPrototypeRoomRole::Upgrade;
-					return Slot.bBranch ? UA > UB : UA < UB;
+					if (Parent != INDEX_NONE)
+					{
+						const bool UA = Catalog[A].Role == EHBPrototypeRoomRole::Upgrade, UB = Catalog[B].Role == EHBPrototypeRoomRole::Upgrade;
+						if (UA != UB) return Slot.bBranch ? UA : UB;
+					}
+					return !Chosen.Contains(A) && Chosen.Contains(B);
 				});
 				for (int32 Module : Candidates)
 				{
