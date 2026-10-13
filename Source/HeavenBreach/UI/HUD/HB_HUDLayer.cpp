@@ -21,6 +21,11 @@
 #include "UI/HUD/HB_NotificationWidget.h"
 #include "UI/HUD/HBRoomNameSubsystem.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Engine/Texture2D.h"
+#include "Player/Job/HBJobData.h"
+#include "AbilitySystemComponent.h"
+#include "Abilities/GameplayAbility.h"
+#include "GameplayEffectTypes.h"
 
 UHB_HUDLayer::UHB_HUDLayer()
 {
@@ -125,6 +130,14 @@ void UHB_HUDLayer::NativeConstruct()
 	{
 		DefaultSubWeaponBrush = IMG_EquipSubWeapon->GetBrush();
 	}
+	if (const UImage* SkillImage1 = Cast<UImage>(IMG_Skill_1))
+	{
+		DefaultSkill1Brush = SkillImage1->GetBrush();
+	}
+	if (const UImage* SkillImage2 = Cast<UImage>(IMG_Skill_2))
+	{
+		DefaultSkill2Brush = SkillImage2->GetBrush();
+	}
 	if (IMG_Potion_1)
 	{
 		DefaultPotion1Brush = IMG_Potion_1->GetBrush();
@@ -204,6 +217,7 @@ void UHB_HUDLayer::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	UpdateRemainingTime();
 	UpdateRoomName();
 	UpdateQuickSlotCooldown();
+	UpdateSkillCooldowns();
 }
 
 void UHB_HUDLayer::UpdateRemainingTime()
@@ -359,6 +373,141 @@ void UHB_HUDLayer::BindPlayerState()
 	}
 }
 
+void UHB_HUDLayer::HandleStartingLoadoutChanged()
+{
+	RefreshSkillIcons();
+}
+
+void UHB_HUDLayer::RefreshSkillIcons()
+{
+	const AHB_PlayerState* PS = Cast<AHB_PlayerState>(GetOwningPlayerState());
+	if (!PS)
+	{
+		return;
+	}
+
+	const FHBStartingLoadout Loadout = PS->GetStartingLoadout();
+	const UHBJobData* Job = PS->GetSelectedJob();
+
+	auto Apply = [Job](UWidget* Widget, FName SkillId, const FSlateBrush& DefaultBrush)
+	{
+		if (!Widget)
+		{
+			return;
+		}
+
+		UImage* Image = Cast<UImage>(Widget);
+		if (!Image)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("HUD | 스킬 아이콘 칸 '%s' 이 Image 위젯이 아니다."), *Widget->GetName());
+			return;
+		}
+
+		// 액티브인지 패시브인지 몰라도 된다. DA 가 양쪽을 다 뒤져 준다.
+		const FHBJobSkillData* Skill = (Job && !SkillId.IsNone()) ? Job->FindSkillAnywhere(SkillId) : nullptr;
+		UTexture2D* Icon = Skill ? Skill->Icon.LoadSynchronous() : nullptr;
+
+		if (Icon)
+		{
+			Image->SetBrushFromTexture(Icon);
+		}
+		else
+		{
+			// 비어 있는 칸은 WBP 에 둔 기본 이미지로 되돌린다.
+			Image->SetBrush(DefaultBrush);
+		}
+	};
+
+	Apply(IMG_Skill_1, Loadout.SkillQId, DefaultSkill1Brush);
+	Apply(IMG_Skill_2, Loadout.SkillEId, DefaultSkill2Brush);
+
+	// 쿨타임을 읽을 어빌리티 클래스를 같이 기억해 둔다. 매 프레임 직업 데이터를 뒤지지 않으려는 것이다.
+	auto FindAbility = [Job](FName SkillId) -> TSubclassOf<UGameplayAbility>
+	{
+		const FHBJobSkillData* Skill = (Job && !SkillId.IsNone()) ? Job->FindActiveSkill(SkillId) : nullptr;
+		return Skill ? Skill->AbilityClass : nullptr;
+	};
+	SkillQAbilityClass = FindAbility(Loadout.SkillQId);
+	SkillEAbilityClass = FindAbility(Loadout.SkillEId);
+}
+
+void UHB_HUDLayer::UpdateSkillCooldowns()
+{
+	if (!ProgressBar_Skill_1_Cooldown && !ProgressBar_Skill_2_Cooldown && !Txt_Skill_1_Cooldown && !Txt_Skill_2_Cooldown)
+	{
+		return;
+	}
+
+	const AHB_PlayerState* PS = Cast<AHB_PlayerState>(GetOwningPlayerState());
+	UAbilitySystemComponent* ASC = PS ? PS->GetAbilitySystemComponent() : nullptr;
+	if (!ASC)
+	{
+		return;
+	}
+
+	// 소수점 한 자리 고정. 2 초는 "2.0초", 1.46 초는 "1.5초" 로 보인다.
+	FNumberFormattingOptions Options;
+	Options.MinimumFractionalDigits = 1;
+	Options.MaximumFractionalDigits = 1;
+
+	auto Update = [ASC, &Options](TSubclassOf<UGameplayAbility> AbilityClass, UProgressBar* Bar, UTextBlock* Text)
+	{
+		float Remaining = 0.f;
+		float Duration = 0.f;
+
+		if (AbilityClass)
+		{
+			// 스킬마다 자기 쿨타임 GE 가 붙고, 그 GE 가 스킬 전용 쿨타임 태그를 부여한다.
+			// 그 태그가 붙은 효과의 남은 시간과 전체 지속시간(증강 반영 값)을 읽는다.
+			const UGameplayAbility* AbilityCDO = AbilityClass->GetDefaultObject<UGameplayAbility>();
+			const FGameplayTagContainer* CooldownTags = AbilityCDO ? AbilityCDO->GetCooldownTags() : nullptr;
+			if (CooldownTags && CooldownTags->Num() > 0)
+			{
+				const FGameplayEffectQuery Query = FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(*CooldownTags);
+				for (const TPair<float, float>& TimeAndDuration : ASC->GetActiveEffectsTimeRemainingAndDuration(Query))
+				{
+					if (TimeAndDuration.Key > Remaining)
+					{
+						Remaining = TimeAndDuration.Key;
+						Duration = TimeAndDuration.Value;
+					}
+				}
+			}
+		}
+
+		const bool bCoolingDown = Remaining > 0.f && Duration > 0.f;
+
+		if (Bar)
+		{
+			if (bCoolingDown)
+			{
+				Bar->SetPercent(FMath::Clamp(Remaining / Duration, 0.f, 1.f));
+				Bar->SetVisibility(ESlateVisibility::HitTestInvisible);
+			}
+			else
+			{
+				Bar->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+
+		if (Text)
+		{
+			if (bCoolingDown)
+			{
+				Text->SetText(FText::Format(NSLOCTEXT("HUD", "SkillCooldownSeconds", "{0}초"), FText::AsNumber(Remaining, &Options)));
+				Text->SetVisibility(ESlateVisibility::HitTestInvisible);
+			}
+			else
+			{
+				Text->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+	};
+
+	Update(SkillQAbilityClass, ProgressBar_Skill_1_Cooldown, Txt_Skill_1_Cooldown);
+	Update(SkillEAbilityClass, ProgressBar_Skill_2_Cooldown, Txt_Skill_2_Cooldown);
+}
+
 void UHB_HUDLayer::HandleBindRetry()
 {
 	if (!TryBindPlayerState())
@@ -390,9 +539,14 @@ bool UHB_HUDLayer::TryBindPlayerState()
 		PS->OnSkillUpgradesChanged.RemoveAll(this);
 		PS->OnSkillUpgradesChanged.AddDynamic(this, &UHB_HUDLayer::HandleSkillUpgradesChanged);
 
+		// 로비에서 고른 스킬은 PlayerState 의 StartingLoadout 이 들고 있다. 복제가 늦게 와도 바뀔 때 다시 그린다.
+		PS->OnStartingLoadoutChanged.RemoveAll(this);
+		PS->OnStartingLoadoutChanged.AddDynamic(this, &UHB_HUDLayer::HandleStartingLoadoutChanged);
+
 		UpdateLevel(PS->GetPlayerLevel());
 		UpdateExperience(PS->GetCurrentExperience(), PS->GetExperienceToNextLevel(), PS->GetExperiencePercent());
 		HandleSkillUpgradesChanged();
+		RefreshSkillIcons();
 
 		if (UHB_PlayerAttributeSet* AttribSet = PS->GetPlayerAttributeSet())
 		{
@@ -576,7 +730,8 @@ void UHB_HUDLayer::UpdateQuickSlots()
 
 void UHB_HUDLayer::UpdateQuickSlotCooldown()
 {
-	if (!ProgressBar_Potion_1_Cooldown && !ProgressBar_Potion_2_Cooldown)
+	if (!ProgressBar_Potion_1_Cooldown && !ProgressBar_Potion_2_Cooldown
+		&& !Txt_Potion_1_Cooldown && !Txt_Potion_2_Cooldown)
 	{
 		return;
 	}
@@ -592,44 +747,63 @@ void UHB_HUDLayer::UpdateQuickSlotCooldown()
 	// 쿨타임은 아이템 종류(RowName)별로 독립이라(InventoryComponent::UseItem 참고),
 	// 각 퀵슬롯이 실제로 들고 있는 아이템이 무엇인지부터 찾아서 그 종류의 쿨타임만 조회해야 한다.
 	// Potion_1 = 퀵슬롯 3번 = QuickSlotComponent 인덱스 2, Potion_2 = 퀵슬롯 4번 = 인덱스 3.
-	auto GetSlotCooldownPercent = [Inventory, this](int32 SlotIndex) -> float
+	auto GetSlotItemRowName = [Inventory, this](int32 SlotIndex) -> FName
 		{
 			const FGuid InstanceId = CachedQuickSlotComp->GetSlotInstanceId(SlotIndex);
 			if (!InstanceId.IsValid())
 			{
-				return 0.f;
+				return NAME_None;
 			}
 
 			const int32 EntryIndex = Inventory->FindEntryIndexById(InstanceId);
 			if (!Inventory->GetEntries().IsValidIndex(EntryIndex))
 			{
-				return 0.f;
+				return NAME_None;
 			}
 
-			const FName RowName = Inventory->GetEntries()[EntryIndex].Item.ItemRow.RowName;
-			return Inventory->GetItemUseCooldownPercent(RowName);
+			return Inventory->GetEntries()[EntryIndex].Item.ItemRow.RowName;
 		};
 
-	auto UpdateBar = [](UProgressBar* Bar, float Percent)
+	FNumberFormattingOptions SecondsFormat;
+	SecondsFormat.MinimumFractionalDigits = 1;
+	SecondsFormat.MaximumFractionalDigits = 1;
+
+	auto UpdateSlot = [Inventory, &SecondsFormat](FName RowName, UProgressBar* Bar, UTextBlock* Text)
 		{
-			if (!Bar)
+			const float Percent = RowName.IsNone() ? 0.f : Inventory->GetItemUseCooldownPercent(RowName);
+			const float Remaining = RowName.IsNone() ? 0.f : Inventory->GetItemUseCooldownRemaining(RowName);
+
+			if (Bar)
 			{
-				return;
+				if (Percent <= 0.f)
+				{
+					Bar->SetVisibility(ESlateVisibility::Collapsed);
+				}
+				else
+				{
+					Bar->SetPercent(Percent);
+					Bar->SetVisibility(ESlateVisibility::HitTestInvisible);
+				}
 			}
 
-			if (Percent <= 0.f)
+			if (Text)
 			{
-				Bar->SetVisibility(ESlateVisibility::Collapsed);
-			}
-			else
-			{
-				Bar->SetPercent(Percent);
-				Bar->SetVisibility(ESlateVisibility::HitTestInvisible);
+				if (Remaining <= 0.f)
+				{
+					Text->SetVisibility(ESlateVisibility::Collapsed);
+				}
+				else
+				{
+					Text->SetText(FText::Format(
+						NSLOCTEXT("HUD", "PotionCooldownSeconds", "{0}초"),
+						FText::AsNumber(Remaining, &SecondsFormat)));
+					Text->SetVisibility(ESlateVisibility::HitTestInvisible);
+				}
 			}
 		};
 
-	UpdateBar(ProgressBar_Potion_1_Cooldown, GetSlotCooldownPercent(2));
-	UpdateBar(ProgressBar_Potion_2_Cooldown, GetSlotCooldownPercent(3));
+	UpdateSlot(GetSlotItemRowName(2), ProgressBar_Potion_1_Cooldown, Txt_Potion_1_Cooldown);
+	UpdateSlot(GetSlotItemRowName(3), ProgressBar_Potion_2_Cooldown, Txt_Potion_2_Cooldown);
 }
 void UHB_HUDLayer::UpdateHPBar(float CurrentHP, float MaxHP)
 {
