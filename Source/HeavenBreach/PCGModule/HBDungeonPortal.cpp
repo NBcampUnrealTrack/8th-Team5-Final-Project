@@ -1,6 +1,10 @@
 #include "PCGModule/HBDungeonPortal.h"
+#include "UI/Audio/HBUIAudioLibrary.h"
 #include "Components/BoxComponent.h"
 #include "Components/ArrowComponent.h"
+#include "Components/AudioComponent.h"
+#include "Sound/SoundBase.h"
+#include "UObject/ConstructorHelpers.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PawnMovementComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -22,6 +26,11 @@ AHBDungeonPortal::AHBDungeonPortal()
 	Arrival->SetupAttachment(RootComponent);
 	Arrival->SetRelativeLocation(FVector(250, 0, 100));
 	Arrival->ArrowColor = FColor::Green;
+	PortalAmbience = CreateDefaultSubobject<UAudioComponent>(TEXT("PortalAmbience"));
+	PortalAmbience->SetupAttachment(RootComponent);
+	PortalAmbience->bAutoActivate = true;
+	static ConstructorHelpers::FObjectFinder<USoundBase> Ambience(TEXT("/Game/Sound/Presentation/SC_Portal_Ambience.SC_Portal_Ambience"));
+	PortalAmbience->SetSound(Ambience.Object);
 }
 
 bool AHBDungeonPortal::Contains(const FVector& Point) const
@@ -114,6 +123,7 @@ bool AHBDungeonPortal::TryTeleport(APawn* Pawn)
 		Controller->ClientSetRotation(Destination.Rotator(), true);
 	}
 	Pawn->ForceNetUpdate();
+	UHBUIAudioLibrary::PlayForOwningClient(Pawn, EHBUIAudioEvent::PortalTravel);
 	return true;
 }
 

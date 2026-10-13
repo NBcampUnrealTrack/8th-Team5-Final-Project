@@ -18,13 +18,36 @@ UHBUIAudioLibrary::UHBUIAudioLibrary()
 		TEXT("SFX_UI_Hover"), TEXT("SFX_UI_Click"), TEXT("SFX_UI_Confirm"),
 		TEXT("SFX_UI_Cancel"), TEXT("SFX_UI_Open"), TEXT("SFX_UI_Close"), TEXT("SFX_UI_Error"),
 		TEXT("SFX_Item_Move"), TEXT("SFX_Item_Equip"), TEXT("SFX_Trade_Success"),
-		TEXT("SFX_Craft_Success"), TEXT("SFX_Lobby_Ready")};
+		TEXT("SFX_Craft_Success"), TEXT("SFX_Lobby_Ready"),
+		TEXT("SFX_WeaponBreak"), TEXT("SFX_Portal_Travel")};
 	static_assert(UE_ARRAY_COUNT(Names) == static_cast<uint8>(EHBUIAudioEvent::Count));
-	for (const TCHAR* Name : Names)
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Names); ++Index)
 	{
-		const FString Path = FString::Printf(TEXT("/Game/UI/Audio/%s.%s"), Name, Name);
+		const TCHAR* Folder = Index < static_cast<int32>(EHBUIAudioEvent::WeaponBreak) ? TEXT("/Game/UI/Audio") : TEXT("/Game/Sound/Presentation");
+		const FString Path = FString::Printf(TEXT("%s/%s.%s"), Folder, Names[Index], Names[Index]);
 		ConstructorHelpers::FObjectFinder<USoundBase> Sound(*Path);
 		Sounds.Add(Sound.Object);
+	}
+}
+
+void UHBUIAudioLibrary::PlayForOwningClient(const UObject* OwnerContext, EHBUIAudioEvent Event)
+{
+	if (!IsValid(OwnerContext)) return;
+	const UWorld* World = OwnerContext->GetWorld();
+	if (!World || !World->IsGameWorld() || World->bIsTearingDown || World->GetNetMode() == NM_Client) return;
+	const AActor* Actor = Cast<AActor>(OwnerContext);
+	if (const UActorComponent* Component = Cast<UActorComponent>(OwnerContext)) Actor = Component->GetOwner();
+	for (const AActor* Current = Actor; Current; Current = Current->GetOwner())
+	{
+		APlayerController* Player = Cast<APlayerController>(const_cast<AActor*>(Current));
+		if (const APawn* Pawn = Cast<APawn>(Current)) Player = Cast<APlayerController>(Pawn->GetController());
+		if (const APlayerState* State = Cast<APlayerState>(Current)) Player = State->GetPlayerController();
+		if (Player)
+		{
+			// The receiving client's Effects SoundClass supplies its own volume/mute setting.
+			Player->ClientPlaySound(GetSound(Event));
+			return;
+		}
 	}
 }
 
