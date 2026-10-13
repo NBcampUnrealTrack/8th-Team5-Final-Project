@@ -35,6 +35,8 @@
 #include "Shop/ShopComponent.h"
 #include "Components/PanelWidget.h"
 #include "Components/WidgetSwitcher.h"
+#include "Components/WidgetComponent.h"
+#include "Components/TextBlock.h"
 #include "Engine/GameInstance.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
@@ -42,6 +44,18 @@
 #include "Settings/LevelEditorPlaySettings.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "UObject/UnrealType.h"
+#endif
+
+#if WITH_EDITOR
+namespace
+{
+	FString ExpectedLobbyAnimClassName(const AHBPlayerCharacter* Pawn)
+	{
+		const FString Tag = Pawn->GetEquippedWeaponTag().ToString();
+		return Tag == TEXT("Weapon.Bow") ? TEXT("ABP_Player_Bow_C")
+			: Tag == TEXT("Weapon.Staff") ? TEXT("ABP_Player_Staff_C") : TEXT("ABP_Warrior_F_C");
+	}
+}
 #endif
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBLobbySeatsTest, "HeavenBreach.Multiplayer.LobbySeats",
@@ -157,9 +171,10 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 	{
 		World->GetLatentActionManager().BeginFrame();
 		World->GetLatentActionManager().ProcessLatentActions(nullptr, 1.f / 30.f);
-		auto* Idle = Pawn->GetMesh()->GetSingleNodeInstance();
-		TestTrue(TEXT("Equipment refresh preserves arms-down lobby idle"), Idle && Idle->GetCurrentAsset()
-			&& Idle->GetCurrentAsset()->GetName() == TEXT("AN_PlayerIdle1"));
+		auto* Idle = Pawn->GetMesh()->GetAnimInstance();
+		TestTrue(TEXT("Equipment refresh preserves the original weapon AnimBP and Idle corrections"), Idle
+			&& Pawn->GetMesh()->GetAnimationMode() == EAnimationMode::AnimationBlueprint
+			&& Idle->GetClass()->GetName() == ExpectedLobbyAnimClassName(Pawn));
 	};
 	SettlePose();
 	TArray<USkeletalMeshComponent*> Meshes;
@@ -195,13 +210,13 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 	TArray<UStaticMeshComponent*> StaticMeshes;
 	Pawn->GetComponents(StaticMeshes);
 	if (TestNotNull(TEXT("Existing weapon table loads"), Weapons))
-		for (const bool bBow : {false, true})
+		for (const FString WeaponType : {FString(TEXT("Sword")), FString(TEXT("Bow")), FString(TEXT("Staff"))})
 		{
 			bool bVerified = false;
 			for (const FName RowName : Weapons->GetRowNames())
 			{
 				const auto* Row = Weapons->FindRow<FWeaponData>(RowName, TEXT("LobbyEquipmentAppearance"));
-				if (!Row || (Row->WeaponType == TEXT("Bow")) != bBow || Row->EquipMeshPath.IsEmpty()) continue;
+				if (!Row || Row->WeaponType != WeaponType || Row->EquipMeshPath.IsEmpty()) continue;
 				FItemInstance Item;
 				Item.ItemRow.DataTable = Weapons;
 				Item.ItemRow.RowName = RowName;
@@ -219,7 +234,7 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 				bVerified = true;
 				break;
 			}
-			TestTrue(bBow ? TEXT("Bow equipment and animation replacement are verified") : TEXT("Melee equipment and animation replacement are verified"), bVerified);
+			TestTrue(FString::Printf(TEXT("%s equipment and original AnimBP are verified"), *WeaponType), bVerified);
 		}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);
@@ -253,6 +268,22 @@ namespace
 		FHBStartingLoadout InitialClientSkills;
 		FHBStartingLoadout InitialHostSkills;
 		FHBStartingLoadout ChangedClientSkills;
+		TMap<int32, FString> ExpectedNames;
+
+		bool NameTagsArrived(UWorld* World) const
+		{
+			for (TActorIterator<AHBPlayerCharacter> It(World); It; ++It)
+			{
+				if (It->IsActorBeingDestroyed()) continue;
+				auto* Player = It->GetPlayerState<AHBLobbyPlayerState>();
+				auto* Component = Cast<UWidgetComponent>(LobbyUIReference(*It, TEXT("NameTagWidget")));
+				auto* Tag = Component ? Component->GetUserWidgetObject() : nullptr;
+				auto* Text = Tag ? Cast<UTextBlock>(Tag->GetWidgetFromName(TEXT("Text_PlayerName"))) : nullptr;
+				const auto* Expected = Player ? ExpectedNames.Find(Player->GetPlayerId()) : nullptr;
+				if (!Expected || !Text || Player->GetPlayerName() != *Expected || Text->GetText().ToString() != *Expected) return false;
+			}
+			return true;
+		}
 
 		bool VerifyClientSkills(const TArray<UWorld*>& Worlds, UWorld* HostWorld)
 		{
@@ -479,6 +510,12 @@ namespace
 			Test->TestEqual(TEXT("Reopening skills never duplicates passive cards"), Passive->GetChildrenCount(), PassiveCount);
 			Test->TestEqual(TEXT("Reopening skills never duplicates loadout delegates"), State->OnStartingLoadoutChanged.GetAllObjects().Num(), SkillBindings);
 			HUD->SwitchToMenu(EHBLobbyHUDMenu::Lobby);
+			auto* Lobby = CastChecked<UHBLobbyWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Lobby));
+			auto* LeaveModule = Cast<UUserWidget>(Lobby->GetWidgetFromName(TEXT("WBP_Lobby_LeavePartyButton")));
+			auto* Leave = LeaveModule ? Cast<UButton>(LeaveModule->GetWidgetFromName(TEXT("Button_Social"))) : nullptr;
+			Test->TestTrue(TEXT("Production leave button is connected to the existing hub return handler"),
+				Leave && Leave->OnClicked.Contains(Lobby, FName(TEXT("HandleLeavePartyClicked"))));
+			Test->TestTrue(TEXT("Local IP fixture cannot enable leaving a nonexistent Steam hub"), Leave && !Leave->GetIsEnabled());
 		}
 
 		bool SeatsArrived(UWorld* World, int32 Expected) const
@@ -492,8 +529,9 @@ namespace
 				auto* Player = It->GetPlayerState<AHBLobbyPlayerState>();
 				if (!Player || Player->GetLobbySeatIndex() < 0 || Player->GetLobbySeatIndex() >= Expected
 					|| !It->GetMesh()->GetSkeletalMeshAsset()) return false;
-				auto* Idle = It->GetMesh()->GetSingleNodeInstance();
-				if (!Idle || !Idle->GetCurrentAsset() || Idle->GetCurrentAsset()->GetName() != TEXT("AN_PlayerIdle1")
+				auto* Idle = It->GetMesh()->GetAnimInstance();
+				if (!Idle || It->GetMesh()->GetAnimationMode() != EAnimationMode::AnimationBlueprint
+					|| Idle->GetClass()->GetName() != ExpectedLobbyAnimClassName(*It)
 					|| It->GetCharacterMovement()->MovementMode != MOVE_None || It->GetActorEnableCollision()) return false;
 				const int32 Index = Player->GetLobbySeatIndex();
 				if (Seen.Contains(Index) || (Index == 0) != (Player == State->HostPlayerState)) return false;
@@ -526,11 +564,12 @@ namespace
 			}
 			if (bGuestLeft)
 			{
-				if (!Server.IsValid() || !SeatsArrived(Server->GetWorld(), PlayerCount - 1)) return false;
+				if (!Server.IsValid() || !SeatsArrived(Server->GetWorld(), PlayerCount - 1) || !NameTagsArrived(Server->GetWorld())) return false;
 				for (const auto& Client : RemainingClients)
-					if (!Client.IsValid() || !SeatsArrived(Client->GetWorld(), PlayerCount - 1)) return false;
+					if (!Client.IsValid() || !SeatsArrived(Client->GetWorld(), PlayerCount - 1) || !NameTagsArrived(Client->GetWorld())) return false;
 				Test->TestFalse(TEXT("Actual Logout destroys the leaving guest's display pawn"), LeavingPawn.IsValid());
 				Test->AddInfo(FString::Printf(TEXT("%d-player local IP listen lobby replicated pawns, ownership, camera and seats; guest Logout left %d players with matching seats."), PlayerCount, PlayerCount - 1));
+				Test->AddInfo(TEXT("Every host/client pawn name tag shows its own replicated name, including late name updates and seat compaction after logout."));
 				return true;
 			}
 			TArray<UWorld*> Worlds;
@@ -543,6 +582,18 @@ namespace
 				}
 			if (Worlds.Num() != PlayerCount || !HostWorld) return false;
 			for (UWorld* World : Worlds) if (!SeatsArrived(World, PlayerCount)) return false;
+			if (ExpectedNames.IsEmpty())
+			{
+				for (APlayerState* Player : HostWorld->GetGameState()->PlayerArray)
+				{
+					const FString Name = FString::Printf(TEXT("로비_플레이어_%d"), CastChecked<AHBLobbyPlayerState>(Player)->GetLobbySeatIndex());
+					ExpectedNames.Add(Player->GetPlayerId(), Name);
+					Player->SetPlayerName(Name);
+					Player->ForceNetUpdate();
+				}
+				return false;
+			}
+			for (UWorld* World : Worlds) if (!NameTagsArrived(World)) return false;
 			for (UWorld* World : Worlds) if (!PersonalMenusArrived(World)) return false;
 			if (!bMenusVerified)
 			{

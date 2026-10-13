@@ -4,6 +4,9 @@
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/ProgressBar.h"
+#include "Components/AudioComponent.h"
+#include "Sound/SoundBase.h"
+#include "Sound/AmbientSound.h"
 #include "Components/TextBlock.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
 #include "Core/GameFlow/Lobby/HBLobbyGameMode.h"
@@ -53,6 +56,12 @@ UHBLobbyLoadingSubsystem::UHBLobbyLoadingSubsystem()
 {
 	static ConstructorHelpers::FClassFinder<UUserWidget> Screen(TEXT("/Game/UI/Startup/WBP_LoadingScreen"));
 	if (Screen.Succeeded()) LoadingWidgetClass = Screen.Class;
+	static ConstructorHelpers::FObjectFinder<USoundBase> Music(TEXT("/Game/Sound/Presentation/BGM_Loading_BelowTheGate.BGM_Loading_BelowTheGate"));
+	static ConstructorHelpers::FObjectFinder<USoundBase> Ambience(TEXT("/Game/Sound/Presentation/AMB_Loading_Wind.AMB_Loading_Wind"));
+	LoadingMusic = Music.Object;
+	LoadingAmbience = Ambience.Object;
+	static ConstructorHelpers::FObjectFinder<USoundBase> DungeonMusic(TEXT("/Game/Sound/Presentation/BGM_InGame_StoneDepths.BGM_InGame_StoneDepths"));
+	GameplayMusic = DungeonMusic.Object;
 }
 
 bool UHBLobbyLoadingSubsystem::ShouldCreateSubsystem(UObject* Outer) const
@@ -63,6 +72,7 @@ bool UHBLobbyLoadingSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 void UHBLobbyLoadingSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	GameplayMusicTickHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &ThisClass::TickGameplayMusic), 0.25f);
 	Sessions = Collection.InitializeDependency<UHBOnlineSessionSubsystem>();
 	if (Sessions.IsValid())
 		Sessions->OnLobbyOperationStateChanged.AddUniqueDynamic(this, &ThisClass::HandleLobbyOperation);
@@ -79,6 +89,9 @@ void UHBLobbyLoadingSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UHBLobbyLoadingSubsystem::Deinitialize()
 {
+	FTSTicker::GetCoreTicker().RemoveTicker(GameplayMusicTickHandle);
+	GameplayMusicTickHandle.Reset();
+	StopGameplayMusic();
 	if (Sessions.IsValid())
 		Sessions->OnLobbyOperationStateChanged.RemoveDynamic(this, &ThisClass::HandleLobbyOperation);
 	FWorldDelegates::OnSeamlessTravelStart.Remove(SeamlessStartHandle);
@@ -240,6 +253,7 @@ void UHBLobbyLoadingSubsystem::BeginLoading(UWorld* SourceWorld, const FString& 
 	DestinationReadySince = 0.0;
 	bGameplayReady = false;
 	bLoading = true;
+	StartLoadingAudio(SourceWorld);
 	AttachLoadingScreen();
 	TickHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &ThisClass::TickLoading));
 	UE_LOG(LogHBLobbyLoading, Log, TEXT("SHOW | %s | destination=%s"), *GetGameInstance()->GetName(), *DestinationPackage);
@@ -283,6 +297,7 @@ void UHBLobbyLoadingSubsystem::HandlePostLoadMap(UWorld* World)
 	if (!DestinationPackage.IsEmpty() && Package != DestinationPackage) return;
 	DestinationPackage = Package;
 	ArrivedWorld = World;
+	MuteLobbyAudio(World);
 	if (UGameViewportClient* Viewport = AttachedViewport.Get()) bDestinationIgnoreInput = Viewport->IgnoreInput();
 	AttachLoadingScreen();
 	UE_LOG(LogHBLobbyLoading, Log, TEXT("MAP ARRIVED | %s | waiting for destination readiness | %s"), *GetGameInstance()->GetName(), *Package);
@@ -370,6 +385,7 @@ bool UHBLobbyLoadingSubsystem::TickLoading(float DeltaSeconds)
 {
 	if (!bLoading) return false;
 	UWorld* World = GetGameInstance()->GetWorld();
+	MuteLobbyAudio(World);
 	const double Now = FPlatformTime::Seconds();
 	if (UGameViewportClient* Viewport = AttachedViewport.Get())
 	{
@@ -547,6 +563,7 @@ void UHBLobbyLoadingSubsystem::UpdateLoadingProgress(float Progress)
 
 void UHBLobbyLoadingSubsystem::FinishLoading(bool bSucceeded)
 {
+	StopLoadingAudio(bSucceeded);
 	if (TickHandle.IsValid()) FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
 	TickHandle.Reset();
 	if (UGameViewportClient* Viewport = AttachedViewport.Get())
@@ -590,6 +607,90 @@ void UHBLobbyLoadingSubsystem::FinishLoading(bool bSucceeded)
 	bAwaitingNetworkWorld = false;
 	bLoading = false;
 	bGameplayReady = bSucceeded;
+}
+
+void UHBLobbyLoadingSubsystem::StartLoadingAudio(UWorld* SourceWorld)
+{
+	StopGameplayMusic();
+	StopLoadingAudio(false);
+	if (!OwnsWorld(SourceWorld) || SourceWorld->GetNetMode() == NM_DedicatedServer) return;
+	MuteLobbyAudio(SourceWorld);
+	for (USoundBase* Sound : {LoadingMusic.Get(), LoadingAmbience.Get()})
+	{
+		if (!Sound) continue;
+		// Persist through outgoing-world teardown; FinishLoading owns cleanup, including failed travel.
+		if (UAudioComponent* Audio = UGameplayStatics::CreateSound2D(SourceWorld, Sound, 1.f, 1.f, 0.f, nullptr, true, true))
+		{
+			LoadingAudio.Add(Audio);
+			Audio->FadeIn(0.35f, Sound == LoadingMusic ? 0.22f : 1.f);
+		}
+	}
+}
+
+void UHBLobbyLoadingSubsystem::StopLoadingAudio(bool bFadeOut)
+{
+	for (const auto& Entry : MutedLobbyAudio)
+		if (UAudioComponent* Audio = Entry.Key.Get()) Audio->SetVolumeMultiplier(Entry.Value);
+	MutedLobbyAudio.Reset();
+	for (UAudioComponent* Audio : LoadingAudio)
+	{
+		if (!IsValid(Audio)) continue;
+		if (bFadeOut && Audio->IsPlaying()) Audio->FadeOut(0.3f, 0.f);
+		else
+		{
+			Audio->Stop();
+			if (IsValid(Audio)) Audio->DestroyComponent();
+		}
+	}
+	LoadingAudio.Reset();
+}
+
+void UHBLobbyLoadingSubsystem::MuteLobbyAudio(UWorld* World)
+{
+	if (!OwnsWorld(World)) return;
+	// Only our tagged lobby actors; gameplay music and other team audio are not touched.
+	for (TActorIterator<AAmbientSound> It(World); It; ++It)
+	{
+		if (!It->ActorHasTag(TEXT("HB_LobbyAudio"))) continue;
+		UAudioComponent* Audio = It->GetAudioComponent();
+		if (Audio && !MutedLobbyAudio.Contains(Audio))
+		{
+			MutedLobbyAudio.Add(Audio, Audio->VolumeMultiplier);
+			Audio->SetVolumeMultiplier(0.f);
+		}
+	}
+}
+
+bool UHBLobbyLoadingSubsystem::TickGameplayMusic(float DeltaSeconds)
+{
+	UWorld* World = GetGameInstance()->GetWorld();
+	const AHeavenBreachGameState* State = OwnsWorld(World) ? World->GetGameState<AHeavenBreachGameState>() : nullptr;
+	const APlayerController* Player = GetGameInstance()->GetFirstLocalPlayerController();
+	if (bLoading || !State || !World->HasBegunPlay() || World->IsInSeamlessTravel() ||
+		IsLobbyWorld(World) || NormalizeMap(World->GetPackage()->GetName()).Contains(TEXT("ExtractionResult")) ||
+		State->GetMatchState() != MatchState::InProgress || !Player || Player->GetWorld() != World || !Player->IsLocalController())
+	{
+		StopGameplayMusic();
+		return true;
+	}
+	if (IsValid(GameplayMusicAudio) && GameplayMusicAudio->GetWorld() != World) StopGameplayMusic();
+	if (!IsValid(GameplayMusicAudio) && GameplayMusic)
+	{
+		// One local non-persistent component per GameInstance; the Music SoundClass owns volume/mute.
+		GameplayMusicAudio = UGameplayStatics::CreateSound2D(World, GameplayMusic, 1.f, 1.f, 0.f, nullptr, false, false);
+		if (GameplayMusicAudio) GameplayMusicAudio->FadeIn(0.8f, 0.45f);
+	}
+	return true;
+}
+
+void UHBLobbyLoadingSubsystem::StopGameplayMusic()
+{
+	if (IsValid(GameplayMusicAudio))
+	{
+		GameplayMusicAudio->Stop();
+		GameplayMusicAudio->DestroyComponent();
+	}
+	GameplayMusicAudio = nullptr;
 }
 
 void UHBLobbyLoadingSubsystem::HandleTravelFailure(UWorld* World, ETravelFailure::Type Type, const FString& Error)

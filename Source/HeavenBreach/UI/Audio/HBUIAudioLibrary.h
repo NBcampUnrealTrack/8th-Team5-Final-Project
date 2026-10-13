@@ -11,6 +11,7 @@ enum class EHBUIAudioEvent : uint8
 {
 	Hover, Click, Confirm, Cancel, Open, Close, Error,
 	ItemMove, ItemEquip, TradeSuccess, CraftSuccess, LobbyReady,
+	WeaponBreak, PortalTravel,
 	Count UMETA(Hidden)
 };
 
@@ -28,6 +29,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "UI|Audio")
 	static USoundBase* GetSound(EHBUIAudioEvent Event);
+
+	/** Call only after a server-authoritative outcome; PlayerController delivers the sound once to its owner. */
+	static void PlayForOwningClient(const UObject* OwnerContext, EHBUIAudioEvent Event);
 
 private:
 	UPROPERTY()

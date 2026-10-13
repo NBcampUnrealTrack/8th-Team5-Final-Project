@@ -1,0 +1,6 @@
+Deep & Deeper original audio revision 2, 2026-10-13
+Lobby and in-game music, footstep variants: revise_audio_v2.py; original synthesis, no samples.
+Loading and other sounds: Original_20261013.
+Augment UI four sounds: unchanged accepted Augment_v14_Smooth_Book_Page.
+Preview_WalkingCadence: browser-only demonstration, not an engine sound.
+WAV 48 kHz PCM 16-bit. Music and ambience loop; one-shots do not.

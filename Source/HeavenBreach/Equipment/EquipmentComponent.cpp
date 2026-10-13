@@ -1,4 +1,5 @@
 #include "EquipmentComponent.h"
+#include "UI/Audio/HBUIAudioLibrary.h"
 
 #include "Net/UnrealNetwork.h"
 #include "InventoryComponent.h"
@@ -842,6 +843,8 @@ bool UEquipmentComponent::DamageEquippedItemDurability(EEquipSlotType InSlot, fl
 	if (PreviousDurability > 0.f && Item.CurrentDurability <= 0.f)
 	{
 		bOutJustBroke = true;
+		if (InSlot == EEquipSlotType::PrimaryWeapon)
+			UHBUIAudioLibrary::PlayForOwningClient(this, EHBUIAudioEvent::WeaponBreak);
 		UE_LOG(LogTemp, Warning, TEXT("[Durability] Slot=%d %s destroyed"), (int32)InSlot, *Item.ItemRow.RowName.ToString());
 		Slots[SlotIndex] = FItemInstance();
 	}

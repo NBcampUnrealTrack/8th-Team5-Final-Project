@@ -1,4 +1,4 @@
-#include "UI/HUD/HBRoomNameSubsystem.h"
+﻿#include "UI/HUD/HBRoomNameSubsystem.h"
 #include "UI/HUD/HBRoomNameWidget.h"
 #include "PCGModule/HBDungeonRuntime.h"
 #include "Engine/World.h"
@@ -41,6 +41,49 @@ namespace
 			{ TEXT("Enhancement_2Ways"), NSLOCTEXT("RoomName", "Enhancement_2Ways", "Runesmith's Altar") },
 		};
 		return Names;
+	}
+
+	const TMap<FName, FText>& KoreanRoomNames()
+	{
+		static const TMap<FName, FText> Names = {
+			{ TEXT("Adventure1-1"), NSLOCTEXT("RoomNameKo", "Adventure1-1", "덩굴 대전") },
+			{ TEXT("Adventure1-2"), NSLOCTEXT("RoomNameKo", "Adventure1-2", "끊어진 다리") },
+			{ TEXT("Adventure1-3"), NSLOCTEXT("RoomNameKo", "Adventure1-3", "쌍둥이 회랑") },
+			{ TEXT("Adventure1-4"), NSLOCTEXT("RoomNameKo", "Adventure1-4", "계단 테라스") },
+			{ TEXT("Adventure1-5"), NSLOCTEXT("RoomNameKo", "Adventure1-5", "무너진 신전") },
+			{ TEXT("Adventure1-6"), NSLOCTEXT("RoomNameKo", "Adventure1-6", "봉인된 방") },
+			{ TEXT("Adventure1-7"), NSLOCTEXT("RoomNameKo", "Adventure1-7", "부서진 뜰") },
+			{ TEXT("Adventure1-8"), NSLOCTEXT("RoomNameKo", "Adventure1-8", "허물어진 성벽") },
+			{ TEXT("Adventure1-9"), NSLOCTEXT("RoomNameKo", "Adventure1-9", "탑의 안뜰") },
+			{ TEXT("Adventure1-10"), NSLOCTEXT("RoomNameKo", "Adventure1-10", "망루 마당") },
+			{ TEXT("Adventure1-11"), NSLOCTEXT("RoomNameKo", "Adventure1-11", "잊힌 정원") },
+			{ TEXT("Adventure2-1"), NSLOCTEXT("RoomNameKo", "Adventure2-1", "감옥") },
+			{ TEXT("Adventure2-2"), NSLOCTEXT("RoomNameKo", "Adventure2-2", "가라앉은 저수조") },
+			{ TEXT("Adventure2-3"), NSLOCTEXT("RoomNameKo", "Adventure2-3", "해골 묘실") },
+			{ TEXT("Adventure2-4"), NSLOCTEXT("RoomNameKo", "Adventure2-4", "잊힌 서고") },
+			{ TEXT("Adventure2-5"), NSLOCTEXT("RoomNameKo", "Adventure2-5", "철의 대장간") },
+			{ TEXT("Adventure2-6"), NSLOCTEXT("RoomNameKo", "Adventure2-6", "잠긴 회랑") },
+			{ TEXT("Adventure2-7"), NSLOCTEXT("RoomNameKo", "Adventure2-7", "텅 빈 성소") },
+			{ TEXT("Adventure2-8"), NSLOCTEXT("RoomNameKo", "Adventure2-8", "납골당") },
+			{ TEXT("Adventure2-9"), NSLOCTEXT("RoomNameKo", "Adventure2-9", "지하 묘지") },
+			{ TEXT("Adventure2-10"), NSLOCTEXT("RoomNameKo", "Adventure2-10", "심연의 계단") },
+			{ TEXT("Boss"), NSLOCTEXT("RoomNameKo", "Boss", "심연의 왕좌") },
+			{ TEXT("Passage"), NSLOCTEXT("RoomNameKo", "Passage", "하강로") },
+			{ TEXT("Heal_1Ways"), NSLOCTEXT("RoomNameKo", "Heal_1Ways", "치유의 샘") },
+			{ TEXT("Heal_2Ways"), NSLOCTEXT("RoomNameKo", "Heal_2Ways", "고요한 안식처") },
+			{ TEXT("Heal_3Ways"), NSLOCTEXT("RoomNameKo", "Heal_3Ways", "순례자의 쉼터") },
+			{ TEXT("Enhancement_2Ways"), NSLOCTEXT("RoomNameKo", "Enhancement_2Ways", "룬 대장장이의 제단") },
+		};
+		return Names;
+	}
+
+	FText KoreanRoomName(FName MapName)
+	{
+		if (const FText* Found = KoreanRoomNames().Find(MapName))
+		{
+			return *Found;
+		}
+		return UHBRoomNameSubsystem::GetRoomDisplayName(MapName);
 	}
 }
 
@@ -144,10 +187,10 @@ void UHBRoomNameSubsystem::CheckRoom()
 	CurrentRoomId = Inside->Id;
 
 	FName MapName = FName(*Inside->ModuleMap.GetAssetName());
-	FText Name = GetRoomDisplayName(MapName);
+	FText Name = KoreanRoomName(MapName);
 	if (Name.IsEmpty())
 	{
-		Name = GetRoomDisplayName(Inside->ModuleId);
+		Name = KoreanRoomName(Inside->ModuleId);
 	}
 	CurrentRoomName = Name;
 	if (Name.IsEmpty())
