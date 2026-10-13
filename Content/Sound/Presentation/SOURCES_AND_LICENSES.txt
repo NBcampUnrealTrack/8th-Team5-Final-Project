@@ -1,0 +1,8 @@
+Deep & Deeper audio
+Revision 2, 2026-10-13: BGM_Lobby_LetheStoneHearth, BGM_InGame_StoneDepths, SFX_Footstep_Stone_01..04.
+Original composition and procedural synthesis. No external recordings or samples.
+Source WAV and provenance: SourceArt/Audio/Handoff_20261013/manifest.json
+Local render script: Saved/AudioOriginal_20261013/revise_audio_v2.py
+Loading, other ambience, weapon break and portal: Original_20261013.
+Augment UI unchanged: accepted Augment_v14_Smooth_Book_Page; new code integration remains rolled back.
+Preview and file handoff: SourceArt/Audio/Handoff_20261013/Preview.html

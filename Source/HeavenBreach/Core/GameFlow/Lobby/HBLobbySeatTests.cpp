@@ -46,6 +46,18 @@
 #include "UObject/UnrealType.h"
 #endif
 
+#if WITH_EDITOR
+namespace
+{
+	FString ExpectedLobbyAnimClassName(const AHBPlayerCharacter* Pawn)
+	{
+		const FString Tag = Pawn->GetEquippedWeaponTag().ToString();
+		return Tag == TEXT("Weapon.Bow") ? TEXT("ABP_Player_Bow_C")
+			: Tag == TEXT("Weapon.Staff") ? TEXT("ABP_Player_Staff_C") : TEXT("ABP_Warrior_F_C");
+	}
+}
+#endif
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBLobbySeatsTest, "HeavenBreach.Multiplayer.LobbySeats",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 
@@ -159,9 +171,10 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 	{
 		World->GetLatentActionManager().BeginFrame();
 		World->GetLatentActionManager().ProcessLatentActions(nullptr, 1.f / 30.f);
-		auto* Idle = Pawn->GetMesh()->GetSingleNodeInstance();
-		TestTrue(TEXT("Equipment refresh preserves arms-down lobby idle"), Idle && Idle->GetCurrentAsset()
-			&& Idle->GetCurrentAsset()->GetName() == TEXT("AN_PlayerIdle1"));
+		auto* Idle = Pawn->GetMesh()->GetAnimInstance();
+		TestTrue(TEXT("Equipment refresh preserves the original weapon AnimBP and Idle corrections"), Idle
+			&& Pawn->GetMesh()->GetAnimationMode() == EAnimationMode::AnimationBlueprint
+			&& Idle->GetClass()->GetName() == ExpectedLobbyAnimClassName(Pawn));
 	};
 	SettlePose();
 	TArray<USkeletalMeshComponent*> Meshes;
@@ -197,13 +210,13 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 	TArray<UStaticMeshComponent*> StaticMeshes;
 	Pawn->GetComponents(StaticMeshes);
 	if (TestNotNull(TEXT("Existing weapon table loads"), Weapons))
-		for (const bool bBow : {false, true})
+		for (const FString WeaponType : {FString(TEXT("Sword")), FString(TEXT("Bow")), FString(TEXT("Staff"))})
 		{
 			bool bVerified = false;
 			for (const FName RowName : Weapons->GetRowNames())
 			{
 				const auto* Row = Weapons->FindRow<FWeaponData>(RowName, TEXT("LobbyEquipmentAppearance"));
-				if (!Row || (Row->WeaponType == TEXT("Bow")) != bBow || Row->EquipMeshPath.IsEmpty()) continue;
+				if (!Row || Row->WeaponType != WeaponType || Row->EquipMeshPath.IsEmpty()) continue;
 				FItemInstance Item;
 				Item.ItemRow.DataTable = Weapons;
 				Item.ItemRow.RowName = RowName;
@@ -221,7 +234,7 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 				bVerified = true;
 				break;
 			}
-			TestTrue(bBow ? TEXT("Bow equipment and animation replacement are verified") : TEXT("Melee equipment and animation replacement are verified"), bVerified);
+			TestTrue(FString::Printf(TEXT("%s equipment and original AnimBP are verified"), *WeaponType), bVerified);
 		}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);
@@ -516,8 +529,9 @@ namespace
 				auto* Player = It->GetPlayerState<AHBLobbyPlayerState>();
 				if (!Player || Player->GetLobbySeatIndex() < 0 || Player->GetLobbySeatIndex() >= Expected
 					|| !It->GetMesh()->GetSkeletalMeshAsset()) return false;
-				auto* Idle = It->GetMesh()->GetSingleNodeInstance();
-				if (!Idle || !Idle->GetCurrentAsset() || Idle->GetCurrentAsset()->GetName() != TEXT("AN_PlayerIdle1")
+				auto* Idle = It->GetMesh()->GetAnimInstance();
+				if (!Idle || It->GetMesh()->GetAnimationMode() != EAnimationMode::AnimationBlueprint
+					|| Idle->GetClass()->GetName() != ExpectedLobbyAnimClassName(*It)
 					|| It->GetCharacterMovement()->MovementMode != MOVE_None || It->GetActorEnableCollision()) return false;
 				const int32 Index = Player->GetLobbySeatIndex();
 				if (Seen.Contains(Index) || (Index == 0) != (Player == State->HostPlayerState)) return false;
