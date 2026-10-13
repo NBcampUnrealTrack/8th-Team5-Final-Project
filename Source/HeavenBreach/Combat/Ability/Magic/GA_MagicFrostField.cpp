@@ -2,6 +2,7 @@
 
 #include "Combat/Ability/Magic/GA_MagicFrostField.h"
 
+#include "AbilitySystemComponent.h"
 #include "AI/EnemyCharacterBase.h"
 #include "Camera/CameraComponent.h"
 #include "Combat/Ability/Magic/HBFrostField.h"
@@ -117,4 +118,18 @@ void UGA_MagicFrostField::OnCastReleased(const FGameplayAbilityActorInfo* Info)
 	Field->Init(Player, FinalRadius, Duration, FinalSlow);
 	Field->FinishSpawning(FTransform(TargetPoint));
 	UE_LOG(LogTemp, Log, TEXT("[MagicSkill] 서리 지대 생성  위치=%s  반경=%.0f  감속=%.2f  시전ID=%d"), *TargetPoint.ToString(), FinalRadius, FinalSlow, CastId);
+
+	// 지대가 생기는 소리. 마력 폭발 · 순간이동 · 구체 착탄처럼 큐로 낸다.
+	// 지대 이펙트는 AHBFrostField 가 클라에서 직접 띄우므로 이 큐(BP_GCN_Magic_FrostField)에는 소리만 둔다.
+	UAbilitySystemComponent* SourceASC = GetASC(Info);
+	if (!SourceASC)
+	{
+		return;
+	}
+	FGameplayCueParameters CueParams;
+	CueParams.Location = TargetPoint;
+	CueParams.RawMagnitude = FinalRadius;
+	CueParams.Instigator = Player;
+	CueParams.EffectCauser = Player;
+	SourceASC->ExecuteGameplayCue(MagicTag::TAG_GameplayCue_Magic_FrostField, CueParams);
 }

@@ -11,6 +11,7 @@
 class UNetDriver;
 class FOnlineFriend;
 class FOnlineUserPresence;
+class IOnlinePresence;
 struct FWorldContext;
 
 namespace ENetworkFailure
@@ -284,7 +285,13 @@ private:
 	void InitializeMultiplayerLobby();
 	void DeinitializeMultiplayerLobby();
 	void HandleSteamInvite(bool bSuccess, int32 LocalUser, FUniqueNetIdPtr UserId, const FOnlineSessionSearchResult& Result);
-	static bool ReadSteamFriendPresence(const FOnlineUserPresence& Presence, FHBSteamFriendEntry& Entry);
+	static bool ReadSteamFriendPresence(const FOnlineUserPresence& Presence, FHBSteamFriendEntry& Entry, FString* ExcludedReason = nullptr);
+	void UpdateSteamFriend(const FOnlineFriend& Friend, const FOnlineUserPresence& Presence);
+	void HandleSteamFriendPresenceQueried(uint64 RequestId, bool bSuccess);
+	void CompleteSteamFriendsRefresh(uint64 RequestId, bool bSuccess);
+	bool TickSteamPresence(float DeltaSeconds);
+	void HandleGamePresencePublished(uint64 RequestId, const FString& State, bool bSuccess, const FOnlineUserPresence* Presence);
+	static bool HasGamePresence(const FOnlineUserPresence& Presence, const FString& State);
 	TSharedPtr<FOnlineFriend> FindSteamFriend(const FString& UserId) const;
 	bool CanInviteSteamFriends() const;
 	void HandleFindFriendSessionComplete(int32 LocalUser, bool bSuccess, const TArray<FOnlineSessionSearchResult>& Results, uint64 RequestId);
@@ -299,6 +306,19 @@ private:
 	FString MenuNotice;
 	bool bReturnAfterLeave = false;
 	bool bReadingFriends = false;
+	bool bSteamFriendsStale = false;
+	bool bFriendPresenceQueryFailed = false;
+	int32 PendingFriendPresenceQueries = 0;
+	uint64 FriendsReadRequestId = 0;
+	double FriendsReadDeadline = 0.0;
+	TArray<TSharedRef<FOnlineFriend>> PendingSteamFriends;
+	TSharedPtr<IOnlinePresence, ESPMode::ThreadSafe> SteamPresenceInterface;
+	FDelegateHandle SteamPresenceReceivedHandle;
+	FTSTicker::FDelegateHandle SteamPresenceTickerHandle;
+	FString DesiredGamePresence;
+	uint64 GamePresenceRequestId = 0;
+	bool bGamePresencePending = false;
+	double GamePresenceDeadline = 0.0;
 	FString AuxiliaryError;
 	TArray<FHBSteamFriendEntry> SteamFriends;
 	TSharedPtr<FOnlineSessionSearchResult> PendingInvite;

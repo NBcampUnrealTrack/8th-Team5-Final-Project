@@ -9,6 +9,7 @@
 
 class UNiagaraComponent;
 class UNiagaraSystem;
+class USoundBase;
 
 /**
  * 마법 시전 손 이펙트 (GameplayCue.Magic.CastHand). 시전 중 추가되고 끝나면 제거된다.
@@ -46,6 +47,8 @@ protected:
  * ActorClass(디자이너의 로컬 FX BP)를 Location 에 로컬 스폰한다. 서버는 건너뛴다.
  * 순간이동은 AbilityLevel 0 = 출발(ActorClass), 1 = 도착(ActorClassAlt, 없으면 ActorClass).
  * 크기: ScaleDivisor > 0 이고 RawMagnitude > 0 이면 XY = RawMagnitude / ScaleDivisor, 아니면 DefaultScale.
+ * 소리(Sound / SoundAlt)는 이펙트와 따로 Location 에서 낸다. 규칙은 ActorClass / ActorClassAlt 와 같다.
+ * ActorClass 를 비우고 소리만 써도 된다(서리 지대 — 지대 이펙트는 AHBFrostField 가 직접 띄운다).
  */
 UCLASS()
 class HEAVENBREACH_API UHBGCN_MagicBurst : public UGameplayCueNotify_Static
@@ -56,6 +59,20 @@ public:
 	virtual bool OnExecute_Implementation(AActor* MyTarget, const FGameplayCueParameters& Parameters) const override;
 
 protected:
+	/** 이번 실행에 낼 소리. 순간이동 도착이면 SoundAlt, 비어 있으면 Sound */
+	USoundBase* PickSound(const FGameplayCueParameters& Parameters) const;
+
+	/**
+	 * 터질 때 낼 소리. 이펙트 BP 와 따로 둔 이유: 지금 이펙트는 test_gm 의 임시 BP 라
+	 * 거기에 넣으면 정식 이펙트로 바꿀 때 소리도 같이 사라진다.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "MagicCue")
+	TObjectPtr<USoundBase> Sound;
+
+	/** AbilityLevel == 1 일 때 쓰는 소리(순간이동 도착). 비면 Sound */
+	UPROPERTY(EditDefaultsOnly, Category = "MagicCue")
+	TObjectPtr<USoundBase> SoundAlt;
+
 	UPROPERTY(EditDefaultsOnly, Category = "MagicCue")
 	TSoftClassPtr<AActor> ActorClass;
 
