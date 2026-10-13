@@ -79,6 +79,11 @@ UAnimMontage* UGA_BowEvasiveShot::GetMontageToPlay() const
 	return Super::GetMontageToPlay();
 }
 
+float UGA_BowEvasiveShot::GetMontageRootMotionScale() const
+{
+	return MontageRetreatDistance > KINDA_SMALL_NUMBER ? RetreatDistance / MontageRetreatDistance : 1.f;
+}
+
 void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	bArrowFired = false;
@@ -136,13 +141,26 @@ void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	}
 
 	// 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다. 서버·소유 클라에서 세팅, 다른 클라는 복제.
+	// 당김 상태도 켠다. 손 화살 BP 가 이 값과 몽타주의 시위 접촉 곡선(BowStringContact)을 보고 화살을 보인다.
+	// 관통 사격·평타와 같은 방식이다. 발사 뒤에는 곡선이 내려가 화살이 숨는다.
 	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
 	{
 		PosePlayer->SetInBowSkillPose(true);
+		PosePlayer->SetBowDrawing(true);
+
+		// 몽타주 루트 모션 후퇴를 RetreatDistance 에 맞게 늘린다. 서버·예측 클라가 같은 값을 써야 보정이 안 생긴다.
+		// 다른 클라는 엔진이 복제(COND_SimulatedOnly)한다.
+		if (bUseMontageRootMotion && bHasMontage)
+		{
+			SavedRootMotionScale = PosePlayer->GetAnimRootMotionTranslationScale();
+			PosePlayer->SetAnimRootMotionTranslationScale(GetMontageRootMotionScale());
+			bRootMotionScaled = true;
+		}
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 회피 공격: 발동  Auth=%d  Local=%d  Montage=%d  RootMotionByMontage=%d"),
-		bAuthority ? 1 : 0, ActorInfo->IsLocallyControlled() ? 1 : 0, bHasMontage ? 1 : 0, bUseMontageRootMotion ? 1 : 0);
+	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 회피 공격: 발동  Auth=%d  Local=%d  Montage=%d  RootMotionByMontage=%d  RootMotionScale=%.2f"),
+		bAuthority ? 1 : 0, ActorInfo->IsLocallyControlled() ? 1 : 0, bHasMontage ? 1 : 0, bUseMontageRootMotion ? 1 : 0,
+		bRootMotionScaled ? GetMontageRootMotionScale() : 1.f);
 
 	// 후퇴: 서버와 예측 클라가 둘 다 같은 태스크를 만든다. CMC 가 루트 모션 소스를 예측·보정한다.
 	if (!bUseMontageRootMotion && RetreatDistance > KINDA_SMALL_NUMBER)
@@ -326,7 +344,13 @@ void UGA_BowEvasiveShot::EndAbility(const FGameplayAbilitySpecHandle Handle, con
 	if (AHBPlayerCharacter* PosePlayer = GetPlayerFrom(ActorInfo))
 	{
 		PosePlayer->SetInBowSkillPose(false);
+		PosePlayer->SetBowDrawing(false);
+		if (bRootMotionScaled)
+		{
+			PosePlayer->SetAnimRootMotionTranslationScale(SavedRootMotionScale);
+		}
 	}
+	bRootMotionScaled = false;
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 회피 공격: 종료  Auth=%d  Cancelled=%d  발사=%d"),
 		ActorInfo && ActorInfo->IsNetAuthority() ? 1 : 0, bWasCancelled ? 1 : 0, bArrowFired ? 1 : 0);

@@ -114,6 +114,10 @@ protected:
 	bool HasAugmentFrom(const FGameplayAbilityActorInfo* ActorInfo, FGameplayTag AugmentTag) const;
 	float GetAugmentParamFrom(const FGameplayAbilityActorInfo* ActorInfo, FGameplayTag ParamTag, float Default) const;
 
+	// 보유한 증강의 현재 단계 수치(TierMagnitudes). 미보유면 0.
+	// BuffEffect·DuringEffect 처럼 Params 를 거치지 않고 GE 에 단계값을 넘길 때 쓴다.
+	float GetAugmentMagnitudeFrom(const FGameplayAbilityActorInfo* ActorInfo, const FHBSkillAugment& Augment) const;
+
 	// 보유한 증강이 요구하는 추가 코스트 GE. 없으면 nullptr.
 	// 발동할 때 원래 코스트에 더해서 낸다.
 	TSubclassOf<UGameplayEffect> FindAdditionalCostEffect(const FGameplayAbilityActorInfo* ActorInfo) const;

@@ -70,9 +70,15 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UButton> FriendsButton;
 
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> LeavePartyButton;
+
 	UFUNCTION()
 	void HandleFriendsClicked();
 
 	UFUNCTION()
 	void HandleStartClicked();
+
+	UFUNCTION()
+	void HandleLeavePartyClicked();
 };

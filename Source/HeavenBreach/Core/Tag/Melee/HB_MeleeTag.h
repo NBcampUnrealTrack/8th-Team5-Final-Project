@@ -12,4 +12,6 @@ namespace MeleeTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Melee_Whirlwind_Wide);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_Bloodthirst_Boost);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_SteadyStance_Boost);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_IronHeart_Boost);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Passive_CombatInstinct_Boost);
 }

@@ -5,9 +5,43 @@
 
 #include "AbilitySystemComponent.h"
 #include "GameplayEffect.h"
+#include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Skill/HB_SkillParamTag.h"
+#include "Core/Tag/Warrior/HB_WarriorTag.h"
 #include "Player/AttributeSet/HB_PlayerAttributeSet.h"
+
+UGA_WarriorSmash::UGA_WarriorSmash()
+{
+	// 방패 강타는 C++ 기본값으로 켠다. BP 에서 비워 두면 그 값이 이긴다.
+	ShieldAugmentTag = WarriorTag::TAG_Augment_Smash_Shield;
+	ShieldPowerEffect = UGE_WarriorSmashShieldPower::StaticClass();
+
+	// 단계 값은 그 단계의 최종값이다(누적 아님). 설명에 숫자를 적었으므로 수치를 바꾸면 같이 고칠 것.
+	FHBSkillAugment& Efficiency = Augments.AddDefaulted_GetRef();
+	Efficiency.AugmentTag = WarriorTag::TAG_Augment_Smash_Efficiency;
+	Efficiency.DisplayName = NSLOCTEXT("WarriorSmash", "EfficiencyName", "강타: 효율");
+	Efficiency.Description = NSLOCTEXT("WarriorSmash", "EfficiencyDesc", "강타의 재사용 대기시간과 마나 소모가 줄어듭니다. (1단계 15%, 2단계 25%, 3단계 35%)");
+	Efficiency.Params.Add(SkillParamTag::TAG_SkillParam_Cooldown, 0.85f);
+	Efficiency.Params.Add(SkillParamTag::TAG_SkillParam_ManaCost, 0.85f);
+	Efficiency.TierMagnitudes = { 0.85f, 0.75f, 0.65f };
+
+	// 강타 피해는 몽타주의 근접 판정이 정한다. 그 판정이 스킬 사용 중이면
+	// SkillDamageMultiplier 를 곱하므로, 발동 중에만 그 배율을 올린다.
+	FHBSkillAugment& Power = Augments.AddDefaulted_GetRef();
+	Power.AugmentTag = WarriorTag::TAG_Augment_Smash_Damage;
+	Power.DisplayName = NSLOCTEXT("WarriorSmash", "PowerName", "강타: 위력");
+	Power.Description = NSLOCTEXT("WarriorSmash", "PowerDesc", "강타의 피해가 늘어납니다. (1단계 15%, 2단계 30%, 3단계 50%)");
+	Power.TierMagnitudes = { 0.15f, 0.30f, 0.50f };
+	Power.DuringEffect = UGE_WarriorSmashPowerAugment::StaticClass();
+
+	FHBSkillAugment& Shield = Augments.AddDefaulted_GetRef();
+	Shield.AugmentTag = WarriorTag::TAG_Augment_Smash_Shield;
+	Shield.DisplayName = NSLOCTEXT("WarriorSmash", "ShieldName", "강타: 방패 강타");
+	Shield.Description = NSLOCTEXT("WarriorSmash", "ShieldDesc", "강타를 쓰는 동안 방어력의 일부가 공격력에 더해집니다. (1단계 50%, 2단계 75%, 3단계 100%)");
+	Shield.Params.Add(SkillParamTag::TAG_SkillParam_ShieldRatio, 0.5f);
+	Shield.TierMagnitudes = { 0.5f, 0.75f, 1.0f };
+}
 
 UAnimMontage* UGA_WarriorSmash::GetMontageToPlay() const
 {

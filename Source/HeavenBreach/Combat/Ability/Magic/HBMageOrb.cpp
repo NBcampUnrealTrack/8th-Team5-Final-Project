@@ -4,9 +4,12 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "Combat/Ability/Magic/HBMagic.h"
+#include "Combat/GameplayCue/HitCuePlay.h"
 #include "Combat/Interface/DamageableInterface.h"
 #include "Components/SphereComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/Cue/HB_CueTag.h"
 #include "Core/Tag/Magic/HB_MagicTag.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "GameplayCueManager.h"
@@ -39,6 +42,9 @@ AHBMageOrb::AHBMageOrb()
 	TrailComp = CreateDefaultSubobject<UNiagaraComponent>(TEXT("Trail"));
 	TrailComp->SetupAttachment(CollisionComp);
 	TrailComp->SetRelativeScale3D(FVector(0.3f));
+
+	// 마법 타격. BP_GCN_Hit_Magic 애셋이 없으면 적에게 맞아도 적중음이 안 난다.
+	ImpactTypeTag = CueTag::TAG_GameplayCue_Hit_Magic;
 }
 
 void AHBMageOrb::Launch(AHBPlayerCharacter* InShooter, const FVector& Dir, const float InSpeed, const float InDamageCoef, const int32 InCastId)
@@ -104,14 +110,19 @@ void AHBMageOrb::ApplyOrbDamage(AActor* Target, const FHitResult& Hit)
 	}
 
 	// 공격력 × 계수 × 스킬 피해 배율 → 패시브 보정. 구체는 지금 시전이 아니라 자기 시전 ID 로만 잔류 마력을 알린다(날아가는 사이 스킬이 끝나도 적용).
-	float FinalDamage = Player->GetAttackPower() * DamageCoef * Player->GetSkillDamageMultiplier();
+	float FinalDamage = Player->GetAttackPower() * DamageCoef * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
 	FinalDamage = Player->ModifyOutgoingDamage(Target, FinalDamage, /*bCreditCurrentSkillCast*/ false);
 	if (CastId > 0)
 	{
 		Player->NotifySkillHit(CastId);
 	}
 
-	IDamageableInterface::Execute_ApplyMeleeHit(Target, Player, FinalDamage, Hit, EHBDamageSource::Ranged);
+	{
+		// 맞는 순간에만 시전자에게 구체 성질을 붙인다. 맞는 쪽 큐가 이걸 보고 소리를 고른다.
+		// 구체는 GA 가 끝난 뒤에 맞아서, 이게 없으면 시전자에게 태그가 없어 기본음이 났다.
+		HitCuePlay::FScopedImpactTag ImpactScope(Player, ImpactTypeTag);
+		IDamageableInterface::Execute_ApplyMeleeHit(Target, Player, FinalDamage, Hit, EHBDamageSource::Ranged);
+	}
 	UE_LOG(LogTemp, Log, TEXT("[MagicSkill] 원소 구체 피해 %.1f → %s"), FinalDamage, *GetNameSafe(Target));
 
 	const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);

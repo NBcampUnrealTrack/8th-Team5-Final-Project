@@ -34,6 +34,7 @@ namespace WarriorTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_BloodFrenzy_Efficiency, "Augment.Warrior.BloodFrenzy.Efficiency");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_BloodFrenzy_Lifesteal, "Augment.Warrior.BloodFrenzy.Lifesteal");
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_BloodFrenzy_Bleed, "Augment.Warrior.BloodFrenzy.Bleed");
+	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_BloodFrenzy_Duration, "Augment.Warrior.BloodFrenzy.Duration");
 
 	// ---------------- 증강: 패시브 ----------------
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Augment_CombatBreath_Free, "Augment.Warrior.CombatBreath.Free");

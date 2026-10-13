@@ -28,4 +28,5 @@ namespace MagicTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Magic_OrbImpact);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Magic_Teleport);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Magic_ManaExplosion);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Magic_FrostField);
 }

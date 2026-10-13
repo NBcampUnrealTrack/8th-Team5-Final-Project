@@ -78,6 +78,17 @@ float UHBPlayerSkillGABase::GetAugmentParamFrom(const FGameplayAbilityActorInfo*
 	return Default;
 }
 
+float UHBPlayerSkillGABase::GetAugmentMagnitudeFrom(const FGameplayAbilityActorInfo* ActorInfo, const FHBSkillAugment& Augment) const
+{
+	const AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
+	if (!Player)
+	{
+		return 0.f;
+	}
+	// 미보유면 단계 0 이라 GetTierMagnitude 가 0 을 준다.
+	return HBAugment::GetTierMagnitude(Augment, Player->GetAugmentTier(Augment.AugmentTag));
+}
+
 float UHBPlayerSkillGABase::GetAugmentParam(FGameplayTag ParamTag, float Default) const
 {
 	return GetAugmentParamFrom(GetCurrentActorInfo(), ParamTag, Default);

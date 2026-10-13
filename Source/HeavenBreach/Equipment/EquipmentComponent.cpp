@@ -845,6 +845,8 @@ bool UEquipmentComponent::DamageEquippedItemDurability(EEquipSlotType InSlot, fl
 		bOutJustBroke = true;
 		if (InSlot == EEquipSlotType::PrimaryWeapon)
 			UHBUIAudioLibrary::PlayForOwningClient(this, EHBUIAudioEvent::WeaponBreak);
+		UE_LOG(LogTemp, Warning, TEXT("[Durability] Slot=%d %s destroyed"), (int32)InSlot, *Item.ItemRow.RowName.ToString());
+		Slots[SlotIndex] = FItemInstance();
 	}
 
 	OnEquipmentChanged.Broadcast();
@@ -1168,7 +1170,7 @@ void UEquipmentComponent::ApplyLoadedSlots(const TArray<FItemInstance>& InSlots)
 	const int32 Count = FMath::Min(Slots.Num(), InSlots.Num());
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
-		Slots[Index] = InSlots[Index];
+		Slots[Index] = InSlots[Index].IsBroken() ? FItemInstance() : InSlots[Index];
 	}
 
 	OnRep_Slots();

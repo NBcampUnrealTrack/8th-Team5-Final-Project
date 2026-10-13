@@ -10,6 +10,7 @@
 #include "Equipment/EquipmentComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/PointLightComponent.h"
+#include "NiagaraComponent.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Particles/ParticleSystem.h"
 #include "Combat/Attack/GA_PlayerAttack.h"
@@ -287,6 +288,7 @@ void AHBPlayerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	DOREPLIFETIME(ThisClass,bIsSprinting);
 	DOREPLIFETIME_CONDITION(ThisClass, bDrawingBow, COND_SkipOwner);
 	DOREPLIFETIME_CONDITION(ThisClass, bInBowSkillPose, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(ThisClass, bBowPiercingCharge, COND_SkipOwner);
 	DOREPLIFETIME(ThisClass,MovementSpeedMultiplier);
 	DOREPLIFETIME(ThisClass,SelectedSkillQId);
 	DOREPLIFETIME(ThisClass,SelectedSkillEId);
@@ -1343,18 +1345,6 @@ void AHBPlayerCharacter::NotifyDamageDealt(AActor* Target, float Damage, bool bT
 	if (!ASC || !Attributes)
 	{
 		return;
-	}
-
-	// 주무기 내구도. 적에게 실제로 들어간 피해량(Damage)에 비례해서 닳는다 - 헛스윙이나
-	// 막힌 공격은 여기까지 오지 않으므로(적중해야만 NotifyDamageDealt 호출) 닳지 않는다.
-	if (Damage > 0.f)
-	{
-		if (UEquipmentComponent* Equipment = GetEquipment())
-		{
-			bool bJustBroke = false;
-			const float WeaponDurabilityLoss = FMath::Clamp(Damage * WeaponDurabilityLossRatio, WeaponDurabilityLossMin, WeaponDurabilityLossMax);
-			Equipment->DamageEquippedItemDurability(EEquipSlotType::PrimaryWeapon, WeaponDurabilityLoss, bJustBroke);
-		}
 	}
 
 	// 흡혈. 피의 광란 같은 버프 GE 가 Player_LifeStealRatio 를 올리면 그만큼 체력으로 되돌린다.
@@ -2902,6 +2892,50 @@ void AHBPlayerCharacter::SetInBowSkillPose(const bool bInPose)
 	bInBowSkillPose = bInPose;
 }
 
+void AHBPlayerCharacter::SetBowPiercingCharge(const bool bCharge)
+{
+	if (bBowPiercingCharge == bCharge)
+	{
+		return;
+	}
+	bBowPiercingCharge = bCharge;
+	ApplyBowPiercingChargeVisual();
+}
+
+void AHBPlayerCharacter::OnRep_BowPiercingCharge()
+{
+	ApplyBowPiercingChargeVisual();
+}
+
+void AHBPlayerCharacter::ApplyBowPiercingChargeVisual()
+{
+	// 장전 화살은 머신마다 로컬로 만든다(데디 서버는 없다).
+	if (!HeldArrowActor)
+	{
+		return;
+	}
+
+	// 장전 화살 BP 에 단 관통 연출(기문 님 VFX 인계 3장). 기류 메시·빛은 보이기만 바꾸고, 나이아가라는 켜고 끈다(자동 활성화 꺼 둠).
+	// 끌 때 Deactivate 만 하면 남은 입자가 잠깐 보이므로 숨기기도 같이 한다.
+	static const FName PiercingChargeTag(TEXT("PiercingCharge"));
+	for (UActorComponent* Comp : HeldArrowActor->GetComponentsByTag(USceneComponent::StaticClass(), PiercingChargeTag))
+	{
+		USceneComponent* Scene = CastChecked<USceneComponent>(Comp);
+		Scene->SetVisibility(bBowPiercingCharge);
+		if (UNiagaraComponent* Niagara = Cast<UNiagaraComponent>(Scene))
+		{
+			if (bBowPiercingCharge)
+			{
+				Niagara->Activate(true);
+			}
+			else
+			{
+				Niagara->Deactivate();
+			}
+		}
+	}
+}
+
 UStaticMesh* AHBPlayerCharacter::GetHeldArrowMesh() const
 {
 	return CachedWeaponPresentation ? CachedWeaponPresentation->HeldArrowMesh.LoadSynchronous() : nullptr;
@@ -2970,12 +3004,41 @@ void AHBPlayerCharacter::RefreshShieldVisual()
 	RefreshTorchLight(0.f);
 }
 
+void AHBPlayerCharacter::SetHandEquipmentHidden(bool bHide)
+{
+	if (WeaponMeshComp)
+	{
+		WeaponMeshComp->SetHiddenInGame(bHide);
+	}
+	if (WeaponSkeletalMeshComp)
+	{
+		WeaponSkeletalMeshComp->SetHiddenInGame(bHide);
+	}
+
+	// 보조 손은 방패일 때만 숨긴다. 장비 갱신이 방패↔횃불을 바꿀 때도 다시 맞추도록 플래그로 남긴다.
+	bHandEquipmentHidden = bHide;
+	RefreshSecondaryEquipHidden();
+}
+
+void AHBPlayerCharacter::RefreshSecondaryEquipHidden()
+{
+	// 횃불은 숨기지 않는다. 메시만 사라지고 불빛은 허공에 남으며, 던전이 어두워진다.
+	if (ShieldMeshComp)
+	{
+		ShieldMeshComp->SetHiddenInGame(bHandEquipmentHidden && !bSecondaryIsTorch);
+	}
+}
+
 void AHBPlayerCharacter::ApplySecondaryEquipTransform(bool bTorch)
 {
 	if (!ShieldMeshComp)
 	{
 		return;
 	}
+
+	// 상호작용 중 방패↔횃불이 바뀌어도 숨김이 맞도록 여기서 기록하고 다시 맞춘다.
+	bSecondaryIsTorch = bTorch;
+	RefreshSecondaryEquipHidden();
 
 	if (!bShieldBaseTransformCaptured)
 	{

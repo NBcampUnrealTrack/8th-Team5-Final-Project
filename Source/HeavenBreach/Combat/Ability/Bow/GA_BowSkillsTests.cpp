@@ -181,6 +181,11 @@ bool FHBBowEvasiveShotDefaultsTest::RunTest(const FString&)
 	TestFalse(TEXT("좌클릭 입력 안 받음"), CDO->WantsAimInput());
 	CheckCostAndCooldown(*this, CDO, UGE_BowEvasiveCooldown::StaticClass(), ArcherTag::TAG_Cooldown_EvasiveShot);
 
+	// 후퇴는 몽타주 루트 모션(97.5cm)을 3m 로 늘린다.
+	TestEqual(TEXT("후퇴 3m"), CDO->GetRetreatDistance(), 300.f);
+	TestEqual(TEXT("몽타주 후퇴 97.5cm"), CDO->GetMontageRetreatDistance(), 97.5f);
+	TestEqual(TEXT("루트 모션 배율"), CDO->GetMontageRootMotionScale(), 300.f / 97.5f);
+
 	const TArray<FHBSkillAugment>& Augments = CDO->GetAugments();
 	if (!TestEqual(TEXT("증강 2개"), Augments.Num(), 2))
 	{

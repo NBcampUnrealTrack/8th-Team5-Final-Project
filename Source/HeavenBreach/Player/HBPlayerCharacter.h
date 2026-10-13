@@ -221,6 +221,12 @@ public:
 	// 활 스킬 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
 	void SetInBowSkillPose(bool bInPose);
 
+	// 관통 사격을 당기는 중인가. 장전 화살의 관통 기류·입자(컴포넌트 태그 PiercingCharge)가 이 동안 켜진다.
+	bool IsBowPiercingCharge() const { return bBowPiercingCharge; }
+
+	// 관통 사격 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
+	void SetBowPiercingCharge(bool bCharge);
+
 	// 장전 중 손에 보이는 화살 메시. 외형 행에 없으면 nullptr.
 	UFUNCTION(BlueprintPure, Category = "Player|Bow")
 	UStaticMesh* GetHeldArrowMesh() const;
@@ -542,34 +548,23 @@ protected:
 
 	// 방어구 내구도 감소량 = Clamp(FinalDamage * Ratio, Min, Max). 세게 맞을수록 더 닳는다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
-	float ArmorDurabilityLossRatio = 0.15f;
+	float ArmorDurabilityLossRatio = 0.05f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
 	float ArmorDurabilityLossMin = 1.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
-	float ArmorDurabilityLossMax = 10.f;
+	float ArmorDurabilityLossMax = 3.f;
 
 	// 방패 내구도 감소량 = Clamp(RawDamage * Ratio, Min, Max). 막아도 충격은 방패가 흡수한다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
-	float ShieldDurabilityLossRatio = 0.2f;
+	float ShieldDurabilityLossRatio = 0.05f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
 	float ShieldDurabilityLossMin = 1.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
-	float ShieldDurabilityLossMax = 15.f;
-
-	// 주무기 내구도 감소량 = Clamp(적에게 실제로 들어간 Damage * Ratio, Min, Max).
-	// 공격이 적중해야만(ResolveCreatureHit -> NotifyDamageDealt) 닳는다 - 헛스윙은 닳지 않는다.
-	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
-	float WeaponDurabilityLossRatio = 0.1f;
-
-	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
-	float WeaponDurabilityLossMin = 1.f;
-
-	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Durability", meta=(ClampMin="0.0"))
-	float WeaponDurabilityLossMax = 10.f;
+	float ShieldDurabilityLossMax = 3.f;
 
 	/** Development-only visualization: Warrior=red, Archer=green, Mage=blue. */
 	UPROPERTY(EditDefaultsOnly, Category="Player|Combat|Debug")
@@ -635,6 +630,16 @@ private:
 	// 이름을 bBowSkillActive 로 하지 않는다: BP_Test_BowCharacter(이 클래스의 자식)에 같은 이름의 BP 변수가 있다.
 	UPROPERTY(Replicated)
 	bool bInBowSkillPose = false;
+
+	// 관통 사격 당김 중. bDrawingBow 와 같은 방식(COND_SkipOwner). 바뀌면 장전 화살 연출을 맞춘다.
+	UPROPERTY(ReplicatedUsing = OnRep_BowPiercingCharge)
+	bool bBowPiercingCharge = false;
+
+	UFUNCTION()
+	void OnRep_BowPiercingCharge();
+
+	// 장전 화살에서 태그 PiercingCharge 가 붙은 컴포넌트를 bBowPiercingCharge 에 맞춘다(보이기 + 나이아가라 켜고 끄기).
+	void ApplyBowPiercingChargeVisual();
 
 	// 정적 무기 표시의 처음 상대 위치. 외형 행이 위치를 바꾼 무기에서 다른 무기로 바꿀 때 되돌린다.
 	FTransform DefaultWeaponMeshRelative;
@@ -853,7 +858,25 @@ protected:
 #pragma endregion 
 	
 #pragma region EquipmentVisual
-	
+
+public:
+	// 손에 든 주무기와 방패를 잠깐 숨긴다(횃불은 그대로). 상자·시체를 뒤지는 동안 손이 비어 보이게 한다.
+	// 각 머신이 직접 부른다(복제 없음). 부르는 쪽(UHBInteractAnimComponent)이 이미 모든 머신에서 돈다.
+	//
+	// 왜 SetVisibility 가 아니라 HiddenInGame 인가: 장비 갱신이 활 메시를 SetVisibility 로 켜고 끈다.
+	// 같은 플래그를 쓰면 상호작용 중 장비가 바뀔 때 숨김이 풀리거나, 끝날 때 꺼져 있어야 할 활이 켜진다.
+	void SetHandEquipmentHidden(bool bHide);
+
+private:
+	// 보조 손 숨김을 지금 상태(숨김 요청 + 횃불 여부)에 맞춘다.
+	void RefreshSecondaryEquipHidden();
+
+	// SetHandEquipmentHidden 로 숨김 요청 중인가.
+	bool bHandEquipmentHidden = false;
+
+	// 보조 손 슬롯이 지금 횃불인가. ApplySecondaryEquipTransform 이 기록한다.
+	bool bSecondaryIsTorch = false;
+
 protected:
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="Player|Equipment")
 	TObjectPtr<UStaticMeshComponent> WeaponMeshComp;
