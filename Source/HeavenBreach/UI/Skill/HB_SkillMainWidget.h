@@ -26,12 +26,13 @@ struct FHBJobSkillData;
  * StartingLoadout 하나뿐이고, 여기서는 그것을 비추고 변경 요청만 보낸다.
  *
  *   화면 오른쪽에 액티브 목록과 패시브 목록이 처음부터 같이 보인다.
- *   1) 왼쪽에서 바꿀 슬롯(Q, E, 패시브)을 먼저 클릭한다. 같은 슬롯을 다시 누르면 선택이 풀린다.
- *   2) 오른쪽 목록에서 스킬 아이콘을 클릭하면 그 슬롯에 바로 장착 요청 (장착 버튼이 없다)
+ *   1) 목록의 스킬 아이콘을 마우스로 끌어 왼쪽 장착 슬롯(Q, E, 패시브)에 놓으면 그 슬롯에 바로 장착 요청 (장착 버튼이 없다)
  *      → 서버 확정 → 복제 → 화면 갱신
- *   슬롯을 고르지 않고 누른 스킬이나 슬롯 종류와 맞지 않는 스킬은 무시한다.
- *   슬롯에 이미 들어 있는 스킬을 그 슬롯이 선택된 채로 다시 클릭하면 장착이 풀린다.
- *   Q 가 선택됐는데 E 에 있는 스킬을 고르면 둘을 맞바꾼다 (Q == E 가 되지 않게).
+ *   2) Q/E 칸은 액티브만, 패시브 칸은 패시브만 받는다. 종류가 안 맞으면 놓아도 아무 일이 없다.
+ *   3) 이미 다른 칸에 있는 스킬을 Q/E 칸에 놓으면 둘을 맞바꾼다 (Q == E 가 되지 않게).
+ *   4) 슬롯에 든 스킬을 다른 슬롯에 끌어다 놓으면 옮기거나 맞바꾸고, 슬롯 밖(이 화면의 다른 곳)에 놓으면 장착이 풀린다.
+ *   5) 목록의 스킬을 클릭하면 "집은" 상태가 되어, 그 스킬이 들어갈 수 있는 슬롯에 안내 표시가 뜬다. 다시 클릭하면 푼다.
+ *      끌고 있는 동안에도 같은 안내가 뜬다. 클릭만으로는 장착되지 않는다.
  *   이름, 설명, 마나, 쿨타임은 아이콘에 마우스를 올렸을 때 툴팁으로 보인다.
  *
  * 쳐낼 조건: 서버 왕복 지연이 눈에 거슬리면 로컬 낙관적 표시를 넣게 된다.
@@ -72,6 +73,12 @@ protected:
 
     /** 게임패드·키보드 조작 시 첫 포커스를 Q 슬롯에 준다. */
     virtual UWidget* NativeGetDesiredFocusTarget() const override;
+
+    /**
+     * 장착 슬롯에서 끌어낸 스킬을 슬롯이 아닌 곳에 놓으면 여기까지 올라온다. 그 슬롯의 장착을 푼다.
+     * 화면 배경이 마우스를 받지 못하는 상태(Visibility)면 이 함수까지 오지 않는다.
+     */
+    virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
     // ---- UMG 바인딩. WBP 가 이 이름으로 물려 있으므로 바꾸지 말 것 ----
 
@@ -131,22 +138,24 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI | Skill Catalog")
     FMargin CardPadding = FMargin(6.0f);
 
-    /** 장착하고 나면 슬롯 선택을 푼다. 끄면 같은 슬롯에 여러 스킬을 연달아 눌러 볼 수 있다. */
-    UPROPERTY(EditAnywhere, Category = "UI Setup")
-    bool bDeselectSlotAfterEquip = true;
-
-    /** 슬롯을 골랐을 때 그 슬롯과 종류가 맞지 않는 쪽 목록의 불투명도. 어느 목록을 눌러야 하는지 알려 준다. */
-    UPROPERTY(EditAnywhere, Category = "UI Setup", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-    float InactiveListOpacity = 0.4f;
-
 private:
     // ---- 이벤트 핸들러 ----
 
+    /** 스킬을 슬롯에 끌어다 놓았다. SourceSlot 이 None 이면 목록에서 온 것이다. */
     UFUNCTION()
-    void OnSkillSlotClicked(ESkillSlotType ClickedSlotType);
+    void OnSkillDroppedOnSlot(ESkillSlotType TargetSlot, FName SkillId, ESkillSlotType SourceSlot);
 
+    /** 목록의 스킬을 클릭했다. 집고 있지 않으면 집고, 이미 집은 스킬이면 놓는다. */
     UFUNCTION()
     void OnSkillIconClicked(FName ClickedSkillId);
+
+    /** 목록의 스킬을 끌기 시작했다. 끌고 있는 동안에도 집은 것으로 보고 슬롯에 안내를 띄운다. */
+    UFUNCTION()
+    void OnSkillIconDragStarted(FName DraggedSkillId, UDragDropOperation* Operation);
+
+    /** 끌기가 끝났다(슬롯에 놓았거나 취소했다). 집은 상태를 푼다. */
+    UFUNCTION()
+    void OnSkillDragFinished(UDragDropOperation* Operation);
 
     UFUNCTION()
     void HandleStartingLoadoutChanged();
@@ -180,16 +189,22 @@ private:
     /** 선택한 직업의 기본 능력치를 글자 칸에 채운다. */
     void RefreshJobStats();
 
-    /**
-     * 바꿀 슬롯을 고른다. None 이면 선택을 푼다.
-     * 슬롯의 선택 표시와, 종류가 맞지 않는 목록의 흐림을 같이 맞춘다.
-     */
-    void SelectSlot(ESkillSlotType NewSelection);
+    /** 로드아웃을 서버에 보낸다. 이 요청이 곧 저장이다. */
+    void SubmitLoadout(const FHBStartingLoadout& NewLoadout);
+
+    // ---- 집은 스킬 ----
+    // 목록의 스킬을 클릭하면 "집은" 상태가 된다. 집은 동안 그 스킬이 들어갈 수 있는 장착 슬롯에 안내(SetDropHintActive)가 뜬다.
+    // 장착은 하지 않는다. 장착은 끌어다 놓아서만 한다.
+
+    /** None 이면 집은 스킬이 없는 것이다. 카드와 슬롯의 표시를 같이 맞춘다. */
+    void SetHeldSkill(FName InSkillId);
+
+    /** 집은 스킬이 들어갈 수 있는 슬롯에만 안내를 켠다. 이미 그 슬롯에 들어 있으면 켜지 않는다. */
+    void RefreshDropHints();
+
+    FName HeldSkillId;
 
     void UnbindFromPlayerState();
-
-    /** 지금 선택된 슬롯. 스킬 아이콘을 누르면 이 슬롯에 들어간다. None 이면 아이콘을 눌러도 아무 일도 없다. */
-    ESkillSlotType SelectedSlot = ESkillSlotType::None;
 
     /** 지금 그려진 목록의 카드들. SkillId 로 찾아서 장착 표시를 갱신한다. */
     UPROPERTY(Transient)

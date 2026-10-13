@@ -28,6 +28,9 @@ enum class ESkillSlotType : uint8
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSkillSlotClicked, ESkillSlotType, SlotType);
 
+/** 스킬을 이 슬롯에 끌어다 놓았다. SourceSlot 이 None 이면 목록에서, 아니면 다른 슬롯에서 온 것이다. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnSkillDroppedOnSlot, ESkillSlotType, TargetSlot, FName, SkillId, ESkillSlotType, SourceSlot);
+
 UCLASS()
 class HEAVENBREACH_API UHB_SkillSlotWidget : public UUserWidget
 {
@@ -42,9 +45,20 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Skill Slot|Events")
 	FOnSkillSlotClicked OnSlotClicked;
 
+	/** 스킬을 이 슬롯에 끌어다 놓으면 불린다. 장착 여부 판단은 받는 쪽(UHB_SkillMainWidget)이 한다. */
+	UPROPERTY(BlueprintAssignable, Category = "Skill Slot|Events")
+	FOnSkillDroppedOnSlot OnSkillDropped;
+
 	// 나중에 스킬이 선택되었을 때 아이콘 이미지를 교체하기 위한 함수
 	UFUNCTION(BlueprintCallable, Category = "Skill Slot")
 	void SetSkillIcon(UTexture2D* NewIcon);
+
+	/**
+	 * 이 슬롯에 들어 있는 스킬. None 이면 빈 슬롯이다.
+	 * 슬롯에서 스킬을 끌어내 다른 슬롯으로 옮기거나 밖으로 빼서 해제할 때 어떤 스킬인지 알아야 한다.
+	 */
+	void SetEquippedSkillId(FName InSkillId) { EquippedSkillId = InSkillId; }
+	FName GetEquippedSkillId() const { return EquippedSkillId; }
 
 	/**
 	 * 이 슬롯이 지금 "편집 중"(클릭해서 고정된) 상태인지 설정한다.
@@ -59,6 +73,24 @@ public:
 	bool IsSlotSelected() const { return bIsSlotSelected; }
 
 	/**
+	 * "집고 있는 스킬을 이 슬롯에 놓을 수 있다"는 안내를 켜고 끈다.
+	 * 목록에서 스킬을 클릭해 집었거나 끌고 있을 때, 그 스킬이 들어갈 수 있는 슬롯만 켜진다.
+	 * 선택(SetSlotSelected)이나 마우스 호버와는 별개의 상태다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Skill Slot")
+	void SetDropHintActive(bool bActive);
+
+	UFUNCTION(BlueprintPure, Category = "Skill Slot")
+	bool IsDropHintActive() const { return bIsDropHintActive; }
+
+	/**
+	 * 안내가 켜지거나 꺼질 때마다 불린다. WBP 그래프에서 구현해서 이펙트(테두리 점멸, 글로우 등)를 넣는다.
+	 * true 면 Play Animation(루프 가능), false 면 정지하거나 Reverse.
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Skill Slot|Events")
+	void OnDropHintChanged(bool bActive);
+
+	/**
 	 * bIsSlotSelected 가 바뀔 때마다 불린다. WBP 그래프에서 이걸 구현해서
 	 * 글로우 애니메이션을 켜고 끈다 (true 면 Play Animation, false 면 Play
 	 * Animation Reverse). OnUnhovered 쪽에서는 IsSlotSelected() 가 true 인
@@ -69,6 +101,23 @@ public:
 
 protected:
 	virtual void NativeConstruct() override;
+
+	// ---- 끌어다 놓기 ----
+	// 끌어 온 스킬이 이 슬롯에 맞으면(Q/E = 액티브, 패시브 칸 = 패시브) 슬롯의 "선택" 표시(OnSlotSelectedChanged)를
+	// 놓을 수 있다는 신호로 켠다. 이미 WBP 에 만들어 둔 선택 글로우가 그대로 쓰인다.
+
+	/** 버튼이 마우스 누름을 먼저 먹으므로 Preview 에서 끌기를 감지한다. 비어 있는 슬롯은 가로채지 않는다. */
+	virtual FReply NativeOnPreviewMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
+	virtual void NativeOnDragEnter(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+	virtual void NativeOnDragLeave(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+	virtual bool NativeOnDragOver(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+	virtual void NativeOnDragCancelled(const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
+
+	/** 슬롯에서 끌 때 커서에 붙는 아이콘의 한 변 크기. */
+	UPROPERTY(EditAnywhere, Category = "Skill Slot|Drag", meta = (ClampMin = "16.0"))
+	float DragVisualSize = 72.0f;
 
 	// 블루프린트 위젯의 컴포넌트와 동일한 이름으로 생성해야 바인딩 됨
 	UPROPERTY(meta = (BindWidget))
@@ -98,6 +147,13 @@ private:
 	/** WBP 디자이너가 SkillIconImage 에 세팅해 둔 기본(빈 슬롯) 브러시. NativeConstruct 에서 캐싱한다. */
 	FSlateBrush DefaultIconBrush;
 
-	/** 지금 이 슬롯이 클릭으로 고정 선택된 상태인가. */
+	/** 지금 이 슬롯의 선택 표시가 켜진 상태인가. 끌어 온 스킬을 받을 수 있을 때 켠다. */
 	bool bIsSlotSelected = false;
+
+	bool bIsDropHintActive = false;
+
+	FName EquippedSkillId;
+
+	/** 끌 때 보여 줄 아이콘. */
+	TWeakObjectPtr<UTexture2D> CurrentIcon;
 };
