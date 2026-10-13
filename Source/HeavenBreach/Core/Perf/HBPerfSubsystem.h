@@ -8,6 +8,7 @@ class UTimelineComponent;
 class USceneCaptureComponent2D;
 class ULocalLightComponent;
 class ULevel;
+class AHBDungeonRuntime;
 
 UCLASS()
 class HEAVENBREACH_API UHBPerfSubsystem : public UTickableWorldSubsystem
@@ -32,6 +33,7 @@ private:
 	void UpdateShadows(bool bEnabled);
 	void UpdateLightCull(bool bEnabled);
 	bool GetLocalView(FVector& OutLocation, APawn*& OutPawn) const;
+	bool FindCurrentRoomBounds(const FVector& Location, FBox& OutBounds);
 
 	struct FShadowLight
 	{
@@ -49,6 +51,7 @@ private:
 	TArray<TWeakObjectPtr<UTimelineComponent>> TorchTimelines;
 	TArray<FShadowLight> ShadowLights;
 	TArray<FCullLight> CullLights;
+	TWeakObjectPtr<AHBDungeonRuntime> DungeonRuntime;
 	float LightCullTimer = 0.f;
 	bool bWasLightCullEnabled = true;
 	float ShadowTimer = 0.f;
