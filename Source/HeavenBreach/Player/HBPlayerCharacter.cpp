@@ -23,6 +23,7 @@
 #include "Player/HBWeaponPresentation.h"
 #include "Player/HBJumpFeel.h"
 #include "Player/HBFallDamage.h"
+#include "Player/HBStamina.h"
 #include "Player/HBFootstepComponent.h"
 #include "Player/HBFootstepComponent.h"
 #include "Player/HBPlayerCorpseInventory.h"
@@ -214,13 +215,13 @@ void AHBPlayerCharacter::BeginPlay()
 	{
 		GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 
-		LastManaActivityTime = GetWorld()->GetTimeSeconds();
+		LastStaminaActivityTime = GetWorld()->GetTimeSeconds();
 
 		GetWorldTimerManager().SetTimer(
-			ManaResourceTimer,
+			ResourceTimer,
 			this,
-			&AHBPlayerCharacter::UpdateManaResource,
-			ManaResourceTickInterval,
+			&AHBPlayerCharacter::UpdateResources,
+			ResourceTickInterval,
 			true
 		);
 
@@ -729,7 +730,6 @@ void AHBPlayerCharacter::ApplyMeleeHit_Implementation(AActor* InstigatorActor, f
 		{
 			const float ManaSpent = FMath::Min(10.f, Attributes->GetPlayer_Mana());
 			Attributes->SetPlayer_Mana(Attributes->GetPlayer_Mana() - ManaSpent);
-			if (ManaSpent > 0.f) NotifyManaActivity();
 			if (ManaSpent > 0.f) AdditionalMultiplier *= 0.6f;
 		}
 	}
@@ -1428,8 +1428,7 @@ float AHBPlayerCharacter::ModifyManaCost(FGameplayTag SourceTag, float Cost) con
 	// 반대로 하면 기본값이 작은 스킬에서 정액의 비중이 폭발한다.
 	const float Final = (Cost + Flat) * Multiplier;
 
-	// 달리기만의 보정(전투 호흡)은 여기 두지 않고 GetSprintManaCostPerSecond 에서 곱한다.
-	// 달리기는 비용 출처 태그가 없어(빈 태그) 여기서는 스킬과 구별할 수 없다.
+	// 스킬 마나 비용 전용이다. 달리기·방어는 스태미나라 여기를 지나지 않는다(GetSprintStaminaCostPerSecond).
 
 	// 마나소비는 최소0 이 정상이다
 	return FMath::Max(0.f, Final);
@@ -1596,9 +1595,6 @@ void AHBPlayerCharacter::ConsumeMana(float Cost)
 		return;
 
 	ASC->ApplyModToAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -Cost);
-
-	// 빼먹으면 공격을 난사해도 3초 뒤부터 마나가 차오른다. 달리기/방어와 같은 규칙.
-	NotifyManaActivity();
 }
 
 const FGameplayTagContainer* AHBPlayerCharacter::GetSkillCooldownTags(const FName SkillId) const
@@ -2273,19 +2269,20 @@ bool AHBPlayerCharacter::CanSprint() const
 		return false;
 	}
 
-	// 마나가 없으면 달릴 수 없다. 달리는 동안 계속 소모하기 때문이다.
-	// 전투 호흡으로 소모가 0 이면 마나와 상관없이 달린다.
-	return GetSprintManaCostPerSecond() <= 0.f
-		|| ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute()) > 0.f;
+	// 스태미나가 없으면 달릴 수 없다. 달리는 동안 계속 소모하기 때문이다.
+	// 전투 호흡으로 소모가 0 이면 스태미나와 상관없이 달린다.
+	return GetSprintStaminaCostPerSecond() <= 0.f
+		|| ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_StaminaAttribute()) > 0.f;
 }
 
-float AHBPlayerCharacter::GetSprintManaCostPerSecond() const
+float AHBPlayerCharacter::GetSprintStaminaCostPerSecond() const
 {
+	// 스킬 비용 보정(ModifyManaCost)은 스태미나에 안 건다. 달리기 배율만 곱한다.
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
 	const float SprintMultiplier = ASC
-		? FMath::Max(0.f, ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute()))
+		? ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_SprintStaminaCostMultiplierAttribute())
 		: 1.f;
-	return ModifyManaCost(FGameplayTag(), SprintManaCostPerSecond) * SprintMultiplier;
+	return HBStamina::SprintCostPerSecond(SprintStaminaCostPerSecond, SprintMultiplier);
 }
 
 void AHBPlayerCharacter::StartSprint()
@@ -2329,22 +2326,23 @@ void AHBPlayerCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
 		bIsSprinting = CanSprint();
 	}
 
-	if (bIsSprinting)
+	// 공짜 달리기(전투 호흡)는 스태미나를 안 쓰므로 회복 대기를 걸지 않는다.
+	if (bIsSprinting && GetSprintStaminaCostPerSecond() > 0.f)
 	{
-		NotifyManaActivity();
+		NotifyStaminaActivity();
 	}
 	RefreshMovementSpeed();
 }
 
-void AHBPlayerCharacter::NotifyManaActivity()
+void AHBPlayerCharacter::NotifyStaminaActivity()
 {
 	if (HasAuthority() && GetWorld())
 	{
-		LastManaActivityTime = GetWorld()->GetTimeSeconds();
+		LastStaminaActivityTime = GetWorld()->GetTimeSeconds();
 	}
 }
 
-void AHBPlayerCharacter::UpdateManaResource()
+void AHBPlayerCharacter::UpdateResources()
 {
 	if (!HasAuthority() || !GetWorld())
 	{
@@ -2357,54 +2355,48 @@ void AHBPlayerCharacter::UpdateManaResource()
 		return;
 	}
 
+	// 마나는 대기 없이 항상 찬다(스킬만 쓴다). 스태미나는 달리기·방어 유지가 쓰고, 안 쓰면 대기 뒤 찬다.
+	// 계산은 HBStamina::ComputeTick 에 있다(테스트 HeavenBreach.Stamina.Tick).
+	// 견고한 자세: 홀드 방어 초당 소모에 배수를 곱한다. 스킬 비용 보정(ModifyManaCost)은 스태미나에 안 건다.
 	const bool bBlocking = ASC->HasMatchingGameplayTag(StateTag::TAG_State_Blocking);
-	const float CurrentMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
-
-	// 실제로 깎이는 게 있을 때만 "마나를 쓰는 중" 이다.
-	// 전투 호흡으로 달리기가 공짜면, 달리는 동안에도 회복되고 마나 0 에서 멈추지도 않는다.
-	// 견고한 자세: 홀드 방어 초당 소모에 배수를 곱한다.
-	const float BlockCostScale = bBlocking
+	const float BlockScale = bBlocking
 		? HBMelee::SteadyStanceMultiplier(
 			ASC->HasMatchingGameplayTag(MeleeTag::TAG_State_SteadyStance),
 			GetAugmentTier(MeleeTag::TAG_Augment_Passive_SteadyStance_Boost))
 		: 1.f;
-	const float CostPerSecond = (bIsSprinting ? GetSprintManaCostPerSecond() : 0.f)
-								+ (bBlocking ? ModifyManaCost(StateTag::TAG_State_Blocking, BlockManaCostPerSecond * BlockCostScale) : 0.f);
 
-	if (CostPerSecond > 0.f)
+	HBStamina::FResourceTickInput In;
+	In.Mana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute());
+	In.MaxMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute());
+	In.ManaRegenPerSecond = ManaRegenPerSecond;
+	In.ManaRegenFlat = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenFlatAttribute());
+	In.ManaRegenMultiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenMultiplierAttribute());
+	In.Stamina = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_StaminaAttribute());
+	In.MaxStamina = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxStaminaAttribute());
+	In.StaminaRegenPerSecond = StaminaRegenPerSecond;
+	In.StaminaRegenMultiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_StaminaRegenMultiplierAttribute());
+	In.StaminaRegenDelay = StaminaRegenDelay;
+	In.SecondsSinceStaminaUse = GetWorld()->GetTimeSeconds() - LastStaminaActivityTime;
+	In.SprintCostPerSecond = bIsSprinting ? GetSprintStaminaCostPerSecond() : 0.f;
+	In.BlockCostPerSecond = bBlocking ? HBStamina::BlockCostPerSecond(BlockStaminaCostPerSecond, BlockScale) : 0.f;
+	In.Interval = ResourceTickInterval;
+
+	const HBStamina::FResourceTickResult Out = HBStamina::ComputeTick(In);
+	if (Out.ManaDelta != 0.f)
 	{
-		NotifyManaActivity();
-		const float ManaCost = FMath::Min(CurrentMana, CostPerSecond * ManaResourceTickInterval);
-		if (ManaCost > 0.f)
-		{
-			ASC->ApplyModToAttribute(
-				UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, -ManaCost);
-		}
-		if (CurrentMana <= ManaCost + KINDA_SMALL_NUMBER)
-		{
-			StopManaActionsAtZero();
-		}
-		return;
+		ASC->ApplyModToAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, Out.ManaDelta);
 	}
-
-	if (GetWorld()->GetTimeSeconds() - LastManaActivityTime < ManaRegenDelay)
+	if (Out.StaminaDelta != 0.f)
 	{
-		return;
+		ASC->ApplyModToAttribute(UHB_PlayerAttributeSet::GetPlayer_StaminaAttribute(), EGameplayModOp::Additive, Out.StaminaDelta);
 	}
-
-	const float MaxMana = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute());
-
-	// (기본 회복 + 옵션+) × (1.0 + 옵션%). 쿨다운과 같은 모양이다. 장비의 마나 회복 옵션이 여기로 온다.
-	// 0 에서 자르는 이유: - 옵션이 쌓여도 "회복" 이 마나를 깎아서는 안 된다.
-	const float RegenFlat = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenFlatAttribute());
-	const float RegenMultiplier = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_ManaRegenMultiplierAttribute());
-	const float RegenPerSecond = FMath::Max(0.f, (ManaRegenPerSecond + RegenFlat) * RegenMultiplier);
-
-	const float ManaToRestore = FMath::Min(MaxMana - CurrentMana, RegenPerSecond * ManaResourceTickInterval);
-	if (ManaToRestore > 0.f)
+	if (Out.bStaminaUsed)
 	{
-		ASC->ApplyModToAttribute(
-			UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), EGameplayModOp::Additive, ManaToRestore);
+		NotifyStaminaActivity();
+	}
+	if (Out.bStopStaminaActions)
+	{
+		StopStaminaActionsAtZero();
 	}
 }
 
@@ -2458,7 +2450,7 @@ void AHBPlayerCharacter::UpdateHealthRegen()
 	ReceiveHeal(RegenPerSecond * HealthRegenTickInterval);
 }
 
-void AHBPlayerCharacter::StopManaActionsAtZero()
+void AHBPlayerCharacter::StopStaminaActionsAtZero()
 {
 	if (bIsSprinting)
 	{

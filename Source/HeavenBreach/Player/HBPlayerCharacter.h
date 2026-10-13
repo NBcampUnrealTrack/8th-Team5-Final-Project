@@ -132,8 +132,8 @@ public:
 	UFUNCTION(BlueprintPure, Category="Player|Abilities")
 	int32 GetSkillUpgradeLevel(FName SkillId) const;
 
-	/** Resets the mana regeneration delay after an action consumes mana. Server authoritative. */
-	void NotifyManaActivity();
+	/** 스태미나를 쓴 시각을 기록해 회복 대기(StaminaRegenDelay)를 다시 건다. 서버 전용. 마나는 대기가 없다. */
+	void NotifyStaminaActivity();
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UInventoryComponent* GetInventory() const;
@@ -449,8 +449,8 @@ public:
 	// 비용만큼 마나가 있는가. 클라도 읽어서 즉시 막는다.
 	bool HasEnoughMana(float Cost) const;
 
-	// 달리기의 초당 마나. 전역 보정 뒤 전투 호흡(SprintManaCostMultiplier)까지 곱한 값.
-	float GetSprintManaCostPerSecond() const;
+	// 달리기의 초당 스태미나. 달리기 배율(전투 호흡·사냥꾼의 호흡)까지 곱한 값. 스킬 비용 보정은 안 받는다.
+	float GetSprintStaminaCostPerSecond() const;
 
 	// 스킬id로 해당 스킬의 남은 쿨타임 / 총 쿨타임.
 	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
@@ -660,29 +660,36 @@ private:
 	FActiveGameplayEffectHandle KillingMomentumEffectHandle;
 	FTimerHandle CombatInstinctTimer;
 
-	void UpdateManaResource();
-	void StopManaActionsAtZero();
+	// 서버 타이머. 스태미나(달리기·방어 소모, 대기 뒤 회복)와 마나(항상 회복)를 처리한다.
+	// 스태미나 = 행동, 마나 = 스킬(Docs/스태미나-마나-분리-설계.md).
+	void UpdateResources();
+	void StopStaminaActionsAtZero();
 	// SkillId로 쿨다운 GE 의 부여 태그 조회
 	const FGameplayTagContainer* GetSkillCooldownTags(FName SkillId) const;
 
+	// 마지막으로 스태미나를 쓴 뒤 이 시간이 지나야 스태미나가 찬다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float ManaRegenDelay = 2.f;
+	float StaminaRegenDelay = 2.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float ManaRegenPerSecond = 10.f;
+	float StaminaRegenPerSecond = 10.f;
 
-	// 일반공격이 마나를 안 쓰게 되며 5 에서 절반으로 줄였다.
+	// 일반공격이 자원을 안 쓰게 되며 5 에서 절반으로 줄였다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float SprintManaCostPerSecond = 2.5f;
+	float SprintStaminaCostPerSecond = 2.5f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float BlockManaCostPerSecond = 4.f;
+	float BlockStaminaCostPerSecond = 4.f;
+
+	// 마나 자연 회복. 대기 없이 항상 찬다. 장비 Player_ManaRegenFlat/Multiplier 가 붙는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float ManaRegenPerSecond = 2.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
-	float ManaResourceTickInterval = 0.25f;
+	float ResourceTickInterval = 0.25f;
 
-	FTimerHandle ManaResourceTimer;
-	double LastManaActivityTime = 0.0;
+	FTimerHandle ResourceTimer;
+	double LastStaminaActivityTime = 0.0;
 
 	// ===== 체력 재생 =====
 	// 서버 틱. (기본 재생 + 장비 +) × 배율 만큼 ReceiveHeal 로 채운다. 마나 회복과 같은 모양이다.
@@ -693,7 +700,7 @@ private:
 	float HealthRegenPerSecond = 0.f;
 
 	// 맞은 뒤 재생이 멈추는 시간(초). 0 이면 멈추지 않는다.
-	// 마나의 ManaRegenDelay 와 같은 역할. 기준 시각은 ApplyMeleeHit 가 기록하는 LastDamageReceivedTime.
+	// 스태미나의 StaminaRegenDelay 와 같은 역할. 기준 시각은 ApplyMeleeHit 가 기록하는 LastDamageReceivedTime.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
 	float HealthRegenDelayAfterHit = 0.f;
 

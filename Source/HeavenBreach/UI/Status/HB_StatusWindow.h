@@ -50,7 +50,7 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> Text_HP;
 
-	/** 스태미나. 내부적으로는 Player_Mana 를 쓴다. */
+	/** 스태미나(Player_Stamina). 마나는 HUD 의 MP 바에 있다. */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> Text_Stamina;
 
