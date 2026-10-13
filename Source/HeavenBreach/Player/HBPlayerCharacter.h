@@ -221,6 +221,12 @@ public:
 	// 활 스킬 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
 	void SetInBowSkillPose(bool bInPose);
 
+	// 관통 사격을 당기는 중인가. 장전 화살의 관통 기류·입자(컴포넌트 태그 PiercingCharge)가 이 동안 켜진다.
+	bool IsBowPiercingCharge() const { return bBowPiercingCharge; }
+
+	// 관통 사격 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
+	void SetBowPiercingCharge(bool bCharge);
+
 	// 장전 중 손에 보이는 화살 메시. 외형 행에 없으면 nullptr.
 	UFUNCTION(BlueprintPure, Category = "Player|Bow")
 	UStaticMesh* GetHeldArrowMesh() const;
@@ -635,6 +641,16 @@ private:
 	// 이름을 bBowSkillActive 로 하지 않는다: BP_Test_BowCharacter(이 클래스의 자식)에 같은 이름의 BP 변수가 있다.
 	UPROPERTY(Replicated)
 	bool bInBowSkillPose = false;
+
+	// 관통 사격 당김 중. bDrawingBow 와 같은 방식(COND_SkipOwner). 바뀌면 장전 화살 연출을 맞춘다.
+	UPROPERTY(ReplicatedUsing = OnRep_BowPiercingCharge)
+	bool bBowPiercingCharge = false;
+
+	UFUNCTION()
+	void OnRep_BowPiercingCharge();
+
+	// 장전 화살에서 태그 PiercingCharge 가 붙은 컴포넌트를 bBowPiercingCharge 에 맞춘다(보이기 + 나이아가라 켜고 끄기).
+	void ApplyBowPiercingChargeVisual();
 
 	// 정적 무기 표시의 처음 상대 위치. 외형 행이 위치를 바꾼 무기에서 다른 무기로 바꿀 때 되돌린다.
 	FTransform DefaultWeaponMeshRelative;

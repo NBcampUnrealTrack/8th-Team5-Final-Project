@@ -7,7 +7,7 @@
 #include "GA_MagicTeleport.generated.h"
 
 /**
- * 순간 이동 (마법 액티브, 설계 2.1). 0.3초 뒤 바라보는 방향(Yaw)으로 지면 위 400cm 를 순간 이동한다.
+ * 순간 이동 (마법 액티브, 설계 2.1). 0.3초 뒤 바라보는 방향(Yaw)으로 지면 위 700cm 를 순간 이동한다.
  * 벽·낭떠러지·높이차(1m 초과)로 갈 수 없으면 비용 없이 끝난다(CanRelease 에서 목적지를 검사한다).
  * 성공하면 출발·도착 지점에서 각각 큐를 한 번씩 실행한다. 증강: 장거리(거리), 재빠른(쿨다운).
  */
@@ -34,7 +34,7 @@ protected:
 
 	/** 기본 이동 거리. 장거리 증강(SkillParam.Distance)이 이 값을 대신한다 */
 	UPROPERTY(EditDefaultsOnly, Category = "Teleport", meta = (ClampMin = "0.0", Units = "cm"))
-	float Distance = 400.f;
+	float Distance = 700.f;
 
 	/** 벽에 막혔을 때 막힌 지점에서 물러나는 거리 */
 	UPROPERTY(EditDefaultsOnly, Category = "Teleport", meta = (ClampMin = "0.0", Units = "cm"))

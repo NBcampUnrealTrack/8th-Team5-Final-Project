@@ -324,7 +324,18 @@ void AHBPlayerArrow::OnRep_StuckState()
 	}
 
 	CollisionComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	TrailComp->Deactivate();
+
+	// 비행 연출을 끈다. BP 자식(관통 화살)이 단 것까지: 나이아가라는 전부, 기류 메시·빛은 FlightOnly 태그가 붙은 것.
+	TInlineComponentArray<UNiagaraComponent*> Niagaras(this);
+	for (UNiagaraComponent* Niagara : Niagaras)
+	{
+		Niagara->Deactivate();
+	}
+	static const FName FlightOnlyTag(TEXT("FlightOnly"));
+	for (UActorComponent* Comp : GetComponentsByTag(USceneComponent::StaticClass(), FlightOnlyTag))
+	{
+		CastChecked<USceneComponent>(Comp)->SetVisibility(false);
+	}
 
 	if (StuckState.Kind == EHBArrowStuckKind::World)
 	{

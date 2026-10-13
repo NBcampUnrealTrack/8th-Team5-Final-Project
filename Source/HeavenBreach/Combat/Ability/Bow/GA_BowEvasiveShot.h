@@ -12,6 +12,8 @@ class AHBPlayerArrow;
 /**
  * 회피 공격 (활 액티브, 설계 1장·2.9·2.10).
  * 뒤로 RetreatDistance 만큼 물러나며(RetreatStart~RetreatStart+RetreatDuration) FireDelay 에 화살 1발을 자동으로 쏜다. 공중 사용 불가.
+ * 몽타주 루트 모션을 쓰면(bUseMontageRootMotion) 몽타주의 후퇴 거리를 RetreatDistance 에 맞게 늘린다.
+ * 발동 동안 당김 상태를 켠다. 손 화살(BP_BowHeldArrow)이 이 값과 시위 접촉 곡선을 보고 보인다.
  *
  * 비용·쿨다운·몽타주는 부모(UHBPlayerActiveGABase)가 시작하자마자 낸다. 화살이 없으면 커밋 전에 거절(무소모 + 안내).
  * 후퇴는 UAbilityTask_ApplyRootMotionConstantForce 로 서버·예측 클라가 같이 준다(CMC 루트 모션 예측).
@@ -34,6 +36,12 @@ public:
 	// 장착한 활의 BowVariant 로 VariantMontages 를 찾는다. 없으면 부모의 Montage.
 	virtual UAnimMontage* GetMontageToPlay() const override;
 
+	float GetRetreatDistance() const { return RetreatDistance; }
+	float GetMontageRetreatDistance() const { return MontageRetreatDistance; }
+
+	/** 몽타주 루트 모션 이동에 곱할 배율. RetreatDistance / MontageRetreatDistance. 몽타주 거리가 0 이면 1 */
+	float GetMontageRootMotionScale() const;
+
 protected:
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
@@ -55,9 +63,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "EvasiveShot|Ammo")
 	FText NoArrowMessage = NSLOCTEXT("BowEvasiveShot", "NoArrow", "화살이 없습니다");
 
-	/** 뒤로 물러나는 거리 */
+	/** 뒤로 물러나는 거리. 몽타주 루트 모션을 쓰면 몽타주 이동을 이 거리에 맞게 늘린다 */
 	UPROPERTY(EditDefaultsOnly, Category = "EvasiveShot|Retreat", meta = (ClampMin = "0.0", Units = "cm"))
-	float RetreatDistance = 97.5f;
+	float RetreatDistance = 300.f;
+
+	/** 몽타주 루트 모션에 들어 있는 후퇴 거리(기문 님 인계 3.4장, _LongDraw 3종 공통). 몽타주를 바꾸면 같이 고칠 것 */
+	UPROPERTY(EditDefaultsOnly, Category = "EvasiveShot|Retreat", meta = (ClampMin = "0.0", Units = "cm"))
+	float MontageRetreatDistance = 97.5f;
 
 	/** 발동부터 후퇴 시작까지 */
 	UPROPERTY(EditDefaultsOnly, Category = "EvasiveShot|Retreat", meta = (ClampMin = "0.0", Units = "s"))
@@ -112,4 +124,10 @@ private:
 
 	/** 이번 발동에서 화살을 이미 쐈는가(시도 포함). ActivateAbility 에서 초기화 */
 	bool bArrowFired = false;
+
+	/** 루트 모션 배율을 바꿨는가. 바꾼 경우에만 EndAbility 에서 되돌린다 */
+	bool bRootMotionScaled = false;
+
+	/** 바꾸기 전 루트 모션 배율 */
+	float SavedRootMotionScale = 1.f;
 };

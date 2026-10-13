@@ -128,7 +128,7 @@ bool FHBMagicTeleportDefaultsTest::RunTest(const FString&)
 	TestEqual(TEXT("실제 지연 0.3초"), HBMagic::CastReleaseDelay(CDO->GetReleaseTime(), CDO->GetMontagePlayRate(), 1.f), 0.3f);
 	TestEqual(TEXT("손 이펙트 종류 순간이동"), CDO->GetCastHandFxIndex(), 2);
 	TestEqual(TEXT("손 이펙트 크기"), CDO->GetCastHandScale(), 0.16f);
-	TestEqual(TEXT("거리 400"), CDO->GetDistance(), 400.f);
+	TestEqual(TEXT("거리 700"), CDO->GetDistance(), 700.f);
 	TestEqual(TEXT("벽 여유 12"), CDO->GetWallMargin(), 12.f);
 	TestEqual(TEXT("지면 법선 0.7"), CDO->GetMinGroundNormalZ(), 0.7f);
 	TestEqual(TEXT("높이차 100"), CDO->GetMaxHeightDelta(), 100.f);
@@ -145,7 +145,7 @@ bool FHBMagicTeleportDefaultsTest::RunTest(const FString&)
 	{
 		return true;
 	}
-	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_Teleport_Far, SkillParamTag::TAG_SkillParam_Distance, 500.f, { 500.f, 600.f, 700.f });
+	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_Teleport_Far, SkillParamTag::TAG_SkillParam_Distance, 900.f, { 900.f, 1050.f, 1200.f });
 	CheckMagicActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_Teleport_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
 	return true;
 }
