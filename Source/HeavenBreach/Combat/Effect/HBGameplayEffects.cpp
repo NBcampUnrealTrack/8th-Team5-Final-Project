@@ -211,6 +211,13 @@ UGE_BowPiercingCooldown::UGE_BowPiercingCooldown()
 	InitCooldown(*this, *TagComponent, ArcherTag::TAG_Cooldown_PiercingArrow);
 }
 
+UGE_BowTripleShotCooldown::UGE_BowTripleShotCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, ArcherTag::TAG_Cooldown_TripleShot);
+}
+
 UGE_BowHunterMarkCooldown::UGE_BowHunterMarkCooldown()
 {
 	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));

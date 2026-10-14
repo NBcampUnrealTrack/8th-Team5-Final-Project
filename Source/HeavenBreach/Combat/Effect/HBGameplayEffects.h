@@ -190,6 +190,15 @@ public:
 	UGE_BowPiercingCooldown();
 };
 
+/** 트리플 샷 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.TripleShot 부여 */
+UCLASS()
+class HEAVENBREACH_API UGE_BowTripleShotCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_BowTripleShotCooldown();
+};
+
 /** 사냥꾼의 표식 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.TrackingMark 부여 */
 UCLASS()
 class HEAVENBREACH_API UGE_BowHunterMarkCooldown : public UGameplayEffect

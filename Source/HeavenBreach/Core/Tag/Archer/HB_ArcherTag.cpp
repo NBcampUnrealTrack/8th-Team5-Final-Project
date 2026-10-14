@@ -24,6 +24,9 @@ namespace ArcherTag
 	UE_DEFINE_GAMEPLAY_TAG(TAG_Cooldown_SmokeArrow, "Cooldown.Archer.SmokeArrow");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Bow_PiercingShot_Power, "Augment.Bow.PiercingShot.Power", "관통 사격 강화 - 위력");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Bow_PiercingShot_Rapid, "Augment.Bow.PiercingShot.Rapid", "관통 사격 강화 - 신속");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Cooldown_TripleShot, "Cooldown.Archer.TripleShot", "트리플 샷 재사용 대기");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Bow_TripleShot_Power, "Augment.Bow.TripleShot.Power", "트리플 샷 강화 - 위력");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Bow_TripleShot_Rapid, "Augment.Bow.TripleShot.Rapid", "트리플 샷 강화 - 속사");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Bow_HunterMark_Deep, "Augment.Bow.HunterMark.Deep", "사냥꾼의 표식 강화 - 깊은 표식");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Bow_HunterMark_Wide, "Augment.Bow.HunterMark.Wide", "사냥꾼의 표식 강화 - 넓은 표식");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Bow_EvasiveShot_Rapid, "Augment.Bow.EvasiveShot.Rapid", "회피 사격 강화 - 신속");

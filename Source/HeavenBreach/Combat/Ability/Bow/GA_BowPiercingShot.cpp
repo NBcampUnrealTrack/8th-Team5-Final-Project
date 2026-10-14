@@ -372,7 +372,13 @@ void UGA_BowPiercingShot::SpawnPiercingArrow()
 	ResolveArrow(Player, UseArrowClass, UseArrowRow);
 
 	const float FinalCoef = DamageCoef * GetAugmentParam(SkillParamTag::TAG_SkillParam_Damage, 1.f);
-	const AHBPlayerArrow* Arrow = HBBowShot::SpawnArrow(Player, UseArrowClass, ArrowSpeed, FinalCoef, UseArrowRow, AimTraceDistance, SpawnForwardOffset, Options);
+	FireSkillArrows(Player, UseArrowClass, UseArrowRow, FinalCoef, Options);
+}
+
+void UGA_BowPiercingShot::FireSkillArrows(AHBPlayerCharacter* Player, const TSubclassOf<AHBPlayerArrow> ArrowClassToUse, const FDataTableRowHandle& ArrowRow,
+	const float FinalCoef, const FHBArrowLaunchOptions& Options)
+{
+	const AHBPlayerArrow* Arrow = HBBowShot::SpawnArrow(Player, ArrowClassToUse, ArrowSpeed, FinalCoef, ArrowRow, AimTraceDistance, SpawnForwardOffset, Options);
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 관통 사격: 발사  Coef=%.2f  Pierce=%d  Speed=%.0f  Arrow=%s"),
 		FinalCoef, MaxPierceCount, ArrowSpeed, *GetNameSafe(Arrow));
@@ -516,7 +522,7 @@ void UGA_BowPiercingShot::SetDrawingPose(const bool bDrawing) const
 	if (AHBPlayerCharacter* Player = GetPlayer())
 	{
 		Player->SetBowDrawing(bDrawing);
-		Player->SetBowPiercingCharge(bDrawing);
+		Player->SetBowPiercingCharge(bDrawing && ShowsPiercingCharge());
 	}
 }
 
