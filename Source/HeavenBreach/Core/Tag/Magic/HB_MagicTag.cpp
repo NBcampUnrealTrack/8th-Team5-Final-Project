@@ -8,6 +8,7 @@ namespace MagicTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Cooldown_ManaExplosion, "Cooldown.Magic.ManaExplosion", "마력 폭발 재사용 대기");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Magic_ElementalOrb_Power, "Augment.Magic.ElementalOrb.Power", "원소 구체 증강 - 위력");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Magic_ElementalOrb_Rapid, "Augment.Magic.ElementalOrb.Rapid", "원소 구체 증강 - 속사");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Magic_ElementalOrb_Wide, "Augment.Magic.ElementalOrb.Wide", "원소 구체 증강 - 폭발 범위");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Magic_Teleport_Far, "Augment.Magic.Teleport.Far", "순간 이동 증강 - 장거리");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Magic_Teleport_Rapid, "Augment.Magic.Teleport.Rapid", "순간 이동 증강 - 재빠른");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_Augment_Magic_FrostField_Bitter, "Augment.Magic.FrostField.Bitter", "서리 지대 증강 - 혹한");

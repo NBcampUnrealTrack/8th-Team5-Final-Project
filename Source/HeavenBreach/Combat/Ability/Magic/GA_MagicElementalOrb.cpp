@@ -44,6 +44,13 @@ UGA_MagicElementalOrb::UGA_MagicElementalOrb()
 	Rapid.Description = NSLOCTEXT("MagicElementalOrb", "RapidDesc", "원소 구체 재사용 대기시간이 줄어듭니다. (1단계 15%, 2단계 25%, 3단계 35%)");
 	Rapid.Params.Add(SkillParamTag::TAG_SkillParam_Cooldown, 0.85f);
 	Rapid.TierMagnitudes = { 0.85f, 0.75f, 0.65f };
+
+	FHBSkillAugment& Wide = Augments.AddDefaulted_GetRef();
+	Wide.AugmentTag = MagicTag::TAG_Augment_Magic_ElementalOrb_Wide;
+	Wide.DisplayName = NSLOCTEXT("MagicElementalOrb", "WideName", "원소 구체: 폭발 범위");
+	Wide.Description = NSLOCTEXT("MagicElementalOrb", "WideDesc", "원소 구체 폭발 범위가 넓어집니다. (기본 2m 에서 1단계 2.5m, 2단계 3m, 3단계 3.5m)");
+	Wide.Params.Add(SkillParamTag::TAG_SkillParam_Radius, 250.f);
+	Wide.TierMagnitudes = { 250.f, 300.f, 350.f };
 }
 
 void UGA_MagicElementalOrb::OnCastReleased(const FGameplayAbilityActorInfo* Info)
@@ -105,6 +112,7 @@ void UGA_MagicElementalOrb::OnCastReleased(const FGameplayAbilityActorInfo* Info
 	}
 
 	const float Coef = DamageCoef * GetAugmentParam(SkillParamTag::TAG_SkillParam_Damage, 1.f);
-	Orb->Launch(Player, Dir, Speed, Coef, CastId);
-	UE_LOG(LogTemp, Log, TEXT("[MagicSkill] 원소 구체 발사  계수=%.2f  시전ID=%d"), Coef, CastId);
+	const float Radius = GetAugmentParam(SkillParamTag::TAG_SkillParam_Radius, ExplosionRadius);
+	Orb->Launch(Player, Dir, Speed, Coef, CastId, Radius, EdgeDamageFraction);
+	UE_LOG(LogTemp, Log, TEXT("[MagicSkill] 원소 구체 발사  계수=%.2f  폭발 반경=%.0f  시전ID=%d"), Coef, Radius, CastId);
 }

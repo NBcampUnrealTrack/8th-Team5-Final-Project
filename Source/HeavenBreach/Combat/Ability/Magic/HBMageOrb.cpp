@@ -14,6 +14,8 @@
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "GameplayCueManager.h"
 #include "NiagaraComponent.h"
+#include "AI/EnemyCharacterBase.h"
+#include "Engine/OverlapResult.h"
 #include "Player/HBPlayerCharacter.h"
 
 AHBMageOrb::AHBMageOrb()
@@ -47,11 +49,14 @@ AHBMageOrb::AHBMageOrb()
 	ImpactTypeTag = CueTag::TAG_GameplayCue_Hit_Magic;
 }
 
-void AHBMageOrb::Launch(AHBPlayerCharacter* InShooter, const FVector& Dir, const float InSpeed, const float InDamageCoef, const int32 InCastId)
+void AHBMageOrb::Launch(AHBPlayerCharacter* InShooter, const FVector& Dir, const float InSpeed, const float InDamageCoef, const int32 InCastId,
+	const float InExplosionRadius, const float InEdgeFraction)
 {
 	Shooter = InShooter;
 	DamageCoef = InDamageCoef;
 	CastId = InCastId;
+	ExplosionRadius = FMath::Max(0.f, InExplosionRadius);
+	EdgeFraction = InEdgeFraction;
 
 	const FVector Forward = Dir.GetSafeNormal();
 	if (!Forward.IsZero())
@@ -86,17 +91,74 @@ void AHBMageOrb::OnHit(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveCompo
 
 	UE_LOG(LogTemp, Log, TEXT("[MagicSkill] 원소 구체 적중  대상=%s  컴포넌트=%s"), *GetNameSafe(OtherActor), *GetNameSafe(Hit.GetComponent()));
 
-	if (OtherActor)
-	{
-		ApplyOrbDamage(OtherActor, Hit);
-	}
+	// 적이든 벽이든 맞은 점에서 폭발한다.
+	const FVector Center(Hit.ImpactPoint);
+	Explode(Center, OtherActor);
 
-	// 적이든 벽이든 적중 큐. 위치는 맞은 점.
-	PlayImpactCue(FVector(Hit.ImpactPoint));
+	PlayImpactCue(Center);
 	Destroy();
 }
 
-void AHBMageOrb::ApplyOrbDamage(AActor* Target, const FHitResult& Hit)
+void AHBMageOrb::Explode(const FVector& Center, const AActor* DirectTarget)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// 적 캡슐은 대개 "Enemy" 오브젝트 채널이라 움직이는 오브젝트 전부를 보고 AEnemyCharacterBase 로 거른다(마력 폭발과 같은 방식).
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MageOrbExplosion), false, Shooter.Get());
+	TArray<FOverlapResult> Overlaps;
+	World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity,
+		FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllDynamicObjects), FCollisionShape::MakeSphere(ExplosionRadius), QueryParams);
+
+	// 직접 맞은 적은 겹침 검사 결과와 상관없이 넣는다(반경 0 이어도 맞는다).
+	TSet<AEnemyCharacterBase*> Targets;
+	if (AEnemyCharacterBase* Direct = Cast<AEnemyCharacterBase>(const_cast<AActor*>(DirectTarget)))
+	{
+		Targets.Add(Direct);
+	}
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		if (AEnemyCharacterBase* Enemy = Cast<AEnemyCharacterBase>(Overlap.GetActor()))
+		{
+			Targets.Add(Enemy);
+		}
+	}
+
+	int32 HitCount = 0;
+	for (AEnemyCharacterBase* Enemy : Targets)
+	{
+		const UAbilitySystemComponent* TargetASC = Enemy->GetAbilitySystemComponent();
+		if (!TargetASC || TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+		{
+			continue;	// 시체는 건너뛴다
+		}
+
+		// 직접 맞은 적은 100%. 나머지는 폭발 중심에서 적 위치까지 거리로 줄인다(캡슐 반지름만큼 빼서 몸 가장자리 기준).
+		const float Distance = FMath::Max(0.f, FVector::Dist(Center, Enemy->GetActorLocation()) - Enemy->GetSimpleCollisionRadius());
+		const float Scale = Enemy == DirectTarget ? 1.f : HBMagic::OrbExplosionFalloff(Distance, ExplosionRadius, EdgeFraction);
+		if (Scale <= 0.f)
+		{
+			continue;
+		}
+
+		FHitResult Hit;
+		Hit.ImpactPoint = Enemy->GetActorLocation();
+		Hit.Location = Hit.ImpactPoint;
+		Hit.ImpactNormal = (Center - Hit.ImpactPoint).GetSafeNormal();
+		Hit.Normal = Hit.ImpactNormal;
+		Hit.TraceStart = Center;
+		Hit.TraceEnd = Hit.ImpactPoint;
+		ApplyOrbDamage(Enemy, Hit, Scale);
+		++HitCount;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[MagicSkill] 원소 구체 폭발  반경=%.0f  적중=%d  직접=%s"), ExplosionRadius, HitCount, *GetNameSafe(DirectTarget));
+}
+
+void AHBMageOrb::ApplyOrbDamage(AActor* Target, const FHitResult& Hit, const float Scale)
 {
 	AHBPlayerCharacter* Player = Shooter.Get();
 	if (!Player || !Target->Implements<UDamageableInterface>())
@@ -110,7 +172,7 @@ void AHBMageOrb::ApplyOrbDamage(AActor* Target, const FHitResult& Hit)
 	}
 
 	// 공격력 × 계수 × 스킬 피해 배율 → 패시브 보정. 구체는 지금 시전이 아니라 자기 시전 ID 로만 잔류 마력을 알린다(날아가는 사이 스킬이 끝나도 적용).
-	float FinalDamage = Player->GetAttackPower() * DamageCoef * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
+	float FinalDamage = Player->GetAttackPower() * DamageCoef * Scale * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
 	FinalDamage = Player->ModifyOutgoingDamage(Target, FinalDamage, /*bCreditCurrentSkillCast*/ false);
 	if (CastId > 0)
 	{
@@ -141,6 +203,8 @@ void AHBMageOrb::PlayImpactCue(const FVector& Location) const
 
 	FGameplayCueParameters Params;
 	Params.Location = Location;
+	// 큐가 폭발 범위에 맞춰 크기를 키울 수 있게 반경을 넘긴다(BP_GCN_Magic_OrbImpact 의 ScaleDivisor 가 0 이면 크기 그대로).
+	Params.RawMagnitude = ExplosionRadius;
 	Params.Instigator = Player;
 	Params.EffectCauser = const_cast<AHBMageOrb*>(this);
 	ASC->ExecuteGameplayCue(MagicTag::TAG_GameplayCue_Magic_OrbImpact, Params);

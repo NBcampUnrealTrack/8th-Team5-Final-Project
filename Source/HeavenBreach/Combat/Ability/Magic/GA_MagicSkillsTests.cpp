@@ -99,6 +99,8 @@ bool FHBMagicElementalOrbDefaultsTest::RunTest(const FString&)
 	TestEqual(TEXT("손 이펙트 크기"), CDO->GetCastHandScale(), 0.2f);
 	TestEqual(TEXT("속도 1800"), CDO->GetOrbSpeed(), 1800.f);
 	TestEqual(TEXT("피해 계수 1.6"), CDO->GetDamageCoef(), 1.6f);
+	TestEqual(TEXT("폭발 반경 200"), CDO->GetExplosionRadius(), 200.f);
+	TestEqual(TEXT("가장자리 피해 50%"), CDO->GetEdgeDamageFraction(), 0.5f);
 
 	const UGameplayEffect* CooldownGE = CDO->GetCooldownGameplayEffect();
 	TestTrue(TEXT("쿨다운 GE 클래스"), CooldownGE && CooldownGE->GetClass() == UGE_MagicOrbCooldown::StaticClass());
@@ -106,10 +108,11 @@ bool FHBMagicElementalOrbDefaultsTest::RunTest(const FString&)
 	TestTrue(TEXT("쿨다운 태그"), CooldownTags && CooldownTags->HasTagExact(MagicTag::TAG_Cooldown_ElementalOrb));
 
 	const TArray<FHBSkillAugment>& Augments = CDO->GetAugments();
-	if (!TestEqual(TEXT("증강 2개"), Augments.Num(), 2))
+	if (!TestEqual(TEXT("증강 3개"), Augments.Num(), 3))
 	{
 		return true;
 	}
+	CheckMagicActiveAugment(*this, Augments[2], MagicTag::TAG_Augment_Magic_ElementalOrb_Wide, SkillParamTag::TAG_SkillParam_Radius, 250.f, { 250.f, 300.f, 350.f });
 	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_ElementalOrb_Power, SkillParamTag::TAG_SkillParam_Damage, 1.15f, { 1.15f, 1.30f, 1.50f });
 	CheckMagicActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_ElementalOrb_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
 	return true;
