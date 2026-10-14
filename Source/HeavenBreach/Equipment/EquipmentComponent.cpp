@@ -6,6 +6,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 #include "Item/Item.h"
 #include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Item/HB_ItemTag.h"
@@ -939,8 +940,18 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
 	const FIntPoint SourcePosition = InSource->GetEntries()[SourceIndex].Position;
 
+	if (!SourceItem.bRevealed)
+	{
+		return false;
+	}
+
 	if (!CanEquip(SourceItem, InSlot))
 	{
+		FItemViewData FailedView;
+		const bool bResolved = ResolveItemViewData(SourceItem.ItemRow, FailedView);
+		UE_LOG(LogTemp, Warning, TEXT("[Equip] Rejected %s  ReqSlot=%d  RowSlot=%d  Durability=%.1f  RowFound=%d"),
+			*SourceItem.ItemRow.RowName.ToString(), (int32)InSlot, bResolved ? (int32)FailedView.EquipSlotType : -1,
+			SourceItem.CurrentDurability, bResolved ? 1 : 0);
 		return false;
 	}
 
@@ -979,10 +990,34 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 
 	if (PreviousItem.IsValid())
 	{
-		if (!InSource->TryAddItemAt(PreviousItem, SourcePosition))
+		bool bPlaced = InSource->TryAddItemAt(PreviousItem, SourcePosition);
+
+		if (!bPlaced)
 		{
-			int32 RollbackRemainder = 0;
-			InSource->TryAddItem(RemovedItem, RollbackRemainder);
+			int32 PlaceRemainder = 0;
+			bPlaced = InSource->TryAddItem(PreviousItem, PlaceRemainder) && PlaceRemainder == 0;
+		}
+
+		if (!bPlaced)
+		{
+			const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner());
+			UInventoryComponent* OwnerInventory = OwnerPlayerState != nullptr ? OwnerPlayerState->GetInventory() : nullptr;
+			if (OwnerInventory != nullptr && OwnerInventory != InSource)
+			{
+				int32 PlaceRemainder = 0;
+				bPlaced = OwnerInventory->TryAddItem(PreviousItem, PlaceRemainder) && PlaceRemainder == 0;
+			}
+		}
+
+		if (!bPlaced)
+		{
+			if (!InSource->TryAddItemAt(SourceItem, SourcePosition))
+			{
+				int32 RollbackRemainder = 0;
+				InSource->TryAddItem(SourceItem, RollbackRemainder);
+			}
+			UE_LOG(LogTemp, Warning, TEXT("[Equip] Swap failed %s  no room for previous %s"),
+				*SourceItem.ItemRow.RowName.ToString(), *PreviousItem.ItemRow.RowName.ToString());
 			return false;
 		}
 	}

@@ -26,6 +26,10 @@ void UItemActionMenuWidget::NativeConstruct()
 	{
 		FavoriteButton->OnClicked.AddDynamic(this, &UItemActionMenuWidget::HandleFavoriteClicked);
 	}
+	if (LockButton != nullptr)
+	{
+		LockButton->OnClicked.AddDynamic(this, &UItemActionMenuWidget::HandleLockClicked);
+	}
 }
 
 void UItemActionMenuWidget::NativeOnFocusLost(const FFocusEvent& InFocusEvent)
@@ -113,4 +117,26 @@ void UItemActionMenuWidget::HandleFavoriteClicked()
 {
 	OnFavoriteRequested.Broadcast();
 	CloseMenu();
+}
+
+void UItemActionMenuWidget::HandleLockClicked()
+{
+	OnLockRequested.Broadcast();
+	CloseMenu();
+}
+
+void UItemActionMenuWidget::SetupLock(bool bCanLock, bool bIsLocked)
+{
+	if (LockButton != nullptr)
+	{
+		LockButton->SetVisibility(bCanLock ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+	if (LockButtonText != nullptr)
+	{
+		LockButtonText->SetText(FText::FromString(bIsLocked ? TEXT("\uC7A0\uAE08 \uD574\uC81C") : TEXT("\uC7A0\uAE08")));
+	}
+	if (DiscardButton != nullptr && bIsLocked)
+	{
+		DiscardButton->SetIsEnabled(false);
+	}
 }

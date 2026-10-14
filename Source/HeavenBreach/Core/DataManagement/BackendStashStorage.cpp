@@ -73,6 +73,7 @@ void FBackendStashStorage::LoadStashAsync(const FString& InAccountId, FOnStashLo
 
 					Entry.Item.StackCount = (*ItemObject)->GetIntegerField(TEXT("stackCount"));
 					Entry.Item.bRotated = (*ItemObject)->GetBoolField(TEXT("rotated"));
+					(*ItemObject)->TryGetBoolField(TEXT("locked"), Entry.Item.bLocked);
 
 					double LoadedDurability = -1.0;
 					(*ItemObject)->TryGetNumberField(TEXT("currentDurability"), LoadedDurability);
@@ -119,6 +120,7 @@ void FBackendStashStorage::SaveStashAsync(const FString& InAccountId, const TArr
 		ItemObject->SetStringField(TEXT("rowName"), Entry.Item.ItemRow.RowName.ToString());
 		ItemObject->SetNumberField(TEXT("stackCount"), Entry.Item.StackCount);
 		ItemObject->SetBoolField(TEXT("rotated"), Entry.Item.bRotated);
+		ItemObject->SetBoolField(TEXT("locked"), Entry.Item.bLocked);
 		ItemObject->SetNumberField(TEXT("currentDurability"), Entry.Item.CurrentDurability);
 		ItemEngraving::WriteJson(Entry.Item.Engraving, ItemObject);
 		ItemObject->SetNumberField(TEXT("posX"), Entry.Position.X);

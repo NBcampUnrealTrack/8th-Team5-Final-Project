@@ -5,6 +5,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "InventoryComponent.h"
 #include "StashComponent.h"
+#include "Inventory/ItemSortRules.h"
 
 UShopComponent::UShopComponent()
 {
@@ -101,6 +102,21 @@ TArray<FShopEntry> UShopComponent::GetShopEntries() const
 
 		Entries.Add(Entry);
 	}
+
+	Entries.StableSort([](const FShopEntry& A, const FShopEntry& B)
+	{
+		const int32 RankA = HBItemSort::GetCategoryRank(A.ItemRow, A.ViewData);
+		const int32 RankB = HBItemSort::GetCategoryRank(B.ItemRow, B.ViewData);
+		if (RankA != RankB)
+		{
+			return RankA < RankB;
+		}
+		if (A.ViewData.Grade != B.ViewData.Grade)
+		{
+			return A.ViewData.Grade < B.ViewData.Grade;
+		}
+		return A.BuyPrice < B.BuyPrice;
+	});
 
 	return Entries;
 }
@@ -208,7 +224,7 @@ bool UShopComponent::AddToSellBasket(FGuid InInstanceId)
 
 	const FItemInstance& Item = TargetStash->GetEntries()[EntryIndex].Item;
 
-	if (Item.BagContents.Num() > 0)
+	if (Item.BagContents.Num() > 0 || Item.bLocked)
 	{
 		UHBUIAudioLibrary::PlayForOwner(this, EHBUIAudioEvent::Error);
 		return false;
@@ -344,13 +360,13 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 {
 	if (InStash == nullptr || InBasket.Num() == 0)
 	{
-		Client_TradeResult(false, TEXT("거래할 수 없습니다."));
+		Client_TradeResult(false, TEXT("\uAC70\uB798\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."));
 		return;
 	}
 
 	if (GoldItemRow.IsNull())
 	{
-		Client_TradeResult(false, TEXT("골드 설정이 없습니다."));
+		Client_TradeResult(false, TEXT("\uACE8\uB4DC \uC124\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."));
 		return;
 	}
 
@@ -401,7 +417,7 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 	{
 		if (InStash->GetTotalGold(GoldItemRow.RowName) < TotalPrice)
 		{
-			Client_TradeResult(false, TEXT("골드가 부족합니다."));
+			Client_TradeResult(false, TEXT("\uACE8\uB4DC\uAC00 \uBD80\uC871\uD569\uB2C8\uB2E4."));
 			return;
 		}
 
@@ -410,21 +426,21 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 			FItemViewData ViewData;
 			if (!ResolveItemViewData(Entry.ItemRow, ViewData))
 			{
-				Client_TradeResult(false, TEXT("아이템 정보를 찾을 수 없습니다."));
+				Client_TradeResult(false, TEXT("\uC544\uC774\uD15C \uC815\uBCF4\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."));
 				return;
 			}
 
 			FIntPoint FreePosition;
 			if (!InStash->FindFirstFreeSlot(ViewData.GridSize, FreePosition))
 			{
-				Client_TradeResult(false, TEXT("창고에 공간이 부족합니다."));
+				Client_TradeResult(false, TEXT("\uCC3D\uACE0\uC5D0 \uACF5\uAC04\uC774 \uBD80\uC871\uD569\uB2C8\uB2E4."));
 				return;
 			}
 		}
 
 		if (!InStash->ConsumeGold(GoldItemRow, TotalPrice))
 		{
-			Client_TradeResult(false, TEXT("거래에 실패했습니다."));
+			Client_TradeResult(false, TEXT("\uAC70\uB798\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4."));
 			return;
 		}
 
@@ -470,7 +486,7 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 			return;
 		}
 
-		Client_TradeResult(true, TEXT("구매가 완료되었습니다."));
+		Client_TradeResult(true, TEXT("\uAD6C\uB9E4\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4."));
 		return;
 	}
 
@@ -484,7 +500,12 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 		}
 		if (SellIndex == INDEX_NONE)
 		{
-			Client_TradeResult(false, TEXT("판매할 아이템을 찾을 수 없습니다."));
+			Client_TradeResult(false, TEXT("\uD310\uB9E4\uD560 \uC544\uC774\uD15C\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."));
+			return;
+		}
+		if (InStash->GetEntries()[SellIndex].Item.bLocked)
+		{
+			Client_TradeResult(false, TEXT("\uC7A0\uAE34 \uC544\uC774\uD15C\uC740 \uD310\uB9E4\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."));
 			return;
 		}
 	}
@@ -497,7 +518,7 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 
 	if (!InStash->AddGold(GoldItemRow, TotalPrice))
 	{
-		Client_TradeResult(false, TEXT("골드를 받을 공간이 없습니다."));
+		Client_TradeResult(false, TEXT("\uACE8\uB4DC\uB97C \uBC1B\uC744 \uACF5\uAC04\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."));
 		return;
 	}
 
@@ -506,5 +527,5 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 		Stash->SaveStash();
 	}
 
-	Client_TradeResult(true, TEXT("판매가 완료되었습니다."));
+	Client_TradeResult(true, TEXT("\uD310\uB9E4\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4."));
 }

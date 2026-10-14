@@ -29,6 +29,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment", meta = (TitleProperty = "AugmentTag"))
 	TArray<FHBSkillAugment> Augments;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment")
+	TMap<FName, TSoftObjectPtr<UTexture2D>> AugmentIcons;
+
 	// 태그로 하나를 찾는다. 없으면 nullptr.
 	const FHBSkillAugment* FindAugment(FGameplayTag AugmentTag) const;
 };

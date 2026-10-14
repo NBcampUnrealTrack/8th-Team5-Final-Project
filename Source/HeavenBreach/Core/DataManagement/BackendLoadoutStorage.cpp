@@ -29,6 +29,7 @@ namespace
 		Object->SetStringField(TEXT("rowName"), InItem.ItemRow.RowName.ToString());
 		Object->SetNumberField(TEXT("stackCount"), InItem.StackCount);
 		Object->SetBoolField(TEXT("rotated"), InItem.bRotated);
+		Object->SetBoolField(TEXT("locked"), InItem.bLocked);
 		Object->SetNumberField(TEXT("currentDurability"), InItem.CurrentDurability);
 
 		// 각인. 모양은 ItemEngraving 이 정한다 (창고 저장과 같이 쓴다)
@@ -48,6 +49,7 @@ namespace
 
 		OutItem.StackCount = InObject->GetIntegerField(TEXT("stackCount"));
 		OutItem.bRotated = InObject->GetBoolField(TEXT("rotated"));
+		InObject->TryGetBoolField(TEXT("locked"), OutItem.bLocked);
 
 		double LoadedDurability = -1.0;
 		InObject->TryGetNumberField(TEXT("currentDurability"), LoadedDurability);

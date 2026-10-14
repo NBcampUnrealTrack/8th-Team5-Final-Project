@@ -84,6 +84,8 @@ namespace
 		const FHBSkillAugment& Augment,
 		const FName TargetSkillId,
 		const TArray<FHBAugmentStack>& TakenAugments,
+		const UHBCommonAugmentSet* IconSet,
+		const TSoftObjectPtr<UTexture2D>& FallbackIcon,
 		TArray<FHBUpgradeCandidate>& OutPool)
 	{
 		if (!Augment.AugmentTag.IsValid())
@@ -109,6 +111,17 @@ namespace
 		Candidate.DisplayName = MakeTieredDisplayName(Augment.DisplayName, Candidate.Tier, MaxTier);
 		Candidate.Description = Augment.GetFormattedDescription();
 		Candidate.Icon = Augment.Icon;
+		if (Candidate.Icon.IsNull() && IconSet != nullptr)
+		{
+			if (const TSoftObjectPtr<UTexture2D>* Found = IconSet->AugmentIcons.Find(Augment.AugmentTag.GetTagName()))
+			{
+				Candidate.Icon = *Found;
+			}
+		}
+		if (Candidate.Icon.IsNull())
+		{
+			Candidate.Icon = FallbackIcon;
+		}
 	}
 }
 
@@ -1259,7 +1272,7 @@ void AHB_PlayerState::CollectSkillAugments(TArray<FHBUpgradeCandidate>& OutPool,
 	for (const FHBSkillAugment& Augment : SkillCDO->GetAugments())
 	{
 		// 이 스킬에 딸린 증강이라 TargetSkillId 에 스킬을 적는다.
-		AddAugmentCandidate(Augment, SkillId, TakenAugments, OutPool);
+		AddAugmentCandidate(Augment, SkillId, TakenAugments, CommonAugmentSet, Skill->Icon, OutPool);
 	}
 }
 
@@ -1273,7 +1286,7 @@ void AHB_PlayerState::CollectCommonAugments(TArray<FHBUpgradeCandidate>& OutPool
 	for (const FHBSkillAugment& Augment : CommonAugmentSet->Augments)
 	{
 		// TargetSkillId 를 비운다. 이것이 "공통" 의 표시다.
-		AddAugmentCandidate(Augment, NAME_None, TakenAugments, OutPool);
+		AddAugmentCandidate(Augment, NAME_None, TakenAugments, CommonAugmentSet, TSoftObjectPtr<UTexture2D>(), OutPool);
 	}
 }
 
