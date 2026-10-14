@@ -155,6 +155,7 @@ bool AHeavenBreachGameMode::AreDungeonPlayersLoaded() const
         if (!IsValid(Player)) continue;
         if (!Player->PlayerState) return false;
         if (Player->PlayerState->IsOnlyASpectator()) continue;
+        if (PostMatchTravelRequestedPlayers.Contains(Player->PlayerState)) continue;
         if (!IsPlayerDungeonLoaded(Player)) return false;
     }
     return true;
@@ -173,6 +174,7 @@ bool AHeavenBreachGameMode::ReportDungeonLoaded(APlayerController* Player, int32
     for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
         if (It->Get() == Player) { bConnected = true; break; }
     if (!bConnected) return false;
+    if (PostMatchTravelRequestedPlayers.Contains(Player->PlayerState)) return true;
     if (!bSucceeded)
     {
         Dungeon->Fail(TEXT("A client failed to prepare the current dungeon generation."));
@@ -201,6 +203,7 @@ void AHeavenBreachGameMode::Tick(float DeltaSeconds)
     {
         auto* Player = It->Get();
         if (!IsValid(Player) || !Player->PlayerState || Player->PlayerState->IsOnlyASpectator() || IsPlayerDungeonLoaded(Player)) continue;
+        if (PostMatchTravelRequestedPlayers.Contains(Player->PlayerState)) continue;
         double& Started = DungeonLoadWaitStarted.FindOrAdd(Player, Now);
         if (Now - Started >= FMath::Max(1.f, ClientDungeonLoadTimeoutSeconds))
         {
@@ -435,6 +438,7 @@ void AHeavenBreachGameMode::HandleStartingNewPlayer_Implementation(APlayerContro
 	{
 		if (IsValid(NewPlayer) && IsValid(NewPlayer->PlayerState)
             && IsPlayerDungeonLoaded(NewPlayer) && NewPlayer->GetPawn()
+			&& !PostMatchTravelRequestedPlayers.Contains(NewPlayer->PlayerState)
 			&& !ActivePlayers.Contains(NewPlayer->PlayerState))
 		{
 			ActivePlayers.Add(NewPlayer->PlayerState);
@@ -564,9 +568,7 @@ void AHeavenBreachGameMode::OnMatchStateSet()
 void AHeavenBreachGameMode::InitializeActivePlayers()
 {
 	ActivePlayers.Reset();
-	PostMatchTravelRequestedPlayers.Reset();
-	FailedPlayers.Reset();
-	DeathResultShownPlayers.Reset();
+	// 로딩 중 승인된 포기 기록은 보존한다. 해당 플레이어를 다시 참가자로 넣지 않는다.
 	
 	AHeavenBreachGameState* HBGameState = GetGameState<AHeavenBreachGameState>();
 	if (!HBGameState)
@@ -576,7 +578,7 @@ void AHeavenBreachGameMode::InitializeActivePlayers()
 	
 	for (APlayerState* PlayerState : HBGameState->PlayerArray)
 	{
-		if (IsValid(PlayerState))
+		if (IsValid(PlayerState) && !PostMatchTravelRequestedPlayers.Contains(PlayerState))
 		{
 			ActivePlayers.Add(PlayerState);
 		}
@@ -752,6 +754,48 @@ void AHeavenBreachGameMode::HandleMatchTimeExpired()
 	}
 
 	FinishExtractionMatch();
+}
+
+bool AHeavenBreachGameMode::CanPlayerLeaveMatch(const APlayerController* Player) const
+{
+	if (!HasAuthority() || !IsValid(Player) || Player->GetWorld() != GetWorld() || !IsValid(Player->PlayerState)) return false;
+	if (GetNetMode() != NM_ListenServer || !Player->IsLocalController()) return true;
+	if (NumTravellingPlayers > 0) return false;
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		auto* Other = It->Get();
+		if (!IsValid(Other) || Other == Player) continue;
+		// 포기를 승인했어도 그 PC의 최종 저장이 끝나기 전에는 서버를 닫지 않는다.
+		if (const auto* HBController = Cast<AHBPlayerController>(Other); HBController && HBController->IsLeaveMatchInProgress()) return false;
+		APlayerState* State = Other->PlayerState;
+		if (!IsValid(State)) return false; // 로그인/로딩 중을 혼자 플레이로 오인하지 않는다.
+		if (State->IsOnlyASpectator() || FailedPlayers.Contains(State) || PostMatchTravelRequestedPlayers.Contains(State)) continue;
+		if (ActivePlayers.Contains(State) || GetMatchState() == MatchState::WaitingToStart ||
+			(IsMatchInProgress() && !IsPlayerDungeonLoaded(Other))) return false;
+	}
+	return true;
+}
+
+bool AHeavenBreachGameMode::PreparePlayerLeaveMatch(APlayerController* Player, bool& bOutForfeitCarriedItems)
+{
+	bOutForfeitCarriedItems = false;
+	if (!CanPlayerLeaveMatch(Player)) return false;
+	APlayerState* State = Player->PlayerState;
+	const auto* Character = Cast<AHBPlayerCharacter>(Player->GetPawn());
+	if (!PostMatchTravelRequestedPlayers.Contains(State) &&
+		(ActivePlayers.Contains(State) || GetMatchState() == MatchState::WaitingToStart || (Character && !Character->IsCorpse())))
+	{
+		if (!HandleAlivePlayerLeaving(Player))
+		{
+			FailedPlayers.Add(State);
+			ActivePlayers.Remove(State);
+			LeaveCorpse(Player, State, false);
+		}
+	}
+	bOutForfeitCarriedItems = FailedPlayers.Contains(State);
+	// 저장 완료 전 자동 결과 이동을 막는다. 실제 Logout에서 기존 매치 종료 판정을 한다.
+	PostMatchTravelRequestedPlayers.Add(State);
+	return true;
 }
 
 bool AHeavenBreachGameMode::HandleAlivePlayerLeaving(AController* Controller)

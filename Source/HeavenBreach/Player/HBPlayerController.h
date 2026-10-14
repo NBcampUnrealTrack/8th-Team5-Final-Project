@@ -95,6 +95,11 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientReturnToHub();
 
+	// ESC 확인과 테스트가 같은 서버 승인 경로를 사용한다.
+	UFUNCTION(Server, Reliable)
+	void ServerRequestLeaveMatch();
+	bool IsLeaveMatchInProgress() const { return bLeaveMatchApproved; }
+
 	// 관전 UI 의 버튼이 부른다. 관전 중이 아니면 아무 일도 하지 않는다.
 	void RequestSpectateNext();
 	void RequestSpectatePrevious();
@@ -147,6 +152,14 @@ protected:
 
 	UFUNCTION()
 	void HandleLeaveMatchConfirmed();
+	UFUNCTION(Client, Reliable)
+	void ClientSaveBeforeLeavingMatch(bool bForfeitCarriedItems);
+	UFUNCTION(Server, Reliable)
+	void ServerFinishLeavingMatch(bool bSaved);
+	UFUNCTION(Client, Reliable)
+	void ClientLeaveMatchRejected(const FText& Reason);
+	bool bLeaveMatchPending = false;
+	bool bLeaveMatchApproved = false;
 
 	// 나가기 확인 팝업. WBP_LeaveMatchPopup (부모: HB Confirm Popup) 을 지정한다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Player|UI")
