@@ -107,6 +107,7 @@ void UHBPlayerSaveComponent::TryBeginLocalLoad()
 		{
 			bLoadFailed = true;
 			UE_LOG(LogTemp, Error, TEXT("[Save] %s 를 못 읽었다 — 덮어쓰지 않게 이번 접속은 저장을 끈다"), *SlotName);
+			FinishTravelSave();
 			return;
 		}
 	}
@@ -170,6 +171,7 @@ void UHBPlayerSaveComponent::Client_SubmitApplied_Implementation()
 	// 묶어 두면 복제가 도착할 때 바뀜 알림이 와서 저장된다.
 	bLoadApplied = true;
 	BindSaveTriggers();
+	FinishTravelSave();
 }
 
 void UHBPlayerSaveComponent::BindSaveTriggers()
@@ -205,6 +207,8 @@ void UHBPlayerSaveComponent::BindSaveTriggers()
 
 void UHBPlayerSaveComponent::RequestSave()
 {
+	// 최종 저장을 요청한 뒤에는 늦게 온 복제로 이전 소지품을 다시 저장하지 않는다.
+	if (bTravelSaveRequested) return;
 	UWorld* World = GetWorld();
 	if (!World)
 	{
@@ -212,36 +216,54 @@ void UHBPlayerSaveComponent::RequestSave()
 	}
 	// 창고 · 로드아웃 저장과 같은 방식. 연달아 바뀌면 마지막 것만 쓴다.
 	World->GetTimerManager().ClearTimer(SaveTimer);
-	FTimerDelegate SaveDelegate;
-	SaveDelegate.BindUObject(this, &UHBPlayerSaveComponent::SaveNow, true);
+	FTimerDelegate SaveDelegate = FTimerDelegate::CreateWeakLambda(this, [this]() { SaveNow(true); });
 	World->GetTimerManager().SetTimer(SaveTimer, SaveDelegate, SaveDelay, false);
 }
 
-void UHBPlayerSaveComponent::SaveNow(bool bAsync)
+void UHBPlayerSaveComponent::FlushBeforeTravel(bool bForfeitCarriedItems, TFunction<void(bool)> OnSaved)
+{
+	if (TravelSaveCompleted) return;
+	bTravelSaveRequested = true;
+	bForfeitOnSave |= bForfeitCarriedItems;
+	TravelSaveCompleted = MoveTemp(OnSaved);
+	if (UWorld* World = GetWorld()) World->GetTimerManager().ClearTimer(SaveTimer);
+	FinishTravelSave();
+}
+
+void UHBPlayerSaveComponent::FinishTravelSave()
+{
+	if (!TravelSaveCompleted || SavesInFlight > 0) return;
+	if (SaveMode == EHBSaveMode::Local && !bLoadApplied && !bLoadFailed) return;
+	const bool bSaved = SaveNow(false);
+	auto Completed = MoveTemp(TravelSaveCompleted);
+	Completed(bSaved);
+}
+
+bool UHBPlayerSaveComponent::SaveNow(bool bAsync)
 {
 	if (SaveMode != EHBSaveMode::Local)
 	{
-		return;
+		return true; // 외부 서버 저장은 기존 PlayerState 경로에서 처리한다.
 	}
 	if (!bLoadApplied)
 	{
-		return;   // 적용 전엔 빈 데이터라 쓰면 파일이 지워진다
+		return false;   // 적용 전엔 빈 데이터라 쓰면 파일이 지워진다
 	}
 	if (bLoadFailed)
 	{
-		return;
+		return false;
 	}
 
 	const AHB_PlayerState* PlayerState = Cast<AHB_PlayerState>(GetOwner());
 	if (!PlayerState)
 	{
-		return;
+		return false;
 	}
 
 	UHBPlayerSaveGame* Save = Cast<UHBPlayerSaveGame>(UGameplayStatics::CreateSaveGameObject(UHBPlayerSaveGame::StaticClass()));
 	if (!Save)
 	{
-		return;
+		return false;
 	}
 
 	// 복제받은 내 데이터를 그대로 담는다. 서버가 정한 값이라 내 PC 가 따로 계산하지 않는다.
@@ -249,30 +271,36 @@ void UHBPlayerSaveComponent::SaveNow(bool bAsync)
 	{
 		Save->Stash = Stash->GetEntries();
 	}
-	if (const UInventoryComponent* Inventory = PlayerState->GetInventory())
+	if (!bForfeitOnSave)
 	{
-		Save->Inventory = Inventory->GetEntries();
-	}
-	if (const UEquipmentComponent* Equipment = PlayerState->GetEquipment())
-	{
-		Save->Equipment = Equipment->GetSlots();
-	}
-	if (const UQuickSlotComponent* QuickSlot = PlayerState->GetQuickSlot())
-	{
-		Save->QuickSlots = QuickSlot->GetSlots();
+		if (const UInventoryComponent* Inventory = PlayerState->GetInventory())
+			Save->Inventory = Inventory->GetEntries();
+		if (const UEquipmentComponent* Equipment = PlayerState->GetEquipment())
+			Save->Equipment = Equipment->GetSlots();
+		if (const UQuickSlotComponent* QuickSlot = PlayerState->GetQuickSlot())
+			Save->QuickSlots = QuickSlot->GetSlots();
 	}
 	Save->StartingLoadout = PlayerState->GetStartingLoadout();
 
 	const FString SlotName = MakeSlotName();
 	if (bAsync)
 	{
-		UGameplayStatics::AsyncSaveGameToSlot(Save, SlotName, 0);
+		++SavesInFlight;
+		UGameplayStatics::AsyncSaveGameToSlot(Save, SlotName, 0,
+			FAsyncSaveGameToSlotDelegate::CreateWeakLambda(this, [this](const FString&, int32, bool bSuccess)
+			{
+				--SavesInFlight;
+				if (!bSuccess) UE_LOG(LogTemp, Warning, TEXT("[Save] 비동기 저장 실패"));
+				FinishTravelSave();
+			}));
 	}
-	else
+	else if (!UGameplayStatics::SaveGameToSlot(Save, SlotName, 0))
 	{
-		UGameplayStatics::SaveGameToSlot(Save, SlotName, 0);
+		UE_LOG(LogTemp, Warning, TEXT("[Save] 저장 실패: %s"), *SlotName);
+		return false;
 	}
 	UE_LOG(LogTemp, Log, TEXT("[Save] 저장 %s | 창고 %d 인벤 %d"), *SlotName, Save->Stash.Num(), Save->Inventory.Num());
+	return true;
 }
 
 // ================= 서버 =================

@@ -11,6 +11,7 @@
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Inventory/QuickSlotComponent.h"
 #include "Core/GameFlow/HeavenBreachGameMode.h"
+#include "Core/DataManagement/HBPlayerSaveComponent.h"
 #include "Components/Button.h"
 #include "Components/Widget.h"
 #include "Core/GameFlow/HeavenBreachGameState.h"
@@ -1003,6 +1004,12 @@ void AHBPlayerController::HandleEscapePressed()
 
 void AHBPlayerController::OpenLeaveMatchPopup()
 {
+	if (bLeaveMatchPending) return;
+	if (const auto* Mode = GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>(); Mode && !Mode->CanPlayerLeaveMatch(this))
+	{
+		ShowHudNotification(NSLOCTEXT("LeaveMatch", "HostBlocked", "진행 중인 팀원이 있어 호스트는 나갈 수 없습니다."));
+		return;
+	}
 	if (!LeaveMatchPopupClass)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("HBPlayerController | LeaveMatchPopupClass 가 지정되지 않아 나가기 팝업을 열 수 없다."));
@@ -1052,8 +1059,61 @@ void AHBPlayerController::OpenLeaveMatchPopup()
 
 void AHBPlayerController::HandleLeaveMatchConfirmed()
 {
-	// 살아 있는 채로 나가면 연결이 끊기면서 서버가 사망 처리한다. 이미 죽은 사람은 그대로 나간다.
-	ReturnToHub();
+	if (bLeaveMatchPending) return;
+	bLeaveMatchPending = true;
+	ServerRequestLeaveMatch();
+}
+
+void AHBPlayerController::ServerRequestLeaveMatch_Implementation()
+{
+	auto* Mode = GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>();
+	bool bForfeitCarriedItems = false;
+	if (!Mode || !Mode->PreparePlayerLeaveMatch(this, bForfeitCarriedItems))
+	{
+		ClientLeaveMatchRejected(NSLOCTEXT("LeaveMatch", "HostBlocked", "진행 중인 팀원이 있어 호스트는 나갈 수 없습니다."));
+		return;
+	}
+	bLeaveMatchApproved = true;
+	ClientSaveBeforeLeavingMatch(bForfeitCarriedItems);
+}
+
+void AHBPlayerController::ClientSaveBeforeLeavingMatch_Implementation(bool bForfeitCarriedItems)
+{
+	bLeaveMatchPending = true;
+	auto* Save = PlayerState ? PlayerState->FindComponentByClass<UHBPlayerSaveComponent>() : nullptr;
+	if (!Save)
+	{
+		ServerFinishLeavingMatch(false);
+		return;
+	}
+	Save->FlushBeforeTravel(bForfeitCarriedItems, [WeakThis = TWeakObjectPtr<AHBPlayerController>(this)](bool bSaved)
+	{
+		if (auto* Player = WeakThis.Get()) Player->ServerFinishLeavingMatch(bSaved);
+	});
+}
+
+void AHBPlayerController::ServerFinishLeavingMatch_Implementation(bool bSaved)
+{
+	if (!bLeaveMatchApproved) return;
+	if (!bSaved)
+	{
+		ClientLeaveMatchRejected(NSLOCTEXT("LeaveMatch", "SaveFailed", "소지품 저장에 실패했습니다. 나가기를 다시 시도해 주세요."));
+		return;
+	}
+	const auto* Mode = GetWorld()->GetAuthGameMode<AHeavenBreachGameMode>();
+	if (!Mode || !Mode->CanPlayerLeaveMatch(this))
+	{
+		ClientLeaveMatchRejected(NSLOCTEXT("LeaveMatch", "HostBlocked", "진행 중인 팀원이 있어 호스트는 나갈 수 없습니다."));
+		return;
+	}
+	bLeaveMatchApproved = false;
+	ClientReturnToHub();
+}
+
+void AHBPlayerController::ClientLeaveMatchRejected_Implementation(const FText& Reason)
+{
+	bLeaveMatchPending = false;
+	ShowHudNotification(Reason);
 }
 
 void AHBPlayerController::BeginTeammateSpectate()
