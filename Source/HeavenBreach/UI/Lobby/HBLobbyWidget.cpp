@@ -142,6 +142,16 @@ void UHBLobbyWidget::RefreshLobbyActions()
 	if (StartMatchButton) StartMatchButton->SetIsEnabled(bCanStart);
 	const bool bCanLeave = IsDesignTime() || (bInLobby && Sessions->IsAutomaticInviteHubEnabled());
 	if (LeavePartyButton) LeavePartyButton->SetIsEnabled(bCanLeave);
+
+	// 파티 나가기는 나갈 파티가 있을 때만 보인다. 로비에 나 혼자면 숨긴다.
+	// 친구 창이 열려 있는 동안에도 숨긴다. 이 버튼이 창 위에 겹쳐 그려지는 것을 막는다.
+	if (auto* LeavePartyModule = GetWidgetFromName(TEXT("WBP_Lobby_LeavePartyButton")))
+	{
+		const bool bInParty = State && State->PlayerArray.Num() > 1;
+		const bool bFriendsOpen = FriendsPanel && FriendsPanel->IsOpen();
+		const bool bShowLeave = IsDesignTime() || (bInParty && !bFriendsOpen);
+		LeavePartyModule->SetVisibility(bShowLeave ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
 	// Keep the designer's widgets, but retire their runtime Ready action.
 	if (ReadyButtonModule) ReadyButtonModule->SetVisibility(ESlateVisibility::Collapsed);
 	if (ReadyButton) ReadyButton->SetVisibility(ESlateVisibility::Collapsed);
@@ -152,6 +162,8 @@ void UHBLobbyWidget::HandleFriendsClicked()
 	if (FriendsPanel)
 	{
 		FriendsPanel->Toggle();
+		// 창이 열리고 닫히는 즉시 파티 나가기 버튼의 표시도 맞춘다.
+		RefreshLobbyActions();
 	}
 }
 
