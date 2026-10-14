@@ -70,11 +70,13 @@ private:
 	UFUNCTION()
 	void HandleStashLoadCompleted(bool bSuccess);
 
-	UPROPERTY(EditDefaultsOnly, Category = "Debug")
-	bool bGrantTestGold = true;
+	// 첫 실행(세이브 파일이 없을 때) 창고에 넣는 시작 골드. 한 번만 준다 — 이후 접속에서는 채우지 않는다.
+	// 다시 받으려면 Saved/SaveGames 의 Profile_*.sav 를 지운다.
+	UPROPERTY(EditDefaultsOnly, Category = "Save")
+	bool bGrantStartingGold = true;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Debug")
-	int32 TestGoldMinimum = 5000;
+	UPROPERTY(EditDefaultsOnly, Category = "Save", meta = (ClampMin = "0"))
+	int32 StartingGold = 5000;
 
 #pragma region MatchProgression
 public:
@@ -400,8 +402,9 @@ public:
 	void ForfeitCarriedItems(UHBPlayerCorpseInventory* Corpse);
 
 	// 로컬 저장 모드: 클라가 보낸 저장 데이터를 적용한다. UHBPlayerSaveComponent 가 검사한 뒤 부른다. 서버 전용.
+	// bNewProfile = 세이브 파일이 없던 첫 실행. 이때만 시작 골드를 준다.
 	void ApplySavedData(const TArray<FInventoryEntry>& InStash, const FPlayerLoadout& InLoadout,
-		const FHBStartingLoadout& InStartingLoadout);
+		const FHBStartingLoadout& InStartingLoadout, bool bNewProfile);
 
 	// 계정 ID. Steam 이면 Steam ID, 아니면 TestAccount. 로컬 저장 파일 이름에도 쓴다.
 	FString ResolveAccountId() const;
@@ -437,8 +440,8 @@ private:
 	// 새로 각인이 발린 게 있으면 bOutNewlyEngraved = true.
 	void ApplyLoadout(const FPlayerLoadout& InLoadout, bool& bOutNewlyEngraved);
 
-	// 창고 골드가 TestGoldMinimum 보다 적으면 채운다. 외부 서버 · 로컬 두 방식이 같이 쓴다.
-	void GrantTestGoldIfNeeded();
+	// 창고에 시작 골드(StartingGold)를 넣는다. 첫 실행일 때 ApplySavedData 만 부른다. 서버 전용.
+	void GrantStartingGold();
 
 	// 외부 서버 저장 모드인가. 컴포넌트가 없으면 예전 방식(외부 서버)으로 본다.
 	bool UsesBackendSave() const;

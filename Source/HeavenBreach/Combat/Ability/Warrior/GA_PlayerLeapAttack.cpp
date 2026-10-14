@@ -12,6 +12,7 @@
 #include "Core/Tag/Skill/HB_SkillParamTag.h"
 #include "Core/Tag/Event/HB_EventTag.h"
 #include "Core/Tag/Warrior/HB_WarriorTag.h"
+#include "Player/HBPlayerCharacter.h"
 
 UGA_PlayerLeapAttack::UGA_PlayerLeapAttack()
 {
@@ -115,6 +116,19 @@ void UGA_PlayerLeapAttack::OnLaunchEventReceived(FGameplayEventData Payload)
 	bGravityOverridden = true;
 	Movement->GravityScale = LeapGravityScale;
 
+	// 도약 동안은 다른 이동 감각이 궤적을 건드리지 못하게 한다.
+	// - 점프 감각(UpdateJumpFeel)은 공중에서 매 프레임 중력을 다시 쓴다. 그대로 두면 위 중력이 덮여 계획보다 두 배 높이 뜬다.
+	// - 관성의 제동 마찰(bUseSeparateBrakingFriction)은 공중에서도 걸린다. 도약 수평 속도는 걷기보다 빨라서 내내 깎여 앞으로 덜 나간다.
+	// 쳐낼 조건: 두 기능이 스스로 도약을 피하게 바뀌면 이 블록과 RestoreLeapMovement 의 해당 부분을 지운다.
+	if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(Char))
+	{
+		Player->SuspendJumpFeelGravity(true);
+		bJumpFeelSuspended = true;
+	}
+	SavedBrakingFrictionFactor = Movement->BrakingFrictionFactor;
+	bBrakingOverridden = true;
+	Movement->BrakingFrictionFactor = 0.f;
+
 	const FVector Start = Char->GetActorLocation();
 	const FVector End = Start + Forward * FinalDistance;
 
@@ -122,9 +136,9 @@ void UGA_PlayerLeapAttack::OnLaunchEventReceived(FGameplayEventData Payload)
 	const bool bFound = UGameplayStatics::SuggestProjectileVelocity_CustomArc(Char, LaunchVelocity, Start, End, Movement->GetGravityZ(), ArcParam);
 	if (!bFound)
 	{
-		// 너무 가깝거나 물리적으로 불가능한 경우다. 중력을 돌려놓고 도약만 포기한다.
+		// 너무 가깝거나 물리적으로 불가능한 경우다. 이동 값을 돌려놓고 도약만 포기한다.
 		UE_LOG(LogTemp, Warning, TEXT("[Leap] %s 도약 궤적 계산 실패"), *GetNameSafe(Char));
-		RestoreGravity();
+		RestoreLeapMovement();
 		return;
 	}
 
@@ -158,8 +172,8 @@ void UGA_PlayerLeapAttack::OnCharacterLanded(const FHitResult& Hit)
 	{
 		World->GetTimerManager().ClearTimer(AirTimeTimer);
 	}
-	// 중력 되돌리기
-	RestoreGravity();
+	// 중력 · 공중 제동 · 점프 감각 되돌리기. 땅에서는 관성 제동이 다시 걸려야 한다.
+	RestoreLeapMovement();
 
 	// 공중에서만 걸리는 버프를 착지 순간 걷는다. 증강 Guard(도약 중 피해 감소)가 이것이다.
 	//
@@ -199,7 +213,7 @@ void UGA_PlayerLeapAttack::OnAirTimeExpired()
 	UE_LOG(LogTemp, Warning, TEXT("[Leap] %s 착지하지 못해 강제 종료한다."),*GetNameSafe(GetAvatarActorFromActorInfo()));
 
 	bLaunched = false;
-	RestoreGravity();
+	RestoreLeapMovement();
 	CancelAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true);
 }
 
@@ -210,8 +224,8 @@ void UGA_PlayerLeapAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, c
 		World->GetTimerManager().ClearTimer(AirTimeTimer);
 	}
 
-	// 취소나 사망으로 끝나도 중력이 남으면 캐릭터가 영구히 무거워진다.
-	RestoreGravity();
+	// 취소나 사망으로 끝나도 바꾼 값이 남으면 캐릭터가 영구히 무겁거나 공중 제동이 없어진다.
+	RestoreLeapMovement();
 	bLaunched = false;
 
 	if (ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
@@ -222,25 +236,42 @@ void UGA_PlayerLeapAttack::EndAbility(const FGameplayAbilitySpecHandle Handle, c
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
-void UGA_PlayerLeapAttack::RestoreGravity()
+void UGA_PlayerLeapAttack::RestoreLeapMovement()
 {
-	if (!bGravityOverridden)
-	{
-		return;
-	}
-	bGravityOverridden = false;
-
 	ACharacter* Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	if (!Char)
+	UCharacterMovementComponent* Movement = nullptr;
+	if (Char)
 	{
-		return;
+		Movement = Char->GetCharacterMovement();
 	}
-	UCharacterMovementComponent* Movement = Char->GetCharacterMovement();
-	if (!Movement)
+
+	// 플래그는 캐릭터가 없어도 내린다. 다음 발동이 남은 플래그 때문에 엉뚱한 값을 되돌리지 않게.
+	if (bGravityOverridden)
 	{
-		return;
+		bGravityOverridden = false;
+		if (Movement)
+		{
+			Movement->GravityScale = SavedGravityScale;
+		}
 	}
-	Movement->GravityScale = SavedGravityScale;
+
+	if (bBrakingOverridden)
+	{
+		bBrakingOverridden = false;
+		if (Movement)
+		{
+			Movement->BrakingFrictionFactor = SavedBrakingFrictionFactor;
+		}
+	}
+
+	if (bJumpFeelSuspended)
+	{
+		bJumpFeelSuspended = false;
+		if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(Char))
+		{
+			Player->SuspendJumpFeelGravity(false);
+		}
+	}
 }
 
 bool UGA_PlayerLeapAttack::ShouldSimulateLeap() const

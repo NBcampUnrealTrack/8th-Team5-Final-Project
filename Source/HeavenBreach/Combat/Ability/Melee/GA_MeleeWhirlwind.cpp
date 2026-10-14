@@ -26,6 +26,9 @@ UGA_MeleeWhirlwind::UGA_MeleeWhirlwind()
 	bUseAttackSpeed = false;
 	RequiredWeaponTags.AddTag(ItemTag::TAG_Weapon_Sword);
 
+	// 몸 전체가 한 바퀴 돈다. 화면까지 돌면 어지러워서 시점 방향에 고정한다.
+	bLockCameraToView = true;
+
 	CostGameplayEffectClass = UGE_SkillManaCost::StaticClass();
 	CooldownGameplayEffectClass = UGE_MeleeWhirlwindCooldown::StaticClass();
 

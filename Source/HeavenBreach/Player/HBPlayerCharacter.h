@@ -214,6 +214,10 @@ public:
 	// 활 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
 	void SetBowDrawing(bool bDrawing);
 
+	// 도약처럼 중력을 직접 다루는 동안 점프 감각(UpdateJumpFeel)이 중력을 덮어쓰지 않게 한다.
+	// 도약 GA 가 서버와 소유 클라에서 발사 때 켜고 착지 때 끈다. 끄면 다음 틱부터 점프 감각이 다시 맡는다.
+	void SuspendJumpFeelGravity(bool bSuspend) { bJumpFeelGravitySuspended = bSuspend; }
+
 	// 활 스킬(관통·표식·회피) 동작 중인가. 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다(기문 님 테스트의 bBowSkillActive).
 	UFUNCTION(BlueprintPure, Category = "Player|Bow")
 	bool IsInBowSkillPose() const { return bInBowSkillPose; }
@@ -237,6 +241,11 @@ public:
 	FVector ComputeAimPoint(float MaxDistance = 10000.f) const;
 
 	UCameraComponent* GetFirstPersonCamera() const { return FirstPersonCamera; }
+
+	// 1인칭 화면의 회전을 머리 뼈 대신 시점(컨트롤러) 방향에 고정한다. 위치는 계속 머리 뼈를 따른다. 내 화면 전용.
+	// 회전 베기처럼 몸 전체가 도는 동작에서 화면이 같이 도는 것을 막는다(HBPlayerActiveGABase::bLockCameraToView).
+	// 평소에는 끈다 — 공격 동작의 머리 움직임이 그대로 화면이 되는 것이 의도다.
+	void SetCameraFollowsControlRotation(bool bFollow);
 #pragma region Interaction
 public:
 	virtual void PawnClientRestart() override;
@@ -845,6 +854,12 @@ protected:
 
 	// 점프 감각 값(중력·점프 높이)을 이동 컴포넌트에 넣는다. 공중·착지 회복 중 매 틱.
 	void UpdateJumpFeel();
+
+	// true 면 UpdateJumpFeel 이 중력을 건드리지 않는다(SuspendJumpFeelGravity). 점프 높이는 계속 맡는다.
+	bool bJumpFeelGravitySuspended = false;
+
+	// 시점 고정을 켜기 직전 카메라의 머리 뼈 기준 회전. 끌 때 되돌린다(SetCameraFollowsControlRotation).
+	FRotator SavedCameraRelativeRotation = FRotator::ZeroRotator;
 
 	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
 	bool bIsSprinting = false;

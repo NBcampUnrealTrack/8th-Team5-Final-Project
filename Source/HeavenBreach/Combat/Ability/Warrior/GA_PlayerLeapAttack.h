@@ -64,8 +64,9 @@ private:
 	// 도약을 실제로 수행하는 머신인가. 서버와 소유 클라만 true.
 	bool ShouldSimulateLeap() const;
 
-	// 중력 배율을 원래대로 되돌린다. 착지·타임아웃·종료 세 곳에서 부른다.
-	void RestoreGravity();
+	// 도약 동안 바꾼 이동 값(중력 · 공중 제동 · 점프 감각 멈춤)을 원래대로 되돌린다.
+	// 착지 · 타임아웃 · 궤적 실패 · 종료에서 부른다. 바꾼 것만 되돌린다.
+	void RestoreLeapMovement();
 
 	// 착지 처리를 한 번만 하기 위한 플래그.
 	bool bLaunched = false;
@@ -75,6 +76,13 @@ private:
 
 	// 발사 직전의 중력 배율. 다른 효과가 바꿔둔 값을 존중하려고 그때 저장한다.
 	float SavedGravityScale = 1.f;
+
+	// 공중 제동 배수(BrakingFrictionFactor)를 우리가 바꿨는가, 그리고 발사 직전 값.
+	bool bBrakingOverridden = false;
+	float SavedBrakingFrictionFactor = 2.f;
+
+	// 캐릭터의 점프 감각 중력 덮어쓰기를 우리가 멈췄는가.
+	bool bJumpFeelSuspended = false;
 
 	FTimerHandle AirTimeTimer;
 };
