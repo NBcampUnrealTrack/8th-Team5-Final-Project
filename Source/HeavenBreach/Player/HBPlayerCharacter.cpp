@@ -692,11 +692,9 @@ void AHBPlayerCharacter::BindToPlayerStateComponents()
 		PotionDrinkComp->BindInventory(Inv);
 	}
 	Equip->OnEquipmentChanged.AddUniqueDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
-	Equip->OnEquipmentChanged.AddUniqueDynamic(this, &AHBPlayerCharacter::RefreshWeaponBonus);
 	bPlayerStateComponentsBound = true;
 
 	RefreshEquippedVisuals();
-	RefreshWeaponBonus();
 	BP_OnPlayerStateReady();
 }
 
@@ -2785,38 +2783,6 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 	}
 	RefreshChestVisual();
 	RefreshLegsVisual();
-}
-
-void AHBPlayerCharacter::RefreshWeaponBonus()
-{
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
-	if (!HasAuthority() || !ASC)
-	{
-		return;
-	}
-
-	const TSubclassOf<UGameplayEffect> Wanted = HBWeaponBonus::EffectFor(GetEquippedWeaponTag());
-	if (Wanted == WeaponBonusClass && (WeaponBonusHandle.IsValid() || !Wanted))
-	{
-		return;	// 같은 종류 무기로 바꿨다
-	}
-
-	if (WeaponBonusHandle.IsValid())
-	{
-		ASC->RemoveActiveGameplayEffect(WeaponBonusHandle);
-		WeaponBonusHandle.Invalidate();
-	}
-	WeaponBonusClass = Wanted;
-
-	if (Wanted)
-	{
-		const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(Wanted, 1.f, ASC->MakeEffectContext());
-		if (Spec.IsValid())
-		{
-			WeaponBonusHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
-		}
-	}
-	UE_LOG(LogTemp, Log, TEXT("[Player] 무기 보너스  %s"), *GetNameSafe(Wanted.Get()));
 }
 
 void AHBPlayerCharacter::RefreshWeaponVisual()

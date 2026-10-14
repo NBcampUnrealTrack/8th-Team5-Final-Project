@@ -682,9 +682,8 @@ private:
 	float BlockStaminaCostPerSecond = 4.f;
 
 	// 마나 자연 회복. 대기 없이 항상 찬다. 장비 Player_ManaRegenFlat/Multiplier 가 붙는다.
-	// 10-14 초당 2 → 0.5 (마나 25 스킬 한 번 회복에 50초). 물약·마나 흡수·장비로 채우게.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float ManaRegenPerSecond = 0.5f;
+	float ManaRegenPerSecond = 1.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
 	float ResourceTickInterval = 0.25f;
@@ -1068,14 +1067,6 @@ protected:
 	UFUNCTION()
 	void RefreshEquippedVisuals();
 
-	// 서버 전용. 든 무기 종류의 보너스 GE(검: 방어·최대 체력, 활: 이동 속도)를 맞춘다. 장비가 바뀔 때마다 부른다.
-	UFUNCTION()
-	void RefreshWeaponBonus();
-
-	// 지금 걸린 무기 보너스 GE 와 그 클래스. 같은 종류 무기로 바꾸면 다시 걸지 않는다.
-	FActiveGameplayEffectHandle WeaponBonusHandle;
-	TSubclassOf<UGameplayEffect> WeaponBonusClass;
-	
 	void RefreshWeaponVisual();
 
 	// 외형 행의 CharacterAnimClass 로 AnimBP 를 바꾼다. 없으면 BaseAnimClass 로 되돌린다.

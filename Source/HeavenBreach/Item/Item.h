@@ -41,7 +41,8 @@ struct FWeaponData : public FTableRowBase
 	float Defense = 0.f;
 
 	// 무기 최대 체력(검). 다른 최대 체력 + 와 같은 칸에 더해진다. 진짜 체력 수치다 — 30 = 체력 30.
-	// 끼고 벗을 때 현재 체력은 비율을 유지한다(CalculateCurrentOnMaxChanged). 꼈다 벗었다로 회복되지 않는다.
+	// 최대 체력이 지금까지의 최고치를 넘어 오르면 넘은 만큼 현재 체력도 찬다(HBAttributeRules::HealthOnMaxChanged).
+	// 그래서 처음 낄 때만 차고, 벗었다 다시 끼는 것으로는 안 차서 무한 회복이 되지 않는다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float MaxHP = 0.f;
 

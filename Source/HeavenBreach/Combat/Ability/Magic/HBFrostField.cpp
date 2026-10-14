@@ -9,7 +9,6 @@
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "AbilitySystemGlobals.h"
 #include "Combat/Ability/HBSkillTargets.h"
-#include "Combat/Ability/Magic/HBMagic.h"
 #include "Combat/GameplayCue/HitCuePlay.h"
 #include "Combat/Interface/DamageableInterface.h"
 #include "Core/Tag/Cue/HB_CueTag.h"
@@ -192,8 +191,9 @@ void AHBFrostField::TickDamage()
 			continue;
 		}
 
-		// 공격력 × 계수 × 마법 피해 배율 × 스킬 피해 배율 → 패시브 보정. 지대는 시전이 끝난 뒤에도 남아 자기 시전 ID 로만 잔류 마력을 알린다.
-		float FinalDamage = Player->GetAttackPower() * DamageCoef * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
+		// 공격력 × 계수 × 스킬 피해 배율 → 패시브 보정. 지팡이 보너스는 스킬 피해 배율(무기 행 SkillDamageRate)에 들어 있다.
+		// 지대는 시전이 끝난 뒤에도 남아 자기 시전 ID 로만 잔류 마력을 알린다.
+		float FinalDamage = Player->GetAttackPower() * DamageCoef * Player->GetSkillDamageMultiplier();
 		FinalDamage = Player->ModifyOutgoingDamage(Enemy, FinalDamage, /*bCreditCurrentSkillCast*/ false);
 		if (CastId > 0)
 		{
