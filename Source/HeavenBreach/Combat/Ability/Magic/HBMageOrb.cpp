@@ -15,6 +15,7 @@
 #include "GameplayCueManager.h"
 #include "NiagaraComponent.h"
 #include "AI/EnemyCharacterBase.h"
+#include "Combat/Ability/HBSkillTargets.h"
 #include "Engine/OverlapResult.h"
 #include "Player/HBPlayerCharacter.h"
 
@@ -107,34 +108,24 @@ void AHBMageOrb::Explode(const FVector& Center, const AActor* DirectTarget)
 		return;
 	}
 
-	// 적 캡슐은 대개 "Enemy" 오브젝트 채널이라 움직이는 오브젝트 전부를 보고 AEnemyCharacterBase 로 거른다(마력 폭발과 같은 방식).
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MageOrbExplosion), false, Shooter.Get());
-	TArray<FOverlapResult> Overlaps;
-	World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity,
-		FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllDynamicObjects), FCollisionShape::MakeSphere(ExplosionRadius), QueryParams);
+	// 몬스터와 팀원(팀킬 규칙은 화살·평타와 같다). 시전자·시체 제외(HBSkillTargets).
+	TArray<AActor*> Targets;
+	HBSkillTargets::FindInSphere(World, Center, ExplosionRadius, Shooter.Get(), Targets);
 
-	// 직접 맞은 적은 겹침 검사 결과와 상관없이 넣는다(반경 0 이어도 맞는다).
-	TSet<AEnemyCharacterBase*> Targets;
-	if (AEnemyCharacterBase* Direct = Cast<AEnemyCharacterBase>(const_cast<AActor*>(DirectTarget)))
+	// 직접 맞은 대상은 겹침 검사 결과와 상관없이 넣는다(반경 0 이어도 맞는다). 시체·시전자는 빼고.
+	AActor* Direct = const_cast<AActor*>(DirectTarget);
+	if (Direct && Direct != Shooter.Get() && Direct->Implements<UDamageableInterface>())
 	{
-		Targets.Add(Direct);
-	}
-	for (const FOverlapResult& Overlap : Overlaps)
-	{
-		if (AEnemyCharacterBase* Enemy = Cast<AEnemyCharacterBase>(Overlap.GetActor()))
+		const UAbilitySystemComponent* DirectASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Direct);
+		if (DirectASC && !DirectASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
 		{
-			Targets.Add(Enemy);
+			Targets.AddUnique(Direct);
 		}
 	}
 
 	int32 HitCount = 0;
-	for (AEnemyCharacterBase* Enemy : Targets)
+	for (AActor* Enemy : Targets)
 	{
-		const UAbilitySystemComponent* TargetASC = Enemy->GetAbilitySystemComponent();
-		if (!TargetASC || TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
-		{
-			continue;	// 시체는 건너뛴다
-		}
 
 		// 직접 맞은 적은 100%. 나머지는 폭발 중심에서 적 위치까지 거리로 줄인다(캡슐 반지름만큼 빼서 몸 가장자리 기준).
 		const float Distance = FMath::Max(0.f, FVector::Dist(Center, Enemy->GetActorLocation()) - Enemy->GetSimpleCollisionRadius());

@@ -7,6 +7,12 @@
 #include "Combat/Effect/HBGameplayEffects.h"
 #include "Components/SceneComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "AbilitySystemGlobals.h"
+#include "Combat/Ability/HBSkillTargets.h"
+#include "Combat/Ability/Magic/HBMagic.h"
+#include "Combat/GameplayCue/HitCuePlay.h"
+#include "Combat/Interface/DamageableInterface.h"
+#include "Core/Tag/Cue/HB_CueTag.h"
 #include "Core/Tag/Magic/HB_MagicTag.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
@@ -42,11 +48,15 @@ void AHBFrostField::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 	DOREPLIFETIME(AHBFrostField, Duration);
 }
 
-void AHBFrostField::Init(AHBPlayerCharacter* InOwner, const float InRadius, const float InDuration, const float InSlow)
+void AHBFrostField::Init(AHBPlayerCharacter* InOwner, const float InRadius, const float InDuration, const float InSlow,
+	const float InDamageCoef, const float InDamageInterval, const int32 InCastId)
 {
 	Caster = InOwner;
 	Radius = InRadius;
 	Slow = InSlow;
+	DamageCoef = FMath::Max(0.f, InDamageCoef);
+	DamageInterval = FMath::Max(0.1f, InDamageInterval);
+	CastId = InCastId;
 	// SetLifeSpan(0) 은 "수명 없음" 이라 지대가 영원히 남는다. 0 이하가 들어오면 최소값으로 막는다.
 	if (InDuration <= 0.f)
 	{
@@ -65,6 +75,13 @@ void AHBFrostField::BeginPlay()
 		// 첫 판정은 바로, 이후 0.25초마다.
 		TickField();
 		GetWorldTimerManager().SetTimer(TickTimerHandle, this, &AHBFrostField::TickField, TickInterval, true);
+
+		// 도트: 생기는 순간 한 번, 이후 DamageInterval 마다. 수명(Duration)이 끝나면 액터와 함께 멈춘다.
+		if (DamageCoef > 0.f)
+		{
+			TickDamage();
+			GetWorldTimerManager().SetTimer(DamageTimerHandle, this, &AHBFrostField::TickDamage, DamageInterval, true);
+		}
 	}
 
 	if (GetNetMode() != NM_DedicatedServer)
@@ -78,6 +95,7 @@ void AHBFrostField::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (HasAuthority())
 	{
 		GetWorldTimerManager().ClearTimer(TickTimerHandle);
+		GetWorldTimerManager().ClearTimer(DamageTimerHandle);
 		RemoveAllSlows();
 	}
 	Super::EndPlay(EndPlayReason);
@@ -153,6 +171,54 @@ void AHBFrostField::TickField()
 			It.RemoveCurrent();
 		}
 	}
+}
+
+void AHBFrostField::TickDamage()
+{
+	AHBPlayerCharacter* Player = Caster.Get();
+	if (!HasAuthority() || !Player)
+	{
+		return;
+	}
+
+	// 피해는 몬스터와 팀원 모두(팀킬 규칙은 화살·평타와 같다). 감속은 TickField 가 몬스터에게만 건다.
+	TArray<AActor*> Enemies;
+	HBSkillTargets::FindInSphere(GetWorld(), GetActorLocation(), Radius, Player, Enemies);
+
+	for (AActor* Enemy : Enemies)
+	{
+		if (!Enemy->Implements<UDamageableInterface>() || !IDamageableInterface::Execute_CanBeDamaged(Enemy, Player))
+		{
+			continue;
+		}
+
+		// 공격력 × 계수 × 마법 피해 배율 × 스킬 피해 배율 → 패시브 보정. 지대는 시전이 끝난 뒤에도 남아 자기 시전 ID 로만 잔류 마력을 알린다.
+		float FinalDamage = Player->GetAttackPower() * DamageCoef * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
+		FinalDamage = Player->ModifyOutgoingDamage(Enemy, FinalDamage, /*bCreditCurrentSkillCast*/ false);
+		if (CastId > 0)
+		{
+			Player->NotifySkillHit(CastId);
+		}
+
+		FHitResult Hit;
+		Hit.ImpactPoint = Enemy->GetActorLocation();
+		Hit.Location = Hit.ImpactPoint;
+		Hit.ImpactNormal = FVector::UpVector;
+		Hit.Normal = Hit.ImpactNormal;
+		Hit.TraceStart = GetActorLocation();
+		Hit.TraceEnd = Hit.ImpactPoint;
+		{
+			// 맞는 쪽 큐가 마법 타격음을 고르게 맞는 순간에만 성질을 붙인다(원소 구체와 같다).
+			HitCuePlay::FScopedImpactTag ImpactScope(Player, CueTag::TAG_GameplayCue_Hit_Magic);
+			IDamageableInterface::Execute_ApplyMeleeHit(Enemy, Player, FinalDamage, Hit, EHBDamageSource::Ranged);
+		}
+
+		const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Enemy);
+		const bool bKilled = TargetASC && TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
+		Player->NotifyDamageDealt(Enemy, FinalDamage, bKilled);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[MagicSkill] 서리 지대 도트  적중=%d  계수=%.2f"), Enemies.Num(), DamageCoef);
 }
 
 void AHBFrostField::RemoveSlow(const FActiveGameplayEffectHandle& Handle)
