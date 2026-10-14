@@ -9,12 +9,32 @@
 #include "Core/Tag/UI/HB_UITag.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 UHB_SkillAugment::UHB_SkillAugment()
 {
 	InputMode = EHBWidgetInputMode::Menu;
 
 	bIsBackHandler = true;
+
+	// 기본 효과음. 에셋이 이미 프로젝트에 있다 (Sound/UI/Skill). WBP 에서 다른 소리로 바꿀 수 있다.
+	OpenSound = TSoftObjectPtr<USoundBase>(FSoftObjectPath(TEXT("/Game/Sound/UI/Skill/SFX_Augment_Open.SFX_Augment_Open")));
+	SelectSound = TSoftObjectPtr<USoundBase>(FSoftObjectPath(TEXT("/Game/Sound/UI/Skill/SFX_Augment_Confirm.SFX_Augment_Confirm")));
+}
+
+void UHB_SkillAugment::PlayAugmentSound(const TSoftObjectPtr<USoundBase>& Sound) const
+{
+	if (Sound.IsNull())
+	{
+		return;
+	}
+
+	// 소리 몇 개뿐이라 동기 로드로 충분하다. 첫 재생에만 로드하고 이후에는 캐시된다.
+	if (USoundBase* Loaded = Sound.LoadSynchronous())
+	{
+		UGameplayStatics::PlaySound2D(this, Loaded);
+	}
 }
 
 void UHB_SkillAugment::NativeConstruct()
@@ -51,6 +71,9 @@ void UHB_SkillAugment::NativeOnActivated()
 	bSelectionSubmitted = false;
 	bAwaitingNextCandidates = false;
 	RebuildCards();
+
+	// K 키로 열 때마다 난다. 고른 뒤 다음 증강으로 이어질 때는 HandleUpgradeCandidatesChanged 가 따로 낸다.
+	PlayAugmentSound(OpenSound);
 }
 
 UWidget* UHB_SkillAugment::NativeGetDesiredFocusTarget() const
@@ -103,6 +126,11 @@ void UHB_SkillAugment::HandleUpgradeCandidatesChanged()
 				{
 					PC->FinishAugmentSelection();
 				}
+			}
+			else
+			{
+				// 화면이 닫히지 않고 다음 증강 카드로 바뀌는 경우다. 새로 열린 것처럼 열기 소리를 낸다.
+				PlayAugmentSound(OpenSound);
 			}
 		}
 
@@ -163,6 +191,9 @@ void UHB_SkillAugment::OnAugmentCardClicked(FName ClickedCandidateId)
 		return;
 	}
 	bSelectionSubmitted = true;
+
+	// 위의 중복 클릭 막기를 지난 뒤에 낸다. 같은 선택이 두 번 울리지 않는다.
+	PlayAugmentSound(SelectSound);
 
 	AHB_PlayerState* HBPS = GetHBPlayerState();
 
