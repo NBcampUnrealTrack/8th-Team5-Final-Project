@@ -59,7 +59,9 @@ private:
 	void TryBeginLocalLoad();
 	bool IsMine(bool& bOutUndecided) const;
 	FString MakeSlotName() const;
-	void SubmitToServer(const UHBPlayerSaveGame& Save);
+
+	// bNewProfile = 세이브 파일이 없던 첫 실행. 서버가 이때만 시작 골드를 준다.
+	void SubmitToServer(const UHBPlayerSaveGame& Save, bool bNewProfile);
 
 	// "적용 끝" 뒤에만 묶는다. 그 전에는 복제된 데이터가 비어 있어서, 저장하면 파일이 빈 데이터로 덮인다.
 	void BindSaveTriggers();
@@ -93,7 +95,7 @@ private:
 
 	UFUNCTION(Server, Reliable)
 	void Server_FinishSubmit(const TArray<FInventoryEntry>& InInventory, const TArray<FItemInstance>& InEquipment,
-		const TArray<FGuid>& InQuickSlots, const FHBStartingLoadout& InStartingLoadout);
+		const TArray<FGuid>& InQuickSlots, const FHBStartingLoadout& InStartingLoadout, bool bNewProfile);
 
 	UFUNCTION(Client, Reliable)
 	void Client_SubmitApplied();

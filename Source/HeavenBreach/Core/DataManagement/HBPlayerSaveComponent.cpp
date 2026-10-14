@@ -99,6 +99,7 @@ void UHBPlayerSaveComponent::TryBeginLocalLoad()
 
 	const FString SlotName = MakeSlotName();
 	UHBPlayerSaveGame* Save = nullptr;
+	bool bNewProfile = false;
 
 	if (UGameplayStatics::DoesSaveGameExist(SlotName, 0))
 	{
@@ -113,8 +114,10 @@ void UHBPlayerSaveComponent::TryBeginLocalLoad()
 	}
 	else
 	{
-		// 첫 실행. 빈 데이터로 보낸다 — 서버는 빈 창고 · 인벤토리로 시작하고 테스트 골드를 준다.
+		// 첫 실행. 빈 데이터로 보낸다 — 서버는 빈 창고 · 인벤토리로 시작하고 시작 골드를 준다.
+		// 한 번 저장되면 파일이 생겨서 다음부터는 이 분기를 안 탄다. 그래서 골드는 처음 한 번만 들어온다.
 		Save = Cast<UHBPlayerSaveGame>(UGameplayStatics::CreateSaveGameObject(UHBPlayerSaveGame::StaticClass()));
+		bNewProfile = true;
 	}
 
 	if (!Save)
@@ -122,8 +125,8 @@ void UHBPlayerSaveComponent::TryBeginLocalLoad()
 		return;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[Save] 불러옴 %s | 창고 %d 인벤 %d"), *SlotName, Save->Stash.Num(), Save->Inventory.Num());
-	SubmitToServer(*Save);
+	UE_LOG(LogTemp, Log, TEXT("[Save] 불러옴 %s | 창고 %d 인벤 %d | 첫 실행 %d"), *SlotName, Save->Stash.Num(), Save->Inventory.Num(), bNewProfile);
+	SubmitToServer(*Save, bNewProfile);
 }
 
 FString UHBPlayerSaveComponent::MakeSlotName() const
@@ -149,7 +152,7 @@ FString UHBPlayerSaveComponent::MakeSlotName() const
 	return FString::Printf(TEXT("Profile_%s"), *Account);
 }
 
-void UHBPlayerSaveComponent::SubmitToServer(const UHBPlayerSaveGame& Save)
+void UHBPlayerSaveComponent::SubmitToServer(const UHBPlayerSaveGame& Save, const bool bNewProfile)
 {
 	Server_BeginSubmit();
 
@@ -162,7 +165,7 @@ void UHBPlayerSaveComponent::SubmitToServer(const UHBPlayerSaveGame& Save)
 	}
 
 	// Reliable RPC 는 보낸 순서대로 도착한다. 창고가 다 간 뒤에 이게 간다.
-	Server_FinishSubmit(Save.Inventory, Save.Equipment, Save.QuickSlots, Save.StartingLoadout);
+	Server_FinishSubmit(Save.Inventory, Save.Equipment, Save.QuickSlots, Save.StartingLoadout, bNewProfile);
 }
 
 void UHBPlayerSaveComponent::Client_SubmitApplied_Implementation()
@@ -339,7 +342,8 @@ void UHBPlayerSaveComponent::Server_SubmitStashChunk_Implementation(const TArray
 }
 
 void UHBPlayerSaveComponent::Server_FinishSubmit_Implementation(const TArray<FInventoryEntry>& InInventory,
-	const TArray<FItemInstance>& InEquipment, const TArray<FGuid>& InQuickSlots, const FHBStartingLoadout& InStartingLoadout)
+	const TArray<FItemInstance>& InEquipment, const TArray<FGuid>& InQuickSlots, const FHBStartingLoadout& InStartingLoadout,
+	const bool bNewProfile)
 {
 	AHB_PlayerState* PlayerState = Cast<AHB_PlayerState>(GetOwner());
 	if (!PlayerState)
@@ -378,7 +382,7 @@ void UHBPlayerSaveComponent::Server_FinishSubmit_Implementation(const TArray<FIn
 	}
 	Loadout.QuickSlots = InQuickSlots;
 
-	PlayerState->ApplySavedData(StashEntries, Loadout, InStartingLoadout);
+	PlayerState->ApplySavedData(StashEntries, Loadout, InStartingLoadout, bNewProfile);
 	Client_SubmitApplied();
 }
 
