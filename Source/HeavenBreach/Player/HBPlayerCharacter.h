@@ -867,19 +867,27 @@ protected:
 #pragma region EquipmentVisual
 
 public:
-	// 손에 든 주무기와 방패를 잠깐 숨긴다(횃불은 그대로). 상자·시체를 뒤지는 동안 손이 비어 보이게 한다.
-	// 각 머신이 직접 부른다(복제 없음). 부르는 쪽(UHBInteractAnimComponent)이 이미 모든 머신에서 돈다.
+	// 손에 든 주무기와 방패를 숨기는 이유. 이유가 하나라도 남아 있으면 숨긴 채로 둔다.
+	// 상자를 뒤지다 포션이 끊겨도(포션은 BoxInteracting 태그로 끊긴다) 상자 쪽 숨김이 풀리지 않게 한다.
+	enum class EHandHideReason : uint8
+	{
+		Interact = 1 << 0,	// 상자·시체 뒤지기(UHBInteractAnimComponent)
+		Potion = 1 << 1,	// 포션 마시기(UHBPotionDrinkComponent)
+	};
+
+	// 손에 든 주무기와 방패를 잠깐 숨긴다(횃불은 그대로). 상자·시체 뒤지기·포션 마시는 동안 손이 비어 보이게 한다.
+	// 각 머신이 직접 부른다(복제 없음). 부르는 쪽(상호작용·포션 컴포넌트)이 이미 모든 머신에서 돈다.
 	//
 	// 왜 SetVisibility 가 아니라 HiddenInGame 인가: 장비 갱신이 활 메시를 SetVisibility 로 켜고 끈다.
 	// 같은 플래그를 쓰면 상호작용 중 장비가 바뀔 때 숨김이 풀리거나, 끝날 때 꺼져 있어야 할 활이 켜진다.
-	void SetHandEquipmentHidden(bool bHide);
+	void SetHandEquipmentHidden(EHandHideReason Reason, bool bHide);
 
 private:
 	// 보조 손 숨김을 지금 상태(숨김 요청 + 횃불 여부)에 맞춘다.
 	void RefreshSecondaryEquipHidden();
 
-	// SetHandEquipmentHidden 로 숨김 요청 중인가.
-	bool bHandEquipmentHidden = false;
+	// 숨김을 요청 중인 이유들(EHandHideReason 비트). 0 이면 보인다.
+	uint8 HandHideReasons = 0;
 
 	// 보조 손 슬롯이 지금 횃불인가. ApplySecondaryEquipTransform 이 기록한다.
 	bool bSecondaryIsTorch = false;

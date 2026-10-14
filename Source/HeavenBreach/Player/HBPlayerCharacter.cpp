@@ -2996,19 +2996,28 @@ void AHBPlayerCharacter::RefreshShieldVisual()
 	RefreshTorchLight(0.f);
 }
 
-void AHBPlayerCharacter::SetHandEquipmentHidden(bool bHide)
+void AHBPlayerCharacter::SetHandEquipmentHidden(const EHandHideReason Reason, const bool bHide)
 {
+	if (bHide)
+	{
+		HandHideReasons |= static_cast<uint8>(Reason);
+	}
+	else
+	{
+		HandHideReasons &= ~static_cast<uint8>(Reason);
+	}
+	const bool bHideNow = HandHideReasons != 0;
+
 	if (WeaponMeshComp)
 	{
-		WeaponMeshComp->SetHiddenInGame(bHide);
+		WeaponMeshComp->SetHiddenInGame(bHideNow);
 	}
 	if (WeaponSkeletalMeshComp)
 	{
-		WeaponSkeletalMeshComp->SetHiddenInGame(bHide);
+		WeaponSkeletalMeshComp->SetHiddenInGame(bHideNow);
 	}
 
-	// 보조 손은 방패일 때만 숨긴다. 장비 갱신이 방패↔횃불을 바꿀 때도 다시 맞추도록 플래그로 남긴다.
-	bHandEquipmentHidden = bHide;
+	// 보조 손은 방패일 때만 숨긴다. 장비 갱신이 방패↔횃불을 바꿀 때도 다시 맞추도록 이유 비트로 남긴다.
 	RefreshSecondaryEquipHidden();
 }
 
@@ -3017,7 +3026,7 @@ void AHBPlayerCharacter::RefreshSecondaryEquipHidden()
 	// 횃불은 숨기지 않는다. 메시만 사라지고 불빛은 허공에 남으며, 던전이 어두워진다.
 	if (ShieldMeshComp)
 	{
-		ShieldMeshComp->SetHiddenInGame(bHandEquipmentHidden && !bSecondaryIsTorch);
+		ShieldMeshComp->SetHiddenInGame(HandHideReasons != 0 && !bSecondaryIsTorch);
 	}
 }
 

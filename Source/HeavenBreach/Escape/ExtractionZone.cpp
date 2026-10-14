@@ -32,6 +32,17 @@ void AExtractionZone::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// BP 가 단 장식 메시(빛 기둥·바닥 링 등)가 화살·마법 구체(WorldDynamic)를 막지 않게 한다.
+	// 막으면 투명한 기둥 표면 허공에 화살이 박힌다. 상호작용 트레이스(Visibility)는 그대로 둔다.
+	TInlineComponentArray<UPrimitiveComponent*> Primitives(this);
+	for (UPrimitiveComponent* Primitive : Primitives)
+	{
+		if (Primitive != Mesh && Primitive != Zone)
+		{
+			Primitive->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
+		}
+	}
+
 	if (HasAuthority())
 	{
 		Zone->OnComponentEndOverlap.AddDynamic(this, &AExtractionZone::OnZoneEndOverlap);

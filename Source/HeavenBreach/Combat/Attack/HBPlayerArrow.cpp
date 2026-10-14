@@ -182,6 +182,17 @@ bool AHBPlayerArrow::TryPierce(const FHitResult& Hit)
 		return true;
 	}
 
+	// 시체(State.Dead)는 일반 화살도 그냥 지나간다. 시체 메시가 WorldDynamic 을 막아 바닥의 시체 위에 화살이 박히던 문제.
+	// 피해·관통 횟수 없이 이후 이동에서 무시만 한다.
+	const UAbilitySystemComponent* HitASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(HitPawn);
+	if (HitASC && HitASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		PiercedActors.Add(HitPawn);
+		CollisionComp->IgnoreActorWhenMoving(HitPawn, true);
+		UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살이 시체를 지나감  대상=%s"), *GetNameSafe(HitPawn));
+		return true;
+	}
+
 	if (PierceRemaining <= 0)
 	{
 		return false;

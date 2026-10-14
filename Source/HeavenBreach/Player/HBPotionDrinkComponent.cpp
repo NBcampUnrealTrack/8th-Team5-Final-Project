@@ -10,6 +10,7 @@
 #include "Engine/StaticMesh.h"
 #include "GameFramework/Character.h"
 #include "Inventory/InventoryComponent.h"
+#include "Player/HBPlayerCharacter.h"
 #include "TimerManager.h"
 
 UHBPotionDrinkComponent::UHBPotionDrinkComponent()
@@ -71,6 +72,9 @@ void UHBPotionDrinkComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		PendingInstanceId.Invalidate();
 	}
 	StopListeningInterrupts();
+
+	// 마시던 중 사라져도 무기 숨김이 남지 않게 한다(멀티캐스트 없이 끝나는 경로).
+	SetWeaponHidden(false);
 
 	if (Inventory)
 	{
@@ -208,6 +212,10 @@ void UHBPotionDrinkComponent::StopListeningInterrupts()
 
 void UHBPotionDrinkComponent::Multicast_StartDrink_Implementation(const FString& InBottleMeshPath)
 {
+	// 마시는 동안 손의 무기·방패를 숨긴다. 병을 쥔 손이 무기를 뚫는다.
+	// 애니메이션이 없어도(데디 서버 등) 상태는 맞추려고 아래 조기 반환보다 먼저 한다.
+	SetWeaponHidden(true);
+
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
 	if (!AnimInstance)
@@ -261,5 +269,14 @@ void UHBPotionDrinkComponent::Multicast_StopDrink_Implementation(bool bInterrupt
 	if (BottleComp)
 	{
 		BottleComp->SetHiddenInGame(true);
+	}
+	SetWeaponHidden(false);
+}
+
+void UHBPotionDrinkComponent::SetWeaponHidden(const bool bHidden)
+{
+	if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner()))
+	{
+		Player->SetHandEquipmentHidden(AHBPlayerCharacter::EHandHideReason::Potion, bHidden);
 	}
 }
