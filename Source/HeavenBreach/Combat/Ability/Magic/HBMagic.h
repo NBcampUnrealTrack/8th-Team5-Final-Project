@@ -4,6 +4,33 @@
 /** 마법 스킬 순수 계산. 상태를 갖지 않아 테스트하기 쉽다. */
 namespace HBMagic
 {
+	/**
+	 * 마법 스킬 피해 배율. 공격력 × 스킬 계수 다음에 곱한다.
+	 * 왜 공격력이 아니라 여기서 올리나: 기본 공격력은 직업 공통(5)이고 무기로 차이를 낸다.
+	 * 지팡이를 껴도 마법이 약해서, 근접·활은 그대로 두고 마법만 올린다.
+	 * 쳐낼 조건: 마법 피해 옵션(장비·증강)이 생기면 어트리뷰트로 옮긴다.
+	 * 2026-10-13 2배가 너무 세서 1.5배로 내렸다.
+	 */
+	constexpr float DamageMultiplier = 1.5f;
+
+	/**
+	 * 원소 구체 폭발의 거리별 피해 비율. 중심 1 → 가장자리 EdgeFraction 으로 줄고, 범위 밖은 0.
+	 * EdgeFraction 은 [0,1] 로 자른다. 반경 0 이면 중심(거리 0)만 1.
+	 */
+	inline float OrbExplosionFalloff(float Distance, float Radius, float EdgeFraction)
+	{
+		if (Distance > Radius)
+		{
+			return 0.f;
+		}
+		if (Radius <= KINDA_SMALL_NUMBER)
+		{
+			return 1.f;
+		}
+		const float Edge = FMath::Clamp(EdgeFraction, 0.f, 1.f);
+		return FMath::Lerp(1.f, Edge, FMath::Clamp(Distance / Radius, 0.f, 1.f));
+	}
+
 	/** 시전 시간 배율. 집중 없음 1.0 / 집중 0.75 / 강화 1·2·3단계 0.65·0.55·0.45. */
 	inline float CastTimeMultiplier(bool bHasFocus, int32 FocusBoostTier)
 	{

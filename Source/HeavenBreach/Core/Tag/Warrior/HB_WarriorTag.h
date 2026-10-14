@@ -44,7 +44,8 @@ namespace WarriorTag
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_BloodFrenzy_Efficiency);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_BloodFrenzy_Lifesteal);
-	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_BloodFrenzy_Bleed);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_BloodFrenzy_Bleed);       // 쓰이지 않음. 적 지속 피해 경로가 없어 보류
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_BloodFrenzy_Duration);
 
 	// ---------------- 증강: 패시브 ----------------
 	// 지금은 패시브당 하나.

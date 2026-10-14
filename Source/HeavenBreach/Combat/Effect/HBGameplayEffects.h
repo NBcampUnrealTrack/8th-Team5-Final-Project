@@ -190,6 +190,15 @@ public:
 	UGE_BowPiercingCooldown();
 };
 
+/** 트리플 샷 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.TripleShot 부여 */
+UCLASS()
+class HEAVENBREACH_API UGE_BowTripleShotCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_BowTripleShotCooldown();
+};
+
 /** 사냥꾼의 표식 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.TrackingMark 부여 */
 UCLASS()
 class HEAVENBREACH_API UGE_BowHunterMarkCooldown : public UGameplayEffect
@@ -404,4 +413,67 @@ class HEAVENBREACH_API UGE_MeleeWhirlwindCooldown : public UGameplayEffect
 	GENERATED_BODY()
 public:
 	UGE_MeleeWhirlwindCooldown();
+};
+
+/** 전투의 함성 증강 "위력". 버프 동안 공격력 배율(SetByCaller.AugmentMagnitude). 지속은 SetByCaller.Duration */
+UCLASS()
+class HEAVENBREACH_API UGE_WarriorBattleCryPowerAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WarriorBattleCryPowerAugment();
+};
+
+/** 피의 광란 증강 "흡혈". 버프 동안 흡혈 비율 가산(SetByCaller.AugmentMagnitude). 지속은 SetByCaller.Duration */
+UCLASS()
+class HEAVENBREACH_API UGE_WarriorBloodFrenzyLifestealAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WarriorBloodFrenzyLifestealAugment();
+};
+
+/** 돌진 강타 증강 "가드". 발동 중 받는 피해 배율(SetByCaller.AugmentMagnitude) */
+UCLASS()
+class HEAVENBREACH_API UGE_WarriorChargeGuardAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WarriorChargeGuardAugment();
+};
+
+/** 강타 증강 "위력". 발동 중 스킬 피해 배율 가산(SetByCaller.AugmentMagnitude) */
+UCLASS()
+class HEAVENBREACH_API UGE_WarriorSmashPowerAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WarriorSmashPowerAugment();
+};
+
+/** 강타 증강 "방패 강타". 발동 중 공격력 가산(SetByCaller.Damage = 방어력 × 전환 비율) */
+UCLASS()
+class HEAVENBREACH_API UGE_WarriorSmashShieldPower : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WarriorSmashShieldPower();
+};
+
+/** 강철 심장 증강. 최대 체력 배율 추가(SetByCaller.AugmentMagnitude). 패시브 GE 의 ×1.5 와 합산된다 */
+UCLASS()
+class HEAVENBREACH_API UGE_IronHeartAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_IronHeartAugment();
+};
+
+/** 전투 본능 증강. 저체력 최대 공격력 보너스 가산(SetByCaller.AugmentMagnitude) */
+UCLASS()
+class HEAVENBREACH_API UGE_CombatInstinctAugment : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_CombatInstinctAugment();
 };

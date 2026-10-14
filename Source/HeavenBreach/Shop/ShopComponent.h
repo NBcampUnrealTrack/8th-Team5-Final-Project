@@ -61,6 +61,21 @@ public:
 	void RemoveFromBasket(int32 InIndex);
 
 	UFUNCTION(BlueprintCallable, Category = "Shop")
+	bool SetBasketQuantity(int32 InIndex, int32 InQuantity);
+
+	UFUNCTION(BlueprintCallable, Category = "Shop")
+	bool AddBasketQuantity(int32 InIndex, int32 InDelta);
+
+	UFUNCTION(BlueprintCallable, Category = "Shop")
+	void RemoveBasketEntry(int32 InIndex);
+
+	UFUNCTION(BlueprintPure, Category = "Shop")
+	int32 GetMaxBuyQuantity(const FDataTableRowHandle& InItemRow) const;
+
+	UFUNCTION(BlueprintPure, Category = "Shop")
+	static bool IsShiftHeld();
+
+	UFUNCTION(BlueprintCallable, Category = "Shop")
 	void ClearBasket();
 
 	UFUNCTION(BlueprintCallable, Category = "Shop")
@@ -84,6 +99,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Shop")
 	float BuyPriceMultiplier = 2.5f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Shop", meta = (ClampMin = "1"))
+	int32 MaxBuyQuantity = 99;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Shop")
 	FDataTableRowHandle GoldItemRow;

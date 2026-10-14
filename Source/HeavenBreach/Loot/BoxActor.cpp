@@ -19,8 +19,12 @@ namespace
 		FName RowName = NAME_None;
 	};
 
-	template<typename TRow>
-	void CollectByGrade(UDataTable* Table, TMap<EItemGrade, TArray<FLootCandidate>>& Out)
+	// 종류 → 등급 → 후보.
+	using FLootPools = TMap<EBoxLootCategory, TMap<EItemGrade, TArray<FLootCandidate>>>;
+
+	// 드랍 가능한 행을 종류·등급별로 모은다. CategoryOf 는 행 하나를 받아 종류를 돌려준다.
+	template<typename TRow, typename TCategoryOf>
+	void CollectPools(UDataTable* Table, TCategoryOf CategoryOf, FLootPools& Out)
 	{
 		if (Table == nullptr)
 		{
@@ -28,7 +32,7 @@ namespace
 		}
 
 		TArray<TRow*> Rows;
-		Table->GetAllRows<TRow>(TEXT("BoxActor::CollectByGrade"), Rows);
+		Table->GetAllRows<TRow>(TEXT("BoxActor::CollectPools"), Rows);
 		const TArray<FName> Names = Table->GetRowNames();
 
 		for (int32 i = 0; i < Rows.Num() && i < Names.Num(); ++i)
@@ -47,7 +51,7 @@ namespace
 			FLootCandidate Candidate;
 			Candidate.Table = Table;
 			Candidate.RowName = Names[i];
-			Out.FindOrAdd(Rows[i]->Grade).Add(Candidate);
+			Out.FindOrAdd(CategoryOf(*Rows[i])).FindOrAdd(Rows[i]->Grade).Add(Candidate);
 		}
 	}
 }
@@ -232,58 +236,79 @@ void ABoxActor::GenerateLoot()
 		return;
 	}
 
-	TMap<EItemGrade, TArray<FLootCandidate>> ItemsByGrade;
-	CollectByGrade<FItemData>(ItemDataTable, ItemsByGrade);
-	CollectByGrade<FWeaponData>(WeaponDataTable, ItemsByGrade);
-	CollectByGrade<FShieldData>(ShieldDataTable, ItemsByGrade);
+	// 무기·방패 표는 전부 장비. 일반 아이템 표는 ItemType 으로 나눈다(열쇠·소모품·방어구 등).
+	FLootPools Pools;
+	CollectPools<FItemData>(ItemDataTable, [](const FItemData& Row) { return HBBoxLoot::CategoryOfItemType(Row.ItemType); }, Pools);
+	CollectPools<FWeaponData>(WeaponDataTable, [](const FWeaponData&) { return EBoxLootCategory::Equipment; }, Pools);
+	CollectPools<FShieldData>(ShieldDataTable, [](const FShieldData&) { return EBoxLootCategory::Equipment; }, Pools);
 
-	if (ItemsByGrade.Num() == 0)
+	if (Pools.Num() == 0)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 아이템 소스 테이블 없음(Item/Weapon/Shield): %s"), *GetName());
 		return;
 	}
 
-
-	TArray<TPair<EItemGrade, float>> Weights;
-	float TotalWeight = 0.0f;
-	for (const TPair<EItemGrade, float>& W : Cfg->ItemGradeWeights)
+	// 이 상자 등급에서 나올 수 있는 등급(가중치 > 0)만 쓴다.
+	auto GradeWeightsFor = [Cfg](const TMap<EItemGrade, TArray<FLootCandidate>>& ByGrade, TArray<EItemGrade>& OutGrades, TArray<float>& OutWeights)
 	{
-		if (W.Value > 0.0f && ItemsByGrade.Contains(W.Key))
+		for (const TPair<EItemGrade, float>& W : Cfg->ItemGradeWeights)
 		{
-			Weights.Add(W);
-			TotalWeight += W.Value;
+			const TArray<FLootCandidate>* Pool = ByGrade.Find(W.Key);
+			if (W.Value > 0.0f && Pool && Pool->Num() > 0)
+			{
+				OutGrades.Add(W.Key);
+				OutWeights.Add(W.Value);
+			}
+		}
+	};
+
+	// 종류 비율. 이 상자 등급에서 하나도 나올 수 없는 종류는 빼서, 남은 종류끼리 비율을 나눈다.
+	TArray<EBoxLootCategory> Categories;
+	TArray<float> CategoryWeights;
+	for (const TPair<EBoxLootCategory, float>& W : HBBoxLoot::ResolveCategoryWeights(Cfg->CategoryWeights))
+	{
+		const TMap<EItemGrade, TArray<FLootCandidate>>* ByGrade = Pools.Find(W.Key);
+		if (W.Value <= 0.0f || ByGrade == nullptr)
+		{
+			continue;
+		}
+		TArray<EItemGrade> Grades;
+		TArray<float> GradeWeights;
+		GradeWeightsFor(*ByGrade, Grades, GradeWeights);
+		if (Grades.Num() > 0)
+		{
+			Categories.Add(W.Key);
+			CategoryWeights.Add(W.Value);
 		}
 	}
 
-	if (Weights.Num() == 0 || TotalWeight <= 0.0f)
+	if (Categories.Num() == 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 뽑을 수 있는 아이템 등급 없음: %s"), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("[BoxActor] GenerateLoot: 뽑을 수 있는 종류·등급 없음: %s"), *GetName());
 		return;
 	}
 
-	auto PickGrade = [&Weights, TotalWeight]() -> EItemGrade
+	// 종류 → (그 종류 안에서) 등급 → 아이템 하나.
+	auto AddOne = [this, &Pools, &Categories, &CategoryWeights, &GradeWeightsFor]() -> bool
 	{
-		float Roll = FMath::FRand() * TotalWeight;
-		for (const TPair<EItemGrade, float>& W : Weights)
-		{
-			Roll -= W.Value;
-			if (Roll <= 0.0f)
-			{
-				return W.Key;
-			}
-		}
-		return Weights.Last().Key;
-	};
-
-	auto AddOneOfGrade = [this, &ItemsByGrade](EItemGrade InGrade) -> bool
-	{
-		const TArray<FLootCandidate>* Pool = ItemsByGrade.Find(InGrade);
-		if (Pool == nullptr || Pool->Num() == 0)
+		const int32 CategoryIndex = HBBoxLoot::PickWeightedIndex(CategoryWeights, FMath::FRand());
+		if (CategoryIndex == INDEX_NONE)
 		{
 			return false;
 		}
+		const TMap<EItemGrade, TArray<FLootCandidate>>& ByGrade = Pools.FindChecked(Categories[CategoryIndex]);
 
-		const FLootCandidate& Candidate = (*Pool)[FMath::RandRange(0, Pool->Num() - 1)];
+		TArray<EItemGrade> Grades;
+		TArray<float> GradeWeights;
+		GradeWeightsFor(ByGrade, Grades, GradeWeights);
+		const int32 GradeIndex = HBBoxLoot::PickWeightedIndex(GradeWeights, FMath::FRand());
+		if (GradeIndex == INDEX_NONE)
+		{
+			return false;
+		}
+		const TArray<FLootCandidate>& Pool = ByGrade.FindChecked(Grades[GradeIndex]);
+
+		const FLootCandidate& Candidate = Pool[FMath::RandRange(0, Pool.Num() - 1)];
 
 		FItemInstance Item;
 		Item.ItemRow.DataTable = Candidate.Table;
@@ -312,7 +337,7 @@ void ABoxActor::GenerateLoot()
 	int32 AddedCount = 0;
 	for (int32 d = 0; d < Draws; ++d)
 	{
-		if (AddOneOfGrade(PickGrade()))
+		if (AddOne())
 		{
 			++AddedCount;
 		}
@@ -320,7 +345,7 @@ void ABoxActor::GenerateLoot()
 
 	if (AddedCount == 0)
 	{
-		if (AddOneOfGrade(PickGrade()))
+		if (AddOne())
 		{
 			++AddedCount;
 		}

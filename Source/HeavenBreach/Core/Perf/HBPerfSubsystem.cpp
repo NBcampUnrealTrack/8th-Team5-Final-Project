@@ -1,6 +1,8 @@
 ﻿#include "Core/Perf/HBPerfSubsystem.h"
 
 #include "Components/LocalLightComponent.h"
+#include "PCGModule/HBDungeonRuntime.h"
+#include "EngineUtils.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Components/TimelineComponent.h"
 #include "Engine/Engine.h"
@@ -18,6 +20,11 @@ static TAutoConsoleVariable<int32> CVarHBPerfEnable(
 	TEXT("hb.Perf.Enable"),
 	1,
 	TEXT("1: throttle minimap capture and far torch flicker, 0: original behaviour"));
+
+static TAutoConsoleVariable<int32> CVarHBMinimapCapture(
+	TEXT("hb.Perf.MinimapCapture"),
+	0,
+	TEXT("1: capture the minimap render target, 0: no minimap scene captures (no HUD uses it)"));
 
 static TAutoConsoleVariable<float> CVarHBMinimapInterval(
 	TEXT("hb.Perf.MinimapInterval"),
@@ -54,6 +61,16 @@ static TAutoConsoleVariable<int32> CVarHBLightCull(
 	1,
 	TEXT("1: local lights fade out beyond hb.Perf.LightDistance, 0: original draw distances"));
 
+static TAutoConsoleVariable<int32> CVarHBRoomTorchFull(
+	TEXT("hb.Perf.RoomTorchFull"),
+	1,
+	TEXT("1: torches in the room the local player is in keep their original draw distance"));
+
+static TAutoConsoleVariable<float> CVarHBRoomTorchDistance(
+	TEXT("hb.Perf.RoomTorchDistance"),
+	8000.f,
+	TEXT("Max draw distance of torches in the current room, 0 keeps their original distance"));
+
 static TAutoConsoleVariable<float> CVarHBLightDistance(
 	TEXT("hb.Perf.LightDistance"),
 	3000.f,
@@ -81,6 +98,7 @@ void UHBPerfSubsystem::Deinitialize()
 	TorchTimelines.Reset();
 	ShadowLights.Reset();
 	CullLights.Reset();
+	DungeonRuntime.Reset();
 	PendingLevels.Reset();
 	Super::Deinitialize();
 }
@@ -354,10 +372,42 @@ void UHBPerfSubsystem::UpdateShadows(bool bEnabled)
 	}
 }
 
+bool UHBPerfSubsystem::FindCurrentRoomBounds(const FVector& Location, FBox& OutBounds)
+{
+	if (!DungeonRuntime.IsValid())
+	{
+		for (TActorIterator<AHBDungeonRuntime> It(GetWorld()); It; ++It)
+		{
+			DungeonRuntime = *It;
+			break;
+		}
+	}
+	const AHBDungeonRuntime* Dungeon = DungeonRuntime.Get();
+	if (!Dungeon || !Dungeon->IsReady())
+	{
+		return false;
+	}
+	for (const FHBPrototypeRoom& Room : Dungeon->Rooms)
+	{
+		if (!Room.bCorridor && Room.Bounds.IsValid && Room.Bounds.IsInsideOrOn(Location))
+		{
+			OutBounds = Room.Bounds;
+			return true;
+		}
+	}
+	return false;
+}
+
 void UHBPerfSubsystem::UpdateLightCull(bool bEnabled)
 {
 	const float Distance = FMath::Max(100.f, CVarHBLightDistance.GetValueOnGameThread());
-	const float Fade = FMath::Min(500.f, Distance * 0.2f);
+	const float RoomTorchDistance = FMath::Max(0.f, CVarHBRoomTorchDistance.GetValueOnGameThread());
+
+	FVector ViewLocation = FVector::ZeroVector;
+	APawn* LocalPawn = nullptr;
+	FBox RoomBounds(ForceInit);
+	const bool bKeepRoomTorches = bEnabled && CVarHBRoomTorchFull.GetValueOnGameThread() != 0
+		&& GetLocalView(ViewLocation, LocalPawn) && FindCurrentRoomBounds(ViewLocation, RoomBounds);
 
 	for (int32 Index = CullLights.Num() - 1; Index >= 0; --Index)
 	{
@@ -371,10 +421,16 @@ void UHBPerfSubsystem::UpdateLightCull(bool bEnabled)
 
 		float TargetDistance = Entry.OriginalMaxDrawDistance;
 		float TargetFade = Entry.OriginalFadeRange;
+		const bool bRoomTorch = bKeepRoomTorches && HBPerf::IsTorchActor(Light->GetOwner())
+			&& RoomBounds.IsInsideOrOn(Light->GetComponentLocation());
 		if (bEnabled)
 		{
-			TargetDistance = Entry.OriginalMaxDrawDistance > 0.f ? FMath::Min(Entry.OriginalMaxDrawDistance, Distance) : Distance;
-			TargetFade = Fade;
+			const float Limit = bRoomTorch ? RoomTorchDistance : Distance;
+			if (Limit > 0.f)
+			{
+				TargetDistance = Entry.OriginalMaxDrawDistance > 0.f ? FMath::Min(Entry.OriginalMaxDrawDistance, Limit) : Limit;
+				TargetFade = FMath::Min(500.f, Limit * 0.2f);
+			}
 		}
 
 		if (!FMath::IsNearlyEqual(Light->MaxDrawDistance, TargetDistance) || !FMath::IsNearlyEqual(Light->MaxDistanceFadeRange, TargetFade))
@@ -391,6 +447,7 @@ void UHBPerfSubsystem::UpdateMinimap(float DeltaTime, bool bEnabled)
 	FVector ViewLocation = FVector::ZeroVector;
 	APawn* LocalPawn = nullptr;
 	GetLocalView(ViewLocation, LocalPawn);
+	const bool bCapture = CVarHBMinimapCapture.GetValueOnGameThread() != 0;
 
 	if (LocalCapturePawn.Get() != LocalPawn)
 	{
@@ -416,8 +473,8 @@ void UHBPerfSubsystem::UpdateMinimap(float DeltaTime, bool bEnabled)
 				TInlineComponentArray<USceneCaptureComponent2D*> Captures(Other);
 				for (USceneCaptureComponent2D* Capture : Captures)
 				{
-					Capture->bCaptureEveryFrame = !bEnabled;
-					Capture->bCaptureOnMovement = !bEnabled;
+					Capture->bCaptureEveryFrame = bCapture && !bEnabled;
+					Capture->bCaptureOnMovement = bCapture && !bEnabled;
 				}
 			}
 		}
@@ -426,6 +483,13 @@ void UHBPerfSubsystem::UpdateMinimap(float DeltaTime, bool bEnabled)
 	USceneCaptureComponent2D* Capture = LocalCapture.Get();
 	if (!Capture)
 	{
+		return;
+	}
+
+	if (!bCapture)
+	{
+		Capture->bCaptureEveryFrame = false;
+		Capture->bCaptureOnMovement = false;
 		return;
 	}
 

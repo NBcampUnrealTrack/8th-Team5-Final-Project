@@ -37,10 +37,12 @@ struct HEAVENBREACH_API FHBAugmentStack
  * 인스턴스 없이 CDO 에서 읽히므로, 서버든 클라든 UI 가 그냥 꺼내 쓴다.
  * 실제 보유 여부는 여기 없다. PlayerState 의 TakenAugments 가 답한다.
  *
- * 증강이 바꿀 수 있는 것은 네 갈래다.
+ * 증강이 바꿀 수 있는 것은 여섯 갈래다.
  *   전역 능력치   GrantEffect          어트리뷰트를 바꾸는 상시 GE
  *   이 스킬 수치  Params               스킬 코드가 꺼내 쓰는 숫자들
  *   코스트        AdditionalCostEffect 발동 시 추가로 낼 GE
+ *   버프 동안     BuffEffect           액티브 자버프와 같이 붙는 GE
+ *   발동 동안     DuringEffect         액티브 발동 중에만 붙는 GE
  *   행동          (칸 없음)            AugmentTag 만 보고 코드가 분기한다
  *
  * 쳐낼 조건: 행동 증강이 다섯 개를 넘고 필요한 데이터가 서로 갈리기 시작하면
@@ -115,6 +117,19 @@ struct HEAVENBREACH_API FHBSkillAugment
 	// 추가로만 쌓으면 순서를 따질 일이 없다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment")
 	TSubclassOf<UGameplayEffect> AdditionalCostEffect;
+
+	// 액티브 전용. 이 증강을 가지면 발동 때 자버프와 같이 붙일 GE. 없으면 비워 둔다.
+	// 지속시간은 자버프와 같고(SetByCaller.Duration), 단계값은 SetByCaller.AugmentMagnitude 로 넘긴다.
+	//
+	// 왜 액티브의 AugmentBuffEffects 가 아니라 여기인가: 그 맵은 BP 에 저장되면
+	// C++ 기본값을 통째로 덮는다. 증강과 같이 두면 C++ 생성자 하나에 모인다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment")
+	TSubclassOf<UGameplayEffect> BuffEffect;
+
+	// 액티브 전용. 이 증강을 가지면 발동 중에만 붙였다가 종료 때 떼는 GE. 없으면 비워 둔다.
+	// Infinite 여야 한다. 단계값은 SetByCaller.AugmentMagnitude 로 넘긴다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Augment")
+	TSubclassOf<UGameplayEffect> DuringEffect;
 
 	// Params 에서 항목 하나를 찾는다. 없으면 false 이고 Out 은 손대지 않는다.
 	bool FindParam(FGameplayTag ParamTag, float& Out) const;

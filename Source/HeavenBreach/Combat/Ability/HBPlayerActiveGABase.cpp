@@ -222,13 +222,7 @@ void UHBPlayerActiveGABase::ApplyCost(const FGameplayAbilitySpecHandle Handle, c
 	// 활성화 예측 키로 붙기 때문에 클라 마나 바가 즉시 줄어든다.
 	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, Spec);
 
-	// 재생 지연을 다시 건다. 빼먹으면 쓰자마자 차오르기 시작해서
-	// 마나를 안 쓴 것처럼 보인다. 기본공격/달리기/방어와 같은 규칙이다.
-	// (AHBPlayerCharacter::NotifyManaActivity 호출부의 주석 참조)
-	if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
-	{
-		Player->NotifyManaActivity();
-	}
+	// 마나는 회복 대기가 없다(스태미나만 있다). Docs/스태미나-마나-분리-설계.md
 }
 
 void UHBPlayerActiveGABase::ApplyAdditionalCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
@@ -462,14 +456,28 @@ void UHBPlayerActiveGABase::ApplySelfBuff(const FGameplayAbilityActorInfo* Actor
 			BuffHandles.Add(ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
 		}
 	}
+
+	// 증강 자체가 들고 있는 버프 GE. 위 맵과 같은 일인데 수치(단계값)까지 넘긴다.
+	for (const FHBSkillAugment& Augment : Augments)
+	{
+		if (!Augment.BuffEffect || !HasAugmentFrom(ActorInfo, Augment.AugmentTag))
+		{
+			continue;
+		}
+
+		FGameplayEffectSpecHandle Spec =
+			ASC->MakeOutgoingSpec(Augment.BuffEffect, 1.f, ASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_Duration, FinalDuration);
+			Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_AugmentMagnitude, GetAugmentMagnitudeFrom(ActorInfo, Augment));
+			BuffHandles.Add(ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
+		}
+	}
 }
 
 void UHBPlayerActiveGABase::ApplyDuringAbilityEffect(const FGameplayAbilityActorInfo* ActorInfo)
 {
-	if (!DuringAbilityEffect)
-	{
-		return;   // 감속이 필요 없는 스킬. 비워두면 여기서 끝난다
-	}
 	if (!ActorInfo)
 	{
 		return;
@@ -489,27 +497,51 @@ void UHBPlayerActiveGABase::ApplyDuringAbilityEffect(const FGameplayAbilityActor
 		return;
 	}
 
-	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(DuringAbilityEffect, 1.f, ASC->MakeEffectContext());
-	if (!Spec.IsValid())
+	// 감속이 필요 없는 스킬은 비워 둔다.
+	if (DuringAbilityEffect)
 	{
-		return;
+		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(DuringAbilityEffect, 1.f, ASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			DuringAbilityHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		}
 	}
-	DuringAbilityHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+
+	// 증강이 정한 발동 중 GE. 돌진 강타의 가드, 강타의 위력처럼 발동 중에만 의미가 있는 것.
+	for (const FHBSkillAugment& Augment : Augments)
+	{
+		if (!Augment.DuringEffect || !HasAugmentFrom(ActorInfo, Augment.AugmentTag))
+		{
+			continue;
+		}
+
+		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(Augment.DuringEffect, 1.f, ASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			Spec.Data->SetSetByCallerMagnitude(AbilityTag::TAG_SetByCaller_AugmentMagnitude, GetAugmentMagnitudeFrom(ActorInfo, Augment));
+			AugmentDuringHandles.Add(ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()));
+		}
+	}
 }
 
 void UHBPlayerActiveGABase::RemoveDuringAbilityEffect(const FGameplayAbilityActorInfo* ActorInfo)
 {
-	if (!DuringAbilityHandle.IsValid())
-	{
-		return;
-	}
-
-	// 취소나 사망으로 끝나도 여기를 거친다. 안 떼면 캐릭터가 영구히 느려진다.
-	if (UAbilitySystemComponent* ASC = GetASC(ActorInfo))
+	// 취소나 사망으로 끝나도 여기를 거친다. 안 떼면 캐릭터가 영구히 느려지거나 강해진다.
+	UAbilitySystemComponent* ASC = GetASC(ActorInfo);
+	if (ASC && DuringAbilityHandle.IsValid())
 	{
 		ASC->RemoveActiveGameplayEffect(DuringAbilityHandle);
 	}
 	DuringAbilityHandle.Invalidate();
+
+	for (const FActiveGameplayEffectHandle& Handle : AugmentDuringHandles)
+	{
+		if (ASC && Handle.IsValid())
+		{
+			ASC->RemoveActiveGameplayEffect(Handle);
+		}
+	}
+	AugmentDuringHandles.Reset();
 }
 
 void UHBPlayerActiveGABase::RemoveSelfBuff()

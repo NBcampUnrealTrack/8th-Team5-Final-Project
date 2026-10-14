@@ -4,11 +4,13 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "Combat/GameplayCue/HitCuePlay.h"
 #include "Combat/Interface/DamageableInterface.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
+#include "Core/Tag/Cue/HB_CueTag.h"
 #include "EquipmentComponent.h"
 #include "Inventory/InventoryComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -70,6 +72,9 @@ AHBPlayerArrow::AHBPlayerArrow()
 	PickupSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 	PickupSphere->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	PickupSphere->SetGenerateOverlapEvents(false);
+
+	// 화살은 관통 타격. 평타 화살과 스킬 화살(관통 사격 · 회피 공격)이 모두 이 클래스라 한 번에 적용된다.
+	ImpactTypeTag = CueTag::TAG_GameplayCue_Hit_Pierce;
 }
 
 void AHBPlayerArrow::PostInitializeComponents()
@@ -133,11 +138,26 @@ void AHBPlayerArrow::OnHit(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveC
 	UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살 명중  대상=%s  컴포넌트=%s  본=%s"),
 		*GetNameSafe(OtherActor), *GetNameSafe(Hit.GetComponent()), *Hit.BoneName.ToString());
 
+	// 맞은 쪽이 피해를 받으면 그쪽이 자기 큐를 쏜다(막기·패링에 따라 소리가 갈리므로).
+	bool bTargetPlayedCue = false;
+
 	// 관통으로 이미 맞은 대상은 다시 피해를 주지 않는다.
 	if (OtherActor && OtherActor != Shooter && !HitActors.Contains(OtherActor))
 	{
 		HitActors.Add(OtherActor);
-		ApplyArrowDamage(OtherActor, Hit);
+		bTargetPlayedCue = ApplyArrowDamage(OtherActor, Hit);
+	}
+
+	// 벽·사물·시체처럼 피해를 안 받는 곳은 아무도 큐를 안 쏘므로 화살이 쏜다.
+	// 적 발사체(AEnemyProjectile::OnHit)와 같은 규칙이다. 재질은 HitCuePlay 가 Hit 에서 읽는다.
+	if (!bTargetPlayedCue)
+	{
+		FGameplayTagContainer ImpactTags;
+		if (ImpactTypeTag.IsValid())
+		{
+			ImpactTags.AddTag(ImpactTypeTag);
+		}
+		HitCuePlay::PlayImpact(Shooter, OtherActor, Hit, 0.f, ImpactTags);
 	}
 
 	StickTo(OtherActor, Hit);
@@ -159,6 +179,17 @@ bool AHBPlayerArrow::TryPierce(const FHitResult& Hit)
 	// 이미 뚫은 Pawn(OnHit 과 이동 컴포넌트가 같은 충돌로 두 번 부름 등) — 계속 지나간다.
 	if (PiercedActors.Contains(HitPawn))
 	{
+		return true;
+	}
+
+	// 시체(State.Dead)는 일반 화살도 그냥 지나간다. 시체 메시가 WorldDynamic 을 막아 바닥의 시체 위에 화살이 박히던 문제.
+	// 피해·관통 횟수 없이 이후 이동에서 무시만 한다.
+	const UAbilitySystemComponent* HitASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(HitPawn);
+	if (HitASC && HitASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		PiercedActors.Add(HitPawn);
+		CollisionComp->IgnoreActorWhenMoving(HitPawn, true);
+		UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살이 시체를 지나감  대상=%s"), *GetNameSafe(HitPawn));
 		return true;
 	}
 
@@ -190,18 +221,18 @@ bool AHBPlayerArrow::TryPierce(const FHitResult& Hit)
 	return true;
 }
 
-void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
+bool AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 {
 	if (!Shooter || !Target->Implements<UDamageableInterface>())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Bow] 피해 없음 (Damageable 아님)  대상=%s"), *GetNameSafe(Target));
-		return;
+		return false;
 	}
 
 	if (!IDamageableInterface::Execute_CanBeDamaged(Target, Shooter))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Bow] 피해 없음 (대상이 거부)  대상=%s"), *GetNameSafe(Target));
-		return;
+		return false;
 	}
 
 	// 근접 판정과 같은 순서: 공격력 × 계수 → 패시브 보정 → 맞는 쪽에 수치만 넘김.
@@ -221,7 +252,12 @@ void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 		Shooter->NotifySkillHit(SkillCastId);
 	}
 
-	IDamageableInterface::Execute_ApplyMeleeHit(Target, Shooter, FinalDamage, Hit, EHBDamageSource::Ranged);
+	{
+		// 맞는 순간에만 쏜 사람에게 화살 성질을 붙인다. 맞는 쪽 큐가 이걸 보고 소리를 고른다.
+		// 화살은 GA 가 끝난 뒤에 맞아서, 이게 없으면 쏜 사람에게 태그가 없어 기본음이 났다.
+		HitCuePlay::FScopedImpactTag ImpactScope(Shooter, ImpactTypeTag);
+		IDamageableInterface::Execute_ApplyMeleeHit(Target, Shooter, FinalDamage, Hit, EHBDamageSource::Ranged);
+	}
 	UE_LOG(LogTemp, Warning, TEXT("[Bow] 피해 %.1f → %s"), FinalDamage, *GetNameSafe(Target));
 
 	const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
@@ -231,7 +267,7 @@ void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 	// 한 발이 맞으면 내구도 1. 빗나가면 안 닳는다(근접 헛스윙과 같다). 관통으로 여러 명 맞아도 한 발에 1.
 	if (bDurabilitySpent)
 	{
-		return;
+		return true;
 	}
 	bDurabilitySpent = true;
 	if (UEquipmentComponent* Equipment = Shooter->GetEquipment())
@@ -239,6 +275,7 @@ void AHBPlayerArrow::ApplyArrowDamage(AActor* Target, const FHitResult& Hit)
 		bool bJustBroke = false;
 		Equipment->DamageEquippedItemDurability(EEquipSlotType::PrimaryWeapon, 1.f, bJustBroke);
 	}
+	return true;
 }
 
 void AHBPlayerArrow::StickTo(AActor* HitActor, const FHitResult& Hit)
@@ -324,7 +361,18 @@ void AHBPlayerArrow::OnRep_StuckState()
 	}
 
 	CollisionComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	TrailComp->Deactivate();
+
+	// 비행 연출을 끈다. BP 자식(관통 화살)이 단 것까지: 나이아가라는 전부, 기류 메시·빛은 FlightOnly 태그가 붙은 것.
+	TInlineComponentArray<UNiagaraComponent*> Niagaras(this);
+	for (UNiagaraComponent* Niagara : Niagaras)
+	{
+		Niagara->Deactivate();
+	}
+	static const FName FlightOnlyTag(TEXT("FlightOnly"));
+	for (UActorComponent* Comp : GetComponentsByTag(USceneComponent::StaticClass(), FlightOnlyTag))
+	{
+		CastChecked<USceneComponent>(Comp)->SetVisibility(false);
+	}
 
 	if (StuckState.Kind == EHBArrowStuckKind::World)
 	{

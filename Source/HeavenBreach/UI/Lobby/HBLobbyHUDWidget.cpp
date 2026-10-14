@@ -8,6 +8,7 @@
 #include "Components/WidgetSwitcher.h"
 #include "UI/Settings/HBSettingsWidget.h"
 #include "UI/Common/HBConfirmDialogWidget.h"
+#include "UI/Skill/HB_SkillMainWidget.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
@@ -173,6 +174,9 @@ bool UHBLobbyHUDWidget::RefreshPlayerMenus()
 		|| !IsValid(State->GetEquipment()) || !IsValid(State->GetShop())
 		|| (Widget_Craft && !IsValid(State->Craft))) return false;
 
+	// 늦게 도착한 PlayerState에 기존 스킬 변경 알림을 연결한다.
+	if (auto* Skills = Cast<UHB_SkillMainWidget>(Widget_ChoiceSkill))
+		Skills->RefreshFromPlayerState();
 	InitializePlayerMenus();
 	InitializedPlayerState = State;
 	return true;
@@ -349,6 +353,10 @@ void UHBLobbyHUDWidget::SelectMenu(EHBLobbyHUDMenu NewMenu)
 		}
 	}
 
+	// WidgetSwitcher는 CommonUI의 활성화 이벤트를 호출하지 않는다.
+	if (NewMenu == EHBLobbyHUDMenu::ChoiceSkill)
+		if (auto* Skills = Cast<UHB_SkillMainWidget>(Widget_ChoiceSkill))
+			Skills->RefreshFromPlayerState();
 	OnLobbyMenuSelected(NewMenu);
 }
 

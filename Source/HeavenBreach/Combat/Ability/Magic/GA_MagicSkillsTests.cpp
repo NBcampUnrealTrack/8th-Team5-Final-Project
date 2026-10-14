@@ -99,6 +99,8 @@ bool FHBMagicElementalOrbDefaultsTest::RunTest(const FString&)
 	TestEqual(TEXT("손 이펙트 크기"), CDO->GetCastHandScale(), 0.2f);
 	TestEqual(TEXT("속도 1800"), CDO->GetOrbSpeed(), 1800.f);
 	TestEqual(TEXT("피해 계수 1.6"), CDO->GetDamageCoef(), 1.6f);
+	TestEqual(TEXT("폭발 반경 200"), CDO->GetExplosionRadius(), 200.f);
+	TestEqual(TEXT("가장자리 피해 50%"), CDO->GetEdgeDamageFraction(), 0.5f);
 
 	const UGameplayEffect* CooldownGE = CDO->GetCooldownGameplayEffect();
 	TestTrue(TEXT("쿨다운 GE 클래스"), CooldownGE && CooldownGE->GetClass() == UGE_MagicOrbCooldown::StaticClass());
@@ -106,10 +108,11 @@ bool FHBMagicElementalOrbDefaultsTest::RunTest(const FString&)
 	TestTrue(TEXT("쿨다운 태그"), CooldownTags && CooldownTags->HasTagExact(MagicTag::TAG_Cooldown_ElementalOrb));
 
 	const TArray<FHBSkillAugment>& Augments = CDO->GetAugments();
-	if (!TestEqual(TEXT("증강 2개"), Augments.Num(), 2))
+	if (!TestEqual(TEXT("증강 3개"), Augments.Num(), 3))
 	{
 		return true;
 	}
+	CheckMagicActiveAugment(*this, Augments[2], MagicTag::TAG_Augment_Magic_ElementalOrb_Wide, SkillParamTag::TAG_SkillParam_Radius, 250.f, { 250.f, 300.f, 350.f });
 	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_ElementalOrb_Power, SkillParamTag::TAG_SkillParam_Damage, 1.15f, { 1.15f, 1.30f, 1.50f });
 	CheckMagicActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_ElementalOrb_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
 	return true;
@@ -128,7 +131,7 @@ bool FHBMagicTeleportDefaultsTest::RunTest(const FString&)
 	TestEqual(TEXT("실제 지연 0.3초"), HBMagic::CastReleaseDelay(CDO->GetReleaseTime(), CDO->GetMontagePlayRate(), 1.f), 0.3f);
 	TestEqual(TEXT("손 이펙트 종류 순간이동"), CDO->GetCastHandFxIndex(), 2);
 	TestEqual(TEXT("손 이펙트 크기"), CDO->GetCastHandScale(), 0.16f);
-	TestEqual(TEXT("거리 400"), CDO->GetDistance(), 400.f);
+	TestEqual(TEXT("거리 700"), CDO->GetDistance(), 700.f);
 	TestEqual(TEXT("벽 여유 12"), CDO->GetWallMargin(), 12.f);
 	TestEqual(TEXT("지면 법선 0.7"), CDO->GetMinGroundNormalZ(), 0.7f);
 	TestEqual(TEXT("높이차 100"), CDO->GetMaxHeightDelta(), 100.f);
@@ -145,7 +148,7 @@ bool FHBMagicTeleportDefaultsTest::RunTest(const FString&)
 	{
 		return true;
 	}
-	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_Teleport_Far, SkillParamTag::TAG_SkillParam_Distance, 500.f, { 500.f, 600.f, 700.f });
+	CheckMagicActiveAugment(*this, Augments[0], MagicTag::TAG_Augment_Magic_Teleport_Far, SkillParamTag::TAG_SkillParam_Distance, 900.f, { 900.f, 1050.f, 1200.f });
 	CheckMagicActiveAugment(*this, Augments[1], MagicTag::TAG_Augment_Magic_Teleport_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
 	return true;
 }

@@ -211,6 +211,13 @@ UGE_BowPiercingCooldown::UGE_BowPiercingCooldown()
 	InitCooldown(*this, *TagComponent, ArcherTag::TAG_Cooldown_PiercingArrow);
 }
 
+UGE_BowTripleShotCooldown::UGE_BowTripleShotCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, ArcherTag::TAG_Cooldown_TripleShot);
+}
+
 UGE_BowHunterMarkCooldown::UGE_BowHunterMarkCooldown()
 {
 	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
@@ -270,16 +277,17 @@ UGE_WeakPointAugment::UGE_WeakPointAugment()
 UGE_HunterBreathPassive::UGE_HunterBreathPassive()
 {
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
-	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute(),
+	// 사냥꾼의 호흡: 달리기 스태미나 -30%, 스태미나 회복 +20%.
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintStaminaCostMultiplierAttribute(),
 		EGameplayModOp::Additive, -0.30f);
-	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_ManaRegenMultiplierAttribute(),
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_StaminaRegenMultiplierAttribute(),
 		EGameplayModOp::Additive, 0.20f);
 }
 
 UGE_HunterBreathAugment::UGE_HunterBreathAugment()
 {
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
-	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute(),
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintStaminaCostMultiplierAttribute(),
 		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
 }
 
@@ -401,4 +409,65 @@ UGE_MeleeWhirlwindCooldown::UGE_MeleeWhirlwindCooldown()
 	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
 	GEComponents.Add(TagComponent);
 	InitCooldown(*this, *TagComponent, MeleeTag::TAG_Cooldown_Whirlwind);
+}
+
+namespace
+{
+	// 액티브 자버프와 같이 붙는 증강 GE. 지속시간은 자버프와 같은 SetByCaller.Duration 으로 받는다.
+	void InitBuffDuration(UGameplayEffect& Effect)
+	{
+		Effect.DurationPolicy = EGameplayEffectDurationType::HasDuration;
+		FSetByCallerFloat DurationSetByCaller;
+		DurationSetByCaller.DataTag = AbilityTag::TAG_SetByCaller_Duration;
+		Effect.DurationMagnitude = FGameplayEffectModifierMagnitude(DurationSetByCaller);
+	}
+}
+
+UGE_WarriorBattleCryPowerAugment::UGE_WarriorBattleCryPowerAugment()
+{
+	InitBuffDuration(*this);
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_AttackPowerAttribute(),
+		EGameplayModOp::Multiplicitive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+}
+
+UGE_WarriorBloodFrenzyLifestealAugment::UGE_WarriorBloodFrenzyLifestealAugment()
+{
+	InitBuffDuration(*this);
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_LifeStealRatioAttribute(),
+		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+}
+
+UGE_WarriorChargeGuardAugment::UGE_WarriorChargeGuardAugment()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_DamageTakenMultiplierAttribute(),
+		EGameplayModOp::Multiplicitive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+}
+
+UGE_WarriorSmashPowerAugment::UGE_WarriorSmashPowerAugment()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SkillDamageMultiplierAttribute(),
+		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+}
+
+UGE_WarriorSmashShieldPower::UGE_WarriorSmashShieldPower()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_AttackPowerAttribute(),
+		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_Damage);
+}
+
+UGE_IronHeartAugment::UGE_IronHeartAugment()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute(),
+		EGameplayModOp::Multiplicitive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
+}
+
+UGE_CombatInstinctAugment::UGE_CombatInstinctAugment()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_LowHealthAttackBonusAttribute(),
+		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
 }

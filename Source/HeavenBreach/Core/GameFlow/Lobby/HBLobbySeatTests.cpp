@@ -28,11 +28,15 @@
 #include "Core/GameFlow/Lobby/HBLobbyPlayerController.h"
 #include "UI/Lobby/HBLobbyWidget.h"
 #include "UI/Lobby/HBLobbyHUDWidget.h"
+#include "UI/Skill/HB_SkillMainWidget.h"
+#include "UI/Skill/HB_SkillIconCardWidget.h"
 #include "Inventory/InventoryWidget.h"
 #include "Inventory/StashComponent.h"
 #include "Shop/ShopComponent.h"
 #include "Components/PanelWidget.h"
 #include "Components/WidgetSwitcher.h"
+#include "Components/WidgetComponent.h"
+#include "Components/TextBlock.h"
 #include "Engine/GameInstance.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
@@ -40,6 +44,18 @@
 #include "Settings/LevelEditorPlaySettings.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "UObject/UnrealType.h"
+#endif
+
+#if WITH_EDITOR
+namespace
+{
+	FString ExpectedLobbyAnimClassName(const AHBPlayerCharacter* Pawn)
+	{
+		const FString Tag = Pawn->GetEquippedWeaponTag().ToString();
+		return Tag == TEXT("Weapon.Bow") ? TEXT("ABP_Player_Bow_C")
+			: Tag == TEXT("Weapon.Staff") ? TEXT("ABP_Player_Staff_C") : TEXT("ABP_Warrior_F_C");
+	}
+}
 #endif
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBLobbySeatsTest, "HeavenBreach.Multiplayer.LobbySeats",
@@ -155,9 +171,10 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 	{
 		World->GetLatentActionManager().BeginFrame();
 		World->GetLatentActionManager().ProcessLatentActions(nullptr, 1.f / 30.f);
-		auto* Idle = Pawn->GetMesh()->GetSingleNodeInstance();
-		TestTrue(TEXT("Equipment refresh preserves arms-down lobby idle"), Idle && Idle->GetCurrentAsset()
-			&& Idle->GetCurrentAsset()->GetName() == TEXT("AN_PlayerIdle1"));
+		auto* Idle = Pawn->GetMesh()->GetAnimInstance();
+		TestTrue(TEXT("Equipment refresh preserves the original weapon AnimBP and Idle corrections"), Idle
+			&& Pawn->GetMesh()->GetAnimationMode() == EAnimationMode::AnimationBlueprint
+			&& Idle->GetClass()->GetName() == ExpectedLobbyAnimClassName(Pawn));
 	};
 	SettlePose();
 	TArray<USkeletalMeshComponent*> Meshes;
@@ -193,13 +210,13 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 	TArray<UStaticMeshComponent*> StaticMeshes;
 	Pawn->GetComponents(StaticMeshes);
 	if (TestNotNull(TEXT("Existing weapon table loads"), Weapons))
-		for (const bool bBow : {false, true})
+		for (const FString WeaponType : {FString(TEXT("Sword")), FString(TEXT("Bow")), FString(TEXT("Staff"))})
 		{
 			bool bVerified = false;
 			for (const FName RowName : Weapons->GetRowNames())
 			{
 				const auto* Row = Weapons->FindRow<FWeaponData>(RowName, TEXT("LobbyEquipmentAppearance"));
-				if (!Row || (Row->WeaponType == TEXT("Bow")) != bBow || Row->EquipMeshPath.IsEmpty()) continue;
+				if (!Row || Row->WeaponType != WeaponType || Row->EquipMeshPath.IsEmpty()) continue;
 				FItemInstance Item;
 				Item.ItemRow.DataTable = Weapons;
 				Item.ItemRow.RowName = RowName;
@@ -217,7 +234,7 @@ bool FHBLobbyEquipmentAppearanceTest::RunTest(const FString&)
 				bVerified = true;
 				break;
 			}
-			TestTrue(bBow ? TEXT("Bow equipment and animation replacement are verified") : TEXT("Melee equipment and animation replacement are verified"), bVerified);
+			TestTrue(FString::Printf(TEXT("%s equipment and original AnimBP are verified"), *WeaponType), bVerified);
 		}
 	World->DestroyWorld(false);
 	GEngine->DestroyWorldContext(World);
@@ -247,6 +264,99 @@ namespace
 		FGuid TradeItemId;
 		int32 InitialGuestGold = 0;
 		int32 InitialHostGold = 0;
+		int32 SkillStep = 0;
+		FHBStartingLoadout InitialClientSkills;
+		FHBStartingLoadout InitialHostSkills;
+		FHBStartingLoadout ChangedClientSkills;
+		TMap<int32, FString> ExpectedNames;
+
+		bool NameTagsArrived(UWorld* World) const
+		{
+			for (TActorIterator<AHBPlayerCharacter> It(World); It; ++It)
+			{
+				if (It->IsActorBeingDestroyed()) continue;
+				auto* Player = It->GetPlayerState<AHBLobbyPlayerState>();
+				auto* Component = Cast<UWidgetComponent>(LobbyUIReference(*It, TEXT("NameTagWidget")));
+				auto* Tag = Component ? Component->GetUserWidgetObject() : nullptr;
+				auto* Text = Tag ? Cast<UTextBlock>(Tag->GetWidgetFromName(TEXT("Text_PlayerName"))) : nullptr;
+				const auto* Expected = Player ? ExpectedNames.Find(Player->GetPlayerId()) : nullptr;
+				if (!Expected || !Text || Player->GetPlayerName() != *Expected || Text->GetText().ToString() != *Expected) return false;
+			}
+			return true;
+		}
+
+		bool VerifyClientSkills(const TArray<UWorld*>& Worlds, UWorld* HostWorld)
+		{
+			if (SkillStep == 3) return true;
+			UWorld* ClientWorld = *Worlds.FindByPredicate([](UWorld* World) { return World->GetNetMode() == NM_Client; });
+			auto* Controller = ClientWorld->GetFirstPlayerController();
+			auto* Client = Controller->GetPlayerState<AHBLobbyPlayerState>();
+			auto* Host = HostWorld->GetFirstPlayerController()->GetPlayerState<AHBLobbyPlayerState>();
+			AHBLobbyPlayerState* ServerClient = nullptr;
+			for (APlayerState* Player : HostWorld->GetGameState()->PlayerArray)
+				if (auto* LobbyPlayer = Cast<AHBLobbyPlayerState>(Player); LobbyPlayer && LobbyPlayer->GetLobbySeatIndex() == Client->GetLobbySeatIndex())
+					ServerClient = LobbyPlayer;
+			if (!ServerClient) return false;
+			auto* HUD = CastChecked<UHBLobbyHUDWidget>(LobbyUIReference(Controller, TEXT("LobbyWidget")));
+			auto* Skills = CastChecked<UHB_SkillMainWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::ChoiceSkill));
+			auto* Grid = CastChecked<UPanelWidget>(Skills->GetWidgetFromName(TEXT("ActiveSkillGrid")));
+			auto FindCard = [&](FName Id) -> UHB_SkillIconCardWidget*
+			{
+				for (UWidget* Child : Grid->GetAllChildren())
+					if (auto* Card = Cast<UHB_SkillIconCardWidget>(Child); Card && Card->GetSkillId() == Id) return Card;
+				return nullptr;
+			};
+			auto ClickSkill = [&](FName Id)
+			{
+				HUD->SwitchToMenu(EHBLobbyHUDMenu::ChoiceSkill);
+				auto* Slot = Cast<UHB_SkillSlotWidget>(Skills->GetWidgetFromName(TEXT("Slot_Q")));
+				auto* SlotButton = Slot ? Cast<UButton>(Slot->GetWidgetFromName(TEXT("SlotButton"))) : nullptr;
+				auto* Card = FindCard(Id);
+				auto* CardButton = Card ? Cast<UButton>(Card->GetWidgetFromName(TEXT("CardButton"))) : nullptr;
+				if (!SlotButton || !CardButton)
+				{ Test->AddError(TEXT("Client skill slot/card buttons are missing.")); return false; }
+				Test->TestTrue(TEXT("Client skill buttons are enabled"), SlotButton->GetIsEnabled() && CardButton->GetIsEnabled());
+				if (!Slot->IsSlotSelected()) SlotButton->OnClicked.Broadcast();
+				CardButton->OnClicked.Broadcast();
+				return true;
+			};
+			if (SkillStep == 0)
+			{
+				if (Client->GetStartingLoadout() != ServerClient->GetStartingLoadout()) return false;
+				InitialClientSkills = Client->GetStartingLoadout();
+				InitialHostSkills = Host->GetStartingLoadout();
+				ChangedClientSkills = InitialClientSkills;
+				for (UWidget* Child : Grid->GetAllChildren())
+					if (auto* Card = Cast<UHB_SkillIconCardWidget>(Child); Card
+						&& Card->GetSkillId() != InitialClientSkills.SkillQId && Card->GetSkillId() != InitialClientSkills.SkillEId)
+					{ ChangedClientSkills.SkillQId = Card->GetSkillId(); break; }
+				if (ChangedClientSkills == InitialClientSkills)
+				{ Test->AddError(TEXT("Client has no alternative Q skill to verify.")); SkillStep = 3; return true; }
+				if (!ClickSkill(ChangedClientSkills.SkillQId)) { SkillStep = 3; return true; }
+				SkillStep = 1;
+				return false;
+			}
+			if (SkillStep == 1)
+			{
+				if (Client->GetStartingLoadout() != ChangedClientSkills || ServerClient->GetStartingLoadout() != ChangedClientSkills) return false;
+				if (auto* Border = Cast<UWidget>(LobbyUIReference(FindCard(ChangedClientSkills.SkillQId), TEXT("SelectedBorder"))))
+					Test->TestEqual(TEXT("Replicated client skill is highlighted automatically"), Border->GetVisibility(), ESlateVisibility::Visible);
+				auto* Slot = CastChecked<UHB_SkillSlotWidget>(Skills->GetWidgetFromName(TEXT("Slot_Q")));
+				Test->TestNotNull(TEXT("Replicated client skill has its detail tooltip"), Slot->GetToolTip());
+				Test->TestTrue(TEXT("Client skill changes preserve the host's loadout"), Host->GetStartingLoadout() == InitialHostSkills);
+				const FName RestoreId = InitialClientSkills.SkillQId.IsNone() ? ChangedClientSkills.SkillQId : InitialClientSkills.SkillQId;
+				if (!ClickSkill(RestoreId)) { SkillStep = 3; return true; }
+				SkillStep = 2;
+				return false;
+			}
+			if (Client->GetStartingLoadout() != InitialClientSkills || ServerClient->GetStartingLoadout() != InitialClientSkills) return false;
+			if (auto* Border = Cast<UWidget>(LobbyUIReference(FindCard(ChangedClientSkills.SkillQId), TEXT("SelectedBorder"))))
+				Test->TestEqual(TEXT("Replaced client skill loses its highlight automatically"), Border->GetVisibility(), ESlateVisibility::Collapsed);
+			Test->AddInfo(TEXT("Client skill slot/card UI changed and restored Q through the real server RPC; replication updated the highlight and tooltip without changing the host's loadout."));
+			HUD->SwitchToMenu(EHBLobbyHUDMenu::Lobby);
+			SkillStep = 3;
+			return true;
+		}
 
 		bool VerifyClientTrade(const TArray<UWorld*>& Worlds, UWorld* HostWorld)
 		{
@@ -343,7 +453,17 @@ namespace
 			auto* Stash = HUD->GetContentWidget(EHBLobbyHUDMenu::Storage);
 			auto* Shop = Cast<UUserWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Shop));
 			auto* Rows = Shop ? Cast<UPanelWidget>(Shop->GetWidgetFromName(TEXT("ShopItemList"))) : nullptr;
-			return Rows && Rows->GetChildrenCount() == State->GetShop()->GetShopEntries().Num()
+			auto* Skills = Cast<UHB_SkillMainWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::ChoiceSkill));
+			auto* Job = State->GetSelectedJob();
+			auto* Active = Skills ? Cast<UPanelWidget>(Skills->GetWidgetFromName(TEXT("ActiveSkillGrid"))) : nullptr;
+			auto* Passive = Skills ? Cast<UPanelWidget>(Skills->GetWidgetFromName(TEXT("PassiveSkillGrid"))) : nullptr;
+			if (!Job || !Active || !Passive) return false;
+			int32 ActiveCount = 0, PassiveCount = 0;
+			for (const auto& Skill : Job->GetActiveSkillCatalog()) if (Skill.AbilityClass) ++ActiveCount;
+			for (const auto& Skill : Job->GetPassiveSkillCatalog()) if (Skill.AbilityClass) ++PassiveCount;
+			return Active->GetChildrenCount() == ActiveCount && Passive->GetChildrenCount() == PassiveCount
+				&& ActiveCount > 0 && PassiveCount > 0
+				&& Rows && Rows->GetChildrenCount() == State->GetShop()->GetShopEntries().Num()
 				&& Rows->GetChildrenCount() > 0
 				&& LobbyUIReference(Stash, TEXT("PlayerInv")) == State->GetInventory()
 				&& LobbyUIReference(Stash, TEXT("StashInv")) == State->GetStash()
@@ -365,6 +485,11 @@ namespace
 			const int32 RowCount = Rows->GetChildrenCount();
 			const int32 BasketBindings = State->GetShop()->OnBasketChanged.GetAllObjects().Num();
 			const int32 StashBindings = State->GetStash()->OnInventoryChanged.GetAllObjects().Num();
+			auto* Skills = CastChecked<UHB_SkillMainWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::ChoiceSkill));
+			auto* Active = CastChecked<UPanelWidget>(Skills->GetWidgetFromName(TEXT("ActiveSkillGrid")));
+			auto* Passive = CastChecked<UPanelWidget>(Skills->GetWidgetFromName(TEXT("PassiveSkillGrid")));
+			const int32 ActiveCount = Active->GetChildrenCount(), PassiveCount = Passive->GetChildrenCount();
+			const int32 SkillBindings = State->OnStartingLoadoutChanged.GetAllObjects().Num();
 			Test->TestTrue(TEXT("Repeated HUD refresh completes without rebuilding personal menus"), HUD->RefreshPlayerMenus() && HUD->RefreshPlayerMenus());
 			// Exercise the existing BP entry points too, including widget reconstruction/rebinding.
 			for (int32 Repeat = 0; Repeat < 2; ++Repeat)
@@ -376,12 +501,21 @@ namespace
 			Test->TestEqual(TEXT("Reinitializing never duplicates basket delegates"), State->GetShop()->OnBasketChanged.GetAllObjects().Num(), BasketBindings);
 			Test->TestEqual(TEXT("Reinitializing never duplicates stash delegates"), State->GetStash()->OnInventoryChanged.GetAllObjects().Num(), StashBindings);
 			auto* Switcher = CastChecked<UWidgetSwitcher>(LobbyUIReference(HUD, TEXT("LobbyContentSwitcher")));
-			for (const auto Menu : {EHBLobbyHUDMenu::Storage, EHBLobbyHUDMenu::Shop})
+			for (const auto Menu : {EHBLobbyHUDMenu::Storage, EHBLobbyHUDMenu::Shop, EHBLobbyHUDMenu::ChoiceSkill, EHBLobbyHUDMenu::ChoiceSkill})
 			{
 				HUD->SwitchToMenu(Menu);
 				Test->TestTrue(TEXT("Host and client can both display their personal menu"), Switcher->GetActiveWidget() == HUD->GetContentWidget(Menu));
 			}
+			Test->TestEqual(TEXT("Reopening skills never duplicates active cards"), Active->GetChildrenCount(), ActiveCount);
+			Test->TestEqual(TEXT("Reopening skills never duplicates passive cards"), Passive->GetChildrenCount(), PassiveCount);
+			Test->TestEqual(TEXT("Reopening skills never duplicates loadout delegates"), State->OnStartingLoadoutChanged.GetAllObjects().Num(), SkillBindings);
 			HUD->SwitchToMenu(EHBLobbyHUDMenu::Lobby);
+			auto* Lobby = CastChecked<UHBLobbyWidget>(HUD->GetContentWidget(EHBLobbyHUDMenu::Lobby));
+			auto* LeaveModule = Cast<UUserWidget>(Lobby->GetWidgetFromName(TEXT("WBP_Lobby_LeavePartyButton")));
+			auto* Leave = LeaveModule ? Cast<UButton>(LeaveModule->GetWidgetFromName(TEXT("Button_Social"))) : nullptr;
+			Test->TestTrue(TEXT("Production leave button is connected to the existing hub return handler"),
+				Leave && Leave->OnClicked.Contains(Lobby, FName(TEXT("HandleLeavePartyClicked"))));
+			Test->TestTrue(TEXT("Local IP fixture cannot enable leaving a nonexistent Steam hub"), Leave && !Leave->GetIsEnabled());
 		}
 
 		bool SeatsArrived(UWorld* World, int32 Expected) const
@@ -395,8 +529,9 @@ namespace
 				auto* Player = It->GetPlayerState<AHBLobbyPlayerState>();
 				if (!Player || Player->GetLobbySeatIndex() < 0 || Player->GetLobbySeatIndex() >= Expected
 					|| !It->GetMesh()->GetSkeletalMeshAsset()) return false;
-				auto* Idle = It->GetMesh()->GetSingleNodeInstance();
-				if (!Idle || !Idle->GetCurrentAsset() || Idle->GetCurrentAsset()->GetName() != TEXT("AN_PlayerIdle1")
+				auto* Idle = It->GetMesh()->GetAnimInstance();
+				if (!Idle || It->GetMesh()->GetAnimationMode() != EAnimationMode::AnimationBlueprint
+					|| Idle->GetClass()->GetName() != ExpectedLobbyAnimClassName(*It)
 					|| It->GetCharacterMovement()->MovementMode != MOVE_None || It->GetActorEnableCollision()) return false;
 				const int32 Index = Player->GetLobbySeatIndex();
 				if (Seen.Contains(Index) || (Index == 0) != (Player == State->HostPlayerState)) return false;
@@ -419,19 +554,22 @@ namespace
 		{
 			if (FPlatformTime::Seconds() - Started > 60.)
 			{
+				if (bMenusVerified && SkillStep < 3)
+				{ Test->AddError(FString::Printf(TEXT("Client skill selection did not finish; step=%d."), SkillStep)); return true; }
 				if (bMenusVerified && TradeStep < 5 && PlayerCount == 2)
 				{ Test->AddError(FString::Printf(TEXT("Client trade/transfer did not finish; step=%d."), TradeStep)); return true; }
 				Test->AddError(bGuestLeft ? TEXT("Lobby seats did not compact and replicate after guest logout.")
-					: TEXT("Lobby pawns, meshes, ownership, camera or seats did not replicate."));
+					: TEXT("Lobby pawns, seats or personal menus did not initialize and replicate."));
 				return true;
 			}
 			if (bGuestLeft)
 			{
-				if (!Server.IsValid() || !SeatsArrived(Server->GetWorld(), PlayerCount - 1)) return false;
+				if (!Server.IsValid() || !SeatsArrived(Server->GetWorld(), PlayerCount - 1) || !NameTagsArrived(Server->GetWorld())) return false;
 				for (const auto& Client : RemainingClients)
-					if (!Client.IsValid() || !SeatsArrived(Client->GetWorld(), PlayerCount - 1)) return false;
+					if (!Client.IsValid() || !SeatsArrived(Client->GetWorld(), PlayerCount - 1) || !NameTagsArrived(Client->GetWorld())) return false;
 				Test->TestFalse(TEXT("Actual Logout destroys the leaving guest's display pawn"), LeavingPawn.IsValid());
 				Test->AddInfo(FString::Printf(TEXT("%d-player local IP listen lobby replicated pawns, ownership, camera and seats; guest Logout left %d players with matching seats."), PlayerCount, PlayerCount - 1));
+				Test->AddInfo(TEXT("Every host/client pawn name tag shows its own replicated name, including late name updates and seat compaction after logout."));
 				return true;
 			}
 			TArray<UWorld*> Worlds;
@@ -444,14 +582,26 @@ namespace
 				}
 			if (Worlds.Num() != PlayerCount || !HostWorld) return false;
 			for (UWorld* World : Worlds) if (!SeatsArrived(World, PlayerCount)) return false;
+			if (ExpectedNames.IsEmpty())
+			{
+				for (APlayerState* Player : HostWorld->GetGameState()->PlayerArray)
+				{
+					const FString Name = FString::Printf(TEXT("로비_플레이어_%d"), CastChecked<AHBLobbyPlayerState>(Player)->GetLobbySeatIndex());
+					ExpectedNames.Add(Player->GetPlayerId(), Name);
+					Player->SetPlayerName(Name);
+					Player->ForceNetUpdate();
+				}
+				return false;
+			}
+			for (UWorld* World : Worlds) if (!NameTagsArrived(World)) return false;
 			for (UWorld* World : Worlds) if (!PersonalMenusArrived(World)) return false;
 			if (!bMenusVerified)
 			{
 				for (UWorld* World : Worlds) VerifyPersonalMenus(World);
-				Test->AddInfo(TEXT("Host and client personal menus initialized automatically, own their own inventories, and remain stable after repeated initialization."));
+				Test->AddInfo(TEXT("Host and client personal menus and skill lists initialized automatically; ownership, card counts and delegates remain stable after repeated initialization."));
 				bMenusVerified = true;
 			}
-			if (!VerifyClientTrade(Worlds, HostWorld)) return false;
+			if (!VerifyClientSkills(Worlds, HostWorld) || !VerifyClientTrade(Worlds, HostWorld)) return false;
 			if (PlayerCount == 2)
 			{
 				auto* Controller = Cast<AHBLobbyPlayerController>(HostWorld->GetFirstPlayerController());
@@ -499,7 +649,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBLobbySeatReplicationTest, "HeavenBreach.Mult
 
 bool FHBLobbySeatReplicationTest::RunTest(const FString&)
 {
-	// 직업 UI의 초기 복제 전 안내는 이 네트워크·개인 메뉴 검증의 대상이 아니다.
+	// 초기 복제 전 한 번 발생하는 안내 이후, 실제 스킬 목록과 장착 RPC까지 검증한다.
 	AddExpectedError(TEXT("SkillMain | 목록을 만들 수 없음: GetEditingJob() == nullptr"), EAutomationExpectedErrorFlags::Contains, 0);
 	// This fixture uses local IP only. Production continues to use SteamSockets unchanged.
 	int32 PlayerCount = 4;

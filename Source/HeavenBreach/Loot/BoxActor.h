@@ -6,6 +6,7 @@
 #include "GameFramework/Actor.h"
 #include "Item/Item.h"
 #include "Interaction/InteractableInterface.h"
+#include "Loot/HBBoxLoot.h"
 #include "BoxActor.generated.h"
 
 class UBoxComponent;
@@ -43,6 +44,13 @@ struct FBoxGradeLootData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TMap<EItemGrade, float> ItemGradeWeights;
+
+	/**
+	 * 한 번 뽑을 때 종류(장비·열쇠·소모품·재료/잡템)를 고르는 비율. 종류를 고른 뒤 그 안에서 ItemGradeWeights 로 등급을 고른다.
+	 * 비어 있으면 기본 비율 장비 40 / 열쇠 15 / 소모품 20 / 기타 25 (HBBoxLoot::ResolveCategoryWeights).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TMap<EBoxLootCategory, float> CategoryWeights;
 };
 
 UCLASS(Blueprintable)

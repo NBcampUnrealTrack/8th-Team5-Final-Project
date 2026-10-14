@@ -25,6 +25,8 @@ public:
 	const FGameplayTagContainer& GetRequiredWeaponTags() const { return RequiredWeaponTags; }
 	float GetOrbSpeed() const { return Speed; }
 	float GetDamageCoef() const { return DamageCoef; }
+	float GetExplosionRadius() const { return ExplosionRadius; }
+	float GetEdgeDamageFraction() const { return EdgeDamageFraction; }
 
 protected:
 	virtual void OnCastReleased(const FGameplayAbilityActorInfo* Info) override;
@@ -40,6 +42,14 @@ protected:
 	/** 공격력 배율. 위력 증강(SkillParam.Damage)이 곱해진다 */
 	UPROPERTY(EditDefaultsOnly, Category = "ElementalOrb", meta = (ClampMin = "0.0"))
 	float DamageCoef = 1.6f;
+
+	/** 맞은 지점의 폭발 반경. 폭발 범위 증강(SkillParam.Radius)이 이 값을 대신한다 */
+	UPROPERTY(EditDefaultsOnly, Category = "ElementalOrb", meta = (ClampMin = "0.0", Units = "cm"))
+	float ExplosionRadius = 200.f;
+
+	/** 폭발 가장자리의 피해 비율. 중심 100% 에서 이 값까지 거리에 따라 줄어든다 */
+	UPROPERTY(EditDefaultsOnly, Category = "ElementalOrb", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float EdgeDamageFraction = 0.5f;
 
 	/** 조준점을 찾는 최대 거리. 아무것도 안 맞으면 이 거리의 허공을 향해 쏜다 */
 	UPROPERTY(EditDefaultsOnly, Category = "ElementalOrb", meta = (ClampMin = "100.0", Units = "cm"))

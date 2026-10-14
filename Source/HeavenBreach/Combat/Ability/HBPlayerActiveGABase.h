@@ -196,4 +196,7 @@ private:
 
 	// 발동 중 GE 핸들. 종료 시 떼려고 들고 있는다.
 	FActiveGameplayEffectHandle DuringAbilityHandle;
+
+	// 증강의 DuringEffect 핸들. 위와 같이 종료 시 뗀다.
+	TArray<FActiveGameplayEffectHandle> AugmentDuringHandles;
 };

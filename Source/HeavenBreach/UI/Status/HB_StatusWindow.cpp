@@ -119,7 +119,7 @@ void UHB_StatusWindow::RefreshStats()
 	{
 		Text_Stamina->SetText(FText::Format(
 			NSLOCTEXT("StatusWindow", "Gauge", "{0} / {1}"),
-			FormatStat(Attr->GetPlayer_Mana()), FormatStat(Attr->GetPlayer_MaxMana())));
+			FormatStat(Attr->GetPlayer_Stamina()), FormatStat(Attr->GetPlayer_MaxStamina())));
 	}
 
 	if (Text_AttackPower)

@@ -5,9 +5,11 @@
 #include "Components/SceneComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
+#include "Kismet/GameplayStatics.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
+#include "Sound/SoundBase.h"
 
 namespace
 {
@@ -95,12 +97,24 @@ bool UHBGCN_MagicBurst::OnExecute_Implementation(AActor* MyTarget, const FGamepl
 		return false;
 	}
 
+	// 소리는 이펙트보다 먼저 낸다. 이펙트 클래스가 비어 있어도(소리만 쓰는 큐) 소리는 나야 한다.
+	USoundBase* SoundToPlay = PickSound(Parameters);
+	if (SoundToPlay)
+	{
+		UGameplayStatics::PlaySoundAtLocation(World, SoundToPlay, Parameters.Location);
+	}
+
 	// 순간이동: AbilityLevel 1 = 도착. Alt 가 없으면 같은 클래스를 쓴다.
 	const bool bUseAlt = Parameters.AbilityLevel == 1 && !ActorClassAlt.IsNull();
 	UClass* SpawnClass = (bUseAlt ? ActorClassAlt : ActorClass).LoadSynchronous();
 	if (!SpawnClass)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MagicSkill] 버스트 큐 %s: 스폰할 액터 클래스가 비어 있다"), *GetName());
+		// 소리만 쓰는 큐다. 이펙트는 다른 곳에서 띄운다(서리 지대).
+		if (SoundToPlay)
+		{
+			return true;
+		}
+		UE_LOG(LogTemp, Warning, TEXT("[MagicSkill] 버스트 큐 %s: 스폰할 액터 클래스와 소리가 모두 비어 있다"), *GetName());
 		return false;
 	}
 
@@ -121,4 +135,21 @@ bool UHBGCN_MagicBurst::OnExecute_Implementation(AActor* MyTarget, const FGamepl
 		Spawned->SetLifeSpan(LifeSpan);
 	}
 	return true;
+}
+
+USoundBase* UHBGCN_MagicBurst::PickSound(const FGameplayCueParameters& Parameters) const
+{
+	// 순간이동 도착(AbilityLevel 1)이 아니면 기본 소리.
+	if (Parameters.AbilityLevel != 1)
+	{
+		return Sound;
+	}
+
+	// 도착 소리를 따로 안 정했으면 출발과 같은 소리를 쓴다.
+	if (!SoundAlt)
+	{
+		return Sound;
+	}
+
+	return SoundAlt;
 }

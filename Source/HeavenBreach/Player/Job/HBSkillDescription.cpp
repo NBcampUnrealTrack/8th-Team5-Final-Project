@@ -120,7 +120,7 @@ namespace
 		AddAttribute(Table, TEXT("LowHealthThreshold"),
 			UHB_PlayerAttributeSet::GetPlayer_LowHealthAttackThresholdAttribute(), EValueKind::ModRatio);
 		AddAttribute(Table, TEXT("SprintMana"),
-			UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute(), EValueKind::ModRatio);
+			UHB_PlayerAttributeSet::GetPlayer_SprintStaminaCostMultiplierAttribute(), EValueKind::ModRatio);
 
 		// ---- GA 애셋의 칸에서 읽는 것 ----
 		AddField(Table, TEXT("Duration"), EAbilityField::BuffDuration, EValueKind::Seconds);

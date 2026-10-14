@@ -8,6 +8,8 @@
 #include "GA_BowPiercingShot.generated.h"
 
 class AHBPlayerArrow;
+class AHBPlayerCharacter;
+struct FHBArrowLaunchOptions;
 class UAnimMontage;
 class UAbilityTask_PlayMontageAndWait;
 
@@ -53,6 +55,10 @@ public:
 
 	// 테스트·UI 용. CDO 에서 불러도 된다.
 	int32 GetMaxPierceCount() const { return MaxPierceCount; }
+	float GetDamageCoef() const { return DamageCoef; }
+
+	/** 당기는 동안 장전 화살에 관통 기류를 켜는가. 트리플 샷은 끈다 */
+	virtual bool ShowsPiercingCharge() const { return true; }
 	const FGameplayTagContainer& GetRequiredWeaponTags() const { return RequiredWeaponTags; }
 	const FGameplayTagContainer& GetActivationOwnedTags() const { return ActivationOwnedTags; }
 
@@ -62,6 +68,10 @@ protected:
 
 	// 우클릭 취소 중에는 몽타주 태스크의 OnCancelled 가 다시 끝내려 들지 않게 막는다.
 	virtual void CancelAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateCancelAbility) override;
+
+	/** 서버 전용. 발사 순간 화살을 만든다. 기본은 조준 방향 1발. 트리플 샷이 부채꼴로 바꾼다 */
+	virtual void FireSkillArrows(AHBPlayerCharacter* Player, TSubclassOf<AHBPlayerArrow> ArrowClassToUse, const FDataTableRowHandle& ArrowRow,
+		float FinalCoef, const FHBArrowLaunchOptions& Options);
 
 	// ================ 애셋에서 지정 ================
 

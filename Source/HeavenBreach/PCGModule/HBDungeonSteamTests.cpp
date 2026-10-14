@@ -24,6 +24,7 @@
 #include "Components/Button.h"
 #include "Components/PanelWidget.h"
 #include "Components/TextBlock.h"
+#include "Components/WidgetComponent.h"
 #include "Core/Online/Session/HBOnlineSessionSubsystem.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "AI/EnemyCharacterBase.h"
@@ -37,6 +38,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Interfaces/OnlineIdentityInterface.h"
+#include "Interfaces/OnlinePresenceInterface.h"
 #include "OnlineSubsystem.h"
 #include "OnlineSessionSettings.h"
 #include "Online/OnlineSessionNames.h"
@@ -67,6 +69,17 @@ namespace
 		Test->TestTrue(TEXT("Lobby character keeps the arms-down idle"), Idle && Idle->GetCurrentAsset()
 			&& Idle->GetCurrentAsset()->GetName() == TEXT("AN_PlayerIdle1"));
         Test->TestTrue(TEXT("Possession preserves the authored lobby camera"), Controller->GetViewTarget() && Controller->GetViewTarget() != Pawn);
+        auto* TagProperty = FindFProperty<FObjectPropertyBase>(Pawn->GetClass(), TEXT("NameTagWidget"));
+        auto* TagComponent = TagProperty ? Cast<UWidgetComponent>(TagProperty->GetObjectPropertyValue_InContainer(Pawn)) : nullptr;
+        auto* NameTag = TagComponent ? TagComponent->GetUserWidgetObject() : nullptr;
+        auto* NameText = NameTag ? Cast<UTextBlock>(NameTag->GetWidgetFromName(TEXT("Text_PlayerName"))) : nullptr;
+        Test->TestTrue(TEXT("Existing lobby name tag displays its player's replicated Steam name"),
+            State && NameText && NameText->GetText().ToString() == State->GetPlayerName());
+        const auto* OSS = IOnlineSubsystem::Get();
+        const auto Identity = OSS ? OSS->GetIdentityInterface() : nullptr;
+        if (State && Identity.IsValid() && State->GetUniqueId().IsValid())
+            Test->TestEqual(TEXT("Replicated lobby name comes from Steam nickname"),
+                State->GetPlayerName(), Identity->GetPlayerNickname(*State->GetUniqueId().GetUniqueNetId()).Left(20));
         int32 HostAnchors = 0;
         for (TActorIterator<ATargetPoint> It(World); It; ++It)
             if (It->ActorHasTag(TEXT("LobbyCharacterSlot")) && It->ActorHasTag(TEXT("LobbySlot_0")))
@@ -130,6 +143,8 @@ namespace
         // Isolate session/results lifecycle when dungeon authoring is unavailable.
         // The normal mode still verifies PCG, enemies and chests without this flag.
         bool bSessionOnly = false;
+        bool bPresenceRecoveryRequested = false;
+        bool bLeaveButtonRequested = false;
         FString RestoredHubId;
         double HubStableSince = 0.;
         EHBPostMatchReason EndReason = EHBPostMatchReason::None;
@@ -203,6 +218,27 @@ namespace
                 Test->TestTrue(TEXT("Recovered local host is authorized"), Sessions->IsLocalLobbyHost());
                 Test->TestFalse(TEXT("Recovery releases match admission"), Sessions->IsMatchAdmissionClosed());
                 VerifyHostPawn(Test, World);
+                if (Fixture->bLobbyUI && !Fixture->bLeaveButtonRequested)
+                {
+                    auto* Controller = World->GetFirstPlayerController();
+                    auto* Property = FindFProperty<FObjectPropertyBase>(Controller->GetClass(), TEXT("LobbyContent"));
+                    auto* LobbyUI = Property ? Cast<UHBLobbyWidget>(Property->GetObjectPropertyValue_InContainer(Controller)) : nullptr;
+                    auto* Module = LobbyUI ? Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("WBP_Lobby_LeavePartyButton"))) : nullptr;
+                    auto* Button = Module ? Cast<UButton>(Module->GetWidgetFromName(TEXT("Button_Social"))) : nullptr;
+                    if (!Button || !Button->GetIsEnabled())
+                    { Test->AddError(TEXT("Production party leave button is missing or disabled in an idle Steam hub.")); return true; }
+                    Test->TestTrue(TEXT("Party leave button is bound once to the existing return action"),
+                        Button->OnClicked.Contains(LobbyUI, FName(TEXT("HandleLeavePartyClicked"))));
+                    Fixture->bLeaveButtonRequested = true;
+                    Fixture->SessionId = Session->GetSessionIdStr();
+                    Fixture->RestoredHubId.Reset();
+                    Fixture->HubStableSince = 0.;
+                    Button->OnClicked.Broadcast();
+                    Test->TestFalse(TEXT("Leaving immediately disables repeated party leave clicks"), Button->GetIsEnabled());
+                    return false;
+                }
+                if (Fixture->bLobbyUI)
+                    Test->AddInfo(TEXT("Production leave-party button destroyed the previous Steam lobby and returned to a fresh stable personal hub; the existing name tag displays the Steam player name."));
                 Test->AddInfo(TEXT("Automatic friends-only Steam hub restored and stable for three seconds; remote friend/invitation joining remains unverified."));
                 return true;
             }
@@ -301,6 +337,25 @@ namespace
                         return false;
                     }
                     if (Sessions->IsReadingFriends()) return Wait(TEXT("Real Steam friend list read did not finish."));
+                    const auto Presence = OSS->GetPresenceInterface();
+                    if (!Presence.IsValid() || !LocalId.IsValid())
+                    { Test->AddError(TEXT("Real Steam presence is unavailable.")); return true; }
+                    if (!Fixture->bPresenceRecoveryRequested)
+                    {
+                        // 다른 상태 게시로 프로젝트 키가 지워지는 경우를 실제 SDK에서 재현한다.
+                        Fixture->bPresenceRecoveryRequested = true;
+                        Presence->SetPresence(*LocalId, FOnlineUserPresenceStatus());
+                        return false;
+                    }
+                    TSharedPtr<FOnlineUserPresence> LocalPresence;
+                    Presence->GetCachedPresence(*LocalId, LocalPresence);
+                    const auto* Project = LocalPresence.IsValid() ? LocalPresence->Status.Properties.Find(TEXT("HB_PROJECT")) : nullptr;
+                    const auto* StateValue = LocalPresence.IsValid() ? LocalPresence->Status.Properties.Find(TEXT("HB_STATE")) : nullptr;
+                    const auto* Joinable = LocalPresence.IsValid() ? LocalPresence->Status.Properties.Find(TEXT("Joinable")) : nullptr;
+                    if (!Project || Project->ToString() != TEXT("HeavenBreach") || !StateValue || StateValue->ToString() != TEXT("Lobby")
+                        || !Joinable || Joinable->ToString() != TEXT("true"))
+                        return Wait(TEXT("Real Steam lobby presence did not recover after losing its project keys."));
+                    Test->AddInfo(TEXT("Real Steam SDK project/state/joinable keys were removed and automatically republished by the existing Session subsystem."));
 					if (Fixture->bLobbyUI)
 					{
 						auto* Loading = FriendsPanel->GetWidgetFromName(TEXT("LoadingIndicator"));
@@ -382,20 +437,15 @@ namespace
 				{
 					auto* LobbyState = World->GetGameState<AHBLobbyGameState>();
 					auto* HostState = Player->GetPlayerState<AHBLobbyPlayerState>();
-					auto* ReadyModule = Cast<UUserWidget>(LobbyUI->GetWidgetFromName(TEXT("ReadyButtonModule")));
-					auto* ReadyButton = ReadyModule ? Cast<UButton>(ReadyModule->GetWidgetFromName(TEXT("Button_Action"))) : nullptr;
-					if (!LobbyState || !HostState || !ReadyButton)
-					{ Test->AddError(TEXT("Production lobby is missing ready state/button.")); return true; }
+					if (!LobbyState || !HostState)
+					{ Test->AddError(TEXT("Production lobby is missing its game/player state.")); return true; }
 					LobbyUI->RefreshLobbyActions();
 					Test->TestTrue(TEXT("Solo Steam host can use the start button"), StartButton->GetIsEnabled());
-					Test->TestFalse(TEXT("Host cannot use the guest ready button"), ReadyButton->GetIsEnabled());
-					const bool bHostReady = HostState->IsReady();
-					ReadyButton->OnClicked.Broadcast();
-					Test->TestEqual(TEXT("Disabled ready click does not change host readiness"), HostState->IsReady(), bHostReady);
+					Test->TestFalse(TEXT("Steam host can start without Ready"), HostState->IsReady());
 					LobbyState->SetCanStartMatch(false);
 					StartButton->OnClicked.Broadcast();
-					Test->TestFalse(TEXT("Unready start click does not close admission"), Sessions->IsMatchAdmissionClosed());
-					Test->TestFalse(TEXT("Start button follows replicated readiness"), StartButton->GetIsEnabled());
+					Test->TestFalse(TEXT("Unavailable start click does not close admission"), Sessions->IsMatchAdmissionClosed());
+					Test->TestFalse(TEXT("Start button follows replicated availability"), StartButton->GetIsEnabled());
 					LobbyState->SetCanStartMatch(true);
 					LobbyUI->RefreshLobbyActions();
 					// Exercise the same property used by the production Blueprint; never save the fixture's map.

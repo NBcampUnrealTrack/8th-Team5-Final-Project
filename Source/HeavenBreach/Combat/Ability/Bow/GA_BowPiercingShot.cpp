@@ -372,7 +372,13 @@ void UGA_BowPiercingShot::SpawnPiercingArrow()
 	ResolveArrow(Player, UseArrowClass, UseArrowRow);
 
 	const float FinalCoef = DamageCoef * GetAugmentParam(SkillParamTag::TAG_SkillParam_Damage, 1.f);
-	const AHBPlayerArrow* Arrow = HBBowShot::SpawnArrow(Player, UseArrowClass, ArrowSpeed, FinalCoef, UseArrowRow, AimTraceDistance, SpawnForwardOffset, Options);
+	FireSkillArrows(Player, UseArrowClass, UseArrowRow, FinalCoef, Options);
+}
+
+void UGA_BowPiercingShot::FireSkillArrows(AHBPlayerCharacter* Player, const TSubclassOf<AHBPlayerArrow> ArrowClassToUse, const FDataTableRowHandle& ArrowRow,
+	const float FinalCoef, const FHBArrowLaunchOptions& Options)
+{
+	const AHBPlayerArrow* Arrow = HBBowShot::SpawnArrow(Player, ArrowClassToUse, ArrowSpeed, FinalCoef, ArrowRow, AimTraceDistance, SpawnForwardOffset, Options);
 
 	UE_LOG(LogTemp, Warning, TEXT("[BowSkill] 관통 사격: 발사  Coef=%.2f  Pierce=%d  Speed=%.0f  Arrow=%s"),
 		FinalCoef, MaxPierceCount, ArrowSpeed, *GetNameSafe(Arrow));
@@ -512,9 +518,11 @@ void UGA_BowPiercingShot::EndPhaseMontageTask(TWeakObjectPtr<UAbilityTask_PlayMo
 void UGA_BowPiercingShot::SetDrawingPose(const bool bDrawing) const
 {
 	// 활 AnimBP 의 팔·시위 IK 와 장전 화살이 이 값을 본다(활 평타와 같다).
+	// 당기는 동안 장전 화살에 관통 기류·입자를 켠다.
 	if (AHBPlayerCharacter* Player = GetPlayer())
 	{
 		Player->SetBowDrawing(bDrawing);
+		Player->SetBowPiercingCharge(bDrawing && ShowsPiercingCharge());
 	}
 }
 
@@ -552,6 +560,7 @@ void UGA_BowPiercingShot::EndAbility(const FGameplayAbilitySpecHandle Handle, co
 	if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
 	{
 		Player->SetBowDrawing(false);
+		Player->SetBowPiercingCharge(false);
 		Player->SetInBowSkillPose(false);
 	}
 	if (UAnimInstance* Anim = ActorInfo ? ActorInfo->GetAnimInstance() : nullptr)

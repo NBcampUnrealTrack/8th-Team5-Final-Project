@@ -26,6 +26,9 @@ namespace ArcherTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_SmokeArrow);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Bow_PiercingShot_Power);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Bow_PiercingShot_Rapid);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_TripleShot);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Bow_TripleShot_Power);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Bow_TripleShot_Rapid);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Bow_HunterMark_Deep);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Bow_HunterMark_Wide);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Bow_EvasiveShot_Rapid);

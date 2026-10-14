@@ -22,6 +22,9 @@ namespace
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_HPAttribute(), HP);
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute(), Mana);
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_ManaAttribute(), Mana);
+		// 스태미나는 모든 직업 100. 직업 차이는 마나로 둔다(Docs/스태미나-마나-분리-설계.md).
+		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_MaxStaminaAttribute(), 100.f);
+		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_StaminaAttribute(), 100.f);
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_AttackPowerAttribute(), AttackPower);
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_AttackSpeedAttribute(), AttackSpeed);
 		AddOverride(Effect, UHB_PlayerAttributeSet::GetPlayer_DefenseAttribute(), Defense);

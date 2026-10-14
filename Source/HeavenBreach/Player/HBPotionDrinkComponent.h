@@ -73,6 +73,9 @@ private:
 	void FinishDrink();
 	void InterruptDrink();
 	void StopListeningInterrupts();
+
+	// 손의 무기·방패 숨김(포션 이유). 각 머신에서 부른다.
+	void SetWeaponHidden(bool bHidden);
 	void HandleInterruptTagChanged(const FGameplayTag Tag, int32 NewCount);
 
 	UFUNCTION(NetMulticast, Reliable)

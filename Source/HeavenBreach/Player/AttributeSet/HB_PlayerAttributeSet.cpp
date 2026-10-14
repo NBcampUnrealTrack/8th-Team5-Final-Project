@@ -13,6 +13,9 @@ UHB_PlayerAttributeSet::UHB_PlayerAttributeSet()
 	InitPlayer_HP(100.f);
 	InitPlayer_Mana(100.f);
 	InitPlayer_MaxMana(100.f);
+	InitPlayer_Stamina(100.f);
+	InitPlayer_MaxStamina(100.f);
+	InitPlayer_StaminaRegenMultiplier(1.f);
 	InitPlayer_AttackPower(10.f);
 	InitPlayer_AttackSpeed(1.f);
 	InitPlayer_Defense(0.f);
@@ -22,7 +25,7 @@ UHB_PlayerAttributeSet::UHB_PlayerAttributeSet()
 	InitPlayer_CooldownFlat(0.f);
 	InitPlayer_CooldownMultiplier(1.f);
 	InitPlayer_LifeStealRatio(0.f);
-	InitPlayer_SprintManaCostMultiplier(1.f);
+	InitPlayer_SprintStaminaCostMultiplier(1.f);
 	InitPlayer_LowHealthAttackBonus(0.f);
 	// 중립값 0 이다. 실제 임계값은 패시브 GE 가 Override 로 지정한다.
 	// 여기에 0.3 을 박아두면 밸런스가 임계값을 바꿀 때 C++ 을 고쳐야 한다.
@@ -52,6 +55,9 @@ void UHB_PlayerAttributeSet::GetLifetimeReplicatedProps(TArray<class FLifetimePr
 	DOREPLIFETIME(ThisClass,Player_MaxHP);
 	DOREPLIFETIME(ThisClass,Player_Mana);
 	DOREPLIFETIME(ThisClass,Player_MaxMana);
+	DOREPLIFETIME(ThisClass,Player_Stamina);
+	DOREPLIFETIME(ThisClass,Player_MaxStamina);
+	DOREPLIFETIME(ThisClass,Player_StaminaRegenMultiplier);
 	DOREPLIFETIME(ThisClass,Player_AttackPower);
 	DOREPLIFETIME(ThisClass,Player_AttackSpeed);
 	DOREPLIFETIME(ThisClass,Player_Defense);
@@ -61,7 +67,7 @@ void UHB_PlayerAttributeSet::GetLifetimeReplicatedProps(TArray<class FLifetimePr
 	DOREPLIFETIME(ThisClass,Player_CooldownFlat);
 	DOREPLIFETIME(ThisClass,Player_CooldownMultiplier);
 	DOREPLIFETIME(ThisClass,Player_LifeStealRatio);
-	DOREPLIFETIME(ThisClass,Player_SprintManaCostMultiplier);
+	DOREPLIFETIME(ThisClass,Player_SprintStaminaCostMultiplier);
 	DOREPLIFETIME(ThisClass,Player_LowHealthAttackBonus);
 	DOREPLIFETIME(ThisClass,Player_LowHealthAttackThreshold);
 	DOREPLIFETIME(ThisClass,Player_MoveSpeedFlat);
@@ -93,12 +99,17 @@ void UHB_PlayerAttributeSet::PreAttributeChange(const FGameplayAttribute& Attrib
 	{
 		NewValue = FMath::Clamp(NewValue, 0.f, GetPlayer_MaxMana());
 	}
+	else if (Attribute == GetPlayer_StaminaAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.f, GetPlayer_MaxStamina());
+	}
 	else if (Attribute == GetPlayer_MoveSpeedMultiplierAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.1f);
 	}
 	else if (Attribute == GetPlayer_MaxHPAttribute()
 		|| Attribute == GetPlayer_MaxManaAttribute()
+		|| Attribute == GetPlayer_MaxStaminaAttribute()
 		|| Attribute == GetPlayer_AttackPowerAttribute()
 		|| Attribute == GetPlayer_DefenseAttribute())
 	{
@@ -109,9 +120,9 @@ void UHB_PlayerAttributeSet::PreAttributeChange(const FGameplayAttribute& Attrib
 	{
 		NewValue = FMath::Clamp(NewValue, 0.2f, 2.f);
 	}
-	else if (Attribute == GetPlayer_SprintManaCostMultiplierAttribute())
+	else if (Attribute == GetPlayer_SprintStaminaCostMultiplierAttribute())
 	{
-		// 하한 0 이라야 전투 호흡(달리기 마나 0)이 성립한다.
+		// 하한 0 이라야 전투 호흡(달리기 스태미나 0)이 성립한다.
 		// 상한 2 는 소비 증가 디버프용.
 		NewValue = FMath::Clamp(NewValue, 0.f, 2.f);
 	}
@@ -132,6 +143,7 @@ void UHB_PlayerAttributeSet::PreAttributeChange(const FGameplayAttribute& Attrib
 		NewValue = FMath::Clamp(NewValue, 0.f, 1.f);
 	}
 	else if (Attribute == GetPlayer_ManaRegenMultiplierAttribute()
+		|| Attribute == GetPlayer_StaminaRegenMultiplierAttribute()
 		|| Attribute == GetPlayer_SkillDamageMultiplierAttribute()
 		|| Attribute == GetPlayer_HealingReceivedMultiplierAttribute()
 		|| Attribute == GetPlayer_HealthRegenMultiplierAttribute())
@@ -197,6 +209,12 @@ void UHB_PlayerAttributeSet::PostAttributeChange(
 		SetPlayer_Mana(CalculateCurrentOnMaxChanged(GetPlayer_Mana(), OldValue, NewValue));
 		return;
 	}
+
+	if (Attribute == GetPlayer_MaxStaminaAttribute())
+	{
+		SetPlayer_Stamina(CalculateCurrentOnMaxChanged(GetPlayer_Stamina(), OldValue, NewValue));
+		return;
+	}
 }
 
 void UHB_PlayerAttributeSet::PostGameplayEffectExecute(const struct FGameplayEffectModCallbackData& Data)
@@ -227,7 +245,8 @@ void UHB_PlayerAttributeSet::PostGameplayEffectExecute(const struct FGameplayEff
 		}
 	}
 
-	if (Data.EvaluatedData.Attribute == GetPlayer_ManaAttribute())
+	// 스태미나를 깎는 GE 가 들어오면 회복 대기를 다시 건다. 마나는 대기가 없다.
+	if (Data.EvaluatedData.Attribute == GetPlayer_StaminaAttribute())
 	{
 		if (Data.EvaluatedData.Magnitude < 0.f)
 		{
@@ -235,7 +254,7 @@ void UHB_PlayerAttributeSet::PostGameplayEffectExecute(const struct FGameplayEff
 			{
 				if (AHBPlayerCharacter* Character = Cast<AHBPlayerCharacter>(ASC->GetAvatarActor()))
 				{
-					Character->NotifyManaActivity();
+					Character->NotifyStaminaActivity();
 				}
 			}
 		}
@@ -311,9 +330,24 @@ void UHB_PlayerAttributeSet::OnRep_LifeStealRatio(const FGameplayAttributeData& 
 	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_LifeStealRatio, OldValue);
 }
 
-void UHB_PlayerAttributeSet::OnRep_SprintManaCostMultiplier(const FGameplayAttributeData& OldValue)
+void UHB_PlayerAttributeSet::OnRep_SprintStaminaCostMultiplier(const FGameplayAttributeData& OldValue)
 {
-	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_SprintManaCostMultiplier, OldValue);
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_SprintStaminaCostMultiplier, OldValue);
+}
+
+void UHB_PlayerAttributeSet::OnRep_Stamina(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_Stamina, OldValue);
+}
+
+void UHB_PlayerAttributeSet::OnRep_MaxStamina(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_MaxStamina, OldValue);
+}
+
+void UHB_PlayerAttributeSet::OnRep_StaminaRegenMultiplier(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(ThisClass, Player_StaminaRegenMultiplier, OldValue);
 }
 
 void UHB_PlayerAttributeSet::OnRep_LowHealthAttackBonus(const FGameplayAttributeData& OldValue)
