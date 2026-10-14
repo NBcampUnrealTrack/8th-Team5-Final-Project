@@ -2,7 +2,6 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
-#include "Combat/Ability/Magic/HBMagic.h"
 #include "Core/Tag/Mage/HB_MageTag.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -14,8 +13,8 @@
 #define HB_BEGIN_MAGE(Tag, Cooldown, Cost) AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(ActorInfo->AvatarActor.Get()); if (!Player || !BeginAbilityWithCooldown(Handle, ActorInfo, ActivationInfo, Tag, Cooldown, 0.f)) return
 #define HB_END_MAGE() FinishAbility(Handle, ActorInfo, ActivationInfo)
 
-// 마법 스킬의 피해 기준값. 공격력에 마법 피해 배율을 곱한다 (HBMagic::DamageMultiplier).
-static float MagicPower(const AHBPlayerCharacter* Player) { return Player->GetAttackPower() * HBMagic::DamageMultiplier; }
+// 마법 스킬의 피해 기준값. 예전 마법 배율 상수는 지팡이 무기 행(SkillDamageRate)으로 옮겨 공격력만 쓴다.
+static float MagicPower(const AHBPlayerCharacter* Player) { return Player->GetAttackPower(); }
 
 void UGA_MageMagicBolt::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData*)
 {

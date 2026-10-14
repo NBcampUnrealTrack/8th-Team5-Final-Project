@@ -51,6 +51,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Skill")
 	TSubclassOf<UGameplayEffect> GetSelfBuffEffect() const { return SelfBuffEffect; }
 
+	// 스킬 설명 끝의 "필요 무기" 줄이 여기서 읽는다. 값의 주인은 RequiredWeaponTags 하나다.
+	// 활·마법 GA 에 같은 이름의 함수가 각자 있는데, 같은 칸을 돌려주므로 결과가 같다.
+	const FGameplayTagContainer& GetRequiredWeaponTags() const { return RequiredWeaponTags; }
+
 	virtual UAnimMontage* GetMontageToPlay() const { return Montage; }
 
 	// 발동 중 좌클릭 누름/뗌을 이 스킬이 직접 받고 싶은가. 조준 스킬이 true 로 오버라이드한다.

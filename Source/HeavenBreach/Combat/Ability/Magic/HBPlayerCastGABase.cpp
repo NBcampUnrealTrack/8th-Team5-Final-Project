@@ -67,7 +67,7 @@ void UHBPlayerCastGABase::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	// CanActivateAbility 가 이미 보지만 방어로 한 번 더. 여기서는 확인만 하고 내지 않는다.
 	if (!CheckCost(Handle, ActorInfo))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MagicSkill] %s: 스태미나 부족 — 시작 안 함  Auth=%d"), *GetName(), bAuthority ? 1 : 0);
+		UE_LOG(LogTemp, Warning, TEXT("[MagicSkill] %s: 마나 부족 — 시작 안 함  Auth=%d"), *GetName(), bAuthority ? 1 : 0);
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
@@ -196,7 +196,7 @@ void UHBPlayerCastGABase::ReleaseCast()
 	// 여기서 처음으로 비용·쿨다운을 낸다. 클라는 커밋하지 않고 GE 를 복제로 받는다.
 	if (!CommitAbility(GetCurrentAbilitySpecHandle(), Info, GetCurrentActivationInfo()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MagicSkill] %s: 커밋 실패(스태미나·쿨다운) — 종료"), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("[MagicSkill] %s: 커밋 실패(마나·쿨다운) — 종료"), *GetName());
 		FinishSelf(true);
 		return;
 	}
