@@ -14,6 +14,6 @@ UGA_PassiveManaCycle::UGA_PassiveManaCycle()
 	FHBSkillAugment& Boost = Augments.AddDefaulted_GetRef();
 	Boost.AugmentTag = MagicTag::TAG_Augment_Passive_ManaCycle_Boost;
 	Boost.DisplayName = NSLOCTEXT("PassiveManaCycle", "AugmentName", "마력 순환 강화");
-	Boost.Description = NSLOCTEXT("PassiveManaCycle", "AugmentDesc", "액티브 스킬 스태미나 소모 감소가 늘어납니다. (합계 1단계 30%, 2단계 40%, 3단계 50%)");
+	Boost.Description = NSLOCTEXT("PassiveManaCycle", "AugmentDesc", "액티브 스킬 마나 소모 감소가 늘어납니다. (합계 1단계 30%, 2단계 40%, 3단계 50%)");
 	Boost.TierMagnitudes = { 0.70f, 0.60f, 0.50f };
 }

@@ -7,7 +7,7 @@
 #include "GA_PassiveManaCycle.generated.h"
 
 /**
- * 마법 시작 패시브 "마력 순환". 액티브 스킬 스태미나 소모가 20% 줄어든다(달리기·방어 제외). 계산은 액티브 GA 가 한다(State.Magic.ManaCycle).
+ * 마법 시작 패시브 "마력 순환". 액티브 스킬 마나 소모가 20% 줄어든다(달리기·방어 제외). 계산은 액티브 GA 가 한다(State.Magic.ManaCycle).
  * 강화 증강(Augment.Passive.ManaCycle.Boost)을 고르면 단계별로 늘어난다.
  */
 UCLASS()

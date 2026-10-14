@@ -343,7 +343,7 @@ public:
 	UGE_FocusPassive();
 };
 
-/** 패시브 "마력 순환". State.Magic.ManaCycle 태그만 부여한다(액티브 스태미나 배율은 코드가 읽는다, 달리기·방어 제외) */
+/** 패시브 "마력 순환". State.Magic.ManaCycle 태그만 부여한다(액티브 마나 배율은 코드가 읽는다, 달리기·방어 제외) */
 UCLASS()
 class HEAVENBREACH_API UGE_ManaCyclePassive : public UGameplayEffect
 {
@@ -477,3 +477,27 @@ class HEAVENBREACH_API UGE_CombatInstinctAugment : public UGameplayEffect
 public:
 	UGE_CombatInstinctAugment();
 };
+
+/** 무기 종류 보너스: 검(단검 포함). 방어 +5, 최대 체력 +20. 들고 있는 동안(Infinite) */
+UCLASS()
+class HEAVENBREACH_API UGE_WeaponBonusSword : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WeaponBonusSword();
+};
+
+/** 무기 종류 보너스: 활. 이동 속도 +10%. 들고 있는 동안(Infinite) */
+UCLASS()
+class HEAVENBREACH_API UGE_WeaponBonusBow : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_WeaponBonusBow();
+};
+
+namespace HBWeaponBonus
+{
+	/** 무기 태그(Weapon.*)의 보너스 GE. 지팡이(마법 피해 1.5배가 따로 있다)·맨손은 nullptr */
+	HEAVENBREACH_API TSubclassOf<UGameplayEffect> EffectFor(const FGameplayTag& WeaponTag);
+}

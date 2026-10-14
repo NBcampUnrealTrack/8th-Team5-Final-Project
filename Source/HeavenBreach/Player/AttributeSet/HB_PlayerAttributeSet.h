@@ -251,4 +251,7 @@ protected:
 private:
 	// 최대치가 바뀔 때 현재치를 어디로 옮길지. HP·마나·스태미나가 같은 규칙이라 함수로 뺐다.
 	static float CalculateCurrentOnMaxChanged(float Current, float OldMax, float NewMax);
+
+	// 서버 전용. 지금까지 도달한 가장 높은 최대 체력(HBAttributeRules::HealthOnMaxChanged). 복제하지 않는다.
+	float HighestMaxHP = 0.f;
 };

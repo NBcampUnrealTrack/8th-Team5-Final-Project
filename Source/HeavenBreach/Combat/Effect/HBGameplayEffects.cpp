@@ -471,3 +471,29 @@ UGE_CombatInstinctAugment::UGE_CombatInstinctAugment()
 	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_LowHealthAttackBonusAttribute(),
 		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
 }
+
+UGE_WeaponBonusSword::UGE_WeaponBonusSword()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_DefenseAttribute(), EGameplayModOp::Additive, 5.f);
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute(), EGameplayModOp::Additive, 20.f);
+}
+
+UGE_WeaponBonusBow::UGE_WeaponBonusBow()
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_MoveSpeedMultiplierAttribute(), EGameplayModOp::Additive, 0.1f);
+}
+
+TSubclassOf<UGameplayEffect> HBWeaponBonus::EffectFor(const FGameplayTag& WeaponTag)
+{
+	if (WeaponTag == ItemTag::TAG_Weapon_Sword || WeaponTag == ItemTag::TAG_Weapon_Dagger)
+	{
+		return UGE_WeaponBonusSword::StaticClass();
+	}
+	if (WeaponTag == ItemTag::TAG_Weapon_Bow)
+	{
+		return UGE_WeaponBonusBow::StaticClass();
+	}
+	return nullptr;
+}
