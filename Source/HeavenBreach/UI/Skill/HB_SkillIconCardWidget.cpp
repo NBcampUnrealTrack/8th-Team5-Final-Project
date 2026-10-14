@@ -4,6 +4,9 @@
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Components/Widget.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
+#include "Engine/Texture2D.h"
+#include "UI/Skill/HB_SkillDragDropOperation.h"
 
 void UHB_SkillIconCardWidget::NativeConstruct()
 {
@@ -26,11 +29,19 @@ void UHB_SkillIconCardWidget::NativeConstruct()
 	}
 
 	SetPreviewSelected(false);
+
+	// 처음에는 아무것도 집지 않은 상태다.
+	if (HeldBorder)
+	{
+		HeldBorder->SetVisibility(ESlateVisibility::Collapsed);
+	}
 }
 
 void UHB_SkillIconCardWidget::InitIconCard(const FSkillCardData& SkillData)
 {
 	CurrentSkillId = SkillData.SkillId;
+	CurrentSkillType = SkillData.SkillType;
+	CurrentIcon = SkillData.Icon;
 
 	if (IconImage)
 	{
@@ -75,7 +86,76 @@ void UHB_SkillIconCardWidget::SetPreviewSelected(bool bSelected)
 	}
 }
 
+FReply UHB_SkillIconCardWidget::NativeOnPreviewMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	// 스킬 정보가 없는 카드는 끌 것이 없다. 아무것도 가로채지 않는다.
+	if (CurrentSkillId.IsNone() || InMouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	{
+		return Super::NativeOnPreviewMouseButtonDown(InGeometry, InMouseEvent);
+	}
+
+	// 끌지 않고 떼면 클릭이다. 끌기가 시작되면 NativeOnDragDetected 가 이 표시를 지운다.
+	bClickPending = true;
+
+	return UWidgetBlueprintLibrary::DetectDragIfPressed(InMouseEvent, this, EKeys::LeftMouseButton).NativeReply;
+}
+
+void UHB_SkillIconCardWidget::NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation)
+{
+	bClickPending = false;
+
+	OutOperation = UHB_SkillDragDropOperation::Create(
+		GetOwningPlayer(),
+		CurrentSkillId,
+		CurrentSkillType,
+		ESkillSlotType::None,
+		CurrentIcon.Get(),
+		DragVisualSize);
+
+	OnIconDragStartedDelegate.Broadcast(CurrentSkillId, OutOperation);
+}
+
+FReply UHB_SkillIconCardWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && bClickPending)
+	{
+		BroadcastClickOnce();
+		return FReply::Handled();
+	}
+
+	return Super::NativeOnMouseButtonUp(InGeometry, InMouseEvent);
+}
+
+void UHB_SkillIconCardWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
+{
+	// 누른 채로 카드 밖으로 나갔다가 뗀 것은 클릭이 아니다.
+	bClickPending = false;
+
+	Super::NativeOnMouseLeave(InMouseEvent);
+}
+
+void UHB_SkillIconCardWidget::SetHeld(bool bHeld)
+{
+	if (HeldBorder)
+	{
+		HeldBorder->SetVisibility(bHeld ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+
+	OnHeldChanged(bHeld);
+}
+
 void UHB_SkillIconCardWidget::HandleCardClicked()
 {
+	BroadcastClickOnce();
+}
+
+void UHB_SkillIconCardWidget::BroadcastClickOnce()
+{
+	if (!bClickPending)
+	{
+		return;
+	}
+
+	bClickPending = false;
 	OnIconClickedDelegate.Broadcast(CurrentSkillId);
 }

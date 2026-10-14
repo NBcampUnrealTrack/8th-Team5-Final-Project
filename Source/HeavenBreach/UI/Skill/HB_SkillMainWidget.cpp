@@ -5,6 +5,7 @@
 #include "UI/Skill/HB_SkillCardWidget.h"
 #include "UI/Skill/HB_SkillIconCardWidget.h"
 #include "UI/Skill/HB_SkillData.h"
+#include "UI/Skill/HB_SkillDragDropOperation.h"
 #include "Core/GameFlow/Lobby/HBLobbyPlayerController.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "Player/Job/HBJobData.h"
@@ -34,19 +35,19 @@ void UHB_SkillMainWidget::NativeConstruct()
     // 슬롯 바인딩을 NativeOnActivated 가 아니라 여기에 둔다.
     //
     // 왜: NativeOnActivated 는 활성화 스택에 푸시될 때만 불린다. 이 위젯이
-    // 로비 HUD 의 WidgetSwitcher 에 놓이면 영영 안 불려 슬롯 클릭이 죽는다.
+    // 로비 HUD 의 WidgetSwitcher 에 놓이면 영영 안 불려 슬롯에 놓은 스킬을 못 받는다.
     // NativeConstruct 는 어느 쪽이든 불린다.
     if (Slot_Q)
     {
-        Slot_Q->OnSlotClicked.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillSlotClicked);
+        Slot_Q->OnSkillDropped.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillDroppedOnSlot);
     }
     if (Slot_E)
     {
-        Slot_E->OnSlotClicked.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillSlotClicked);
+        Slot_E->OnSkillDropped.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillDroppedOnSlot);
     }
     if (Slot_Passive)
     {
-        Slot_Passive->OnSlotClicked.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillSlotClicked);
+        Slot_Passive->OnSkillDropped.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillDroppedOnSlot);
     }
 
     // UUniformGridSlot 은 칸별 Padding 을 지원하지 않는다 (Row/Column/정렬만 있음).
@@ -60,9 +61,6 @@ void UHB_SkillMainWidget::NativeConstruct()
     {
         PassiveSkillGrid->SetSlotPadding(CardPadding);
     }
-
-    // 처음에는 선택된 슬롯이 없다. 슬롯을 먼저 눌러야 목록의 스킬이 그 슬롯에 들어간다.
-    SelectSlot(ESkillSlotType::None);
 
     RefreshFromPlayerState();
 }
@@ -110,6 +108,9 @@ void UHB_SkillMainWidget::RefreshFromPlayerState()
     RefreshJobStats();
     EnsureSkillLists();
     RefreshEquippedHighlights();
+
+    // 장착이 바뀌면 어느 슬롯이 놓을 자리인지도 달라진다.
+    RefreshDropHints();
 }
 
 void UHB_SkillMainWidget::HandleStartingLoadoutChanged()
@@ -167,54 +168,38 @@ FHBStartingLoadout UHB_SkillMainWidget::GetCurrentLoadout() const
     return State->GetStartingLoadout();
 }
 
-void UHB_SkillMainWidget::SelectSlot(ESkillSlotType NewSelection)
+bool UHB_SkillMainWidget::NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation)
 {
-    SelectedSlot = NewSelection;
+    // 슬롯이 받은 드롭은 슬롯이 처리해서 여기까지 오지 않는다. 여기 온 것은 슬롯 밖에 놓은 것이다.
+    const UHB_SkillDragDropOperation* SkillOp = Cast<UHB_SkillDragDropOperation>(InOperation);
 
-    // 선택한 슬롯의 표시만 켠다. (표시 연출은 슬롯 WBP 의 On Slot Selected Changed 가 맡는다)
-    if (Slot_Q)
+    // 목록에서 끌어 온 것은 슬롯 밖에 놓아도 할 일이 없다. 슬롯에서 끌어낸 것만 장착을 푼다.
+    if (!SkillOp || SkillOp->SourceSlot == ESkillSlotType::None)
     {
-        Slot_Q->SetSlotSelected(SelectedSlot == ESkillSlotType::Active_Q);
-    }
-    if (Slot_E)
-    {
-        Slot_E->SetSlotSelected(SelectedSlot == ESkillSlotType::Active_E);
-    }
-    if (Slot_Passive)
-    {
-        Slot_Passive->SetSlotSelected(SelectedSlot == ESkillSlotType::Passive);
+        return Super::NativeOnDrop(InGeometry, InDragDropEvent, InOperation);
     }
 
-    // 슬롯을 골랐으면 그 슬롯에 맞는 목록만 선명하게 두고 반대쪽은 흐리게 한다.
-    // 아무것도 고르지 않았으면 둘 다 그대로 둔다.
-    const bool bPassiveSelected = SelectedSlot == ESkillSlotType::Passive;
-    const bool bActiveSelected = SelectedSlot == ESkillSlotType::Active_Q || SelectedSlot == ESkillSlotType::Active_E;
+    FHBStartingLoadout NewLoadout = GetCurrentLoadout();
 
-    if (ActiveSkillGrid)
+    switch (SkillOp->SourceSlot)
     {
-        ActiveSkillGrid->SetRenderOpacity(bPassiveSelected ? InactiveListOpacity : 1.0f);
+    case ESkillSlotType::Active_Q:
+        NewLoadout.SkillQId = NAME_None;
+        break;
+    case ESkillSlotType::Active_E:
+        NewLoadout.SkillEId = NAME_None;
+        break;
+    case ESkillSlotType::Passive:
+        NewLoadout.PassiveSkillId = NAME_None;
+        break;
+    default:
+        return Super::NativeOnDrop(InGeometry, InDragDropEvent, InOperation);
     }
-    if (PassiveSkillGrid)
-    {
-        PassiveSkillGrid->SetRenderOpacity(bActiveSelected ? InactiveListOpacity : 1.0f);
-    }
+
+    SubmitLoadout(NewLoadout);
+    return true;
 }
 
-void UHB_SkillMainWidget::OnSkillSlotClicked(ESkillSlotType ClickedSlotType)
-{
-    // ClickedSlotType 이 항상 None 으로 찍히면, WBP_SkillMain 에 배치한
-    // Slot_Q/Slot_E/Slot_Passive 인스턴스의 "Slot Type" 값을 디자이너에서
-    // 안 정해준 것이다 (전부 기본값 None 인 상태).
-    UE_LOG(LogTemp, Log, TEXT("SkillMain | 슬롯 클릭됨: %d"), static_cast<int32>(ClickedSlotType));
-
-    if (ClickedSlotType == ESkillSlotType::None)
-    {
-        return;
-    }
-
-    // 이미 선택된 슬롯을 다시 누르면 선택이 풀린다.
-    SelectSlot(SelectedSlot == ClickedSlotType ? ESkillSlotType::None : ClickedSlotType);
-}
 void UHB_SkillMainWidget::EnsureSkillLists()
 {
     UHBJobData* Job = GetEditingJob();
@@ -293,8 +278,10 @@ void UHB_SkillMainWidget::AddSkillIconCard(UUniformGridPanel* Grid, int32 Index,
         return;
     }
 
+    // 장착은 아이콘을 슬롯으로 끌어다 놓아서 한다. 클릭은 "집기"(놓을 슬롯 안내)만 한다.
     NewCard->InitIconCard(InCardData);
     NewCard->OnIconClickedDelegate.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillIconClicked);
+    NewCard->OnIconDragStartedDelegate.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillIconDragStarted);
 
     // 이름, 설명, 마나, 쿨타임은 마우스를 올렸을 때 툴팁으로 보여 준다.
     // 툴팁을 아이콘 카드 자체에 달아서 카드 안의 어느 부분 위에 올려도 뜬다.
@@ -385,77 +372,162 @@ UTexture2D* UHB_SkillMainWidget::ResolveIcon(const FHBJobSkillData& InSkill)
     return Loaded;
 }
 
-void UHB_SkillMainWidget::OnSkillIconClicked(FName ClickedSkillId)
+void UHB_SkillMainWidget::OnSkillDroppedOnSlot(ESkillSlotType TargetSlot, FName SkillId, ESkillSlotType SourceSlot)
 {
-    if (ClickedSkillId.IsNone())
+    // TargetSlot 이 None 으로 오면 WBP_SkillMain 에 배치한 Slot_Q/Slot_E/Slot_Passive 인스턴스의
+    // "Slot Type" 값을 디자이너에서 안 정해준 것이다 (전부 기본값 None 인 상태).
+    UE_LOG(LogTemp, Log, TEXT("SkillMain | 스킬 놓음: 대상 슬롯 %d, 스킬 %s, 출발 슬롯 %d"),
+        static_cast<int32>(TargetSlot), *SkillId.ToString(), static_cast<int32>(SourceSlot));
+
+    if (SkillId.IsNone() || TargetSlot == ESkillSlotType::None)
     {
         return;
     }
 
-    // 슬롯을 먼저 골라야 한다. 고르지 않았으면 어디에 넣을지 모르므로 아무것도 하지 않는다.
-    if (SelectedSlot == ESkillSlotType::None)
-    {
-        return;
-    }
+    const UHBJobData* Job = GetEditingJob();
 
-    AHBLobbyPlayerController* LobbyController = Cast<AHBLobbyPlayerController>(GetOwningPlayer());
-    UHBJobData* Job = GetEditingJob();
-
-    if (!LobbyController || !Job)
+    if (!Job)
     {
         return;
     }
 
     FHBStartingLoadout NewLoadout = GetCurrentLoadout();
 
-    if (SelectedSlot == ESkillSlotType::Passive)
+    if (TargetSlot == ESkillSlotType::Passive)
     {
         // 패시브 칸에는 패시브만 들어간다.
-        if (!Job->FindPassiveSkill(ClickedSkillId))
+        if (!Job->FindPassiveSkill(SkillId))
         {
             return;
         }
 
-        // 이미 이 칸에 있는 스킬을 다시 누르면 장착이 풀린다.
-        NewLoadout.PassiveSkillId = (NewLoadout.PassiveSkillId == ClickedSkillId) ? NAME_None : ClickedSkillId;
+        NewLoadout.PassiveSkillId = SkillId;
     }
     else
     {
         // Q/E 칸에는 액티브만 들어간다.
-        if (!Job->FindActiveSkill(ClickedSkillId))
+        if (!Job->FindActiveSkill(SkillId))
         {
             return;
         }
 
-        FName& Target = (SelectedSlot == ESkillSlotType::Active_Q) ? NewLoadout.SkillQId : NewLoadout.SkillEId;
-        FName& Other = (SelectedSlot == ESkillSlotType::Active_Q) ? NewLoadout.SkillEId : NewLoadout.SkillQId;
+        FName& Target = (TargetSlot == ESkillSlotType::Active_Q) ? NewLoadout.SkillQId : NewLoadout.SkillEId;
+        FName& Other = (TargetSlot == ESkillSlotType::Active_Q) ? NewLoadout.SkillEId : NewLoadout.SkillQId;
 
-        if (Target == ClickedSkillId)
+        // 이미 이 칸에 있는 스킬이면 바꿀 것이 없다.
+        if (Target == SkillId)
         {
-            // 이미 이 칸에 있는 스킬을 다시 누르면 장착이 풀린다.
-            Target = NAME_None;
+            return;
         }
-        else
+
+        // 반대 칸에 있는 스킬을 놓으면 서로 맞바꾼다. 그래야 Q == E 라는 무효 상태가 만들어지지 않는다.
+        if (Other == SkillId)
         {
-            // 반대 칸에 있는 스킬을 고르면 서로 맞바꾼다. 그래야 Q == E 라는 무효 상태가 만들어지지 않는다.
-            if (Other == ClickedSkillId)
+            Other = Target;
+        }
+        Target = SkillId;
+    }
+
+    SubmitLoadout(NewLoadout);
+}
+
+void UHB_SkillMainWidget::OnSkillIconClicked(FName ClickedSkillId)
+{
+    // 이미 집은 스킬을 다시 누르면 놓는다.
+    SetHeldSkill(HeldSkillId == ClickedSkillId ? NAME_None : ClickedSkillId);
+}
+
+void UHB_SkillMainWidget::OnSkillIconDragStarted(FName DraggedSkillId, UDragDropOperation* Operation)
+{
+    SetHeldSkill(DraggedSkillId);
+
+    // 슬롯에 놓든 취소하든 끌기가 끝나면 집은 상태를 푼다.
+    if (Operation)
+    {
+        Operation->OnDrop.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillDragFinished);
+        Operation->OnDragCancelled.AddUniqueDynamic(this, &UHB_SkillMainWidget::OnSkillDragFinished);
+    }
+}
+
+void UHB_SkillMainWidget::OnSkillDragFinished(UDragDropOperation* Operation)
+{
+    SetHeldSkill(NAME_None);
+}
+
+void UHB_SkillMainWidget::SetHeldSkill(FName InSkillId)
+{
+    HeldSkillId = InSkillId;
+
+    for (const TPair<FName, TObjectPtr<UHB_SkillIconCardWidget>>& Pair : IconCardsBySkillId)
+    {
+        if (UHB_SkillIconCardWidget* Card = Pair.Value)
+        {
+            Card->SetHeld(!HeldSkillId.IsNone() && Pair.Key == HeldSkillId);
+        }
+    }
+
+    RefreshDropHints();
+}
+
+void UHB_SkillMainWidget::RefreshDropHints()
+{
+    const FHBStartingLoadout Loadout = GetCurrentLoadout();
+
+    // 집은 스킬이 없으면 모든 슬롯의 안내를 끈다.
+    ESkillType HeldType = ESkillType::Active;
+    bool bHolding = false;
+
+    if (!HeldSkillId.IsNone())
+    {
+        if (const UHBJobData* Job = GetEditingJob())
+        {
+            if (Job->FindActiveSkill(HeldSkillId))
             {
-                Other = Target;
+                bHolding = true;
+                HeldType = ESkillType::Active;
             }
-            Target = ClickedSkillId;
+            else if (Job->FindPassiveSkill(HeldSkillId))
+            {
+                bHolding = true;
+                HeldType = ESkillType::Passive;
+            }
         }
+    }
+
+    auto Apply = [&](UHB_SkillSlotWidget* InSlot, FName EquippedId)
+    {
+        if (!InSlot)
+        {
+            return;
+        }
+
+        // 종류가 맞고 아직 그 슬롯에 들어 있지 않을 때만 놓을 자리로 안내한다.
+        const bool bHint = bHolding
+            && EquippedId != HeldSkillId
+            && UHB_SkillDragDropOperation::CanSlotAccept(InSlot->SlotType, HeldType);
+        InSlot->SetDropHintActive(bHint);
+    };
+
+    Apply(Slot_Q, Loadout.SkillQId);
+    Apply(Slot_E, Loadout.SkillEId);
+    Apply(Slot_Passive, Loadout.PassiveSkillId);
+}
+
+void UHB_SkillMainWidget::SubmitLoadout(const FHBStartingLoadout& NewLoadout)
+{
+    AHBLobbyPlayerController* LobbyController = Cast<AHBLobbyPlayerController>(GetOwningPlayer());
+
+    if (!LobbyController)
+    {
+        return;
     }
 
     // 로컬 값을 먼저 고치지 않는다. 서버가 확정하면 OnStartingLoadoutChanged 가
     // 돌아와 슬롯/장착 표시를 갱신한다. 그래야 화면과 서버가 어긋날 수 없다.
     // 이 요청이 곧 저장이다 (장착 버튼은 없다).
     LobbyController->ApplySkillLoadout(NewLoadout);
-
-    if (bDeselectSlotAfterEquip)
-    {
-        SelectSlot(ESkillSlotType::None);
-    }
 }
+
 void UHB_SkillMainWidget::RefreshEquippedHighlights()
 {
     const FHBStartingLoadout Loadout = GetCurrentLoadout();
@@ -527,6 +599,9 @@ void UHB_SkillMainWidget::RefreshSlotIcon(UHB_SkillSlotWidget* InSlot, FName InS
     // 비어 있는 슬롯에는 보여 줄 스킬 정보가 없으므로 툴팁도 없앤다.
     InSlot->SetToolTip(nullptr);
 
+    // 슬롯에서 스킬을 끌어낼 때 쓸 정보. 아래에서 스킬을 확인한 뒤에 채운다.
+    InSlot->SetEquippedSkillId(NAME_None);
+
     if (!Job)
     {
         InSlot->SetSkillIcon(nullptr);
@@ -548,6 +623,7 @@ void UHB_SkillMainWidget::RefreshSlotIcon(UHB_SkillSlotWidget* InSlot, FName InS
     }
 
     InSlot->SetSkillIcon(ResolveIcon(*Skill));
+    InSlot->SetEquippedSkillId(InSkillId);
 
     // 장착 중인 스킬도 마우스를 올리면 목록의 아이콘과 같은 정보(이름, 설명, 마나, 쿨타임)를 보여 준다.
     if (SkillTooltipCardClass)
