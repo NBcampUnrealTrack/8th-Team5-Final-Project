@@ -343,7 +343,7 @@ public:
 	UGE_FocusPassive();
 };
 
-/** 패시브 "마력 순환". State.Magic.ManaCycle 태그만 부여한다(액티브 스태미나 배율은 코드가 읽는다, 달리기·방어 제외) */
+/** 패시브 "마력 순환". State.Magic.ManaCycle 태그만 부여한다(액티브 마나 배율은 코드가 읽는다, 달리기·방어 제외) */
 UCLASS()
 class HEAVENBREACH_API UGE_ManaCyclePassive : public UGameplayEffect
 {

@@ -683,7 +683,7 @@ private:
 
 	// 마나 자연 회복. 대기 없이 항상 찬다. 장비 Player_ManaRegenFlat/Multiplier 가 붙는다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float ManaRegenPerSecond = 2.f;
+	float ManaRegenPerSecond = 1.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
 	float ResourceTickInterval = 0.25f;

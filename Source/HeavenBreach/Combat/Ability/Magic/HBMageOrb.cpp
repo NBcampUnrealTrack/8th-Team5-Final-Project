@@ -172,7 +172,7 @@ void AHBMageOrb::ApplyOrbDamage(AActor* Target, const FHitResult& Hit, const flo
 	}
 
 	// 공격력 × 계수 × 스킬 피해 배율 → 패시브 보정. 구체는 지금 시전이 아니라 자기 시전 ID 로만 잔류 마력을 알린다(날아가는 사이 스킬이 끝나도 적용).
-	float FinalDamage = Player->GetAttackPower() * DamageCoef * Scale * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
+	float FinalDamage = Player->GetAttackPower() * DamageCoef * Scale * Player->GetSkillDamageMultiplier();
 	FinalDamage = Player->ModifyOutgoingDamage(Target, FinalDamage, /*bCreditCurrentSkillCast*/ false);
 	if (CastId > 0)
 	{

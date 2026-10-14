@@ -70,7 +70,7 @@ float UHBPlayerActiveGABase::GetFinalManaCostFrom(const FGameplayAbilityActorInf
 
 	const AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
 
-	// 마력 순환 패시브(설계 2.1 "모든 액티브 스태미나 −20%"). 액티브 비용에만 곱한다.
+	// 마력 순환 패시브(설계 2.1 "모든 액티브 마나 −20%"). 액티브 비용에만 곱한다.
 	// 전역 Player_ManaCostMultiplier 로 하면 달리기·방어(ModifyManaCost 를 같이 쓰는 곳)까지 줄어서 여기서 따로 곱한다.
 	// 패시브가 없으면 배율 1.0 이라 기존 스킬 비용은 그대로다.
 	const UAbilitySystemComponent* ASC = GetASC(ActorInfo);

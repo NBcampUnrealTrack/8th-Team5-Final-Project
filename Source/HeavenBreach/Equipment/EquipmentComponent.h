@@ -163,8 +163,20 @@ private:
 	// 부서지지 않은 주무기의 공격 속도 배율. 무기가 없거나 부서졌으면 1(영향 없음).
 	float GetWeaponAttackSpeedRate() const;
 
+	// 부서지지 않은 주무기의 방어력(검 보너스). 무기가 없거나 부서졌으면 0.
+	float GetWeaponDefense() const;
+
+	// 부서지지 않은 주무기의 최대 체력(검 보너스). 무기가 없거나 부서졌으면 0.
+	float GetWeaponMaxHP() const;
+
+	// 부서지지 않은 주무기의 이동 속도 배율(활 보너스). 무기가 없거나 부서졌으면 1.
+	float GetWeaponMoveSpeedRate() const;
+
+	// 부서지지 않은 주무기의 스킬 피해 배율(지팡이 보너스). 무기가 없거나 부서졌으면 1.
+	float GetWeaponSkillDamageRate() const;
+
 	// 공격에 쓸 수 있는 주무기의 행. 없거나 부서졌으면 nullptr.
-	// 무기 기초 스탯이 둘이 되어서 "부서지면 0" 규칙을 한 곳에 모았다.
+	// 무기 기초 스탯이 여럿이라 "부서지면 0" 규칙을 한 곳에 모았다.
 	const FWeaponData* FindUsableWeaponRow() const;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Slots)

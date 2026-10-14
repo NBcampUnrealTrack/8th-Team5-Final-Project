@@ -42,7 +42,7 @@ UGA_BowEvasiveShot::UGA_BowEvasiveShot()
 	FHBSkillAugment& Light = Augments.AddDefaulted_GetRef();
 	Light.AugmentTag = ArcherTag::TAG_Augment_Bow_EvasiveShot_Light;
 	Light.DisplayName = NSLOCTEXT("BowEvasiveShot", "LightName", "회피 공격: 가벼운 호흡");
-	Light.Description = NSLOCTEXT("BowEvasiveShot", "LightDesc", "회피 공격 스태미나 소모가 줄어듭니다. (1단계 20%, 2단계 35%, 3단계 50%)");
+	Light.Description = NSLOCTEXT("BowEvasiveShot", "LightDesc", "회피 공격 마나 소모가 줄어듭니다. (1단계 20%, 2단계 35%, 3단계 50%)");
 	Light.Params.Add(SkillParamTag::TAG_SkillParam_ManaCost, 0.8f);
 	Light.TierMagnitudes = { 0.80f, 0.65f, 0.50f };
 }
@@ -97,7 +97,7 @@ void UGA_BowEvasiveShot::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 
 	const bool bAuthority = ActorInfo->IsNetAuthority();
 
-	// 화살이 없으면 커밋 전에 거절한다(스태미나·쿨다운 소모 없음). 관통 사격과 같은 방식.
+	// 화살이 없으면 커밋 전에 거절한다(마나·쿨다운 소모 없음). 관통 사격과 같은 방식.
 	TSubclassOf<AHBPlayerArrow> UseArrowClass;
 	FDataTableRowHandle UseArrowRow;
 	ResolveArrow(Player, UseArrowClass, UseArrowRow);
