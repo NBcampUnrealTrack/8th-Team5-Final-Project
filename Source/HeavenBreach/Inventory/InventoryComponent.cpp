@@ -17,6 +17,7 @@
 #include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/Item/HB_ItemTag.h"
+#include "Inventory/ItemSortRules.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -842,6 +843,21 @@ bool UInventoryComponent::ToggleFavorite(FGuid InInstanceId)
 	OnInventoryChanged.Broadcast();
 	return true;
 }
+bool UInventoryComponent::ToggleLock(FGuid InInstanceId)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
+	if (EntryIndex == INDEX_NONE || !Entries[EntryIndex].Item.bRevealed)
+	{
+		return false;
+	}
+	Entries[EntryIndex].Item.bLocked = !Entries[EntryIndex].Item.bLocked;
+	OnInventoryChanged.Broadcast();
+	return true;
+}
 bool UInventoryComponent::SetItemDurability(FGuid InInstanceId, float InDurability)
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -1240,7 +1256,7 @@ bool UInventoryComponent::DropItem(FGuid InInstanceId)
 	}
 
 	const int32 EntryIndex = FindEntryIndexById(InInstanceId);
-	if (EntryIndex == INDEX_NONE)
+	if (EntryIndex == INDEX_NONE || Entries[EntryIndex].Item.bLocked)
 	{
 		return false;
 	}
@@ -1528,6 +1544,47 @@ void UInventoryComponent::Server_TransferItemFromAuto_Implementation(UInventoryC
 	Client_PlayActionResult(TransferItemFromAuto(InSource, InInstanceId), false);
 }
 
+void UInventoryComponent::Server_LootItemAuto_Implementation(UInventoryComponent* InSource, FGuid InInstanceId, bool bInPreferBag)
+{
+	if (InSource == nullptr || InSource == this)
+	{
+		return;
+	}
+
+	UInventoryComponent* BagTarget = nullptr;
+	if (const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner()))
+	{
+		const UEquipmentComponent* OwnerEquipment = OwnerPlayerState->GetEquipment();
+		UInventoryComponent* OwnerBag = OwnerPlayerState->GetBagInventory();
+		if (OwnerEquipment != nullptr && OwnerEquipment->HasBagEquipped()
+			&& OwnerBag != nullptr && OwnerBag != this && OwnerBag != InSource)
+		{
+			BagTarget = OwnerBag;
+		}
+	}
+
+	UInventoryComponent* FirstTarget = (bInPreferBag && BagTarget != nullptr) ? BagTarget : this;
+	UInventoryComponent* SecondTarget = (FirstTarget == this) ? BagTarget : this;
+
+	bool bSuccess = FirstTarget->TransferItemFromAuto(InSource, InInstanceId);
+	if (!bSuccess && SecondTarget != nullptr && InSource->FindEntryIndexById(InInstanceId) != INDEX_NONE)
+	{
+		bSuccess = SecondTarget->TransferItemFromAuto(InSource, InInstanceId);
+	}
+
+	Client_PlayActionResult(bSuccess, false);
+}
+
+void UInventoryComponent::Server_EquipItemFrom_Implementation(UInventoryComponent* InSource, UEquipmentComponent* InEquipment, FGuid InInstanceId, EEquipSlotType InSlot)
+{
+	if (InSource == nullptr || InEquipment == nullptr)
+	{
+		return;
+	}
+
+	Client_PlayActionResult(InEquipment->EquipFromInventory(InSource, InInstanceId, InSlot), true);
+}
+
 void UInventoryComponent::Server_UnequipItemTo_Implementation(UEquipmentComponent* InEquipment, EEquipSlotType InSlot, UInventoryComponent* InTarget, FIntPoint InTargetPosition)
 {
 	if (InEquipment == nullptr || InTarget == nullptr)
@@ -1544,6 +1601,192 @@ void UInventoryComponent::Server_UseItem_Implementation(FGuid InInstanceId)
 void UInventoryComponent::Server_ToggleFavorite_Implementation(FGuid InInstanceId)
 {
 	ToggleFavorite(InInstanceId);
+}
+
+void UInventoryComponent::Server_ToggleLock_Implementation(FGuid InInstanceId)
+{
+	ToggleLock(InInstanceId);
+}
+
+void UInventoryComponent::Server_SortItems_Implementation()
+{
+	SortItems();
+}
+
+bool UInventoryComponent::SortItems()
+{
+	if (GetOwnerRole() != ROLE_Authority || Entries.Num() == 0)
+	{
+		return false;
+	}
+
+	struct FSortItem
+	{
+		FItemInstance Item;
+		FItemViewData View;
+		int32 Rank = 0;
+	};
+
+	TArray<FSortItem> Items;
+	Items.Reserve(Entries.Num());
+	TArray<FInventoryEntry> NewEntries;
+	NewEntries.Reserve(Entries.Num());
+
+	TArray<bool> Occupied;
+	Occupied.Init(false, Width * Height);
+
+	auto MarkOccupied = [&](const FIntPoint InPosition, const FIntPoint InSize)
+	{
+		for (int32 Y = InPosition.Y; Y < InPosition.Y + InSize.Y && Y < Height; ++Y)
+		{
+			for (int32 X = InPosition.X; X < InPosition.X + InSize.X && X < Width; ++X)
+			{
+				Occupied[Y * Width + X] = true;
+			}
+		}
+	};
+
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		if (!Entry.Item.bLocked)
+		{
+			continue;
+		}
+		FItemViewData LockedView;
+		if (!ResolveItemViewData(Entry.Item.ItemRow, LockedView))
+		{
+			return false;
+		}
+		MarkOccupied(Entry.Position, GetOccupiedSize(Entry.Item, LockedView));
+		NewEntries.Add(Entry);
+	}
+
+	for (const FInventoryEntry& Entry : Entries)
+	{
+		if (Entry.Item.bLocked)
+		{
+			continue;
+		}
+		FSortItem& Sorted = Items.AddDefaulted_GetRef();
+		Sorted.Item = Entry.Item;
+		if (!ResolveItemViewData(Entry.Item.ItemRow, Sorted.View))
+		{
+			return false;
+		}
+		Sorted.Rank = HBItemSort::GetCategoryRank(Entry.Item.ItemRow, Sorted.View);
+	}
+
+	for (int32 Index = 0; Index < Items.Num(); ++Index)
+	{
+		FSortItem& Target = Items[Index];
+		if (!Target.View.IsStackable() || !Target.Item.bRevealed)
+		{
+			continue;
+		}
+
+		for (int32 Other = Items.Num() - 1; Other > Index && Target.Item.StackCount < Target.View.MaxStack; --Other)
+		{
+			FSortItem& Source = Items[Other];
+			if (Source.Item.StackCount <= 0 || Source.Item.ItemRow.RowName != Target.Item.ItemRow.RowName || !Source.Item.bRevealed)
+			{
+				continue;
+			}
+
+			const int32 Moved = FMath::Min(Target.View.MaxStack - Target.Item.StackCount, Source.Item.StackCount);
+			Target.Item.StackCount += Moved;
+			Source.Item.StackCount -= Moved;
+		}
+	}
+
+	Items.RemoveAll([](const FSortItem& InSorted)
+	{
+		return InSorted.Item.StackCount <= 0;
+	});
+
+	Items.StableSort([](const FSortItem& A, const FSortItem& B)
+	{
+		if (A.Rank != B.Rank)
+		{
+			return A.Rank < B.Rank;
+		}
+		if (A.View.Grade != B.View.Grade)
+		{
+			return A.View.Grade > B.View.Grade;
+		}
+		if (A.Item.ItemRow.RowName != B.Item.ItemRow.RowName)
+		{
+			return A.Item.ItemRow.RowName.LexicalLess(B.Item.ItemRow.RowName);
+		}
+		return A.Item.StackCount > B.Item.StackCount;
+	});
+
+	auto CanPlace = [&](const FIntPoint InSize, const FIntPoint InPosition)
+	{
+		if (InPosition.X + InSize.X > Width || InPosition.Y + InSize.Y > Height)
+		{
+			return false;
+		}
+		for (int32 Y = InPosition.Y; Y < InPosition.Y + InSize.Y; ++Y)
+		{
+			for (int32 X = InPosition.X; X < InPosition.X + InSize.X; ++X)
+			{
+				if (Occupied[Y * Width + X])
+				{
+					return false;
+				}
+			}
+		}
+		return true;
+	};
+
+	for (const FSortItem& Sorted : Items)
+	{
+		FItemInstance Item = Sorted.Item;
+		Item.bRotated = false;
+		const FIntPoint Size = GetOccupiedSize(Item, Sorted.View);
+		const FIntPoint RotatedSize(Size.Y, Size.X);
+
+		bool bPlaced = false;
+		FIntPoint PlacedPosition = FIntPoint::ZeroValue;
+		FIntPoint PlacedSize = Size;
+
+		for (int32 Y = 0; Y < Height && !bPlaced; ++Y)
+		{
+			for (int32 X = 0; X < Width && !bPlaced; ++X)
+			{
+				const FIntPoint Candidate(X, Y);
+				if (CanPlace(Size, Candidate))
+				{
+					bPlaced = true;
+					PlacedPosition = Candidate;
+				}
+				else if (Size.X != Size.Y && CanPlace(RotatedSize, Candidate))
+				{
+					bPlaced = true;
+					PlacedPosition = Candidate;
+					PlacedSize = RotatedSize;
+					Item.bRotated = true;
+				}
+			}
+		}
+
+		if (!bPlaced)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Inventory] Sort aborted: no room for %s"), *Item.ItemRow.RowName.ToString());
+			return false;
+		}
+
+		MarkOccupied(PlacedPosition, PlacedSize);
+
+		FInventoryEntry& NewEntry = NewEntries.AddDefaulted_GetRef();
+		NewEntry.Item = Item;
+		NewEntry.Position = PlacedPosition;
+	}
+
+	Entries = NewEntries;
+	RebuildCache();
+	OnInventoryChanged.Broadcast();
+	return true;
 }
 
 void UInventoryComponent::Server_PauseContainerReveal_Implementation(UInventoryComponent* InTargetContainer)

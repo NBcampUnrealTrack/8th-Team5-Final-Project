@@ -34,6 +34,8 @@ protected:
 	/** 화면 닫을 때(ESC/Tab 등 모든 경로 공통) 서칭 타이머를 멈춘다. */
 	virtual void NativeOnDeactivated() override;
 
+	virtual bool NativeOnHandleBackAction() override;
+
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 
 	/**

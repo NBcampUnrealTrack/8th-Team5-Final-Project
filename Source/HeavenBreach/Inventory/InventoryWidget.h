@@ -19,6 +19,7 @@ class UInventoryDragDropOperation;
 class UShopComponent;
 class UTextBlock;
 class UImage;
+class UButton;
 class UOpenedBagWindowWidget;
 struct FItemInstance;
 
@@ -90,7 +91,11 @@ public:
 	/** Cleans transient drag and popup state before an embedded HUD inventory is hidden. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void PrepareForHide();
+
+	bool TryCloseOpenedBagWindow(bool bInRefocus);
 protected:
+	virtual bool NativeOnHandleBackAction() override;
+	virtual void NativeOnDeactivated() override;
 	virtual void NativePreConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual void NativeConstruct() override;
@@ -155,6 +160,12 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> BagIcon;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SortButton;
+
+	UFUNCTION()
+	void HandleSortClicked();
 
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Bag")
 	TSubclassOf<UOpenedBagWindowWidget> OpenedBagWindowClass;

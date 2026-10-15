@@ -78,6 +78,20 @@ bool UCraftComponent::GetSelectedRecipe(FCraftRecipeRow& OutRecipe) const
 	return true;
 }
 
+bool UCraftComponent::GetSelectedIngredient(int32 InSlotIndex, FCraftIngredient& OutIngredient) const
+{
+	OutIngredient = FCraftIngredient();
+
+	FCraftRecipeRow Recipe;
+	if (!GetSelectedRecipe(Recipe) || !Recipe.Ingredients.IsValidIndex(InSlotIndex))
+	{
+		return false;
+	}
+
+	OutIngredient = Recipe.Ingredients[InSlotIndex];
+	return true;
+}
+
 bool UCraftComponent::GetPreviewResult(FDataTableRowHandle& OutItemRow, int32& OutCount, int32& OutGoldCost, bool& bOutCanAfford) const
 {
 	FCraftRecipeRow Recipe;

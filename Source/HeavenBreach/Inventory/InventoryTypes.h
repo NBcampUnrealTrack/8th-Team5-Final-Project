@@ -124,6 +124,9 @@ struct FBagItemEntry
 	bool bIsFavorite = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	bool bLocked = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	float CurrentDurability = -1.f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
@@ -154,6 +157,9 @@ struct FItemInstance
 	bool bRotated = false;
 	UPROPERTY(BlueprintReadOnly, Category = "Item")
 	bool bIsFavorite = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Item")
+	bool bLocked = false;
 
 	// 상자/몬스터 시체 같은 루팅 컨테이너에서 아직 "서칭"되지 않은 아이템인지.
 	// 기본값 true(공개된 상태) - 플레이어 인벤토리로 들어오는 일반 아이템(픽업/제작/구매 등)은

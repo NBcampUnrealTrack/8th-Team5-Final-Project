@@ -5,6 +5,7 @@
 	#include "Components/CanvasPanelSlot.h"
 	#include "Components/Image.h"
 	#include "Components/TextBlock.h"
+	#include "Components/Button.h"
 	#include "InventoryComponent.h"
 	#include "InventoryDragDropOperation.h"
 	#include "InventoryCellWidget.h"
@@ -276,10 +277,71 @@
 	{
 		Super::NativeConstruct();
 		SetIsFocusable(true);
+		if (SortButton != nullptr)
+		{
+			SortButton->OnClicked.AddUniqueDynamic(this, &UInventoryWidget::HandleSortClicked);
+		}
+	}
+
+	void UInventoryWidget::HandleSortClicked()
+	{
+		if (BoundInventory != nullptr)
+		{
+			BoundInventory->Server_SortItems();
+		}
+	}
+
+	bool UInventoryWidget::TryCloseOpenedBagWindow(bool bInRefocus)
+	{
+		if (FindOpenedBagWindow() == nullptr)
+		{
+			return false;
+		}
+		RequestCloseOpenedBag();
+		if (bInRefocus && IsVisible())
+		{
+			SetKeyboardFocus();
+		}
+		return true;
+	}
+
+	bool UInventoryWidget::NativeOnHandleBackAction()
+	{
+		if (TryCloseOpenedBagWindow(true))
+		{
+			return true;
+		}
+		return Super::NativeOnHandleBackAction();
+	}
+
+	void UInventoryWidget::NativeOnDeactivated()
+	{
+		if (const UOpenedBagWindowWidget* Window = FindOpenedBagWindow())
+		{
+			const UInventoryWidget* WindowOpener = Window->GetOpener();
+			if (WindowOpener != nullptr && (WindowOpener == this || WindowOpener->IsIn(this)))
+			{
+				RequestCloseOpenedBag();
+			}
+		}
+		Super::NativeOnDeactivated();
 	}
 
 	FReply UInventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 	{
+		if (InKeyEvent.GetKey() == EKeys::Escape)
+		{
+			if (UOpenedBagWindowWidget* HostWindow = GetTypedOuter<UOpenedBagWindowWidget>())
+			{
+				HostWindow->CloseFromUser();
+				return FReply::Handled();
+			}
+			if (TryCloseOpenedBagWindow(true))
+			{
+				return FReply::Handled();
+			}
+		}
+
 		if (InKeyEvent.GetKey() == EKeys::Tab || InKeyEvent.GetKey() == EKeys::Escape)
 		{
 			if (LinkedContainer == nullptr)
@@ -288,6 +350,15 @@
 				{
 					PC->RequestCloseInventory();
 				}
+				return FReply::Handled();
+			}
+		}
+
+		if (InKeyEvent.GetKey() == EKeys::L)
+		{
+			if (BoundInventory != nullptr && HoveredItemInstanceId.IsValid() && BoundInventory->GetOwner() == GetOwningPlayerState())
+			{
+				BoundInventory->Server_ToggleLock(HoveredItemInstanceId);
 				return FReply::Handled();
 			}
 		}
@@ -517,6 +588,7 @@
 		}
 
 		Window->AddToViewport(50);
+		Window->SetOpener(this);
 		Window->Setup(OpenedBagEquipment, BoundInventory);
 		Window->PlaceNear(UWidgetLayoutLibrary::GetMousePositionOnViewport(this));
 	}
@@ -596,6 +668,7 @@
 		BagPanel->BindToInventory(BagInventory);
 		BagPanel->SetOwningInventory(BoundInventory);
 		BagPanel->SetLinkedEquipment(BagSourceEquipment);
+		BagPanel->SetLinkedContainer(LinkedContainer);
 		BagPanel->SetEquipmentPanelVisible(false);
 		BagPanel->SetVisibility(ESlateVisibility::Visible);
 
@@ -635,6 +708,10 @@
 	void UInventoryWidget::SetLinkedContainer(UInventoryComponent* InContainer)
 	{
 		LinkedContainer = InContainer;
+		if (BagPanel != nullptr && BagPanel != this)
+		{
+			BagPanel->SetLinkedContainer(InContainer);
+		}
 	}
 
 	void UInventoryWidget::SetLinkedEquipment(UEquipmentComponent* InEquipment)
@@ -1108,13 +1185,13 @@
 		}
 		if (LinkedContainer != nullptr)
 		{
-			if (BoundInventory == RequestSender)
+			if (BoundInventory == RequestSender || BoundInventory->IsBagStorage())
 			{
-				RequestSender->Server_TransferItemAuto(LinkedContainer, Item.InstanceId);
+				BoundInventory->Server_TransferItemAuto(LinkedContainer, Item.InstanceId);
 			}
 			else
 			{
-				RequestSender->Server_TransferItemFromAuto(BoundInventory, Item.InstanceId);
+				RequestSender->Server_LootItemAuto(BoundInventory, Item.InstanceId, false);
 			}
 			return true;
 		}
@@ -1131,8 +1208,7 @@
 		{
 			return false;
 		}
-		UInventoryComponent* EquipSource = BoundInventory->IsBagStorage() ? BoundInventory.Get() : RequestSender;
-		EquipSource->Server_EquipItem(LinkedEquipment, Item.InstanceId, ViewData.EquipSlotType);
+		RequestSender->Server_EquipItemFrom(BoundInventory, LinkedEquipment, Item.InstanceId, ViewData.EquipSlotType);
 		return true;
 	}
 
@@ -1177,6 +1253,7 @@
 		const bool bCanUse = (ViewData.IsConsumable() && bCanConsumeHere) || bCanOpenBag;
 		const bool bCanSplit = Item.StackCount > 1;
 		ActiveContextMenu->SetupForItem(bCanUse, bCanSplit, Item.bIsFavorite);
+		ActiveContextMenu->SetupLock(MenuPlayerState != nullptr && BoundInventory->GetOwner() == MenuPlayerState && Item.bRevealed, Item.bLocked);
 		if (bCanOpenBag)
 		{
 			ActiveContextMenu->SetUseButtonLabel(FText::FromString(TEXT("\uC5F4\uAE30")));
@@ -1247,6 +1324,13 @@
 					BoundInventory->Server_ToggleFavorite(InstanceId);
 				}
 			});
+		ActiveContextMenu->OnLockRequested.AddLambda([this, InstanceId]()
+			{
+				if (BoundInventory != nullptr)
+				{
+					BoundInventory->Server_ToggleLock(InstanceId);
+				}
+			});
 		ActiveContextMenu->OnCloseRequested.AddLambda([this]()
 			{
 				if (LinkedContainer == nullptr)
@@ -1301,6 +1385,7 @@
 		}
 
 		ActiveContextMenu->SetupForItem(false, false, EquippedItem.bIsFavorite);
+		ActiveContextMenu->SetupLock(false, false);
 		TWeakObjectPtr<UEquipmentComponent> WeakEquipment = InEquipment;
 		ActiveContextMenu->OnDiscardRequested.AddLambda([this, WeakEquipment, InSlot]()
 			{
@@ -1562,6 +1647,18 @@
 
 	bool UInventoryWidget::HandleQuickMove(FIntPoint InCell)
 	{
+		if (LinkedContainer != nullptr && BoundInventory != nullptr && OwningInventory != nullptr
+			&& BoundInventory != OwningInventory && !BoundInventory->IsBagStorage())
+		{
+			const int32 LootIndex = BoundInventory->GetEntryIndexAt(InCell);
+			if (LootIndex == INDEX_NONE)
+			{
+				return false;
+			}
+			OwningInventory->Server_LootItemAuto(BoundInventory, BoundInventory->GetEntries()[LootIndex].Item.InstanceId, true);
+			return true;
+		}
+
 		UInventoryComponent* Target = ResolveQuickMoveTarget();
 		if (Target == nullptr)
 		{
@@ -1605,7 +1702,18 @@
 			return true;
 		}
 		const AHB_PlayerState* OwnerPlayerState = GetOwningPlayerState<AHB_PlayerState>();
-		if (OwnerPlayerState == nullptr || OwnerPlayerState->GetInventory() != BoundInventory)
+		if (OwnerPlayerState == nullptr)
+		{
+			return false;
+		}
+		FItemViewData ViewData;
+		if (Item.bRevealed && ResolveItemViewData(Item.ItemRow, ViewData) && ViewData.IsEquippable() && OwnerPlayerState->GetEquipment() != nullptr)
+		{
+			UInventoryComponent* RequestSender = OwningInventory != nullptr ? OwningInventory.Get() : BoundInventory.Get();
+			RequestSender->Server_EquipItemFrom(BoundInventory, OwnerPlayerState->GetEquipment(), Item.InstanceId, ViewData.EquipSlotType);
+			return true;
+		}
+		if (OwnerPlayerState->GetInventory() != BoundInventory)
 		{
 			return false;
 		}

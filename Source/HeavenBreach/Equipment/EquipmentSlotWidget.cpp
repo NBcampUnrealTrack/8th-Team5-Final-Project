@@ -162,7 +162,8 @@ bool UEquipmentSlotWidget::NativeOnDrop(const FGeometry& InGeometry, const FDrag
 
 	if (Operation->SourceInventory != nullptr)
 	{
-		Operation->SourceInventory->Server_EquipItem(BoundEquipment, Operation->InstanceId, SlotType);
+		UInventoryComponent* RequestSender = BoundInventory != nullptr ? BoundInventory.Get() : Operation->SourceInventory.Get();
+		RequestSender->Server_EquipItemFrom(Operation->SourceInventory, BoundEquipment, Operation->InstanceId, SlotType);
 		return true;
 	}
 

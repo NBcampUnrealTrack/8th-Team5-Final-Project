@@ -416,6 +416,7 @@ FInventoryEntry BagItemToInventoryEntry(const FBagItemEntry& InBagItem)
 	Entry.Item.OriginalOwnerId = InBagItem.OriginalOwnerId;
 	Entry.Item.bRotated = InBagItem.bRotated;
 	Entry.Item.bIsFavorite = InBagItem.bIsFavorite;
+	Entry.Item.bLocked = InBagItem.bLocked;
 	Entry.Item.bRevealed = true;
 	Entry.Item.CurrentDurability = InBagItem.CurrentDurability;
 	Entry.Item.Engraving = InBagItem.Engraving;
@@ -432,6 +433,7 @@ FBagItemEntry InventoryEntryToBagItem(const FInventoryEntry& InEntry)
 	BagItem.OriginalOwnerId = InEntry.Item.OriginalOwnerId;
 	BagItem.bRotated = InEntry.Item.bRotated;
 	BagItem.bIsFavorite = InEntry.Item.bIsFavorite;
+	BagItem.bLocked = InEntry.Item.bLocked;
 	BagItem.CurrentDurability = InEntry.Item.CurrentDurability;
 	BagItem.Engraving = InEntry.Item.Engraving;
 	BagItem.Position = InEntry.Position;

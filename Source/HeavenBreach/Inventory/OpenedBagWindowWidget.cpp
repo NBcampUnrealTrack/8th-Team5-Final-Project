@@ -54,7 +54,32 @@ void UOpenedBagWindowWidget::HandleOpenedBagChanged()
 
 void UOpenedBagWindowWidget::HandleCloseClicked()
 {
+	CloseFromUser();
+}
+
+void UOpenedBagWindowWidget::SetOpener(UInventoryWidget* InOpener)
+{
+	Opener = InOpener;
+}
+
+void UOpenedBagWindowWidget::CloseFromUser()
+{
+	UInventoryWidget* FocusTarget = Opener.Get();
 	CloseWindow();
+	if (FocusTarget != nullptr && FocusTarget->IsVisible())
+	{
+		FocusTarget->SetKeyboardFocus();
+	}
+}
+
+FReply UOpenedBagWindowWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (InKeyEvent.GetKey() == EKeys::Escape)
+	{
+		CloseFromUser();
+		return FReply::Handled();
+	}
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
 void UOpenedBagWindowWidget::CloseWindow()

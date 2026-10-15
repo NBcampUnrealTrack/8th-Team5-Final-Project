@@ -46,6 +46,11 @@ void UHB_ContainerScreen::NativeOnDeactivated()
 {
 	Super::NativeOnDeactivated();
 
+	if (PlayerPanel != nullptr)
+	{
+		PlayerPanel->TryCloseOpenedBagWindow(false);
+	}
+
 	if (Container == nullptr)
 	{
 		return;
@@ -64,6 +69,15 @@ void UHB_ContainerScreen::NativeOnDeactivated()
 	{
 		PlayerInventory->Server_PauseContainerReveal(Container);
 	}
+}
+
+bool UHB_ContainerScreen::NativeOnHandleBackAction()
+{
+	if (PlayerPanel != nullptr && PlayerPanel->TryCloseOpenedBagWindow(true))
+	{
+		return true;
+	}
+	return Super::NativeOnHandleBackAction();
 }
 
 void UHB_ContainerScreen::HandleItemRevealed()
