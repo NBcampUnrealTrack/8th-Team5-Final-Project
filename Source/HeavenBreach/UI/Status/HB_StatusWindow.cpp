@@ -83,6 +83,18 @@ FReply UHB_StatusWindow::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 		return FReply::Handled();
 	}
 
+	// ESC 는 CommonUI 의 뒤로 가기가 먼저 처리하지만, 포커스 상태에 따라 놓칠 수 있어서 여기서도 닫는다.
+	// 이 창이 열려 있을 때 ToggleSkillAugment 는 "닫기" 분기로 간다 (K 와 같다).
+	// 뒤로 가기가 이미 닫았다면 이 함수가 불리지 않는다. 불렸다면 아직 열려 있는 것이다.
+	if (InKeyEvent.GetKey() == EKeys::Escape && IsActivated())
+	{
+		if (AHBPlayerController* PC = Cast<AHBPlayerController>(GetOwningPlayer()))
+		{
+			PC->ToggleSkillAugment();
+		}
+		return FReply::Handled();
+	}
+
 	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
