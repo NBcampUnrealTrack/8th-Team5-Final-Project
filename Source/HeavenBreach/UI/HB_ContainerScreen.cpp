@@ -21,6 +21,13 @@ void UHB_ContainerScreen::SetContainer(UInventoryComponent* InContainer)
 	Container = InContainer;
 }
 
+void UHB_ContainerScreen::NativeOnInitialized()
+{
+	Super::NativeOnInitialized();
+
+	SetIsFocusable(true);
+}
+
 void UHB_ContainerScreen::NativeOnActivated()
 {
 	Super::NativeOnActivated();

@@ -43,6 +43,21 @@ public:
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 
 protected:
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HB|Input")
 	EHBWidgetInputMode InputMode = EHBWidgetInputMode::Default;
+
+	/**
+	 * 활성화된 Menu 화면에서 키보드 포커스가 통째로 사라지면 이 화면이 다시 가져온다.
+	 *
+	 * 왜 필요한가: 포커스를 쥐고 있던 위젯이 사라지면(클릭한 카드가 닫히며 지워지거나, 드래그 앤 드랍으로
+	 * 아이템 칸이 다시 그려질 때) 아무도 포커스를 갖지 않게 된다. 그 상태에서는 ESC 로 화면이 닫히지 않는다.
+	 * 다른 위젯이 포커스를 갖고 있을 때는 건드리지 않는다. 아무도 없을 때만 되찾는다.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HB|Input")
+	bool bRecoverLostFocus = true;
+
+private:
+	float FocusCheckElapsed = 0.0f;
 };
