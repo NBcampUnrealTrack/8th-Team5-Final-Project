@@ -22,10 +22,22 @@ namespace HBBowShot
 
 	/**
 	 * 서버 전용. 카메라 → ComputeAimPoint(AimDistance) 방향으로, 카메라 앞 ForwardOffset 에서 화살을 만들어 Launch 한다.
-	 * 만들지 못하면 nullptr.
+	 * YawOffsetDegrees 는 조준 방향을 좌우(월드 위쪽 축)로 돌린다(트리플 샷 부채꼴). 만들지 못하면 nullptr.
 	 */
 	HEAVENBREACH_API AHBPlayerArrow* SpawnArrow(AHBPlayerCharacter* Player, TSubclassOf<AHBPlayerArrow> ArrowClass, float Speed, float DamageCoef,
-		const FDataTableRowHandle& ArrowRow, float AimDistance, float ForwardOffset, const FHBArrowLaunchOptions& Options = FHBArrowLaunchOptions());
+		const FDataTableRowHandle& ArrowRow, float AimDistance, float ForwardOffset, const FHBArrowLaunchOptions& Options = FHBArrowLaunchOptions(),
+		float YawOffsetDegrees = 0.f);
+
+	/** Count 발을 가운데 0 을 기준으로 좌우 Spread 간격으로 벌린 좌우 각도들. 3, 6 → {-6, 0, 6} */
+	inline TArray<float> SpreadYawOffsets(int32 Count, float Spread)
+	{
+		TArray<float> Out;
+		for (int32 i = 0; i < Count; ++i)
+		{
+			Out.Add((i - (Count - 1) * 0.5f) * Spread);
+		}
+		return Out;
+	}
 
 	/**
 	 * "화살이 없습니다" 안내. 로컬 조종이면 바로 띄우고, 서버가 원격 클라 대신 판정한 경우엔

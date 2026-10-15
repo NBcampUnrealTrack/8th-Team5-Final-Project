@@ -572,6 +572,7 @@ void UHB_SkillMainWidget::RefreshJobStats()
     };
 
     Fill(Text_HP, UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute());
+    // 위젯 이름은 Text_Stamina 지만 스킬 비용이 마나라 최대 마나를 보여 준다(Docs/스태미나-마나-분리-설계.md 5장).
     Fill(Text_Stamina, UHB_PlayerAttributeSet::GetPlayer_MaxManaAttribute());
     Fill(Text_AttackPower, UHB_PlayerAttributeSet::GetPlayer_AttackPowerAttribute());
     Fill(Text_Defense, UHB_PlayerAttributeSet::GetPlayer_DefenseAttribute());

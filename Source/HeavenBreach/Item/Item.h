@@ -29,6 +29,33 @@ struct FWeaponData : public FTableRowBase
 	// 왜 바꿨나: 옛 칸은 "공격 간격(초)"(AttackInterval)이었는데 읽는 곳이 툴팁뿐이라 실제로는 반영되지 않았다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.1"))
 	float AttackSpeedRate = 1.f;
+
+	// ----- 무기 종류 보너스. 등급이 오를수록 커진다 -----
+	// 옵션이 아니라 공격력 · 공격 속도처럼 무기 자체 성능 칸으로 둔다.
+	// 툴팁의 기본 성능 줄에 같이 보이고, 등급별 값은 이 표에서 바로 관리한다.
+	// 쳐낼 조건: 무기 종류가 늘어 칸이 계속 늘어나면 옵션 배열(FItemOption)로 옮긴다.
+
+	// 무기 방어력(검). 방어구 방어력과 같은 칸에 더해진다.
+	// 포인트 눈금이다 — 30 = 방어력 30. 방어구와 같은 100/(100+방어력) 곡선을 탄다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	float Defense = 0.f;
+
+	// 무기 최대 체력(검). 다른 최대 체력 + 와 같은 칸에 더해진다. 진짜 체력 수치다 — 30 = 체력 30.
+	// 최대 체력이 지금까지의 최고치를 넘어 오르면 넘은 만큼 현재 체력도 찬다(HBAttributeRules::HealthOnMaxChanged).
+	// 그래서 처음 낄 때만 차고, 벗었다 다시 끼는 것으로는 안 차서 무한 회복이 되지 않는다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	float MaxHP = 0.f;
+
+	// 이동 속도 배율(활). 1 = 기본, 1.4 = 40% 빠름.
+	// 공격 속도 배율과 같은 규칙 — 다른 이동 속도 % 와 같은 칸에 더해진다 (1.4 → +40%).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.1"))
+	float MoveSpeedRate = 1.f;
+
+	// 스킬 피해 배율(지팡이). 1 = 기본, 1.5 = 1.5배. 기본 공격엔 안 걸린다.
+	// 다른 스킬 피해 % 와 같은 칸에 더해진다 — 유리 대포(+25%)와 같이 있으면 1 + 0.5 + 0.25.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.1"))
+	float SkillDamageRate = 1.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	int32 SellValue = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)

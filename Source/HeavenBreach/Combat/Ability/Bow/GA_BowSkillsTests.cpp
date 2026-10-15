@@ -1,6 +1,8 @@
 #include "Combat/Ability/Bow/GA_BowEvasiveShot.h"
 #include "Combat/Ability/Bow/GA_BowHunterMark.h"
 #include "Combat/Ability/Bow/GA_BowPiercingShot.h"
+#include "Combat/Ability/Bow/GA_BowTripleShot.h"
+#include "Combat/Attack/HBBowShot.h"
 #include "Combat/Ability/Passive/GA_PassiveSwiftStep.h"
 #include "Combat/Ability/Passive/GA_PassiveWeakPoint.h"
 #include "Combat/Ability/Passive/GA_PassiveHunterBreath.h"
@@ -193,6 +195,52 @@ bool FHBBowEvasiveShotDefaultsTest::RunTest(const FString&)
 	}
 	CheckActiveAugment(*this, Augments[0], ArcherTag::TAG_Augment_Bow_EvasiveShot_Rapid, SkillParamTag::TAG_SkillParam_Cooldown, 0.85f, { 0.85f, 0.75f, 0.65f });
 	CheckActiveAugment(*this, Augments[1], ArcherTag::TAG_Augment_Bow_EvasiveShot_Light, SkillParamTag::TAG_SkillParam_ManaCost, 0.8f, { 0.80f, 0.65f, 0.50f });
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBBowTripleShotDefaultsTest, "HeavenBreach.Bow.TripleShotDefaults", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBBowTripleShotDefaultsTest::RunTest(const FString&)
+{
+	const UGA_BowTripleShot* CDO = GetDefault<UGA_BowTripleShot>();
+
+	TestEqual(TEXT("쿨다운 8초"), CDO->GetBaseCooldown(), 8.f);
+	TestEqual(TEXT("마나 25"), CDO->GetBaseManaCost(), 25.f);
+	TestTrue(TEXT("좌클릭 입력을 받는다"), CDO->WantsAimInput());
+	TestEqual(TEXT("관통 없음"), CDO->GetMaxPierceCount(), 0);
+	TestEqual(TEXT("3발"), CDO->GetArrowCount(), 3);
+	TestEqual(TEXT("좌우 6도"), CDO->GetSpreadDegrees(), 6.f);
+	TestEqual(TEXT("발당 계수 0.8"), CDO->GetDamageCoef(), 0.8f);
+	TestFalse(TEXT("관통 기류 안 켬"), CDO->ShowsPiercingCharge());
+	TestTrue(TEXT("활 필요"), CDO->GetRequiredWeaponTags().HasTagExact(ItemTag::TAG_Weapon_Bow));
+
+	const UGameplayEffect* CooldownGE = CDO->GetCooldownGameplayEffect();
+	TestTrue(TEXT("쿨다운 GE 클래스"), CooldownGE && CooldownGE->GetClass() == UGE_BowTripleShotCooldown::StaticClass());
+	const FGameplayTagContainer* CooldownTags = CDO->GetCooldownTags();
+	TestTrue(TEXT("쿨다운 태그"), CooldownTags && CooldownTags->HasTagExact(ArcherTag::TAG_Cooldown_TripleShot));
+
+	const TArray<FHBSkillAugment>& Augments = CDO->GetAugments();
+	if (TestEqual(TEXT("증강 2개"), Augments.Num(), 2))
+	{
+		TestTrue(TEXT("위력 증강"), Augments[0].AugmentTag == ArcherTag::TAG_Augment_Bow_TripleShot_Power.GetTag());
+		TestTrue(TEXT("신속 증강"), Augments[1].AugmentTag == ArcherTag::TAG_Augment_Bow_TripleShot_Rapid.GetTag());
+		TestTrue(TEXT("위력 단계"), Augments[0].TierMagnitudes == TArray<float>({ 1.15f, 1.30f, 1.50f }));
+		TestTrue(TEXT("신속 단계"), Augments[1].TierMagnitudes == TArray<float>({ 0.85f, 0.75f, 0.65f }));
+	}
+
+	// 관통 사격 기본값은 그대로(트리플이 부모 생성자 값을 바꿔도 관통에는 영향이 없어야 한다).
+	TestFalse(TEXT("관통 사격 증강과 다름"), Augments.Num() > 0 && Augments[0].AugmentTag == ArcherTag::TAG_Augment_Bow_PiercingShot_Power);
+	TestTrue(TEXT("관통 사격은 관통 기류 켬"), GetDefault<UGA_BowPiercingShot>()->ShowsPiercingCharge());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBBowSpreadYawTest, "HeavenBreach.Bow.SpreadYaw", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBBowSpreadYawTest::RunTest(const FString&)
+{
+	// 가운데 화살이 조준점, 나머지는 좌우로 같은 간격.
+	TestTrue(TEXT("3발 6도"), HBBowShot::SpreadYawOffsets(3, 6.f) == TArray<float>({ -6.f, 0.f, 6.f }));
+	TestTrue(TEXT("1발은 가운데"), HBBowShot::SpreadYawOffsets(1, 6.f) == TArray<float>({ 0.f }));
+	TestTrue(TEXT("5발 6도"), HBBowShot::SpreadYawOffsets(5, 6.f) == TArray<float>({ -12.f, -6.f, 0.f, 6.f, 12.f }));
+	TestEqual(TEXT("0발은 없음"), HBBowShot::SpreadYawOffsets(0, 6.f).Num(), 0);
 	return true;
 }
 

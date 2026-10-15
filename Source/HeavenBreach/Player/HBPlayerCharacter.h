@@ -132,8 +132,8 @@ public:
 	UFUNCTION(BlueprintPure, Category="Player|Abilities")
 	int32 GetSkillUpgradeLevel(FName SkillId) const;
 
-	/** Resets the mana regeneration delay after an action consumes mana. Server authoritative. */
-	void NotifyManaActivity();
+	/** 스태미나를 쓴 시각을 기록해 회복 대기(StaminaRegenDelay)를 다시 건다. 서버 전용. 마나는 대기가 없다. */
+	void NotifyStaminaActivity();
 
 	UFUNCTION(BlueprintPure, Category = "Player|Inventory")
 	UInventoryComponent* GetInventory() const;
@@ -214,6 +214,10 @@ public:
 	// 활 GA 가 서버와 소유 클라에서 부른다. 다른 클라는 복제로 받는다.
 	void SetBowDrawing(bool bDrawing);
 
+	// 도약처럼 중력을 직접 다루는 동안 점프 감각(UpdateJumpFeel)이 중력을 덮어쓰지 않게 한다.
+	// 도약 GA 가 서버와 소유 클라에서 발사 때 켜고 착지 때 끈다. 끄면 다음 틱부터 점프 감각이 다시 맡는다.
+	void SuspendJumpFeelGravity(bool bSuspend) { bJumpFeelGravitySuspended = bSuspend; }
+
 	// 활 스킬(관통·표식·회피) 동작 중인가. 활 AnimBP 가 스킬 동안 평타용 시위 보정을 끈다(기문 님 테스트의 bBowSkillActive).
 	UFUNCTION(BlueprintPure, Category = "Player|Bow")
 	bool IsInBowSkillPose() const { return bInBowSkillPose; }
@@ -237,6 +241,11 @@ public:
 	FVector ComputeAimPoint(float MaxDistance = 10000.f) const;
 
 	UCameraComponent* GetFirstPersonCamera() const { return FirstPersonCamera; }
+
+	// 1인칭 화면의 회전을 머리 뼈 대신 시점(컨트롤러) 방향에 고정한다. 위치는 계속 머리 뼈를 따른다. 내 화면 전용.
+	// 회전 베기처럼 몸 전체가 도는 동작에서 화면이 같이 도는 것을 막는다(HBPlayerActiveGABase::bLockCameraToView).
+	// 평소에는 끈다 — 공격 동작의 머리 움직임이 그대로 화면이 되는 것이 의도다.
+	void SetCameraFollowsControlRotation(bool bFollow);
 #pragma region Interaction
 public:
 	virtual void PawnClientRestart() override;
@@ -449,8 +458,8 @@ public:
 	// 비용만큼 마나가 있는가. 클라도 읽어서 즉시 막는다.
 	bool HasEnoughMana(float Cost) const;
 
-	// 달리기의 초당 마나. 전역 보정 뒤 전투 호흡(SprintManaCostMultiplier)까지 곱한 값.
-	float GetSprintManaCostPerSecond() const;
+	// 달리기의 초당 스태미나. 달리기 배율(전투 호흡·사냥꾼의 호흡)까지 곱한 값. 스킬 비용 보정은 안 받는다.
+	float GetSprintStaminaCostPerSecond() const;
 
 	// 스킬id로 해당 스킬의 남은 쿨타임 / 총 쿨타임.
 	UFUNCTION(BlueprintPure, Category = "Player|Abilities")
@@ -660,29 +669,36 @@ private:
 	FActiveGameplayEffectHandle KillingMomentumEffectHandle;
 	FTimerHandle CombatInstinctTimer;
 
-	void UpdateManaResource();
-	void StopManaActionsAtZero();
+	// 서버 타이머. 스태미나(달리기·방어 소모, 대기 뒤 회복)와 마나(항상 회복)를 처리한다.
+	// 스태미나 = 행동, 마나 = 스킬(Docs/스태미나-마나-분리-설계.md).
+	void UpdateResources();
+	void StopStaminaActionsAtZero();
 	// SkillId로 쿨다운 GE 의 부여 태그 조회
 	const FGameplayTagContainer* GetSkillCooldownTags(FName SkillId) const;
 
+	// 마지막으로 스태미나를 쓴 뒤 이 시간이 지나야 스태미나가 찬다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float ManaRegenDelay = 2.f;
+	float StaminaRegenDelay = 2.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float ManaRegenPerSecond = 10.f;
+	float StaminaRegenPerSecond = 10.f;
 
-	// 일반공격이 마나를 안 쓰게 되며 5 에서 절반으로 줄였다.
+	// 일반공격이 자원을 안 쓰게 되며 5 에서 절반으로 줄였다.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float SprintManaCostPerSecond = 2.5f;
+	float SprintStaminaCostPerSecond = 2.5f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
-	float BlockManaCostPerSecond = 4.f;
+	float BlockStaminaCostPerSecond = 4.f;
+
+	// 마나 자연 회복. 대기 없이 항상 찬다. 장비 Player_ManaRegenFlat/Multiplier 가 붙는다.
+	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
+	float ManaRegenPerSecond = 1.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.05"))
-	float ManaResourceTickInterval = 0.25f;
+	float ResourceTickInterval = 0.25f;
 
-	FTimerHandle ManaResourceTimer;
-	double LastManaActivityTime = 0.0;
+	FTimerHandle ResourceTimer;
+	double LastStaminaActivityTime = 0.0;
 
 	// ===== 체력 재생 =====
 	// 서버 틱. (기본 재생 + 장비 +) × 배율 만큼 ReceiveHeal 로 채운다. 마나 회복과 같은 모양이다.
@@ -693,7 +709,7 @@ private:
 	float HealthRegenPerSecond = 0.f;
 
 	// 맞은 뒤 재생이 멈추는 시간(초). 0 이면 멈추지 않는다.
-	// 마나의 ManaRegenDelay 와 같은 역할. 기준 시각은 ApplyMeleeHit 가 기록하는 LastDamageReceivedTime.
+	// 스태미나의 StaminaRegenDelay 와 같은 역할. 기준 시각은 ApplyMeleeHit 가 기록하는 LastDamageReceivedTime.
 	UPROPERTY(EditDefaultsOnly, Category="Player|Resource", meta=(ClampMin="0.0"))
 	float HealthRegenDelayAfterHit = 0.f;
 
@@ -839,6 +855,12 @@ protected:
 	// 점프 감각 값(중력·점프 높이)을 이동 컴포넌트에 넣는다. 공중·착지 회복 중 매 틱.
 	void UpdateJumpFeel();
 
+	// true 면 UpdateJumpFeel 이 중력을 건드리지 않는다(SuspendJumpFeelGravity). 점프 높이는 계속 맡는다.
+	bool bJumpFeelGravitySuspended = false;
+
+	// 시점 고정을 켜기 직전 카메라의 머리 뼈 기준 회전. 끌 때 되돌린다(SetCameraFollowsControlRotation).
+	FRotator SavedCameraRelativeRotation = FRotator::ZeroRotator;
+
 	UPROPERTY(ReplicatedUsing= OnRep_IsSprinting)
 	bool bIsSprinting = false;
 
@@ -860,19 +882,27 @@ protected:
 #pragma region EquipmentVisual
 
 public:
-	// 손에 든 주무기와 방패를 잠깐 숨긴다(횃불은 그대로). 상자·시체를 뒤지는 동안 손이 비어 보이게 한다.
-	// 각 머신이 직접 부른다(복제 없음). 부르는 쪽(UHBInteractAnimComponent)이 이미 모든 머신에서 돈다.
+	// 손에 든 주무기와 방패를 숨기는 이유. 이유가 하나라도 남아 있으면 숨긴 채로 둔다.
+	// 상자를 뒤지다 포션이 끊겨도(포션은 BoxInteracting 태그로 끊긴다) 상자 쪽 숨김이 풀리지 않게 한다.
+	enum class EHandHideReason : uint8
+	{
+		Interact = 1 << 0,	// 상자·시체 뒤지기(UHBInteractAnimComponent)
+		Potion = 1 << 1,	// 포션 마시기(UHBPotionDrinkComponent)
+	};
+
+	// 손에 든 주무기와 방패를 잠깐 숨긴다(횃불은 그대로). 상자·시체 뒤지기·포션 마시는 동안 손이 비어 보이게 한다.
+	// 각 머신이 직접 부른다(복제 없음). 부르는 쪽(상호작용·포션 컴포넌트)이 이미 모든 머신에서 돈다.
 	//
 	// 왜 SetVisibility 가 아니라 HiddenInGame 인가: 장비 갱신이 활 메시를 SetVisibility 로 켜고 끈다.
 	// 같은 플래그를 쓰면 상호작용 중 장비가 바뀔 때 숨김이 풀리거나, 끝날 때 꺼져 있어야 할 활이 켜진다.
-	void SetHandEquipmentHidden(bool bHide);
+	void SetHandEquipmentHidden(EHandHideReason Reason, bool bHide);
 
 private:
 	// 보조 손 숨김을 지금 상태(숨김 요청 + 횃불 여부)에 맞춘다.
 	void RefreshSecondaryEquipHidden();
 
-	// SetHandEquipmentHidden 로 숨김 요청 중인가.
-	bool bHandEquipmentHidden = false;
+	// 숨김을 요청 중인 이유들(EHandHideReason 비트). 0 이면 보인다.
+	uint8 HandHideReasons = 0;
 
 	// 보조 손 슬롯이 지금 횃불인가. ApplySecondaryEquipTransform 이 기록한다.
 	bool bSecondaryIsTorch = false;
@@ -1051,7 +1081,7 @@ protected:
 
 	UFUNCTION()
 	void RefreshEquippedVisuals();
-	
+
 	void RefreshWeaponVisual();
 
 	// 외형 행의 CharacterAnimClass 로 AnimBP 를 바꾼다. 없으면 BaseAnimClass 로 되돌린다.

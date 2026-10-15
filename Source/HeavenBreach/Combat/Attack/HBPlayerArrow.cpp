@@ -157,7 +157,8 @@ void AHBPlayerArrow::OnHit(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveC
 		{
 			ImpactTags.AddTag(ImpactTypeTag);
 		}
-		HitCuePlay::PlayImpact(Shooter, OtherActor, Hit, 0.f, ImpactTags);
+		// 피 없는 벽 전용 큐(Hit.World)로 고정한다. 히트 큐는 몸에 맞았을 때만 쓴다 — 벽에서 피가 나던 문제.
+		HitCuePlay::PlayImpact(Shooter, OtherActor, Hit, 0.f, ImpactTags, CueTag::TAG_GameplayCue_Hit_World);
 	}
 
 	StickTo(OtherActor, Hit);
@@ -179,6 +180,17 @@ bool AHBPlayerArrow::TryPierce(const FHitResult& Hit)
 	// 이미 뚫은 Pawn(OnHit 과 이동 컴포넌트가 같은 충돌로 두 번 부름 등) — 계속 지나간다.
 	if (PiercedActors.Contains(HitPawn))
 	{
+		return true;
+	}
+
+	// 시체(State.Dead)는 일반 화살도 그냥 지나간다. 시체 메시가 WorldDynamic 을 막아 바닥의 시체 위에 화살이 박히던 문제.
+	// 피해·관통 횟수 없이 이후 이동에서 무시만 한다.
+	const UAbilitySystemComponent* HitASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(HitPawn);
+	if (HitASC && HitASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead))
+	{
+		PiercedActors.Add(HitPawn);
+		CollisionComp->IgnoreActorWhenMoving(HitPawn, true);
+		UE_LOG(LogTemp, Warning, TEXT("[Bow] 화살이 시체를 지나감  대상=%s"), *GetNameSafe(HitPawn));
 		return true;
 	}
 

@@ -165,7 +165,7 @@ void UHBInteractAnimComponent::SetWeaponHidden(bool bHidden)
 {
 	if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner()))
 	{
-		Player->SetHandEquipmentHidden(bHidden);
+		Player->SetHandEquipmentHidden(AHBPlayerCharacter::EHandHideReason::Interact, bHidden);
 	}
 }
 

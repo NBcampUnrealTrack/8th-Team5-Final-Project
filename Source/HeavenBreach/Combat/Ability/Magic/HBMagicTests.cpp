@@ -48,4 +48,16 @@ bool FHBMagicManaCycleTest::RunTest(const FString&)
 	TestEqual(TEXT("음수 단계는 기본"), HBMagic::ManaCycleMultiplier(true, -1), 0.80f);
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBMagicOrbFalloffTest, "HeavenBreach.Magic.OrbFalloff", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBMagicOrbFalloffTest::RunTest(const FString&)
+{
+	// 원소 구체 폭발: 중심 100% → 가장자리 50%, 밖은 0.
+	TestEqual(TEXT("중심 100%"), HBMagic::OrbExplosionFalloff(0.f, 200.f, 0.5f), 1.f);
+	TestEqual(TEXT("절반 거리 75%"), HBMagic::OrbExplosionFalloff(100.f, 200.f, 0.5f), 0.75f);
+	TestEqual(TEXT("가장자리 50%"), HBMagic::OrbExplosionFalloff(200.f, 200.f, 0.5f), 0.5f);
+	TestEqual(TEXT("범위 밖 0"), HBMagic::OrbExplosionFalloff(201.f, 200.f, 0.5f), 0.f);
+	TestEqual(TEXT("반경 0 은 중심만"), HBMagic::OrbExplosionFalloff(0.f, 0.f, 0.5f), 1.f);
+	TestEqual(TEXT("가장자리 비율 범위 밖은 자름"), HBMagic::OrbExplosionFalloff(200.f, 200.f, 2.f), 1.f);
+	return true;
+}
 #endif

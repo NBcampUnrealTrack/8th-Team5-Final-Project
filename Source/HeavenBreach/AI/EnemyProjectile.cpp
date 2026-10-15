@@ -14,6 +14,7 @@
 #include "AbilitySystemComponent.h"
 #include "Core/Tag/Team/HB_TeamTag.h"
 #include "Combat/GameplayCue/HitCuePlay.h"
+#include "Core/Tag/Cue/HB_CueTag.h"
 
 // Sets default values
 AEnemyProjectile::AEnemyProjectile()
@@ -141,13 +142,14 @@ void AEnemyProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 			ImpactTags.AddTag(ImpactTypeTag);
 		}
 
-		// 벽처럼 피해를 안 받는 대상만 여기서 쏜다.
+		// 벽처럼 피해를 안 받는 대상(벽 · 사물 · 시체 · 같은 편)만 여기서 쏜다.
+		// 피 없는 벽 전용 큐(Hit.World)로 고정한다. 성질 태그는 같이 실어 큐가 소리를 고를 수 있게 둔다.
 		//
 		// 쳐낼 조건: 막기·패링이면 맞는 쪽이 결과음을 우선해서(PlayHitCue) 관통음은 안 난다.
 		// 둘을 겹치려면 맞는 쪽의 큐 선택 순서를 바꿔야 한다.
 		if (!bTargetPlayedCue)
 		{
-			HitCuePlay::PlayImpact(GetInstigator(), OtherActor, Hit, Damage, ImpactTags);
+			HitCuePlay::PlayImpact(GetInstigator(), OtherActor, Hit, Damage, ImpactTags, CueTag::TAG_GameplayCue_Hit_World);
 		}
 	}
 

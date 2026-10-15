@@ -64,6 +64,9 @@ public:
 
 	// 서버. 살아 있는 채로 접속이 끊길 때(Logout 전, 폰이 지워지기 전) 시체를 남긴다. 남겼으면 true.
 	bool HandleAlivePlayerLeaving(AController* Controller);
+	// ESC 포기. 리슨 호스트는 다른 진행 인원/저장 중인 퇴장자가 없어야 나갈 수 있다.
+	bool CanPlayerLeaveMatch(const APlayerController* Player) const;
+	bool PreparePlayerLeaveMatch(APlayerController* Player, bool& bOutForfeitCarriedItems);
 
 protected:
     void HandleDungeonLayoutPlanned();

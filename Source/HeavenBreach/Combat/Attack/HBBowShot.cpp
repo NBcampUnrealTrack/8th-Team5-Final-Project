@@ -38,7 +38,8 @@ namespace HBBowShot
 	}
 
 	AHBPlayerArrow* SpawnArrow(AHBPlayerCharacter* Player, const TSubclassOf<AHBPlayerArrow> ArrowClass, const float Speed, const float DamageCoef,
-		const FDataTableRowHandle& ArrowRow, const float AimDistance, const float ForwardOffset, const FHBArrowLaunchOptions& Options)
+		const FDataTableRowHandle& ArrowRow, const float AimDistance, const float ForwardOffset, const FHBArrowLaunchOptions& Options,
+		const float YawOffsetDegrees)
 	{
 		UWorld* World = Player ? Player->GetWorld() : nullptr;
 		if (!Player || !World || !ArrowClass)
@@ -52,7 +53,11 @@ namespace HBBowShot
 		const UCameraComponent* Camera = Player->GetFirstPersonCamera();
 		const FVector CameraLocation = Camera ? Camera->GetComponentLocation() : Player->GetPawnViewLocation();
 		const FVector AimPoint = Player->ComputeAimPoint(AimDistance);
-		const FVector AimDirection = (AimPoint - CameraLocation).GetSafeNormal();
+		FVector AimDirection = (AimPoint - CameraLocation).GetSafeNormal();
+		if (!FMath::IsNearlyZero(YawOffsetDegrees))
+		{
+			AimDirection = AimDirection.RotateAngleAxis(YawOffsetDegrees, FVector::UpVector);
+		}
 		if (AimDirection.IsNearlyZero())
 		{
 			return nullptr;

@@ -109,7 +109,7 @@ protected:
     UPROPERTY(meta = (BindWidgetOptional))
     TObjectPtr<UTextBlock> Text_HP;
 
-    /** 스태미나. 내부적으로는 마나 값이다. */
+    /** 이름은 스태미나지만 최대 마나를 보여 준다. 스킬 비용이 마나라서다. */
     UPROPERTY(meta = (BindWidgetOptional))
     TObjectPtr<UTextBlock> Text_Stamina;
 

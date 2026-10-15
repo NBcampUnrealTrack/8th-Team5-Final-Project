@@ -530,7 +530,7 @@ void AHB_PlayerState::ApplyLoadout(const FPlayerLoadout& InLoadout, bool& bOutNe
 }
 
 void AHB_PlayerState::ApplySavedData(const TArray<FInventoryEntry>& InStash, const FPlayerLoadout& InLoadout,
-	const FHBStartingLoadout& InStartingLoadout)
+	const FHBStartingLoadout& InStartingLoadout, const bool bNewProfile)
 {
 	if (!HasAuthority())
 	{
@@ -542,7 +542,12 @@ void AHB_PlayerState::ApplySavedData(const TArray<FInventoryEntry>& InStash, con
 	{
 		Stash->ApplyLoadedEntries(InStash);
 	}
-	GrantTestGoldIfNeeded();
+
+	// 시작 골드는 첫 실행에만. 예전에는 접속마다 5000 까지 채워서 써도 다시 돌아왔다.
+	if (bNewProfile)
+	{
+		GrantStartingGold();
+	}
 
 	bool bNewlyEngraved = false;
 	ApplyLoadout(InLoadout, bNewlyEngraved);
@@ -708,19 +713,25 @@ void AHB_PlayerState::HandleQuickSlotChanged()
 
 void AHB_PlayerState::HandleStashLoadCompleted(bool bSuccess)
 {
+	// 외부 서버 저장 모드. 첫 실행인지 알 수 없어서 시작 골드를 주지 않는다 (로컬 모드만 준다 — ApplySavedData).
 	LoadLoadout();
+}
 
-	if (!bSuccess)
+void AHB_PlayerState::GrantStartingGold()
+{
+	if (!HasAuthority())
 	{
 		return;
 	}
-	GrantTestGoldIfNeeded();
-}
-
-void AHB_PlayerState::GrantTestGoldIfNeeded()
-{
-	// 로컬 모드에서는 아래 SaveStash() 가 저장소가 없어 아무것도 안 한다. 그 경우 내 PC 가 복제를 받아 저장한다.
-	if (!HasAuthority() || !bGrantTestGold || !Stash)
+	if (!bGrantStartingGold)
+	{
+		return;
+	}
+	if (StartingGold <= 0)
+	{
+		return;
+	}
+	if (!Stash)
 	{
 		return;
 	}
@@ -737,17 +748,11 @@ void AHB_PlayerState::GrantTestGoldIfNeeded()
 		return;
 	}
 
-	const int32 CurrentGold = Stash->GetTotalGold(GoldRow.RowName);
-	if (CurrentGold >= TestGoldMinimum)
-	{
-		return;
-	}
-
-	const int32 GrantAmount = TestGoldMinimum - CurrentGold;
-	if (Stash->AddGold(GoldRow, GrantAmount))
+	// 로컬 모드에서는 SaveStash() 가 저장소가 없어 아무것도 안 한다. 그 경우 내 PC 가 복제를 받아 저장한다.
+	if (Stash->AddGold(GoldRow, StartingGold))
 	{
 		Stash->SaveStash();
-		UE_LOG(LogTemp, Log, TEXT("Stash: granted test gold %d (was %d)"), GrantAmount, CurrentGold);
+		UE_LOG(LogTemp, Log, TEXT("[Save] 첫 실행 — 창고에 시작 골드 %d"), StartingGold);
 	}
 }
 

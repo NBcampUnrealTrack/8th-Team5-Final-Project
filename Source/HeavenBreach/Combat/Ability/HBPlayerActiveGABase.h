@@ -51,6 +51,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Skill")
 	TSubclassOf<UGameplayEffect> GetSelfBuffEffect() const { return SelfBuffEffect; }
 
+	// 스킬 설명 끝의 "필요 무기" 줄이 여기서 읽는다. 값의 주인은 RequiredWeaponTags 하나다.
+	// 활·마법 GA 에 같은 이름의 함수가 각자 있는데, 같은 칸을 돌려주므로 결과가 같다.
+	const FGameplayTagContainer& GetRequiredWeaponTags() const { return RequiredWeaponTags; }
+
 	virtual UAnimMontage* GetMontageToPlay() const { return Montage; }
 
 	// 발동 중 좌클릭 누름/뗌을 이 스킬이 직접 받고 싶은가. 조준 스킬이 true 로 오버라이드한다.
@@ -89,6 +93,12 @@ protected:
 	// 사망, 피격 몽타주까지 공격속도를 따라가면 빨라지거나 느려진다. 공격 어빌리티면 true.
 	UPROPERTY(EditDefaultsOnly, Category = "Skill")
 	bool bUseAttackSpeed = true;
+
+	// 몸 전체가 도는 스킬(회전 베기)용. 켜면 몽타주가 도는 동안 1인칭 화면 회전이 머리 뼈 대신 시점 방향을 따른다.
+	// 1인칭 카메라는 머리 뼈에 붙어 있어서, 끄면 몸이 돌 때 화면도 같이 돈다. 내 화면에만 적용된다.
+	// 기본 false — 평소에는 공격 동작의 머리 움직임이 그대로 화면이 되는 것이 의도다.
+	UPROPERTY(EditDefaultsOnly, Category = "Skill|Camera")
+	bool bLockCameraToView = false;
 
 	// ---- 무기 제약 ----
 
@@ -175,6 +185,9 @@ protected:
 	void RemoveSelfBuff();
 
 private:
+	// 이번 발동에서 화면 고정을 켰는가(bLockCameraToView). EndAbility 가 켠 것만 푼다.
+	bool bCameraLockApplied = false;
+
 	void ApplySelfBuff(const FGameplayAbilityActorInfo* ActorInfo);
 
 	// ActivationCueTag 를 발동 위치에서 터뜨린다. 태그가 비어 있으면 아무것도 안 한다.

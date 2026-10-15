@@ -211,6 +211,13 @@ UGE_BowPiercingCooldown::UGE_BowPiercingCooldown()
 	InitCooldown(*this, *TagComponent, ArcherTag::TAG_Cooldown_PiercingArrow);
 }
 
+UGE_BowTripleShotCooldown::UGE_BowTripleShotCooldown()
+{
+	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
+	GEComponents.Add(TagComponent);
+	InitCooldown(*this, *TagComponent, ArcherTag::TAG_Cooldown_TripleShot);
+}
+
 UGE_BowHunterMarkCooldown::UGE_BowHunterMarkCooldown()
 {
 	UTargetTagsGameplayEffectComponent* TagComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTags"));
@@ -270,16 +277,17 @@ UGE_WeakPointAugment::UGE_WeakPointAugment()
 UGE_HunterBreathPassive::UGE_HunterBreathPassive()
 {
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
-	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute(),
+	// 사냥꾼의 호흡: 달리기 스태미나 -30%, 스태미나 회복 +20%.
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintStaminaCostMultiplierAttribute(),
 		EGameplayModOp::Additive, -0.30f);
-	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_ManaRegenMultiplierAttribute(),
+	AddModifier(*this, UHB_PlayerAttributeSet::GetPlayer_StaminaRegenMultiplierAttribute(),
 		EGameplayModOp::Additive, 0.20f);
 }
 
 UGE_HunterBreathAugment::UGE_HunterBreathAugment()
 {
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
-	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintManaCostMultiplierAttribute(),
+	AddSetByCallerModifier(*this, UHB_PlayerAttributeSet::GetPlayer_SprintStaminaCostMultiplierAttribute(),
 		EGameplayModOp::Additive, AbilityTag::TAG_SetByCaller_AugmentMagnitude);
 }
 

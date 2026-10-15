@@ -70,7 +70,7 @@ float UHBPlayerActiveGABase::GetFinalManaCostFrom(const FGameplayAbilityActorInf
 
 	const AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo);
 
-	// 마력 순환 패시브(설계 2.1 "모든 액티브 스태미나 −20%"). 액티브 비용에만 곱한다.
+	// 마력 순환 패시브(설계 2.1 "모든 액티브 마나 −20%"). 액티브 비용에만 곱한다.
 	// 전역 Player_ManaCostMultiplier 로 하면 달리기·방어(ModifyManaCost 를 같이 쓰는 곳)까지 줄어서 여기서 따로 곱한다.
 	// 패시브가 없으면 배율 1.0 이라 기존 스킬 비용은 그대로다.
 	const UAbilitySystemComponent* ASC = GetASC(ActorInfo);
@@ -222,13 +222,7 @@ void UHBPlayerActiveGABase::ApplyCost(const FGameplayAbilitySpecHandle Handle, c
 	// 활성화 예측 키로 붙기 때문에 클라 마나 바가 즉시 줄어든다.
 	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, Spec);
 
-	// 재생 지연을 다시 건다. 빼먹으면 쓰자마자 차오르기 시작해서
-	// 마나를 안 쓴 것처럼 보인다. 기본공격/달리기/방어와 같은 규칙이다.
-	// (AHBPlayerCharacter::NotifyManaActivity 호출부의 주석 참조)
-	if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
-	{
-		Player->NotifyManaActivity();
-	}
+	// 마나는 회복 대기가 없다(스태미나만 있다). Docs/스태미나-마나-분리-설계.md
 }
 
 void UHBPlayerActiveGABase::ApplyAdditionalCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
@@ -339,6 +333,20 @@ void UHBPlayerActiveGABase::ActivateAbility(const FGameplayAbilitySpecHandle Han
 		{
 			const float Rate = ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_AttackSpeedAttribute());
 			PlayRate = FMath::Max(0.1f, Rate);
+		}
+	}
+
+	// 몸이 도는 스킬은 화면이 같이 돌지 않게 시점 방향에 고정한다. 내 화면 전용이라 로컬에서만.
+	// 푸는 곳은 EndAbility 하나다 — 끝나든 끊기든 죽든 반드시 지나간다.
+	if (bLockCameraToView)
+	{
+		if (ActorInfo->IsLocallyControlled())
+		{
+			if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
+			{
+				Player->SetCameraFollowsControlRotation(true);
+				bCameraLockApplied = true;
+			}
 		}
 	}
 
@@ -585,6 +593,16 @@ void UHBPlayerActiveGABase::EndAbility(const FGameplayAbilitySpecHandle Handle,c
 {
 	// 발동 중에만 유지하는 것은 여기서 뗀다. 취소·사망으로 끝나도 반드시 지나간다.
 	RemoveDuringAbilityEffect(ActorInfo);
+
+	// 화면 고정을 풀어 머리 뼈 회전으로 되돌린다. 이번 발동에서 켠 경우에만.
+	if (bCameraLockApplied)
+	{
+		bCameraLockApplied = false;
+		if (AHBPlayerCharacter* Player = GetPlayerFrom(ActorInfo))
+		{
+			Player->SetCameraFollowsControlRotation(false);
+		}
+	}
 
 	// 버프의 지속시간은 어빌리티 수명보다 길다. 걷지 않고 핸들만 비운다.
 	BuffHandles.Reset();

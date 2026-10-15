@@ -66,7 +66,7 @@ namespace
 			Attr::GetPlayer_MaxHPAttribute(), TAG_Data_Equipment_MaxHP_Percent, Multiply);
 
 		// 최대 마나 = (직업 + 옵션+) × (1 + 옵션%)
-		// 태그는 원래 Stat.MaxStamina 였다 (2026-09-29 이름 바꿈). 나중에 진짜 스태미나가 생겨도 겹치지 않게
+		// 태그는 원래 Stat.MaxStamina 였다 (2026-09-29 이름 바꿈). 스태미나는 2026-10-13 Player_Stamina 로 따로 생겼다
 		AddBinding(B, TAG_Stat_MaxMana, TEXT("최대 마나"),
 			Attr::GetPlayer_MaxManaAttribute(), TAG_Data_Equipment_MaxMana_Flat,
 			Attr::GetPlayer_MaxManaAttribute(), TAG_Data_Equipment_MaxMana_Percent, Multiply);

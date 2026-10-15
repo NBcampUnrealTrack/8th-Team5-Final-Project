@@ -1,4 +1,7 @@
 #include "Combat/Attack/HBPlayerArrow.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -8,8 +11,9 @@
 
 namespace
 {
-	// 빈 월드에 Target 클래스 둘을 X=300·600 에 세우고 관통 화살을 X 방향으로 쏜다. 화살이 X=700 을 넘었는가.
-	bool PiercesTwoInLine(FAutomationTestBase& Test, UClass* TargetClass)
+	// 빈 월드에 Target 클래스 둘을 X=300·600 에 세우고 화살을 X 방향으로 쏜다. 화살이 X=700 을 넘었는가.
+	// bDead 면 두 대상에 State.Dead 를 붙인다(시체). MaxPierceCount 0 은 일반 화살.
+	bool PiercesTwoInLine(FAutomationTestBase& Test, UClass* TargetClass, int32 MaxPierceCount = 4, bool bDead = false)
 	{
 		const auto Init = UWorld::InitializationValues().AllowAudioPlayback(false).CreatePhysicsScene(true)
 			.RequiresHitProxies(false).CreateNavigation(false).CreateAISystem(false);
@@ -24,12 +28,23 @@ namespace
 		const AActor* Second = World->SpawnActor<AActor>(TargetClass, FTransform(FVector(600.f, 0.f, 0.f)), Params);
 		Test.TestNotNull(TEXT("앞 대상"), First);
 		Test.TestNotNull(TEXT("뒤 대상"), Second);
+		if (bDead)
+		{
+			for (const AActor* Target : { First, Second })
+			{
+				UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+				if (Test.TestNotNull(TEXT("시체 ASC"), ASC))
+				{
+					ASC->AddLooseGameplayTag(AbilityTag::TAG_State_Dead);
+				}
+			}
+		}
 
 		AHBPlayerArrow* Arrow = World->SpawnActorDeferred<AHBPlayerArrow>(AHBPlayerArrow::StaticClass(), FTransform(FVector::ZeroVector),
 			nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
 		Arrow->FinishSpawning(FTransform(FVector::ZeroVector));
 		FHBArrowLaunchOptions Options;
-		Options.MaxPierceCount = 4;
+		Options.MaxPierceCount = MaxPierceCount;
 		Arrow->Launch(nullptr, 4000.f, 1.f, FDataTableRowHandle(), Options);
 
 		// 커맨드렛 월드는 액터 틱이 돌지 않아 이동 컴포넌트만 직접 틱한다.
@@ -75,6 +90,20 @@ bool FHBArrowPierceMovementTest::RunTest(const FString&)
 		{
 			PiercesTwoInLine(*this, EnemyClass);
 		}
+	}
+	return true;
+}
+
+// 일반 화살(관통 0)도 시체(State.Dead)는 그냥 지나간다. 시체 위에 화살이 박히지 않게.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBArrowPassesCorpseTest,
+	"HeavenBreach.Bow.ArrowPassesCorpse",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHBArrowPassesCorpseTest::RunTest(const FString&)
+{
+	UClass* EnemyClass = LoadClass<AActor>(nullptr, TEXT("/Game/Monsters/Remnant_Blade/Blueprint/BP_Remnant_Blade.BP_Remnant_Blade_C"));
+	if (TestNotNull(TEXT("몬스터 클래스"), EnemyClass))
+	{
+		PiercesTwoInLine(*this, EnemyClass, 0, true);
 	}
 	return true;
 }

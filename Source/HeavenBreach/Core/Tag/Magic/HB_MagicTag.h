@@ -10,6 +10,7 @@ namespace MagicTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Cooldown_ManaExplosion);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_ElementalOrb_Power);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_ElementalOrb_Rapid);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_ElementalOrb_Wide);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_Teleport_Far);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_Teleport_Rapid);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Augment_Magic_FrostField_Bitter);

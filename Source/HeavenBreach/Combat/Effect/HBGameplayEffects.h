@@ -190,6 +190,15 @@ public:
 	UGE_BowPiercingCooldown();
 };
 
+/** 트리플 샷 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.TripleShot 부여 */
+UCLASS()
+class HEAVENBREACH_API UGE_BowTripleShotCooldown : public UGameplayEffect
+{
+	GENERATED_BODY()
+public:
+	UGE_BowTripleShotCooldown();
+};
+
 /** 사냥꾼의 표식 쿨다운. 시간은 SetByCaller.Cooldown, Cooldown.Archer.TrackingMark 부여 */
 UCLASS()
 class HEAVENBREACH_API UGE_BowHunterMarkCooldown : public UGameplayEffect
@@ -334,7 +343,7 @@ public:
 	UGE_FocusPassive();
 };
 
-/** 패시브 "마력 순환". State.Magic.ManaCycle 태그만 부여한다(액티브 스태미나 배율은 코드가 읽는다, 달리기·방어 제외) */
+/** 패시브 "마력 순환". State.Magic.ManaCycle 태그만 부여한다(액티브 마나 배율은 코드가 읽는다, 달리기·방어 제외) */
 UCLASS()
 class HEAVENBREACH_API UGE_ManaCyclePassive : public UGameplayEffect
 {
@@ -468,3 +477,6 @@ class HEAVENBREACH_API UGE_CombatInstinctAugment : public UGameplayEffect
 public:
 	UGE_CombatInstinctAugment();
 };
+
+// 무기 종류 보너스(검 · 활 · 지팡이)는 GE 가 아니라 무기 행(FWeaponData)의 Defense · MaxHP · MoveSpeedRate ·
+// SkillDamageRate 칸으로 들어간다. 등급별로 다르고, 장비 합산(UGE_EquipmentStats)에 같이 실린다.

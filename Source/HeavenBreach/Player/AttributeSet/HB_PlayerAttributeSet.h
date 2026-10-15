@@ -29,6 +29,9 @@ public:
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_MaxHP);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_Mana);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_MaxMana);
+	ATTRIBUTE_ACCESSORS(ThisClass,Player_Stamina);
+	ATTRIBUTE_ACCESSORS(ThisClass,Player_MaxStamina);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_StaminaRegenMultiplier);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_AttackPower);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_AttackSpeed);
 	ATTRIBUTE_ACCESSORS(ThisClass,Player_Defense);
@@ -38,7 +41,7 @@ public:
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_CooldownFlat);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_CooldownMultiplier);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_LifeStealRatio);
-	ATTRIBUTE_ACCESSORS(ThisClass, Player_SprintManaCostMultiplier);
+	ATTRIBUTE_ACCESSORS(ThisClass, Player_SprintStaminaCostMultiplier);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_LowHealthAttackBonus);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_LowHealthAttackThreshold);
 	ATTRIBUTE_ACCESSORS(ThisClass, Player_MoveSpeedFlat);
@@ -64,6 +67,16 @@ protected:
 	FGameplayAttributeData Player_Mana;
 	UPROPERTY(ReplicatedUsing=OnRep_MaxMana, BlueprintReadOnly, Category="Attribute|Combat")
 	FGameplayAttributeData Player_MaxMana;
+
+	// 스태미나. 달리기·방어 유지가 쓴다(스킬은 마나). 화면 바 없음 — 체감으로만 느낀다.
+	UPROPERTY(ReplicatedUsing=OnRep_Stamina, BlueprintReadOnly, Category="Attribute|Combat")
+	FGameplayAttributeData Player_Stamina;
+	UPROPERTY(ReplicatedUsing=OnRep_MaxStamina, BlueprintReadOnly, Category="Attribute|Combat")
+	FGameplayAttributeData Player_MaxStamina;
+
+	// 스태미나 회복 배율. 1.0 이 기본(사냥꾼의 호흡 +0.2).
+	UPROPERTY(ReplicatedUsing=OnRep_StaminaRegenMultiplier, BlueprintReadOnly, Category="Attribute|Combat")
+	FGameplayAttributeData Player_StaminaRegenMultiplier;
 
 	UPROPERTY(ReplicatedUsing=OnRep_AttackPower, BlueprintReadOnly, Category="Attribute|Combat")
 	FGameplayAttributeData Player_AttackPower;
@@ -99,11 +112,11 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_LifeStealRatio, BlueprintReadOnly, Category = "Attribute|Combat")
 	FGameplayAttributeData Player_LifeStealRatio;
 
-	// 달리기 마나 소비 % 보정. 1.0 이 기본, 0 이면 달리기에 마나를 안 쓴다(전투 호흡).
-	// 기존 Player_ManaCostMultiplier 와 별개인 이유: 그쪽은 하한이 0.2 라 0 을 못 만든다.
-	// 전에는 일반공격 마나 보정(BasicAttackManaCostMultiplier)이었다. 일반공격이 마나를 안 쓰게 되며 바꿨다.
-	UPROPERTY(ReplicatedUsing = OnRep_SprintManaCostMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
-	FGameplayAttributeData Player_SprintManaCostMultiplier;
+	// 달리기 스태미나 소비 % 보정. 1.0 이 기본, 0 이면 달리기에 스태미나를 안 쓴다(전투 호흡).
+	// 하한이 0 이라야 해서 스킬 비용 보정(Player_ManaCostMultiplier, 하한 0.2)과 따로 둔다.
+	// 2026-10-13 Player_SprintManaCostMultiplier 에서 이름 변경(DefaultEngine.ini PropertyRedirects).
+	UPROPERTY(ReplicatedUsing = OnRep_SprintStaminaCostMultiplier, BlueprintReadOnly, Category = "Attribute|Combat")
+	FGameplayAttributeData Player_SprintStaminaCostMultiplier;
 
 	// 저체력 공격력 보너스의 최대치. 0.5 면 최대 +50%.
 	// 0 이면 이 기능이 꺼진 것이므로 패시브 태그를 따로 볼 필요가 없다.
@@ -181,6 +194,12 @@ protected:
 	UFUNCTION()
 	void OnRep_MaxMana(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
+	void OnRep_Stamina(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_MaxStamina(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_StaminaRegenMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
 	void OnRep_AttackPower(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_AttackSpeed(const FGameplayAttributeData& OldValue);
@@ -199,7 +218,7 @@ protected:
 	UFUNCTION()
 	void OnRep_LifeStealRatio(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
-	void OnRep_SprintManaCostMultiplier(const FGameplayAttributeData& OldValue);
+	void OnRep_SprintStaminaCostMultiplier(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_LowHealthAttackBonus(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
@@ -230,6 +249,9 @@ protected:
 #pragma endregion
 	
 private:
-	// 최대치가 바뀔 때 현재치를 어디로 옮길지. HP 와 마나가 같은 규칙이라 함수로 뺐다.
+	// 최대치가 바뀔 때 현재치를 어디로 옮길지. HP·마나·스태미나가 같은 규칙이라 함수로 뺐다.
 	static float CalculateCurrentOnMaxChanged(float Current, float OldMax, float NewMax);
+
+	// 서버 전용. 지금까지 도달한 가장 높은 최대 체력(HBAttributeRules::HealthOnMaxChanged). 복제하지 않는다.
+	float HighestMaxHP = 0.f;
 };

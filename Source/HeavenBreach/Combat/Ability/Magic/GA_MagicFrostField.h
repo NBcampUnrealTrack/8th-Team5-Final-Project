@@ -29,6 +29,8 @@ public:
 	float GetDuration() const { return Duration; }
 	float GetSlow() const { return Slow; }
 	float GetAimTraceDistance() const { return AimTraceDistance; }
+	float GetDamageCoef() const { return DamageCoef; }
+	float GetDamageInterval() const { return DamageInterval; }
 
 protected:
 	virtual void OnCastStarted(const FGameplayAbilityActorInfo* Info) override;
@@ -50,6 +52,14 @@ protected:
 	/** 기본 이동 속도 감소 비율. 혹한 증강(SkillParam.Slow)이 이 값을 대신한다 */
 	UPROPERTY(EditDefaultsOnly, Category = "FrostField", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Slow = 0.4f;
+
+	/** 도트 피해 계수. 공격력 × 이것 × 스킬 피해 배율(지팡이 SkillDamageRate 포함) 을 DamageInterval 마다 준다 */
+	UPROPERTY(EditDefaultsOnly, Category = "FrostField", meta = (ClampMin = "0.0"))
+	float DamageCoef = 0.3f;
+
+	/** 도트 피해 간격. 지대가 생기는 순간 한 번, 이후 이 간격마다(4초 지대 = 4번) */
+	UPROPERTY(EditDefaultsOnly, Category = "FrostField", meta = (ClampMin = "0.1", Units = "s"))
+	float DamageInterval = 1.f;
 
 	/** 조준점을 찾는 최대 거리 */
 	UPROPERTY(EditDefaultsOnly, Category = "FrostField", meta = (ClampMin = "100.0", Units = "cm"))
