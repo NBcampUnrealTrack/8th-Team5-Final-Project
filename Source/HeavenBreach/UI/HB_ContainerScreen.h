@@ -29,10 +29,21 @@ public:
 	void SetContainer(UInventoryComponent* InContainer);
 
 protected:
+	/**
+	 * 이 화면이 키보드 포커스를 받을 수 있게 한다.
+	 *
+	 * 왜: 드래그 앤 드랍이 끝나면 InventoryWidget::RefocusAfterDrop 이 포커스를 이 화면으로 되돌리는데,
+	 * 포커스를 받을 수 없는 위젯이면 되돌리기가 조용히 실패한다. 그러면 아이템을 옮긴 뒤 아무도 포커스를
+	 * 갖지 않아 ESC/Tab 이 먹지 않는다.
+	 */
+	virtual void NativeOnInitialized() override;
+
 	virtual void NativeOnActivated() override;
 
 	/** 화면 닫을 때(ESC/Tab 등 모든 경로 공통) 서칭 타이머를 멈춘다. */
 	virtual void NativeOnDeactivated() override;
+
+	virtual bool NativeOnHandleBackAction() override;
 
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 

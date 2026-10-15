@@ -21,6 +21,13 @@ void UHB_ContainerScreen::SetContainer(UInventoryComponent* InContainer)
 	Container = InContainer;
 }
 
+void UHB_ContainerScreen::NativeOnInitialized()
+{
+	Super::NativeOnInitialized();
+
+	SetIsFocusable(true);
+}
+
 void UHB_ContainerScreen::NativeOnActivated()
 {
 	Super::NativeOnActivated();
@@ -46,6 +53,11 @@ void UHB_ContainerScreen::NativeOnDeactivated()
 {
 	Super::NativeOnDeactivated();
 
+	if (PlayerPanel != nullptr)
+	{
+		PlayerPanel->TryCloseOpenedBagWindow(false);
+	}
+
 	if (Container == nullptr)
 	{
 		return;
@@ -64,6 +76,15 @@ void UHB_ContainerScreen::NativeOnDeactivated()
 	{
 		PlayerInventory->Server_PauseContainerReveal(Container);
 	}
+}
+
+bool UHB_ContainerScreen::NativeOnHandleBackAction()
+{
+	if (PlayerPanel != nullptr && PlayerPanel->TryCloseOpenedBagWindow(true))
+	{
+		return true;
+	}
+	return Super::NativeOnHandleBackAction();
 }
 
 void UHB_ContainerScreen::HandleItemRevealed()

@@ -33,6 +33,15 @@ protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 
+	/**
+	 * 이 HUD 안에 키보드 포커스가 없으면 되찾는다.
+	 *
+	 * 왜 필요한가: ESC 는 이 위젯 안에 포커스가 있어야 받는다. 시작 버튼이 비활성으로 바뀌거나, 친구 창이
+	 * 닫히거나, 탭을 바꿔서 포커스를 쥔 위젯이 사라지면 포커스가 어디에도 없게 되어 ESC 가 먹지 않았다.
+	 * (탭 버튼을 다시 눌러야 포커스가 돌아오던 이유다.)
+	 */
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
 	// 자식이 처리하지 않은 ESC 가 여기까지 올라온다. 열린 팝업이 먼저 ESC 를 가져가므로
 	// 팝업이 없을 때만 게임 종료 안내창이 뜬다.
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
@@ -154,6 +163,8 @@ public:
 	void SwitchToMenu(EHBLobbyHUDMenu NewMenu) { SelectMenu(NewMenu); }
 
 private:
+	float FocusCheckElapsed = 0.0f;
+
 	TWeakObjectPtr<AHB_PlayerState> InitializedPlayerState;
 
 	UFUNCTION()
