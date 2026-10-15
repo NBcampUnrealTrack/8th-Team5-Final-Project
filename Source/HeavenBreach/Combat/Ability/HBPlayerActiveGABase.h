@@ -94,6 +94,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Skill")
 	bool bUseAttackSpeed = true;
 
+	// 몸 전체가 도는 스킬(회전 베기)용. 켜면 몽타주가 도는 동안 1인칭 화면 회전이 머리 뼈 대신 시점 방향을 따른다.
+	// 1인칭 카메라는 머리 뼈에 붙어 있어서, 끄면 몸이 돌 때 화면도 같이 돈다. 내 화면에만 적용된다.
+	// 기본 false — 평소에는 공격 동작의 머리 움직임이 그대로 화면이 되는 것이 의도다.
+	UPROPERTY(EditDefaultsOnly, Category = "Skill|Camera")
+	bool bLockCameraToView = false;
+
 	// ---- 무기 제약 ----
 
 	// 이 무기를 들어야 발동한다. 비우면 제약 없음. Weapon 태그만 넣으면 아무 무기나 가능.
@@ -179,6 +185,9 @@ protected:
 	void RemoveSelfBuff();
 
 private:
+	// 이번 발동에서 화면 고정을 켰는가(bLockCameraToView). EndAbility 가 켠 것만 푼다.
+	bool bCameraLockApplied = false;
+
 	void ApplySelfBuff(const FGameplayAbilityActorInfo* ActorInfo);
 
 	// ActivationCueTag 를 발동 위치에서 터뜨린다. 태그가 비어 있으면 아무것도 안 한다.

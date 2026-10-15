@@ -15,24 +15,6 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-namespace
-{
-	// GE 에 Attribute 를 Op 로 Value 만큼 바꾸는 고정 모디파이어가 있는가.
-	bool RulesHasModifier(const UGameplayEffect* Effect, const FGameplayAttribute& Attribute, EGameplayModOp::Type Op, float Value)
-	{
-		for (const FGameplayModifierInfo& Modifier : Effect->Modifiers)
-		{
-			float Magnitude = 0.f;
-			if (Modifier.Attribute == Attribute && Modifier.ModifierOp == Op
-				&& Modifier.ModifierMagnitude.GetStaticMagnitudeIfPossible(1.f, Magnitude))
-			{
-				return FMath::IsNearlyEqual(Magnitude, Value);
-			}
-		}
-		return false;
-	}
-}
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBMaxHealthRaiseTest, "HeavenBreach.Player.MaxHealthRaise", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FHBMaxHealthRaiseTest::RunTest(const FString&)
 {
@@ -53,35 +35,14 @@ bool FHBMaxHealthRaiseTest::RunTest(const FString&)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBWeaponBonusTest, "HeavenBreach.Player.WeaponBonus", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FHBWeaponBonusTest::RunTest(const FString&)
-{
-	// 검(단검 포함): 방어 +5, 최대 체력 +20. 활: 이동 속도 +10%. 지팡이·맨손: 없음(지팡이는 마법 피해 1.5배가 따로 있다).
-	TestTrue(TEXT("검 → 검 보너스"), HBWeaponBonus::EffectFor(ItemTag::TAG_Weapon_Sword) == UGE_WeaponBonusSword::StaticClass());
-	TestTrue(TEXT("단검 → 검 보너스"), HBWeaponBonus::EffectFor(ItemTag::TAG_Weapon_Dagger) == UGE_WeaponBonusSword::StaticClass());
-	TestTrue(TEXT("활 → 활 보너스"), HBWeaponBonus::EffectFor(ItemTag::TAG_Weapon_Bow) == UGE_WeaponBonusBow::StaticClass());
-	TestTrue(TEXT("지팡이 → 없음"), HBWeaponBonus::EffectFor(ItemTag::TAG_Weapon_Staff) == nullptr);
-	TestTrue(TEXT("맨손 → 없음"), HBWeaponBonus::EffectFor(ItemTag::TAG_Weapon_Unarmed) == nullptr);
-
-	const UGameplayEffect* Sword = GetDefault<UGE_WeaponBonusSword>();
-	TestEqual(TEXT("검 무한"), Sword->DurationPolicy, EGameplayEffectDurationType::Infinite);
-	TestTrue(TEXT("검 방어 +5"), RulesHasModifier(Sword, UHB_PlayerAttributeSet::GetPlayer_DefenseAttribute(), EGameplayModOp::Additive, 5.f));
-	TestTrue(TEXT("검 최대 체력 +20"), RulesHasModifier(Sword, UHB_PlayerAttributeSet::GetPlayer_MaxHPAttribute(), EGameplayModOp::Additive, 20.f));
-
-	const UGameplayEffect* Bow = GetDefault<UGE_WeaponBonusBow>();
-	TestEqual(TEXT("활 무한"), Bow->DurationPolicy, EGameplayEffectDurationType::Infinite);
-	TestTrue(TEXT("활 이속 +10%"), RulesHasModifier(Bow, UHB_PlayerAttributeSet::GetPlayer_MoveSpeedMultiplierAttribute(), EGameplayModOp::Additive, 0.1f));
-	return true;
-}
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBManaRegenDefaultTest, "HeavenBreach.Player.ManaRegenDefault", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FHBManaRegenDefaultTest::RunTest(const FString&)
 {
-	// 마나 자연 회복 초당 0.5(10-14 조정, 전에는 2).
+	// 마나 자연 회복 초당 1.
 	const FFloatProperty* Prop = FindFProperty<FFloatProperty>(AHBPlayerCharacter::StaticClass(), TEXT("ManaRegenPerSecond"));
 	if (TestNotNull(TEXT("ManaRegenPerSecond 속성"), Prop))
 	{
-		TestEqual(TEXT("초당 0.5"), Prop->GetPropertyValue_InContainer(GetDefault<AHBPlayerCharacter>()), 0.5f);
+		TestEqual(TEXT("초당 1"), Prop->GetPropertyValue_InContainer(GetDefault<AHBPlayerCharacter>()), 1.f);
 	}
 	return true;
 }

@@ -53,7 +53,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "FrostField", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Slow = 0.4f;
 
-	/** 도트 피해 계수. 공격력 × 이것 × 마법 피해 배율(HBMagic::DamageMultiplier) 을 DamageInterval 마다 준다 */
+	/** 도트 피해 계수. 공격력 × 이것 × 스킬 피해 배율(지팡이 SkillDamageRate 포함) 을 DamageInterval 마다 준다 */
 	UPROPERTY(EditDefaultsOnly, Category = "FrostField", meta = (ClampMin = "0.0"))
 	float DamageCoef = 0.3f;
 

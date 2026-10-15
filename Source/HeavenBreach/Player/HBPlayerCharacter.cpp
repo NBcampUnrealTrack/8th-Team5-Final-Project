@@ -692,11 +692,9 @@ void AHBPlayerCharacter::BindToPlayerStateComponents()
 		PotionDrinkComp->BindInventory(Inv);
 	}
 	Equip->OnEquipmentChanged.AddUniqueDynamic(this, &AHBPlayerCharacter::RefreshEquippedVisuals);
-	Equip->OnEquipmentChanged.AddUniqueDynamic(this, &AHBPlayerCharacter::RefreshWeaponBonus);
 	bPlayerStateComponentsBound = true;
 
 	RefreshEquippedVisuals();
-	RefreshWeaponBonus();
 	BP_OnPlayerStateReady();
 }
 
@@ -2568,6 +2566,33 @@ bool AHBPlayerCharacter::NeedsJumpFeelTick() const
 	return SinceLanded <= FMath::Max(LandSlowDuration, RejumpWindow) || LastLandImpact > 0.f;
 }
 
+void AHBPlayerCharacter::SetCameraFollowsControlRotation(const bool bFollow)
+{
+	if (!FirstPersonCamera)
+	{
+		return;
+	}
+	// 이미 그 상태다. 두 번 켜면 저장한 회전이 시점 방향으로 덮인다.
+	if (FirstPersonCamera->bUsePawnControlRotation == bFollow)
+	{
+		return;
+	}
+
+	// 켜 있는 동안 카메라가 시점 방향을 맞추려고 자기 회전값을 직접 바꾼다.
+	// 끌 때 머리 뼈 기준 회전(생성자의 0, 90, -90)으로 되돌리지 않으면 화면이 기울어진 채 남는다.
+	if (bFollow)
+	{
+		SavedCameraRelativeRotation = FirstPersonCamera->GetRelativeRotation();
+	}
+
+	FirstPersonCamera->bUsePawnControlRotation = bFollow;
+
+	if (!bFollow)
+	{
+		FirstPersonCamera->SetRelativeRotation(SavedCameraRelativeRotation);
+	}
+}
+
 void AHBPlayerCharacter::UpdateJumpFeel()
 {
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
@@ -2578,8 +2603,12 @@ void AHBPlayerCharacter::UpdateJumpFeel()
 	}
 
 	// 내려올 때만 중력을 키운다. 같은 속도 값으로 서버와 소유 클라가 같은 결과를 낸다.
-	const bool bDescending = Movement->IsFalling() && Movement->Velocity.Z <= 0.f;
-	Movement->GravityScale = BaseGravityScale * (bDescending ? FallGravityScale : 1.f);
+	// 도약처럼 다른 기능이 중력을 직접 다루는 동안은 손대지 않는다 — 그쪽이 그 중력으로 궤적을 계산했다.
+	if (!bJumpFeelGravitySuspended)
+	{
+		const bool bDescending = Movement->IsFalling() && Movement->Velocity.Z <= 0.f;
+		Movement->GravityScale = BaseGravityScale * (bDescending ? FallGravityScale : 1.f);
+	}
 
 	// 착지 직후 다시 뛰면 낮게. 점프가 실행되는 순간 이 값이 쓰인다.
 	const float SinceLanded = static_cast<float>(World->GetTimeSeconds() - LastLandedTime);
@@ -2785,38 +2814,6 @@ void AHBPlayerCharacter::RefreshEquippedVisuals()
 	}
 	RefreshChestVisual();
 	RefreshLegsVisual();
-}
-
-void AHBPlayerCharacter::RefreshWeaponBonus()
-{
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
-	if (!HasAuthority() || !ASC)
-	{
-		return;
-	}
-
-	const TSubclassOf<UGameplayEffect> Wanted = HBWeaponBonus::EffectFor(GetEquippedWeaponTag());
-	if (Wanted == WeaponBonusClass && (WeaponBonusHandle.IsValid() || !Wanted))
-	{
-		return;	// 같은 종류 무기로 바꿨다
-	}
-
-	if (WeaponBonusHandle.IsValid())
-	{
-		ASC->RemoveActiveGameplayEffect(WeaponBonusHandle);
-		WeaponBonusHandle.Invalidate();
-	}
-	WeaponBonusClass = Wanted;
-
-	if (Wanted)
-	{
-		const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(Wanted, 1.f, ASC->MakeEffectContext());
-		if (Spec.IsValid())
-		{
-			WeaponBonusHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
-		}
-	}
-	UE_LOG(LogTemp, Log, TEXT("[Player] 무기 보너스  %s"), *GetNameSafe(Wanted.Get()));
 }
 
 void AHBPlayerCharacter::RefreshWeaponVisual()

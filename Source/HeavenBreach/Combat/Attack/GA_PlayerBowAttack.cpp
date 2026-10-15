@@ -11,6 +11,7 @@
 #include "Core/Tag/Ability/HB_AbilityTag.h"
 #include "Core/Tag/State/HB_StateTag.h"
 #include "EquipmentComponent.h"
+#include "Player/AttributeSet/HB_PlayerAttributeSet.h"
 #include "Player/HBPlayerCharacter.h"
 #include "Player/HBWeaponPresentation.h"
 #include "TimerManager.h"
@@ -89,6 +90,13 @@ void UGA_PlayerBowAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 
 	UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
 
+	// 공격속도 적용. 검 평타(UGA_PlayerAttackRE)와 같은 값 · 같은 하한을 쓴다.
+	AttackRate = 1.f;
+	if (ASC)
+	{
+		AttackRate = FMath::Max(0.1f, ASC->GetNumericAttribute(UHB_PlayerAttributeSet::GetPlayer_AttackSpeedAttribute()));
+	}
+
 	if (ActorInfo->IsNetAuthority() && ASC && AttackSlowEffect)
 	{
 		const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(AttackSlowEffect, 1.f, ASC->MakeEffectContext());
@@ -113,7 +121,7 @@ void UGA_PlayerBowAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	if (ActiveDrawMontage)
 	{
 		// 당기기는 떼기를 기다리는 동안만 재생한다. 끝 콜백은 받지 않는다(떼기가 끝을 정한다).
-		UAbilityTask_PlayMontageAndWait* DrawTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Draw"), ActiveDrawMontage);
+		UAbilityTask_PlayMontageAndWait* DrawTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Draw"), ActiveDrawMontage, AttackRate);
 		DrawTask->ReadyForActivation();
 	}
 
@@ -130,9 +138,11 @@ void UGA_PlayerBowAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 
 void UGA_PlayerBowAttack::OnReleased(const float TimeHeld)
 {
+	// 당김 시간은 공격 속도로 나눈다. 당기기 몽타주가 그만큼 빨리 돌므로 판정도 같이 짧아져야 한다.
+	// 1.2 면 최소 0.5초 → 0.42초, 최대 1.0초 → 0.83초.
 	FHBBowDrawParams Params;
-	Params.MinDrawTime = MinDrawTime;
-	Params.MaxDrawTime = MaxDrawTime;
+	Params.MinDrawTime = MinDrawTime / AttackRate;
+	Params.MaxDrawTime = MaxDrawTime / AttackRate;
 	Params.MinArrowSpeed = MinArrowSpeed;
 	Params.MaxArrowSpeed = MaxArrowSpeed;
 	Params.MinDamageCoef = MinDamageCoef;
@@ -142,8 +152,8 @@ void UGA_PlayerBowAttack::OnReleased(const float TimeHeld)
 	const FHBBowShot Shot = HBBow::ComputeShot(TimeHeld, Params);
 
 	const FGameplayAbilityActorInfo* Info = GetCurrentActorInfo();
-	UE_LOG(LogTemp, Warning, TEXT("[Bow] 뗌  Auth=%d  TimeHeld=%.2f  Fire=%d  Speed=%.0f  Coef=%.2f"),
-		Info && Info->IsNetAuthority() ? 1 : 0, TimeHeld, Shot.bFire ? 1 : 0, Shot.Speed, Shot.DamageCoef);
+	UE_LOG(LogTemp, Warning, TEXT("[Bow] 뗌  Auth=%d  TimeHeld=%.2f  Rate=%.2f  Fire=%d  Speed=%.0f  Coef=%.2f"),
+		Info && Info->IsNetAuthority() ? 1 : 0, TimeHeld, AttackRate, Shot.bFire ? 1 : 0, Shot.Speed, Shot.DamageCoef);
 
 	// 놓는 순간 당김 자세(IK·장전 화살)를 푼다. 발사 몽타주가 복귀를 맡는다.
 	if (AHBPlayerCharacter* Player = Info ? Cast<AHBPlayerCharacter>(Info->AvatarActor.Get()) : nullptr)
@@ -180,7 +190,7 @@ void UGA_PlayerBowAttack::PlayFinishAndEnd(UAnimMontage* Montage)
 {
 	if (Montage)
 	{
-		UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Finish"), Montage);
+		UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, TEXT("Finish"), Montage, AttackRate);
 		Task->OnCompleted.AddDynamic(this, &UGA_PlayerBowAttack::OnFinishMontageEnded);
 		Task->OnBlendOut.AddDynamic(this, &UGA_PlayerBowAttack::OnFinishMontageEnded);
 		Task->OnCancelled.AddDynamic(this, &UGA_PlayerBowAttack::OnFinishMontageCancelled);
@@ -191,7 +201,8 @@ void UGA_PlayerBowAttack::PlayFinishAndEnd(UAnimMontage* Montage)
 
 	if (UWorld* World = GetWorld())
 	{
-		World->GetTimerManager().SetTimer(RecoveryTimerHandle, FTimerDelegate::CreateUObject(this, &UGA_PlayerBowAttack::EndSelf, false), FMath::Max(ReleaseRecoveryTime, KINDA_SMALL_NUMBER), false);
+		// 몽타주가 없을 때의 마무리 대기도 발사 동작과 같은 속도로 줄인다.
+		World->GetTimerManager().SetTimer(RecoveryTimerHandle, FTimerDelegate::CreateUObject(this, &UGA_PlayerBowAttack::EndSelf, false), FMath::Max(ReleaseRecoveryTime / AttackRate, KINDA_SMALL_NUMBER), false);
 		return;
 	}
 

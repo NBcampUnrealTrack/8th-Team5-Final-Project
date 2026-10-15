@@ -19,6 +19,7 @@
 
 class AHBPlayerController;
 class AHB_PlayerState;
+class USoundBase;
 
 UCLASS()
 class HEAVENBREACH_API UHB_SkillAugment : public UHB_ActivatableWidget
@@ -55,7 +56,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "UI Setup")
 	float CardSpacing = 20.0f;
 
+	/**
+	 * 증강 화면이 열릴 때 나는 소리. 기본값은 Sound/UI/Skill/SFX_Augment_Open.
+	 * WBP 의 Class Defaults 에서 바꿀 수 있고, 비우면 소리를 내지 않는다.
+	 * 소프트 참조라 에셋이 없어도 로드 에러가 나지 않는다.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Audio")
+	TSoftObjectPtr<USoundBase> OpenSound;
+
+	/** 카드를 골랐을 때 나는 소리. 기본값은 Sound/UI/Skill/SFX_Augment_Confirm. */
+	UPROPERTY(EditDefaultsOnly, Category = "Audio")
+	TSoftObjectPtr<USoundBase> SelectSound;
+
 private:
+	/** 이 화면을 연 로컬 플레이어에게만 들린다. 소리가 비어 있으면 아무 일도 없다. */
+	void PlayAugmentSound(const TSoftObjectPtr<USoundBase>& Sound) const;
+
 	// 서버가 준 후보로 카드를 다시 만든다. 기존 카드는 전부 걷어낸다.
 	void RebuildCards();
 

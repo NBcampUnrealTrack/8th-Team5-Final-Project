@@ -33,6 +33,9 @@ public:
 	UHBPlayerSaveComponent();
 
 	EHBSaveMode GetSaveMode() const { return SaveMode; }
+	// 로컬 소지품 복제가 도착하기 전이어도 서버가 승인한 손실을 저장한다.
+	// 진행 중인 이전 저장까지 끝낸 뒤 완료를 알린다. 실제 이동은 Controller가 맡는다.
+	void FlushBeforeTravel(bool bForfeitCarriedItems, TFunction<void(bool)> OnSaved);
 
 protected:
 	virtual void BeginPlay() override;
@@ -56,7 +59,9 @@ private:
 	void TryBeginLocalLoad();
 	bool IsMine(bool& bOutUndecided) const;
 	FString MakeSlotName() const;
-	void SubmitToServer(const UHBPlayerSaveGame& Save);
+
+	// bNewProfile = 세이브 파일이 없던 첫 실행. 서버가 이때만 시작 골드를 준다.
+	void SubmitToServer(const UHBPlayerSaveGame& Save, bool bNewProfile);
 
 	// "적용 끝" 뒤에만 묶는다. 그 전에는 복제된 데이터가 비어 있어서, 저장하면 파일이 빈 데이터로 덮인다.
 	void BindSaveTriggers();
@@ -65,7 +70,12 @@ private:
 	void RequestSave();
 
 	// bAsync = false 는 레벨 이동 · 종료 때. 비동기로 쓰면 끝나기 전에 사라질 수 있다.
-	void SaveNow(bool bAsync);
+	bool SaveNow(bool bAsync);
+	void FinishTravelSave();
+	int32 SavesInFlight = 0;
+	bool bTravelSaveRequested = false;
+	bool bForfeitOnSave = false;
+	TFunction<void(bool)> TravelSaveCompleted;
 
 	FTimerHandle LoadRetryTimer;
 	int32 LoadRetryCount = 0;
@@ -85,7 +95,7 @@ private:
 
 	UFUNCTION(Server, Reliable)
 	void Server_FinishSubmit(const TArray<FInventoryEntry>& InInventory, const TArray<FItemInstance>& InEquipment,
-		const TArray<FGuid>& InQuickSlots, const FHBStartingLoadout& InStartingLoadout);
+		const TArray<FGuid>& InQuickSlots, const FHBStartingLoadout& InStartingLoadout, bool bNewProfile);
 
 	UFUNCTION(Client, Reliable)
 	void Client_SubmitApplied();
