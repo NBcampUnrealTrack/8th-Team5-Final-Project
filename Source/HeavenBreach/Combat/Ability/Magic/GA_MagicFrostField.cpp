@@ -115,7 +115,7 @@ void UGA_MagicFrostField::OnCastReleased(const FGameplayAbilityActorInfo* Info)
 		UE_LOG(LogTemp, Warning, TEXT("[MagicSkill] 서리 지대 스폰 실패"));
 		return;
 	}
-	Field->Init(Player, FinalRadius, Duration, FinalSlow);
+	Field->Init(Player, FinalRadius, Duration, FinalSlow, DamageCoef, DamageInterval, CastId);
 	Field->FinishSpawning(FTransform(TargetPoint));
 	UE_LOG(LogTemp, Log, TEXT("[MagicSkill] 서리 지대 생성  위치=%s  반경=%.0f  감속=%.2f  시전ID=%d"), *TargetPoint.ToString(), FinalRadius, FinalSlow, CastId);
 

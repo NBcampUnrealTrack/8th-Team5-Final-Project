@@ -157,7 +157,8 @@ void AHBPlayerArrow::OnHit(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveC
 		{
 			ImpactTags.AddTag(ImpactTypeTag);
 		}
-		HitCuePlay::PlayImpact(Shooter, OtherActor, Hit, 0.f, ImpactTags);
+		// 피 없는 벽 전용 큐(Hit.World)로 고정한다. 히트 큐는 몸에 맞았을 때만 쓴다 — 벽에서 피가 나던 문제.
+		HitCuePlay::PlayImpact(Shooter, OtherActor, Hit, 0.f, ImpactTags, CueTag::TAG_GameplayCue_Hit_World);
 	}
 
 	StickTo(OtherActor, Hit);

@@ -163,6 +163,33 @@ void UHBLobbyHUDWidget::NativeConstruct()
 	RefreshPlayerMenus();
 }
 
+void UHBLobbyHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	// 매 프레임 확인할 필요는 없다.
+	FocusCheckElapsed += InDeltaTime;
+	if (FocusCheckElapsed < 0.1f)
+	{
+		return;
+	}
+	FocusCheckElapsed = 0.0f;
+
+	if (!IsInViewport() || HasAnyUserFocus() || HasFocusedDescendants())
+	{
+		return;
+	}
+
+	// 설정창이나 종료 안내창이 떠 있으면 그쪽이 포커스를 가져가는 중이다. 뺏지 않는다.
+	if ((SettingsWidget && SettingsWidget->IsInViewport()) || (QuitDialog && QuitDialog->IsInViewport()))
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("LobbyHUD | 포커스가 없어 되찾는다 (ESC 를 받기 위해)"));
+	SetKeyboardFocus();
+}
+
 bool UHBLobbyHUDWidget::RefreshPlayerMenus()
 {
 	const auto* Player = GetOwningPlayer();

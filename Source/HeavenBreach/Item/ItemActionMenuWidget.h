@@ -12,6 +12,7 @@ DECLARE_MULTICAST_DELEGATE(FOnContextMenuSplitRequested);
 DECLARE_MULTICAST_DELEGATE(FOnContextMenuInfoRequested);
 DECLARE_MULTICAST_DELEGATE(FOnContextMenuDiscardRequested);
 DECLARE_MULTICAST_DELEGATE(FOnContextMenuFavoriteRequested);
+DECLARE_MULTICAST_DELEGATE(FOnContextMenuLockRequested);
 DECLARE_MULTICAST_DELEGATE(FOnContextMenuCloseRequested);
 DECLARE_MULTICAST_DELEGATE(FOnContextMenuClosed);
 UCLASS()
@@ -26,11 +27,13 @@ public:
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 	void SetupForItem(bool bCanUse, bool bCanSplit, bool bIsFavorite);
 	void SetUseButtonLabel(const FText& InLabel);
+	void SetupLock(bool bCanLock, bool bIsLocked);
 	FOnContextMenuUseRequested OnUseRequested;
 	FOnContextMenuSplitRequested OnSplitRequested;
 	FOnContextMenuInfoRequested OnInfoRequested;
 	FOnContextMenuDiscardRequested OnDiscardRequested;
 	FOnContextMenuFavoriteRequested OnFavoriteRequested;
+	FOnContextMenuLockRequested OnLockRequested;
 	FOnContextMenuCloseRequested OnCloseRequested;
 	FOnContextMenuClosed OnMenuClosed;
 
@@ -49,6 +52,10 @@ protected:
 	TObjectPtr<UTextBlock> FavoriteButtonText;
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> UseButtonText;
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> LockButton;
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> LockButtonText;
 
 private:
 	void CloseMenu();
@@ -63,4 +70,6 @@ private:
 	void HandleDiscardClicked();
 	UFUNCTION()
 	void HandleFavoriteClicked();
+	UFUNCTION()
+	void HandleLockClicked();
 };

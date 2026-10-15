@@ -13,6 +13,8 @@
 #include "Core/Tag/Magic/HB_MagicTag.h"
 #include "Core/Tag/Skill/HB_SkillParamTag.h"
 #include "Engine/OverlapResult.h"
+#include "AbilitySystemGlobals.h"
+#include "Combat/Ability/HBSkillTargets.h"
 #include "Engine/World.h"
 #include "Player/HBPlayerCharacter.h"
 
@@ -61,40 +63,25 @@ void UGA_MagicManaExplosion::OnCastReleased(const FGameplayAbilityActorInfo* Inf
 	const float DamageMul = GetAugmentParam(SkillParamTag::TAG_SkillParam_Damage, 1.f);
 	const FVector Center = Player->GetActorLocation();
 
-	// 적 BP 캡슐은 대개 "Enemy" 오브젝트 채널이라 Pawn 만 찾으면 0명이 나온다. 움직이는 오브젝트 전부를 보고 AEnemyCharacterBase 로 거른다.
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MagicManaExplosion), false, Player);
-	TArray<FOverlapResult> Overlaps;
-	World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, FCollisionObjectQueryParams(FCollisionObjectQueryParams::AllDynamicObjects), FCollisionShape::MakeSphere(FinalRadius), QueryParams);
+	// 범위 안 피해 받을 수 있는 대상. 몬스터와 팀원(팀킬 규칙은 화살·평타와 같다), 시전자·시체 제외(HBSkillTargets).
+	TArray<AActor*> Targets;
+	HBSkillTargets::FindInSphere(World, Center, FinalRadius, Player, Targets);
 
-	// 한 적의 여러 컴포넌트가 걸릴 수 있다. 액터당 한 번만 때린다.
-	TSet<const AActor*> Seen;
 	int32 HitCount = 0;
-	for (const FOverlapResult& Overlap : Overlaps)
+	for (AActor* Enemy : Targets)
 	{
-		AEnemyCharacterBase* Enemy = Cast<AEnemyCharacterBase>(Overlap.GetActor());
-		if (!Enemy || Seen.Contains(Enemy))
-		{
-			continue;
-		}
-		Seen.Add(Enemy);
-
-		const UAbilitySystemComponent* TargetASC = Enemy->GetAbilitySystemComponent();
-		if (!TargetASC || TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead) || !Enemy->Implements<UDamageableInterface>())
-		{
-			continue;	// 죽은 적·ASC 없는 적은 건너뛴다
-		}
+		const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Enemy);
 		if (!IDamageableInterface::Execute_CanBeDamaged(Enemy, Player))
 		{
 			continue;
 		}
 
 		// 공격력 × 계수 × 위력 증강 × 스킬 피해 배율 → 패시브 보정. 즉시 피해라 현재 시전을 인정한다(잔류 마력 1회 처리는 그쪽에서).
-		float FinalDamage = Player->GetAttackPower() * DamageCoef * DamageMul * HBMagic::DamageMultiplier * Player->GetSkillDamageMultiplier();
+		float FinalDamage = Player->GetAttackPower() * DamageCoef * DamageMul * Player->GetSkillDamageMultiplier();
 		FinalDamage = Player->ModifyOutgoingDamage(Enemy, FinalDamage);
 
 		// 맞은 점은 대상 위치, 법선은 시전자 쪽.
 		FHitResult Hit;
-		Hit.Component = Overlap.Component;
 		Hit.Location = Enemy->GetActorLocation();
 		Hit.ImpactPoint = Enemy->GetActorLocation();
 		Hit.ImpactNormal = (Center - Enemy->GetActorLocation()).GetSafeNormal();
@@ -105,7 +92,7 @@ void UGA_MagicManaExplosion::OnCastReleased(const FGameplayAbilityActorInfo* Inf
 		IDamageableInterface::Execute_ApplyMeleeHit(Enemy, Player, FinalDamage, Hit, EHBDamageSource::Ranged);
 		++HitCount;
 
-		const bool bKilled = TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
+		const bool bKilled = TargetASC && TargetASC->HasMatchingGameplayTag(AbilityTag::TAG_State_Dead);
 		Player->NotifyDamageDealt(Enemy, FinalDamage, bKilled);
 	}
 
@@ -115,6 +102,7 @@ void UGA_MagicManaExplosion::OnCastReleased(const FGameplayAbilityActorInfo* Inf
 	{
 		CueLocation.Z -= Capsule->GetScaledCapsuleHalfHeight();
 	}
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MagicManaExplosionGround), false, Player);
 	FHitResult GroundHit;
 	if (World->LineTraceSingleByChannel(GroundHit, Center, Center - FVector(0.f, 0.f, 1000.f), ECC_Visibility, QueryParams) && !GroundHit.bStartPenetrating)
 	{

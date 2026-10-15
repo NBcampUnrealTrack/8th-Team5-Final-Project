@@ -130,4 +130,10 @@ private:
 	FActiveGameplayEffectHandle SlowHandle;
 
 	FTimerHandle RecoveryTimerHandle;
+
+	/**
+	 * 이번 발동의 공격 속도(Player_AttackSpeed). 당기기 · 발사 몽타주 속도에 곱하고 당김 시간을 나눈다.
+	 * 발동할 때 한 번만 읽는다 — 당기는 도중 버프가 끝나도 한 발 안에서는 같은 속도를 쓰게.
+	 */
+	float AttackRate = 1.f;
 };

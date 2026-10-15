@@ -6,6 +6,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Player/PlayerState/HB_PlayerState.h"
 #include "Item/Item.h"
 #include "Combat/Effect/HBGameplayEffects.h"
 #include "Core/Tag/Item/HB_ItemTag.h"
@@ -18,6 +19,18 @@ namespace
 	bool IsShieldIncompatibleWeaponType(const FString& InWeaponType)
 	{
 		return InWeaponType == TEXT("Bow") || InWeaponType == TEXT("Staff");
+	}
+
+	// 무기 배율 칸(1 = 기본)을 % 옵션 한 줄로 바꿔 더한다. 1.4 → +40, 0.8 → -20.
+	// 옵션으로 넣는 이유: "10 = 10%" 환산을 AddOptionToTotals 한 곳에 두려고.
+	// 공격 속도 · 이동 속도 · 스킬 피해가 같은 규칙이라 여기 모았다.
+	void AddWeaponRateTo(const FGameplayTag& Stat, float Rate, FItemStatTotals& Totals)
+	{
+		FItemOption RateOption;
+		RateOption.Stat = Stat;
+		RateOption.ValueType = EItemOptionValueType::Percent;
+		RateOption.Value = (Rate - 1.f) * 100.f;
+		ItemStats::AddOptionToTotals(RateOption, Totals);
 	}
 }
 
@@ -446,6 +459,46 @@ float UEquipmentComponent::GetWeaponAttackSpeedRate() const
 	return WeaponRow->AttackSpeedRate;
 }
 
+float UEquipmentComponent::GetWeaponDefense() const
+{
+	const FWeaponData* WeaponRow = FindUsableWeaponRow();
+	if (!WeaponRow)
+	{
+		return 0.f;
+	}
+	return WeaponRow->Defense;
+}
+
+float UEquipmentComponent::GetWeaponMaxHP() const
+{
+	const FWeaponData* WeaponRow = FindUsableWeaponRow();
+	if (!WeaponRow)
+	{
+		return 0.f;
+	}
+	return WeaponRow->MaxHP;
+}
+
+float UEquipmentComponent::GetWeaponMoveSpeedRate() const
+{
+	const FWeaponData* WeaponRow = FindUsableWeaponRow();
+	if (!WeaponRow)
+	{
+		return 1.f;
+	}
+	return WeaponRow->MoveSpeedRate;
+}
+
+float UEquipmentComponent::GetWeaponSkillDamageRate() const
+{
+	const FWeaponData* WeaponRow = FindUsableWeaponRow();
+	if (!WeaponRow)
+	{
+		return 1.f;
+	}
+	return WeaponRow->SkillDamageRate;
+}
+
 void UEquipmentComponent::RefreshEquipmentStats()
 {
 	const AActor* Owner = GetOwner();
@@ -529,13 +582,14 @@ FItemStatTotals UEquipmentComponent::CollectStatTotals() const
 	Totals.FindOrAdd(ItemTag::TAG_Stat_AttackPower).Flat += SumWeaponAttackPower();
 	Totals.FindOrAdd(ItemTag::TAG_Stat_Defense).Flat += SumArmorDefense();
 
-	// 무기 공격 속도. 배율을 % 로 바꿔 옵션 한 줄로 넣는다 (0.8 → -20).
-	// 옵션으로 넣는 이유: "10 = 10%" 환산을 AddOptionToTotals 한 곳에 두려고.
-	FItemOption WeaponSpeed;
-	WeaponSpeed.Stat = ItemTag::TAG_Stat_AttackSpeed;
-	WeaponSpeed.ValueType = EItemOptionValueType::Percent;
-	WeaponSpeed.Value = (GetWeaponAttackSpeedRate() - 1.f) * 100.f;
-	ItemStats::AddOptionToTotals(WeaponSpeed, Totals);
+	// 무기 방어력 · 최대 체력(검 보너스). 방어구 방어력 · 최대 체력 옵션과 같은 칸이다.
+	Totals.FindOrAdd(ItemTag::TAG_Stat_Defense).Flat += GetWeaponDefense();
+	Totals.FindOrAdd(ItemTag::TAG_Stat_MaxHP).Flat += GetWeaponMaxHP();
+
+	// 무기 배율. 공격 속도는 모든 무기, 이동 속도는 활, 스킬 피해는 지팡이 보너스다.
+	AddWeaponRateTo(ItemTag::TAG_Stat_AttackSpeed, GetWeaponAttackSpeedRate(), Totals);
+	AddWeaponRateTo(ItemTag::TAG_Stat_MoveSpeed, GetWeaponMoveSpeedRate(), Totals);
+	AddWeaponRateTo(ItemTag::TAG_Stat_SkillDamage, GetWeaponSkillDamageRate(), Totals);
 
 	for (int32 Index = 0; Index < Slots.Num(); ++Index)
 	{
@@ -939,8 +993,18 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 	const FItemInstance SourceItem = InSource->GetEntries()[SourceIndex].Item;
 	const FIntPoint SourcePosition = InSource->GetEntries()[SourceIndex].Position;
 
+	if (!SourceItem.bRevealed)
+	{
+		return false;
+	}
+
 	if (!CanEquip(SourceItem, InSlot))
 	{
+		FItemViewData FailedView;
+		const bool bResolved = ResolveItemViewData(SourceItem.ItemRow, FailedView);
+		UE_LOG(LogTemp, Warning, TEXT("[Equip] Rejected %s  ReqSlot=%d  RowSlot=%d  Durability=%.1f  RowFound=%d"),
+			*SourceItem.ItemRow.RowName.ToString(), (int32)InSlot, bResolved ? (int32)FailedView.EquipSlotType : -1,
+			SourceItem.CurrentDurability, bResolved ? 1 : 0);
 		return false;
 	}
 
@@ -979,10 +1043,34 @@ bool UEquipmentComponent::EquipFromInventory(UInventoryComponent* InSource, FGui
 
 	if (PreviousItem.IsValid())
 	{
-		if (!InSource->TryAddItemAt(PreviousItem, SourcePosition))
+		bool bPlaced = InSource->TryAddItemAt(PreviousItem, SourcePosition);
+
+		if (!bPlaced)
 		{
-			int32 RollbackRemainder = 0;
-			InSource->TryAddItem(RemovedItem, RollbackRemainder);
+			int32 PlaceRemainder = 0;
+			bPlaced = InSource->TryAddItem(PreviousItem, PlaceRemainder) && PlaceRemainder == 0;
+		}
+
+		if (!bPlaced)
+		{
+			const AHB_PlayerState* OwnerPlayerState = Cast<AHB_PlayerState>(GetOwner());
+			UInventoryComponent* OwnerInventory = OwnerPlayerState != nullptr ? OwnerPlayerState->GetInventory() : nullptr;
+			if (OwnerInventory != nullptr && OwnerInventory != InSource)
+			{
+				int32 PlaceRemainder = 0;
+				bPlaced = OwnerInventory->TryAddItem(PreviousItem, PlaceRemainder) && PlaceRemainder == 0;
+			}
+		}
+
+		if (!bPlaced)
+		{
+			if (!InSource->TryAddItemAt(SourceItem, SourcePosition))
+			{
+				int32 RollbackRemainder = 0;
+				InSource->TryAddItem(SourceItem, RollbackRemainder);
+			}
+			UE_LOG(LogTemp, Warning, TEXT("[Equip] Swap failed %s  no room for previous %s"),
+				*SourceItem.ItemRow.RowName.ToString(), *PreviousItem.ItemRow.RowName.ToString());
 			return false;
 		}
 	}

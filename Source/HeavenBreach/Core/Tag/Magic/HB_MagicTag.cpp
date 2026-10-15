@@ -22,7 +22,7 @@ namespace MagicTag
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Focus, "State.Magic.Focus", "집중 상태 - 시전 시간 단축");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_ResidualMana, "State.Magic.ResidualMana", "잔류 마력 상태 - 쿨다운 감소 대기");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_Frosted, "State.Magic.Frosted", "서리 지대 감속 상태");
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_ManaCycle, "State.Magic.ManaCycle", "마력 순환 상태 - 액티브 스태미나 감소");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_State_ManaCycle, "State.Magic.ManaCycle", "마력 순환 상태 - 액티브 마나 감소");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Magic_CastHand, "GameplayCue.Magic.CastHand", "마법 시전 손 연출");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Magic_OrbImpact, "GameplayCue.Magic.OrbImpact", "원소 구체 적중 연출");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_GameplayCue_Magic_Teleport, "GameplayCue.Magic.Teleport", "순간 이동 연출");

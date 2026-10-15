@@ -42,6 +42,9 @@ public:
 	bool GetSelectedRecipe(FCraftRecipeRow& OutRecipe) const;
 
 	UFUNCTION(BlueprintPure, Category = "Craft")
+	bool GetSelectedIngredient(int32 InSlotIndex, FCraftIngredient& OutIngredient) const;
+
+	UFUNCTION(BlueprintPure, Category = "Craft")
 	bool GetPreviewResult(FDataTableRowHandle& OutItemRow, int32& OutCount, int32& OutGoldCost, bool& bOutCanAfford) const;
 
 	UFUNCTION(BlueprintPure, Category = "Craft")

@@ -187,6 +187,8 @@ bool FHBMagicFrostFieldDefaultsTest::RunTest(const FString&)
 	TestEqual(TEXT("반경 300"), CDO->GetRadius(), 300.f);
 	TestEqual(TEXT("지속 4초"), CDO->GetDuration(), 4.f);
 	TestEqual(TEXT("감속 0.4"), CDO->GetSlow(), 0.4f);
+	TestEqual(TEXT("도트 계수 0.3(마법 배율 곱해 초당 0.45)"), CDO->GetDamageCoef(), 0.3f);
+	TestEqual(TEXT("도트 간격 1초"), CDO->GetDamageInterval(), 1.f);
 	TestEqual(TEXT("조준 거리 1200"), CDO->GetAimTraceDistance(), 1200.f);
 
 	const UGameplayEffect* CooldownGE = CDO->GetCooldownGameplayEffect();

@@ -235,6 +235,12 @@ void UInventoryItemWidget::InitializeItem(
 			? ESlateVisibility::HitTestInvisible
 			: ESlateVisibility::Hidden);
 	}
+	if (Image_Lock != nullptr)
+	{
+		Image_Lock->SetVisibility(bIsRevealed && Item.bLocked
+			? ESlateVisibility::HitTestInvisible
+			: ESlateVisibility::Hidden);
+	}
 	if (Image_MaterialBadge != nullptr)
 	{
 		const bool bIsCraftMaterial = bIsRevealed && bHasViewData && ViewData.ItemType == TEXT("Material");

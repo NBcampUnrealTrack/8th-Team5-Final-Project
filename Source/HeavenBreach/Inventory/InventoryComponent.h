@@ -108,6 +108,7 @@ public:
 	void CancelItemUse(FGuid InInstanceId);
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool ToggleFavorite(FGuid InInstanceId);
+	bool ToggleLock(FGuid InInstanceId);
 	bool SetItemDurability(FGuid InInstanceId, float InDurability);
 
 	/** InItemId(ItemRow.RowName) 아이템 사용 쿨타임 남은 시간(초). 쿨타임 중이 아니면 0.
@@ -153,6 +154,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ClearAll();
 
+	bool SortItems();
+
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Debug")
 	void DebugPrintGrid() const;
 
@@ -191,6 +194,12 @@ public:
 	void Server_TransferItemFromAuto(UInventoryComponent* InSource, FGuid InInstanceId);
 
 	UFUNCTION(Server, Reliable)
+	void Server_LootItemAuto(UInventoryComponent* InSource, FGuid InInstanceId, bool bInPreferBag);
+
+	UFUNCTION(Server, Reliable)
+	void Server_EquipItemFrom(UInventoryComponent* InSource, UEquipmentComponent* InEquipment, FGuid InInstanceId, EEquipSlotType InSlot);
+
+	UFUNCTION(Server, Reliable)
 	void Server_MoveItemIn(UInventoryComponent* InTarget, FGuid InInstanceId, FIntPoint InNewPosition, bool InRotated);
 
 	UFUNCTION(Server, Reliable)
@@ -218,6 +227,11 @@ public:
 	void Server_UseItem(FGuid InInstanceId);
 	UFUNCTION(Server, Reliable)
 	void Server_ToggleFavorite(FGuid InInstanceId);
+	UFUNCTION(Server, Reliable)
+	void Server_ToggleLock(FGuid InInstanceId);
+
+	UFUNCTION(Server, Reliable)
+	void Server_SortItems();
 
 	UFUNCTION(Server, Reliable)
 	void Server_PauseContainerReveal(UInventoryComponent* InTargetContainer);

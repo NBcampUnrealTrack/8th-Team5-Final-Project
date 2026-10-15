@@ -159,6 +159,24 @@ FString BuildStatTextForItem(const FItemInstance& InItem)
 			StatText = FText::Format(WeaponStatFormat,
 				FText::AsNumber(WeaponRow->AttackPower),
 				FText::AsNumber(WeaponRow->AttackSpeedRate)).ToString();
+
+			// 무기 종류 보너스. 기본값(0, 배율 1)이면 줄을 만들지 않아 값을 넣은 무기에만 보인다.
+			if (WeaponRow->Defense > 0.f)
+			{
+				StatText += FString::Printf(TEXT("\n방어력: %s"), *FText::AsNumber(WeaponRow->Defense).ToString());
+			}
+			if (WeaponRow->MaxHP > 0.f)
+			{
+				StatText += FString::Printf(TEXT("\n최대 체력: %s"), *FText::AsNumber(WeaponRow->MaxHP).ToString());
+			}
+			if (!FMath::IsNearlyEqual(WeaponRow->MoveSpeedRate, 1.f))
+			{
+				StatText += FString::Printf(TEXT("\n이동 속도: %s배"), *FText::AsNumber(WeaponRow->MoveSpeedRate).ToString());
+			}
+			if (!FMath::IsNearlyEqual(WeaponRow->SkillDamageRate, 1.f))
+			{
+				StatText += FString::Printf(TEXT("\n스킬 피해: %s배"), *FText::AsNumber(WeaponRow->SkillDamageRate).ToString());
+			}
 		}
 	}
 	else if (RowStruct == FShieldData::StaticStruct())
@@ -398,6 +416,7 @@ FInventoryEntry BagItemToInventoryEntry(const FBagItemEntry& InBagItem)
 	Entry.Item.OriginalOwnerId = InBagItem.OriginalOwnerId;
 	Entry.Item.bRotated = InBagItem.bRotated;
 	Entry.Item.bIsFavorite = InBagItem.bIsFavorite;
+	Entry.Item.bLocked = InBagItem.bLocked;
 	Entry.Item.bRevealed = true;
 	Entry.Item.CurrentDurability = InBagItem.CurrentDurability;
 	Entry.Item.Engraving = InBagItem.Engraving;
@@ -414,6 +433,7 @@ FBagItemEntry InventoryEntryToBagItem(const FInventoryEntry& InEntry)
 	BagItem.OriginalOwnerId = InEntry.Item.OriginalOwnerId;
 	BagItem.bRotated = InEntry.Item.bRotated;
 	BagItem.bIsFavorite = InEntry.Item.bIsFavorite;
+	BagItem.bLocked = InEntry.Item.bLocked;
 	BagItem.CurrentDurability = InEntry.Item.CurrentDurability;
 	BagItem.Engraving = InEntry.Item.Engraving;
 	BagItem.Position = InEntry.Position;

@@ -6,6 +6,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Player/PlayerState/HB_PlayerState.h"
 #include "Player/HBPlayerCharacter.h"
+#include "Player/AttributeSet/HBAttributeRules.h"
 
 UHB_PlayerAttributeSet::UHB_PlayerAttributeSet()
 {
@@ -200,7 +201,9 @@ void UHB_PlayerAttributeSet::PostAttributeChange(
 
 	if (Attribute == GetPlayer_MaxHPAttribute())
 	{
-		SetPlayer_HP(CalculateCurrentOnMaxChanged(GetPlayer_HP(), OldValue, NewValue));
+		// 체력은 비율 유지가 아니라 "최고치를 넘어 오른 만큼 채움"(HBAttributeRules). 증강·패시브로 최대 체력이 오르면
+		// HUD 바가 바로 차오른다. 장비를 벗었다 다시 껴서 원래 최대치로 돌아오는 것은 채우지 않는다(무한 회복 방지).
+		SetPlayer_HP(HBAttributeRules::HealthOnMaxChanged(GetPlayer_HP(), OldValue, NewValue, HighestMaxHP));
 		return;
 	}
 

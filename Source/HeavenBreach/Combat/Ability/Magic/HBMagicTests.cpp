@@ -60,11 +60,4 @@ bool FHBMagicOrbFalloffTest::RunTest(const FString&)
 	TestEqual(TEXT("가장자리 비율 범위 밖은 자름"), HBMagic::OrbExplosionFalloff(200.f, 200.f, 2.f), 1.f);
 	return true;
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBMagicDamageMultiplierTest, "HeavenBreach.Magic.DamageMultiplier", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FHBMagicDamageMultiplierTest::RunTest(const FString&)
-{
-	// 마법 스킬 피해 배율. 2배가 너무 세서 1.5배로 내렸다(2026-10-13).
-	TestEqual(TEXT("마법 피해 배율 1.5"), HBMagic::DamageMultiplier, 1.5f);
-	return true;
-}
 #endif

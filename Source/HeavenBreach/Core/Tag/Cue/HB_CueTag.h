@@ -21,6 +21,13 @@ namespace CueTag
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Block)
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_Parry)
 
+	// 발사체가 피해를 안 받는 대상(벽 · 사물 · 시체 · 같은 편)에 맞았을 때. 피 없는 큐다.
+	//
+	// 왜 재질로 안 가르나: 던전 벽과 플레이어가 둘 다 재질 없음(Default)이라, 피를 재질로 막으면
+	// 플레이어 피격 피까지 사라진다. 그래서 "누가 쏘나"로 가른다 — 맞은 쪽이 쏘면 몸, 발사체가 쏘면 벽.
+	// 쏘는 곳: AEnemyProjectile · AHBPlayerArrow 의 벽 적중. 애셋(BP_GCN_Hit_World)이 없으면 아무것도 안 난다.
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_GameplayCue_Hit_World)
+
 	// 적 공격 전용. 적에게 맞는 소리와 플레이어가 때리는 소리가 같아서
 	// 누가 맞았는지 귀로 구분이 안 된다는 피드백으로 추가했다.
 	// 대상 재질을 보지 않고 GCN 의 디폴트 슬롯 하나로 고정한다.
