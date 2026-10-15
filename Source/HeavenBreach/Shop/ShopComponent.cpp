@@ -449,12 +449,15 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 
 		for (const FTradeBasketEntry& Entry : Verified)
 		{
-			for (int32 Count = 0; Count < Entry.Quantity; ++Count)
+			const bool bStackable = Entry.ViewData.IsStackable();
+			const int32 AddCount = bStackable ? 1 : Entry.Quantity;
+
+			for (int32 Count = 0; Count < AddCount; ++Count)
 			{
 				FItemInstance NewItem;
 				NewItem.ItemRow = Entry.ItemRow;
 				NewItem.InstanceId = FGuid::NewGuid();
-				NewItem.StackCount = 1;
+				NewItem.StackCount = bStackable ? Entry.Quantity : 1;
 
 				if (Entry.ViewData.IsEquippable())
 				{
@@ -462,10 +465,11 @@ void UShopComponent::Server_ExecuteTrade_Implementation(const TArray<FTradeBaske
 				}
 
 				int32 Remainder = 0;
-				if (!InStash->TryAddItem(NewItem, Remainder) || Remainder > 0)
+				InStash->TryAddItem(NewItem, Remainder);
+				if (Remainder > 0)
 				{
-					++FailedCount;
-					RefundGold += Entry.UnitPrice;
+					FailedCount += Remainder;
+					RefundGold += Entry.UnitPrice * Remainder;
 				}
 			}
 		}
