@@ -46,8 +46,22 @@ SKILL_ICONS = {
 }
 
 
-def import_icons():
-    files = sorted(f for f in os.listdir(ICON_DIR) if f.lower().endswith(".png"))
+def asset_path(name):
+    return "%s/%s.%s" % (DEST, name, name)
+
+
+def load_existing_icons():
+    textures = {}
+    for name in set(AUGMENT_ICONS.values()) | set(SKILL_ICONS.values()):
+        if EAL.does_asset_exist(asset_path(name)):
+            textures[name] = unreal.load_asset(asset_path(name))
+    return textures
+
+
+def import_icons(skip):
+    if not os.path.isdir(ICON_DIR):
+        return {}
+    files = sorted(f for f in os.listdir(ICON_DIR) if f.lower().endswith(".png") and os.path.splitext(f)[0] not in skip)
     tasks = []
     for f in files:
         task = unreal.AssetImportTask()
@@ -123,11 +137,10 @@ def apply_skill_icons(textures):
     return report
 
 
-if not os.path.isdir(ICON_DIR):
-    raise RuntimeError("아이콘 폴더 없음: " + ICON_DIR)
-
-textures = import_icons()
-unreal.log_warning("[AugmentIcons] 텍스처 %d개 임포트 -> %s" % (len(textures), DEST))
+textures = load_existing_icons()
+imported = import_icons(textures)
+textures.update(imported)
+unreal.log_warning("[AugmentIcons] 기존 텍스처 %d개 사용, 새로 임포트 %d개 -> %s" % (len(textures) - len(imported), len(imported), DEST))
 
 applied, missing = apply_augment_icons(textures)
 unreal.log_warning("[AugmentIcons] 증강 아이콘 %d개 연결 (DA_CommonAugments.AugmentIcons)" % len(applied))
